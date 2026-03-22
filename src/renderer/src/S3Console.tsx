@@ -56,6 +56,30 @@ function displayName(key: string, prefix: string): string {
   return relative.replace(/\/$/, '') || key
 }
 
+function resolveBucketConnection(
+  connection: AwsConnection,
+  buckets: S3BucketSummary[],
+  bucketName: string
+): AwsConnection {
+  const bucket = buckets.find((entry) => entry.name === bucketName)
+  if (!bucket?.region) {
+    return connection
+  }
+
+  return {
+    ...connection,
+    region: bucket.region
+  }
+}
+
+function resolveBucketConnectionFromList(
+  connection: AwsConnection,
+  bucketList: S3BucketSummary[],
+  bucketName: string
+): AwsConnection {
+  return resolveBucketConnection(connection, bucketList, bucketName)
+}
+
 /* ── Column definitions for objects table ─────────────────── */
 
 type ColKey = 'name' | 'type' | 'key' | 'size' | 'modified' | 'storageClass'
@@ -144,7 +168,13 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
       const list = await listS3Buckets(connection)
       setBuckets(list)
       const target = selectBucket ?? (selectedBucket || list[0]?.name || '')
-      if (target) await browseBucket(target)
+      if (target) {
+        setSelectedBucket(target)
+        setPrefix('')
+        setSelectedKey('')
+        closePreview()
+        setObjects(await listS3Objects(resolveBucketConnectionFromList(connection, list, target), target, ''))
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -158,9 +188,38 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
     setSelectedKey('')
     closePreview()
     try {
-      setObjects(await listS3Objects(connection, name, newPrefix))
+      setObjects(await listS3Objects(resolveBucketConnection(connection, buckets, name), name, newPrefix))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  async function reloadBrowserView(bucketName = selectedBucket, nextPrefix = prefix) {
+    setLoading(true)
+    setError('')
+    try {
+      const list = await listS3Buckets(connection)
+      setBuckets(list)
+
+      const targetBucket = bucketName || list[0]?.name || ''
+      if (!targetBucket) {
+        setSelectedBucket('')
+        setPrefix('')
+        setSelectedKey('')
+        closePreview()
+        setObjects([])
+        return
+      }
+
+      setSelectedBucket(targetBucket)
+      setPrefix(nextPrefix)
+      setSelectedKey('')
+      closePreview()
+      setObjects(await listS3Objects(resolveBucketConnectionFromList(connection, list, targetBucket), targetBucket, nextPrefix))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -169,7 +228,7 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
     setSelectedKey('')
     closePreview()
     try {
-      setObjects(await listS3Objects(connection, selectedBucket, newPrefix))
+      setObjects(await listS3Objects(resolveBucketConnection(connection, buckets, selectedBucket), selectedBucket, newPrefix))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
@@ -185,11 +244,32 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
 
   useEffect(() => { void loadBuckets() }, [connection.profile, connection.region])
 
+  useEffect(() => {
+    async function handleWindowFocus() {
+      if (!selectedBucket) return
+
+      const previewKey = showPreview && !editing ? selectedKey : ''
+      const currentBucket = selectedBucket
+      const currentPrefix = prefix
+
+      await reloadBrowserView(currentBucket, currentPrefix)
+
+      if (previewKey) {
+        setSelectedKey(previewKey)
+        await doPreview(previewKey)
+      }
+    }
+
+    const onFocus = () => { void handleWindowFocus() }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [selectedBucket, prefix, selectedKey, showPreview, editing, connection.profile, connection.region, buckets])
+
   /* ── Object actions ──────────────────────────────────── */
   async function doDownload() {
     if (!selectedKey || !selectedBucket) return
     try {
-      const path = await downloadS3ObjectTo(connection, selectedBucket, selectedKey)
+      const path = await downloadS3ObjectTo(resolveBucketConnection(connection, buckets, selectedBucket), selectedBucket, selectedKey)
       if (path) setMsg(`Downloaded to ${path}`)
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
   }
@@ -197,14 +277,14 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
   async function doOpenPreview() {
     if (!selectedKey || !selectedBucket) return
     try {
-      await openS3Object(connection, selectedBucket, selectedKey)
+      await openS3Object(resolveBucketConnection(connection, buckets, selectedBucket), selectedBucket, selectedKey)
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
   }
 
   async function doPresignedUrl() {
     if (!selectedKey || !selectedBucket) return
     try {
-      const url = await getS3PresignedUrl(connection, selectedBucket, selectedKey)
+      const url = await getS3PresignedUrl(resolveBucketConnection(connection, buckets, selectedBucket), selectedBucket, selectedKey)
       await navigator.clipboard.writeText(url)
       setMsg('Pre-signed URL copied to clipboard')
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
@@ -213,11 +293,10 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
   async function doDelete() {
     if (!selectedKey || !selectedBucket) return
     try {
-      await deleteS3Object(connection, selectedBucket, selectedKey)
+      const bucketConnection = resolveBucketConnection(connection, buckets, selectedBucket)
+      await deleteS3Object(bucketConnection, selectedBucket, selectedKey)
       setMsg(`Deleted ${selectedKey}`)
-      setSelectedKey('')
-      closePreview()
-      setObjects(await listS3Objects(connection, selectedBucket, prefix))
+      await reloadBrowserView(selectedBucket, prefix)
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
   }
 
@@ -230,20 +309,22 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
       // We need to save locally first - use put content for text, or use a data approach
       const key = prefix + file.name
       const text = new TextDecoder().decode(bytes)
-      await putS3ObjectContent(connection, selectedBucket, key, text, file.type || undefined)
+      const bucketConnection = resolveBucketConnection(connection, buckets, selectedBucket)
+      await putS3ObjectContent(bucketConnection, selectedBucket, key, text, file.type || undefined)
       setMsg(`Uploaded ${file.name}`)
-      setObjects(await listS3Objects(connection, selectedBucket, prefix))
+      await reloadBrowserView(selectedBucket, prefix)
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
   }
 
   async function doCreateFolder() {
     if (!selectedBucket || !newFolderName) return
     try {
-      await createS3Folder(connection, selectedBucket, prefix + newFolderName)
+      const bucketConnection = resolveBucketConnection(connection, buckets, selectedBucket)
+      await createS3Folder(bucketConnection, selectedBucket, prefix + newFolderName)
       setMsg(`Folder "${newFolderName}" created`)
       setNewFolderName('')
       setShowNewFolder(false)
-      setObjects(await listS3Objects(connection, selectedBucket, prefix))
+      await reloadBrowserView(selectedBucket, prefix)
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
   }
 
@@ -254,7 +335,7 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
       setMsg(`Bucket "${newBucketName}" created`)
       setNewBucketName('')
       setShowCreateBucket(false)
-      await loadBuckets(newBucketName)
+      await reloadBrowserView(newBucketName, '')
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
   }
 
@@ -268,13 +349,13 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
 
     if (isImageFile(key)) {
       try {
-        const url = await getS3PresignedUrl(connection, selectedBucket, key)
+        const url = await getS3PresignedUrl(resolveBucketConnection(connection, buckets, selectedBucket), selectedBucket, key)
         setPreviewUrl(url)
         setPreviewContentType('image')
       } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     } else if (isTextFile(key)) {
       try {
-        const result = await getS3ObjectContent(connection, selectedBucket, key)
+        const result = await getS3ObjectContent(resolveBucketConnection(connection, buckets, selectedBucket), selectedBucket, key)
         setPreviewContent(result.body)
         setPreviewContentType(result.contentType)
       } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
@@ -293,10 +374,14 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
     if (!selectedBucket || !selectedKey) return
     setSaving(true)
     try {
-      await putS3ObjectContent(connection, selectedBucket, selectedKey, editContent, previewContentType)
-      setMsg(`Saved ${selectedKey}`)
-      setPreviewContent(editContent)
+      const bucketName = selectedBucket
+      const key = selectedKey
+      await putS3ObjectContent(resolveBucketConnection(connection, buckets, bucketName), bucketName, key, editContent, previewContentType)
+      setMsg(`Saved ${key}`)
       setEditing(false)
+      await reloadBrowserView(bucketName, prefix)
+      setSelectedKey(key)
+      await doPreview(key)
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     finally { setSaving(false) }
   }
@@ -304,7 +389,7 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
   async function doEditInVSCode() {
     if (!selectedBucket || !selectedKey) return
     try {
-      await openS3InVSCode(connection, selectedBucket, selectedKey)
+      await openS3InVSCode(resolveBucketConnection(connection, buckets, selectedBucket), selectedBucket, selectedKey)
       setMsg('Opened in VS Code')
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
   }

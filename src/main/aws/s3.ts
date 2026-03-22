@@ -11,7 +11,7 @@ import {
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { app, BrowserWindow, dialog, shell } from 'electron'
-import { createWriteStream } from 'fs'
+import { createWriteStream, watchFile, unwatchFile } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { pipeline } from 'stream/promises'
@@ -209,6 +209,9 @@ export async function openDownloadedObject(
   return filePath
 }
 
+/** Track actively-watched file paths so we can clean up */
+const watchedFiles = new Set<string>()
+
 export async function openInVSCode(
   connection: AwsConnection,
   bucketName: string,
@@ -216,6 +219,42 @@ export async function openInVSCode(
 ): Promise<string> {
   const filePath = await downloadObject(connection, bucketName, key)
   void shell.openExternal(`vscode://file/${filePath}`)
+
+  /* Stop any previous watcher on this path */
+  if (watchedFiles.has(filePath)) {
+    unwatchFile(filePath)
+  }
+
+  /*
+   * Use fs.watchFile (stat-based polling) instead of fs.watch.
+   * VSCode does atomic saves (write tmp → rename) which can cause
+   * fs.watch to miss changes or fire 'rename' on Windows.
+   * fs.watchFile polls the file's stat and reliably detects mtime changes.
+   */
+  let uploading = false
+  watchFile(filePath, { interval: 1000 }, async (curr, prev) => {
+    if (curr.mtimeMs === prev.mtimeMs) return
+    if (uploading) return
+    uploading = true
+    try {
+      await uploadObject(connection, bucketName, key, filePath)
+    } catch {
+      /* file may have been deleted – stop watching */
+      unwatchFile(filePath)
+      watchedFiles.delete(filePath)
+    } finally {
+      uploading = false
+    }
+  })
+
+  watchedFiles.add(filePath)
+
+  /* Clean up watcher when the app quits */
+  app.once('before-quit', () => {
+    unwatchFile(filePath)
+    watchedFiles.delete(filePath)
+  })
+
   return filePath
 }
 
