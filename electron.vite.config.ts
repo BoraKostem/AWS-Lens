@@ -5,7 +5,11 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    build: {
+      rollupOptions: {
+        external: ['node-pty']
+      }
+    },
     resolve: {
       alias: {
         '@main': path.resolve(__dirname, 'src/main'),
