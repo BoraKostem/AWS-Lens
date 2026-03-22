@@ -1,0 +1,477 @@
+/* ── IAM Console ──────────────────────────────────────────── */
+
+/* ── Layout (wider sidebar than EC2) ─────────────────────── */
+
+.iam-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 38%) minmax(0, 1fr);
+  border: 1px solid #3b4350;
+  border-radius: 6px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.iam-table-area {
+  min-width: 0;
+  overflow: auto;
+  background: #1e232b;
+  max-height: calc(100vh - 360px);
+  display: flex;
+  flex-direction: column;
+}
+
+.iam-table-area .svc-table {
+  flex: none;
+}
+
+.iam-sidebar {
+  background: #2a3039;
+  border-left: 1px solid #3b4350;
+  overflow-y: auto;
+  max-height: calc(100vh - 360px);
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Collapsible section header ──────────────────────────── */
+
+.iam-section-header {
+  padding: 10px 16px;
+  background: #252b33;
+  border-bottom: 1px solid #3b4350;
+  color: #9ca7b7;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+.iam-section-header:hover {
+  background: #2d333d;
+  color: #d0d8e2;
+}
+
+/* ── Section content ─────────────────────────────────────── */
+
+.iam-section-content {
+  padding: 12px 16px;
+  border-bottom: 1px solid #3b4350;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.iam-section-content:last-child {
+  border-bottom: 0;
+}
+
+/* ── Bottom actions row ──────────────────────────────────── */
+
+.iam-bottom-actions {
+  padding: 10px 14px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border-top: 1px solid #3b4350;
+  background: #1e232b;
+  flex-shrink: 0;
+}
+
+.iam-bottom-actions input {
+  height: 32px;
+  padding: 4px 10px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #0f1318;
+  color: #edf1f6;
+  font-size: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Console/MFA inline bar ──────────────────────────────── */
+
+.iam-console-mfa {
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  font-weight: 600;
+  color: #d0d8e2;
+  border-bottom: 1px solid #3b4350;
+}
+
+/* ── Mini table for sidebar sections ─────────────────────── */
+
+.iam-mini-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.iam-mini-table th {
+  background: #20252d;
+  color: #9ca7b7;
+  font-weight: 600;
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid #3b4350;
+  white-space: nowrap;
+}
+
+.iam-mini-table td {
+  padding: 8px 10px;
+  color: #d0d8e2;
+  border-bottom: 1px solid #262c35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+.iam-mini-table tbody tr:hover {
+  background: #262c35;
+}
+
+/* ── Caret separator ─────────────────────────────────────── */
+
+.iam-caret {
+  text-align: center;
+  color: #4a5361;
+  font-size: 10px;
+  padding: 2px 0;
+}
+
+/* ── Section search (compact) ────────────────────────────── */
+
+.iam-section-search {
+  height: 30px;
+  padding: 4px 10px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #1e232b;
+  color: #edf1f6;
+  font-size: 11px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.iam-section-search::placeholder {
+  color: #6b7688;
+}
+
+/* ── Sidebar section chips (compact) ─────────────────────── */
+
+.iam-section-chips {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.iam-section-chips .svc-chip {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+/* ── Policy editor textarea ──────────────────────────────── */
+
+.iam-policy-editor {
+  width: 100%;
+  min-height: 80px;
+  padding: 8px 10px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #0f1318;
+  color: #edf1f6;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+/* ── Sidebar placeholder ─────────────────────────────────── */
+
+.iam-sidebar-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 200px;
+  color: #6b7688;
+  font-size: 13px;
+}
+
+/* ── New key secret banner ───────────────────────────────── */
+
+.iam-key-banner {
+  padding: 10px 12px;
+  background: #1d3a2a;
+  border: 1px solid #2d5a3a;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #b8e0b8;
+}
+
+.iam-key-banner strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: #6fcf97;
+}
+
+.iam-key-banner .mono {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  word-break: break-all;
+}
+
+/* ── Inline input row ────────────────────────────────────── */
+
+.iam-inline-input {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.iam-inline-input input,
+.iam-inline-input textarea {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 4px 10px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #0f1318;
+  color: #edf1f6;
+  font-size: 12px;
+}
+
+.iam-inline-input textarea {
+  height: auto;
+  min-height: 60px;
+  resize: vertical;
+}
+
+/* ── Sidebar form columns ────────────────────────────────── */
+
+.iam-sidebar-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.iam-sidebar-form input,
+.iam-sidebar-form textarea {
+  height: 30px;
+  padding: 4px 10px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #0f1318;
+  color: #edf1f6;
+  font-size: 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.iam-sidebar-form textarea {
+  height: auto;
+  min-height: 60px;
+  resize: vertical;
+}
+
+.iam-sidebar-form label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #9ca7b7;
+}
+
+/* ── Account summary metadata grid ───────────────────────── */
+
+.iam-metadata-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.iam-metadata-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  background: #252b33;
+  border-radius: 4px;
+  border: 1px solid #3b4350;
+}
+
+.iam-metadata-grid > div > span {
+  font-size: 11px;
+  color: #9ca7b7;
+}
+
+.iam-metadata-grid > div > strong {
+  font-size: 14px;
+  color: #edf1f6;
+}
+
+/* ── Simulator field labels ──────────────────────────────── */
+
+.iam-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.iam-field > span {
+  font-size: 11px;
+  color: #9ca7b7;
+  font-weight: 600;
+}
+
+.iam-field > input {
+  height: 32px;
+  padding: 4px 10px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #0f1318;
+  color: #edf1f6;
+  font-size: 12px;
+}
+
+/* ── Output panel (version document viewer) ──────────────── */
+
+.iam-output-panel {
+  background: #0f1318;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  color: #d0d8e2;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* ── Simulator two-panel layout ─────────────────────────── */
+
+.sim-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr;
+  gap: 0;
+  border: 1px solid #3b4350;
+  border-radius: 6px;
+  overflow: hidden;
+  height: calc(100vh - 300px);
+}
+
+.sim-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  background: #1e232b;
+}
+
+.sim-panel + .sim-panel {
+  border-left: 1px solid #3b4350;
+}
+
+.sim-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+  gap: 6px;
+}
+
+.sim-table-scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.sim-panel-footer {
+  padding: 10px 12px;
+  border-top: 1px solid #3b4350;
+  background: #1e232b;
+  flex-shrink: 0;
+}
+
+/* ── Simulator row selection ── */
+
+.sim-row-selected {
+  background: #1d3557 !important;
+}
+
+.sim-row-selected:hover {
+  background: #1d3557 !important;
+}
+
+.sim-name-selected {
+  color: #60a5fa;
+  font-weight: 600;
+}
+
+/* ── Type badge ── */
+
+.sim-type-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.sim-type-badge.user {
+  background: #1d3557;
+  color: #60a5fa;
+}
+
+.sim-type-badge.role {
+  background: #2d2b1d;
+  color: #fbbf24;
+}
+
+/* ── Service warning icon ── */
+
+.sim-service-icon {
+  color: #f59e0b;
+  margin-right: 4px;
+}
+
+/* ── Responsive ──────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+  .iam-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .iam-sidebar {
+    border-left: 0;
+    border-top: 1px solid #3b4350;
+    max-height: none;
+  }
+
+  .iam-table-area {
+    max-height: 400px;
+  }
+
+  .sim-layout {
+    grid-template-columns: 1fr;
+    max-height: none;
+  }
+
+  .sim-panel + .sim-panel {
+    border-left: 0;
+    border-top: 1px solid #3b4350;
+  }
+}

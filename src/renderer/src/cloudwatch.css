@@ -1,0 +1,654 @@
+/* ── CloudWatch Console ──────────────────────────────────── */
+
+.cw-console {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* ── Tab Bar ─────────────────────────────────────────────── */
+
+.cw-tab-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.cw-tabs {
+  display: flex;
+  gap: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.cw-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: color 0.15s, background 0.15s;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.cw-tab:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+  transform: none;
+  border-color: transparent;
+}
+
+.cw-tab.active {
+  color: var(--text);
+  background: rgba(74, 143, 231, 0.15);
+  border-color: transparent;
+}
+
+.cw-tab span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cw-tab-close {
+  font-size: 11px;
+  opacity: 0.5;
+  padding: 2px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.cw-tab-close:hover {
+  opacity: 1;
+  background: rgba(255, 139, 114, 0.2);
+}
+
+.cw-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cw-time-select,
+.cw-ns-select {
+  width: auto;
+  min-width: 120px;
+  padding: 6px 10px;
+  font-size: 13px;
+  border-radius: 8px;
+}
+
+.cw-ec2-badge {
+  display: inline-block;
+  padding: 5px 12px;
+  border-radius: 8px;
+  background: rgba(74, 143, 231, 0.18);
+  color: #7bb8f5;
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid rgba(74, 143, 231, 0.3);
+}
+
+/* ── Charts Row ──────────────────────────────────────────── */
+
+.cw-charts-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.cw-chart-panel {
+  background: linear-gradient(180deg, rgba(29, 44, 51, 0.96), rgba(21, 33, 39, 0.96));
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius);
+  padding: var(--ui-pad);
+  box-shadow: var(--shadow);
+}
+
+.cw-chart-panel h3 {
+  margin: 0 0 2px;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.cw-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cw-chart-subtitle {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.cw-expand-btn {
+  padding: 5px 10px;
+  min-height: 28px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ── Bar Chart ───────────────────────────────────────────── */
+
+.cw-bar-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+}
+
+.cw-bar-row {
+  position: relative;
+  height: 28px;
+  display: flex;
+  align-items: center;
+}
+
+.cw-bar-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: #3a6fa0;
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+
+.cw-bar-label {
+  position: relative;
+  z-index: 1;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Sections ────────────────────────────────────────────── */
+
+.cw-section {
+  background: linear-gradient(180deg, rgba(29, 44, 51, 0.96), rgba(21, 33, 39, 0.96));
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius);
+  padding: var(--ui-pad);
+  box-shadow: var(--shadow);
+}
+
+.cw-section h3 {
+  margin: 0 0 10px;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+/* ── Filterable Table ────────────────────────────────────── */
+
+.cw-table-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cw-table-filter {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 13px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(11, 17, 20, 0.6);
+  color: var(--text);
+}
+
+.cw-table-filter::placeholder {
+  color: var(--muted);
+}
+
+.cw-column-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cw-chip {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 6px;
+  background: #3a6fa0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cw-table-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.cw-table-scroll {
+  overflow-x: auto;
+}
+
+.cw-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.cw-table thead {
+  border-bottom: 1px solid var(--border);
+}
+
+.cw-table th {
+  text-align: left;
+  padding: 8px 12px;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.cw-table td {
+  padding: 7px 12px;
+  border-top: 1px solid rgba(200, 200, 215, 0.06);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+.cw-table tr.cw-clickable {
+  cursor: pointer;
+}
+
+.cw-table tr.cw-clickable:hover {
+  background: rgba(74, 143, 231, 0.08);
+}
+
+.cw-empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 20px;
+}
+
+/* ── EC2 Series Grid ─────────────────────────────────────── */
+
+.cw-series-section {
+  background: linear-gradient(180deg, rgba(29, 44, 51, 0.96), rgba(21, 33, 39, 0.96));
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius);
+  padding: var(--ui-pad);
+  box-shadow: var(--shadow);
+}
+
+.cw-series-section h3 {
+  margin: 0 0 12px;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.cw-series-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.cw-series-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cw-series-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cw-series-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cw-series-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.cw-series-points {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.cw-series-stats {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.cw-sparkline {
+  display: block;
+}
+
+.cw-sparkline-wrap {
+  position: relative;
+}
+
+.cw-sparkline-wrap.interactive {
+  padding-top: 36px;
+}
+
+.cw-sparkline-tooltip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(7, 16, 21, 0.94);
+  border: 1px solid rgba(123, 184, 245, 0.28);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+}
+
+.cw-sparkline-tooltip strong {
+  font-size: 12px;
+  color: #dfeff7;
+}
+
+.cw-sparkline-tooltip span {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.cw-no-data {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* ── Log Group Viewer ────────────────────────────────────── */
+
+.cw-log-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cw-log-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(180deg, rgba(29, 44, 51, 0.96), rgba(21, 33, 39, 0.96));
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius);
+  padding: var(--ui-pad);
+}
+
+.cw-log-viewer-header h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  word-break: break-all;
+}
+
+.cw-log-count {
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.cw-log-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.cw-log-controls .cw-table-filter {
+  flex: 1;
+}
+
+.cw-toggle {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.cw-toggle:hover {
+  border-color: rgba(223, 105, 42, 0.5);
+  transform: none;
+}
+
+.cw-toggle.active {
+  background: rgba(74, 143, 231, 0.18);
+  border-color: rgba(74, 143, 231, 0.4);
+  color: #7bb8f5;
+}
+
+/* ── Log Entries ─────────────────────────────────────────── */
+
+.cw-log-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: linear-gradient(180deg, rgba(29, 44, 51, 0.96), rgba(21, 33, 39, 0.96));
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius);
+  padding: 8px;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.cw-log-entry {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border-left: 3px solid transparent;
+  font-size: 12px;
+}
+
+.cw-log-entry:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.cw-log-entry-header {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 2px;
+}
+
+.cw-log-time {
+  color: var(--muted);
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.cw-log-stream {
+  color: #7bb8f5;
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cw-log-message {
+  margin: 0;
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+/* Severity colors */
+.cw-severity-error {
+  border-left-color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.06);
+}
+
+.cw-severity-warn {
+  border-left-color: #ffa94d;
+  background: rgba(255, 169, 77, 0.04);
+}
+
+.cw-severity-info {
+  border-left-color: rgba(74, 143, 231, 0.4);
+}
+
+.cw-severity-debug {
+  border-left-color: rgba(146, 169, 160, 0.3);
+}
+
+.cw-empty-logs {
+  text-align: center;
+  color: var(--muted);
+  padding: 30px;
+  font-size: 13px;
+}
+
+/* ── Stream Groups ───────────────────────────────────────── */
+
+.cw-stream-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cw-stream-group {
+  background: linear-gradient(180deg, rgba(29, 44, 51, 0.96), rgba(21, 33, 39, 0.96));
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius);
+  overflow: hidden;
+}
+
+.cw-stream-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid var(--border);
+}
+
+.cw-stream-name {
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: #7bb8f5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cw-stream-count {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.cw-stream-group .cw-log-entries {
+  border: none;
+  border-radius: 0;
+  max-height: 400px;
+}
+
+/* ── Loading ─────────────────────────────────────────────── */
+
+.cw-loading {
+  text-align: center;
+  color: var(--muted);
+  padding: 20px;
+  font-size: 13px;
+}
+
+.cw-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.cw-overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 10, 15, 0.74);
+  backdrop-filter: blur(8px);
+}
+
+.cw-overlay-panel {
+  position: relative;
+  z-index: 1;
+  width: min(1100px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 18px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(29, 44, 51, 0.98), rgba(21, 33, 39, 0.98));
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.cw-overlay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.cw-overlay-header h3 {
+  margin: 0;
+}
+
+.cw-overlay-series {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cw-overlay-series-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  color: var(--muted);
+  font-size: 12px;
+}

@@ -1,0 +1,131 @@
+name: Build And Release Installers
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_version:
+        description: App version in x.x.x format
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    env:
+      CSC_LINK: ${{ matrix.os == 'macos-latest' && secrets.CSC_LINK_MAC || '' }}
+      CSC_KEY_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.CSC_KEY_PASSWORD_MAC || '' }}
+      APPLE_API_KEY: ${{ matrix.os == 'macos-latest' && secrets.APPLE_API_KEY || '' }}
+      APPLE_API_KEY_ID: ${{ matrix.os == 'macos-latest' && secrets.APPLE_API_KEY_ID || '' }}
+      APPLE_API_ISSUER: ${{ matrix.os == 'macos-latest' && secrets.APPLE_API_ISSUER || '' }}
+      WIN_CSC_LINK: ${{ matrix.os == 'windows-latest' && secrets.WIN_CSC_LINK || '' }}
+      WIN_CSC_KEY_PASSWORD: ${{ matrix.os == 'windows-latest' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows
+            build_command: pnpm dist:win
+            artifact_name: windows-installers
+            artifact_glob: release/*.exe
+          - os: macos-latest
+            label: macOS
+            build_command: pnpm dist:mac
+            artifact_name: macos-installers
+            artifact_glob: |
+              release/*.dmg
+              release/*.zip
+          - os: ubuntu-latest
+            label: Debian
+            build_command: pnpm dist:linux
+            artifact_name: linux-installers
+            artifact_glob: |
+              release/*.deb
+              release/*.AppImage
+
+    steps:
+      - name: Validate version input
+        shell: bash
+        run: |
+          if [[ ! "${{ github.event.inputs.app_version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Expected app_version in x.x.x format" >&2
+            exit 1
+          fi
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Set package version
+        shell: bash
+        run: |
+          node -e "const fs=require('fs'); const file='package.json'; const pkg=JSON.parse(fs.readFileSync(file,'utf8')); pkg.version='${{ github.event.inputs.app_version }}'; fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + '\n');"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate macOS signing secrets
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          test -n "$CSC_LINK"
+          test -n "$CSC_KEY_PASSWORD"
+          test -n "$APPLE_API_KEY"
+          test -n "$APPLE_API_KEY_ID"
+          test -n "$APPLE_API_ISSUER"
+
+      - name: Validate Windows signing secrets
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          test -n "$WIN_CSC_LINK"
+          test -n "$WIN_CSC_KEY_PASSWORD"
+
+      - name: Build installers
+        run: ${{ matrix.build_command }}
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_glob }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.event.inputs.app_version }}
+          name: v${{ github.event.inputs.app_version }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist-artifacts/**/*.exe
+            dist-artifacts/**/*.dmg
+            dist-artifacts/**/*.zip
+            dist-artifacts/**/*.deb
+            dist-artifacts/**/*.AppImage

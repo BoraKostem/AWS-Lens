@@ -1,0 +1,524 @@
+/* ── RDS Console ──────────────────────────────────────────── */
+
+.rds-console {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* ── Main Tabs ────────────────────────────────────────────── */
+
+.rds-tab-bar {
+  display: flex;
+  gap: 0;
+  background: #1e232b;
+  border-bottom: 1px solid #3b4350;
+}
+
+.rds-tab {
+  padding: 10px 22px;
+  border: 0;
+  background: transparent;
+  color: #9ca7b7;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.rds-tab:hover {
+  color: #edf1f6;
+}
+
+.rds-tab.active {
+  color: #edf1f6;
+  border-bottom-color: #4a8fe7;
+}
+
+/* ── Messages ─────────────────────────────────────────────── */
+
+.rds-msg {
+  padding: 8px 12px;
+  border: 1px solid #4a6a4a;
+  border-radius: 4px;
+  background: #2a3a2a;
+  color: #b8e0b8;
+  font-size: 12px;
+}
+
+.rds-empty {
+  color: #9ca7b7;
+  padding: 16px;
+  font-size: 13px;
+}
+
+/* ── Filter bar ───────────────────────────────────────────── */
+
+.rds-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rds-filter-label {
+  font-size: 13px;
+  color: #9ca7b7;
+  font-weight: 600;
+}
+
+.rds-select {
+  height: 32px;
+  padding: 4px 10px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #1e232b;
+  color: #edf1f6;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.rds-search-input {
+  height: 34px;
+  padding: 6px 12px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #1e232b;
+  color: #edf1f6;
+  font-size: 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.rds-search-input::placeholder {
+  color: #6b7688;
+}
+
+/* ── Column chips ─────────────────────────────────────────── */
+
+.rds-column-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.rds-chip {
+  padding: 5px 14px;
+  border-radius: 4px;
+  border: 1px solid #3b4350;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  background: #262c35;
+  color: #9ca7b7;
+  transition: all 0.15s;
+}
+
+.rds-chip:hover {
+  filter: brightness(1.15);
+}
+
+/* ── Main layout (table + sidebar) ────────────────────────── */
+
+.rds-main-layout {
+  display: flex;
+  border: 1px solid #3b4350;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* ── Data table ───────────────────────────────────────────── */
+
+.rds-table-area {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  background: #1e232b;
+  max-height: calc(100vh - 340px);
+}
+
+.rds-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.rds-data-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.rds-data-table th {
+  background: #20252d;
+  color: #9ca7b7;
+  font-weight: 600;
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid #3b4350;
+  white-space: nowrap;
+}
+
+.rds-data-table td {
+  padding: 10px 14px;
+  color: #d0d8e2;
+  border-bottom: 1px solid #262c35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.rds-data-table tbody tr {
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.rds-data-table tbody tr:hover {
+  background: #262c35;
+}
+
+.rds-data-table tbody tr.active {
+  background: #323947;
+}
+
+/* ── Sidebar ──────────────────────────────────────────────── */
+
+.rds-sidebar {
+  width: 420px;
+  min-width: 420px;
+  background: #2a3039;
+  border-left: 1px solid #3b4350;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  max-height: calc(100vh - 340px);
+}
+
+.rds-side-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid #3b4350;
+  background: #252b33;
+}
+
+.rds-side-tabs button {
+  padding: 10px 18px;
+  background: transparent;
+  border: 0;
+  color: #9ca7b7;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.rds-side-tabs button:hover {
+  color: #edf1f6;
+}
+
+.rds-side-tabs button.active {
+  color: #edf1f6;
+  border-bottom-color: #4a8fe7;
+}
+
+/* ── Sidebar sections ─────────────────────────────────────── */
+
+.rds-sidebar-section {
+  padding: 16px;
+  border-bottom: 1px solid #3b4350;
+}
+
+.rds-sidebar-section:last-child {
+  border-bottom: 0;
+}
+
+.rds-sidebar-section h3 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #d0d8e2;
+}
+
+.rds-sidebar-hint {
+  color: #9ca7b7;
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+
+/* ── Actions grid ─────────────────────────────────────────── */
+
+.rds-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.rds-action-btn {
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: #3a4150;
+  color: #edf1f6;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  transition: filter 0.15s;
+  white-space: nowrap;
+}
+
+.rds-action-btn:hover {
+  filter: brightness(1.15);
+}
+
+.rds-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  filter: none;
+}
+
+.rds-action-btn.start {
+  background: #27ae60;
+}
+
+.rds-action-btn.stop {
+  background: #c0392b;
+}
+
+.rds-action-btn.resize {
+  background: #d4731a;
+}
+
+.rds-action-btn.apply {
+  background: #4a5361;
+}
+
+/* ── Confirm guardrail ────────────────────────────────────── */
+
+.rds-confirming {
+  animation: rds-pulse 0.8s ease-in-out infinite alternate;
+  background: #b33a2e !important;
+  border-color: #e04a3c !important;
+  color: #fff !important;
+  font-weight: 700 !important;
+}
+
+@keyframes rds-pulse {
+  from { opacity: 1; }
+  to   { opacity: 0.7; }
+}
+
+/* ── Inline form ─────────────────────────────────────────── */
+
+.rds-inline-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.rds-inline-form input {
+  flex: 1;
+  height: 32px;
+  padding: 4px 10px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #1e232b;
+  color: #edf1f6;
+  font-size: 12px;
+  min-width: 0;
+}
+
+/* ── Key-value grid ────────────────────────────────────────── */
+
+.rds-kv {
+  display: grid;
+  gap: 6px;
+}
+
+.rds-kv-row {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.rds-kv-label {
+  color: #9ca7b7;
+}
+
+.rds-kv-value {
+  word-break: break-word;
+}
+
+/* ── Badges ────────────────────────────────────────────────── */
+
+.rds-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.rds-badge.available { background: #1d3a2a; color: #6fcf97; }
+
+.rds-badge.stopped { background: #3a1d1d; color: #eb5757; }
+
+.rds-badge.starting,
+.rds-badge.stopping,
+.rds-badge.creating,
+.rds-badge.modifying,
+.rds-badge.backing-up,
+.rds-badge.configuring-enhanced-monitoring,
+.rds-badge.maintenance,
+.rds-badge.renaming,
+.rds-badge.resetting-master-credentials,
+.rds-badge.storage-optimization,
+.rds-badge.upgrading { background: #3a3a1d; color: #f2c94c; }
+
+.rds-badge.deleting,
+.rds-badge.failed,
+.rds-badge.inaccessible-encryption-credentials,
+.rds-badge.incompatible-network,
+.rds-badge.incompatible-option-group,
+.rds-badge.incompatible-parameters,
+.rds-badge.incompatible-restore { background: #3a1d1d; color: #eb5757; }
+
+/* ── Node pills (Aurora writer/reader in table) ───────────── */
+
+.rds-node-pills {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.rds-node-pill {
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid #3b4350;
+  background: #262c35;
+  color: #d0d8e2;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.rds-node-pill:hover {
+  background: #3a4150;
+}
+
+.rds-node-pill.active {
+  background: #4a8fe7;
+  border-color: #4a8fe7;
+  color: #fff;
+}
+
+.rds-muted {
+  color: #6b7688;
+  font-size: 11px;
+}
+
+/* ── Suggestions ──────────────────────────────────────────── */
+
+.rds-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rds-suggestion-item {
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: #262c35;
+  border: 1px solid #3b4350;
+  font-size: 12px;
+  color: #d0d8e2;
+  line-height: 1.4;
+}
+
+/* ── Timeline ─────────────────────────────────────────────── */
+
+.rds-timeline-controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.rds-timeline-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: #9ca7b7;
+  flex: 1;
+}
+
+.rds-timeline-controls input[type="date"] {
+  background: #1a2030;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  color: #edf1f6;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.rds-timeline-table-wrap {
+  overflow: auto;
+  max-height: calc(100vh - 300px);
+}
+
+.rds-timeline-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.rds-timeline-table th {
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #9ca7b7;
+  border-bottom: 1px solid #3b4350;
+  position: sticky;
+  top: 0;
+  background: #1e2530;
+}
+
+.rds-timeline-table td {
+  padding: 5px 8px;
+  color: #dde3eb;
+  border-bottom: 1px solid rgba(59, 67, 80, 0.4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.rds-timeline-table tr:hover td {
+  background: rgba(50, 57, 71, 0.5);
+}
+
+/* ── Responsive ────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+  .rds-main-layout {
+    flex-direction: column;
+  }
+
+  .rds-sidebar {
+    width: 100%;
+    min-width: 0;
+    border-left: 0;
+    border-top: 1px solid #3b4350;
+    max-height: none;
+  }
+
+  .rds-table-area {
+    max-height: 400px;
+  }
+}

@@ -1,0 +1,505 @@
+/* ── ECS Console ──────────────────────────────────────────── */
+
+.ecs-console {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* ── Main Tabs ────────────────────────────────────────────── */
+
+.ecs-tab-bar {
+  display: flex;
+  gap: 0;
+  background: #1e232b;
+  border-bottom: 1px solid #3b4350;
+}
+
+.ecs-tab {
+  padding: 10px 22px;
+  border: 0;
+  background: transparent;
+  color: #9ca7b7;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.ecs-tab:hover {
+  color: #edf1f6;
+}
+
+.ecs-tab.active {
+  color: #edf1f6;
+  border-bottom-color: #4a8fe7;
+}
+
+/* ── Messages ─────────────────────────────────────────────── */
+
+.ecs-msg {
+  padding: 8px 12px;
+  border: 1px solid #4a6a4a;
+  border-radius: 4px;
+  background: #2a3a2a;
+  color: #b8e0b8;
+  font-size: 12px;
+}
+
+.ecs-error {
+  padding: 8px 12px;
+  border: 1px solid #6a4a4a;
+  border-radius: 4px;
+  background: #3a2a2a;
+  color: #e0b8b8;
+  font-size: 12px;
+}
+
+.ecs-empty {
+  color: #9ca7b7;
+  padding: 16px;
+  font-size: 13px;
+}
+
+/* ── Filter bar ───────────────────────────────────────────── */
+
+.ecs-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ecs-filter-label {
+  font-size: 13px;
+  color: #9ca7b7;
+  font-weight: 600;
+}
+
+.ecs-select {
+  height: 32px;
+  padding: 4px 10px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #1e232b;
+  color: #edf1f6;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ecs-search-input {
+  height: 34px;
+  padding: 6px 12px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #1e232b;
+  color: #edf1f6;
+  font-size: 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ecs-search-input::placeholder {
+  color: #6b7688;
+}
+
+/* ── Column chips ─────────────────────────────────────────── */
+
+.ecs-column-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ecs-chip {
+  padding: 5px 14px;
+  border-radius: 4px;
+  border: 1px solid #3b4350;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  background: #262c35;
+  color: #9ca7b7;
+  transition: all 0.15s;
+}
+
+.ecs-chip:hover {
+  filter: brightness(1.15);
+}
+
+/* ── Main layout (table + sidebar) ────────────────────────── */
+
+.ecs-main-layout {
+  display: flex;
+  border: 1px solid #3b4350;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* ── Data table ───────────────────────────────────────────── */
+
+.ecs-table-area {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  background: #1e232b;
+  max-height: calc(100vh - 340px);
+}
+
+.ecs-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.ecs-data-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.ecs-data-table th {
+  background: #20252d;
+  color: #9ca7b7;
+  font-weight: 600;
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid #3b4350;
+  white-space: nowrap;
+}
+
+.ecs-data-table td {
+  padding: 10px 14px;
+  color: #d0d8e2;
+  border-bottom: 1px solid #262c35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.ecs-data-table tbody tr {
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.ecs-data-table tbody tr:hover {
+  background: #262c35;
+}
+
+.ecs-data-table tbody tr.active {
+  background: #323947;
+}
+
+/* ── Sidebar ──────────────────────────────────────────────── */
+
+.ecs-sidebar {
+  width: 420px;
+  min-width: 420px;
+  background: #2a3039;
+  border-left: 1px solid #3b4350;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  max-height: calc(100vh - 340px);
+}
+
+.ecs-side-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid #3b4350;
+  background: #252b33;
+}
+
+.ecs-side-tabs button {
+  padding: 10px 18px;
+  background: transparent;
+  border: 0;
+  color: #9ca7b7;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.ecs-side-tabs button:hover {
+  color: #edf1f6;
+}
+
+.ecs-side-tabs button.active {
+  color: #edf1f6;
+  border-bottom-color: #4a8fe7;
+}
+
+/* ── Sidebar sections ─────────────────────────────────────── */
+
+.ecs-sidebar-section {
+  padding: 16px;
+  border-bottom: 1px solid #3b4350;
+}
+
+.ecs-sidebar-section:last-child {
+  border-bottom: 0;
+}
+
+.ecs-sidebar-section h3 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #d0d8e2;
+}
+
+.ecs-sidebar-hint {
+  color: #9ca7b7;
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+
+/* ── Actions grid ─────────────────────────────────────────── */
+
+.ecs-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.ecs-action-btn {
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: #3a4150;
+  color: #edf1f6;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  transition: filter 0.15s;
+  white-space: nowrap;
+}
+
+.ecs-action-btn:hover {
+  filter: brightness(1.15);
+}
+
+.ecs-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  filter: none;
+}
+
+.ecs-action-btn.start {
+  background: #27ae60;
+}
+
+.ecs-action-btn.stop {
+  background: #c0392b;
+}
+
+.ecs-action-btn.redeploy {
+  background: #d4731a;
+}
+
+.ecs-action-btn.apply {
+  background: #4a5361;
+}
+
+/* ── Confirm guardrail ────────────────────────────────────── */
+
+.ecs-confirming {
+  animation: ecs-pulse 0.8s ease-in-out infinite alternate;
+  background: #b33a2e !important;
+  border-color: #e04a3c !important;
+  color: #fff !important;
+  font-weight: 700 !important;
+}
+
+@keyframes ecs-pulse {
+  from { opacity: 1; }
+  to   { opacity: 0.7; }
+}
+
+/* ── Inline form ─────────────────────────────────────────── */
+
+.ecs-inline-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.ecs-inline-form input {
+  flex: 1;
+  height: 32px;
+  padding: 4px 10px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #1e232b;
+  color: #edf1f6;
+  font-size: 12px;
+  min-width: 0;
+}
+
+/* ── Key-value grid ────────────────────────────────────────── */
+
+.ecs-kv {
+  display: grid;
+  gap: 6px;
+}
+
+.ecs-kv-row {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.ecs-kv-label {
+  color: #9ca7b7;
+}
+
+.ecs-kv-value {
+  word-break: break-word;
+}
+
+/* ── Badges ────────────────────────────────────────────────── */
+
+.ecs-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ecs-badge.ACTIVE,
+.ecs-badge.RUNNING,
+.ecs-badge.COMPLETED { background: #1d3a2a; color: #6fcf97; }
+
+.ecs-badge.DRAINING,
+.ecs-badge.PENDING,
+.ecs-badge.IN_PROGRESS,
+.ecs-badge.PROVISIONING { background: #3a3a1d; color: #f2c94c; }
+
+.ecs-badge.STOPPED,
+.ecs-badge.FAILED,
+.ecs-badge.INACTIVE { background: #3a1d1d; color: #eb5757; }
+
+/* ── Container pills (in task table) ──────────────────────── */
+
+.ecs-container-pill {
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid #3b4350;
+  background: #262c35;
+  color: #d0d8e2;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-right: 4px;
+}
+
+.ecs-container-pill:hover {
+  background: #3a4150;
+}
+
+.ecs-container-pill.active {
+  background: #4a8fe7;
+  border-color: #4a8fe7;
+  color: #fff;
+}
+
+/* ── Log viewer ───────────────────────────────────────────── */
+
+.ecs-log-viewer {
+  max-height: 300px;
+  overflow: auto;
+  background: #0f1318;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.ecs-log-line {
+  font-size: 11px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  margin-bottom: 2px;
+  color: #d0d8e2;
+}
+
+.ecs-log-timestamp {
+  color: #9ca7b7;
+  margin-right: 8px;
+}
+
+/* ── Deployment table inside sidebar ──────────────────────── */
+
+.ecs-deploy-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.ecs-deploy-table th {
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #9ca7b7;
+  border-bottom: 1px solid #3b4350;
+}
+
+.ecs-deploy-table td {
+  padding: 5px 8px;
+  color: #dde3eb;
+  border-bottom: 1px solid rgba(59, 67, 80, 0.4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.ecs-deploy-table tr:hover td {
+  background: rgba(50, 57, 71, 0.5);
+}
+
+/* ── Events list ──────────────────────────────────────────── */
+
+.ecs-event-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.ecs-event-item {
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(59, 67, 80, 0.3);
+  font-size: 11px;
+  color: #d0d8e2;
+  line-height: 1.4;
+}
+
+.ecs-event-time {
+  color: #9ca7b7;
+  margin-right: 8px;
+}
+
+/* ── Responsive ────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+  .ecs-main-layout {
+    flex-direction: column;
+  }
+
+  .ecs-sidebar {
+    width: 100%;
+    min-width: 0;
+    border-left: 0;
+    border-top: 1px solid #3b4350;
+    max-height: none;
+  }
+
+  .ecs-table-area {
+    max-height: 400px;
+  }
+}

@@ -1,0 +1,44 @@
+appId: com.awslens.desktop
+productName: AWS Lens
+
+directories:
+  output: release
+  buildResources: assets
+
+files:
+  - out/**
+  - assets/**
+  - package.json
+
+asarUnpack:
+  - node_modules/node-pty/**/*
+
+win:
+  target:
+    - nsis
+  icon: assets/aws-lens-logo.ico
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - dmg
+    - zip
+  icon: assets/aws-lens-logo.icns
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: assets/entitlements.mac.plist
+  entitlementsInherit: assets/entitlements.mac.inherit.plist
+  notarize: true
+
+linux:
+  category: Development
+  target:
+    - deb
+    - AppImage
+  icon: assets/aws-lens-logo.png

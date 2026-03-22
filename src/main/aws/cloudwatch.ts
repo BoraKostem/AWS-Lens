@@ -1,0 +1,342 @@
+import {
+  CloudWatchClient,
+  GetMetricDataCommand,
+  ListMetricsCommand,
+  type Metric
+} from '@aws-sdk/client-cloudwatch'
+import { CloudWatchLogsClient, DescribeLogGroupsCommand, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs'
+
+import { awsClientConfig } from './client'
+import type {
+  AwsConnection,
+  CloudWatchLogEventSummary,
+  CloudWatchLogGroupSummary,
+  CloudWatchMetricSeries,
+  CloudWatchMetricStatistic,
+  CloudWatchMetricSummary,
+  CloudWatchNamespaceSummary
+} from '@shared/types'
+
+const METRIC_SCAN_LIMIT = 500
+const EC2_METRICS = ['CPUUtilization', 'NetworkIn', 'NetworkOut']
+
+function createCloudWatchClient(connection: AwsConnection): CloudWatchClient {
+  return new CloudWatchClient(awsClientConfig(connection))
+}
+
+function createLogsClient(connection: AwsConnection): CloudWatchLogsClient {
+  return new CloudWatchLogsClient(awsClientConfig(connection))
+}
+
+function toMetricSummary(metric: Metric): CloudWatchMetricSummary {
+  return {
+    namespace: metric.Namespace ?? '-',
+    metricName: metric.MetricName ?? '-',
+    dimensions: (metric.Dimensions ?? []).map((dimension) =>
+      dimension.Name && dimension.Value ? `${dimension.Name}=${dimension.Value}` : dimension.Name ?? '-'
+    )
+  }
+}
+
+function parseDimensions(dims: string[]): Array<{ Name: string; Value: string }> {
+  return dims.map((d) => {
+    const idx = d.indexOf('=')
+    return idx >= 0 ? { Name: d.slice(0, idx), Value: d.slice(idx + 1) } : { Name: d, Value: '' }
+  })
+}
+
+export async function listCloudWatchMetrics(
+  connection: AwsConnection
+): Promise<{ metrics: CloudWatchMetricSummary[]; namespaces: CloudWatchNamespaceSummary[] }> {
+  const client = createCloudWatchClient(connection)
+  const metrics: CloudWatchMetricSummary[] = []
+  let nextToken: string | undefined
+
+  do {
+    const output = await client.send(
+      new ListMetricsCommand({
+        NextToken: nextToken
+      })
+    )
+
+    for (const metric of output.Metrics ?? []) {
+      metrics.push(toMetricSummary(metric))
+      if (metrics.length >= METRIC_SCAN_LIMIT) {
+        break
+      }
+    }
+
+    nextToken = metrics.length >= METRIC_SCAN_LIMIT ? undefined : output.NextToken
+  } while (nextToken)
+
+  const summaryMap = new Map<string, { count: number; keys: Set<string> }>()
+
+  for (const metric of metrics) {
+    const existing = summaryMap.get(metric.namespace) ?? { count: 0, keys: new Set<string>() }
+    existing.count += 1
+    for (const dimension of metric.dimensions) {
+      existing.keys.add(dimension.split('=')[0] ?? dimension)
+    }
+    summaryMap.set(metric.namespace, existing)
+  }
+
+  const namespaces = Array.from(summaryMap.entries())
+    .map(([namespace, value]) => ({
+      namespace,
+      metricCount: value.count,
+      dimensionKeys: Array.from(value.keys).sort()
+    }))
+    .sort((left, right) => right.metricCount - left.metricCount)
+
+  return {
+    metrics: metrics.sort((left, right) =>
+      `${left.namespace}/${left.metricName}`.localeCompare(`${right.namespace}/${right.metricName}`)
+    ),
+    namespaces
+  }
+}
+
+export async function listEc2InstanceMetrics(
+  connection: AwsConnection,
+  instanceId: string
+): Promise<CloudWatchMetricSummary[]> {
+  const client = createCloudWatchClient(connection)
+  const metrics: CloudWatchMetricSummary[] = []
+  let nextToken: string | undefined
+
+  do {
+    const output = await client.send(
+      new ListMetricsCommand({
+        Dimensions: [{ Name: 'InstanceId', Value: instanceId }],
+        NextToken: nextToken
+      })
+    )
+
+    for (const metric of output.Metrics ?? []) {
+      metrics.push(toMetricSummary(metric))
+    }
+
+    nextToken = output.NextToken
+  } while (nextToken && metrics.length < 500)
+
+  return metrics.sort((left, right) =>
+    `${left.namespace}/${left.metricName}`.localeCompare(`${right.namespace}/${right.metricName}`)
+  )
+}
+
+export async function getMetricStatistics(
+  connection: AwsConnection,
+  metrics: CloudWatchMetricSummary[],
+  periodHours: number
+): Promise<CloudWatchMetricStatistic[]> {
+  if (metrics.length === 0) return []
+
+  const client = createCloudWatchClient(connection)
+  const endTime = new Date()
+  const startTime = new Date(endTime.getTime() - periodHours * 60 * 60 * 1000)
+  const period = periodHours <= 3 ? 60 : periodHours <= 24 ? 300 : 3600
+
+  const limited = metrics.slice(0, 100)
+  const results: CloudWatchMetricStatistic[] = []
+
+  // GetMetricData supports up to 500 queries. We batch 100 metrics at a time.
+  for (let i = 0; i < limited.length; i += 100) {
+    const batch = limited.slice(i, i + 100)
+
+    const output = await client.send(
+      new GetMetricDataCommand({
+        StartTime: startTime,
+        EndTime: endTime,
+        ScanBy: 'TimestampDescending',
+        MetricDataQueries: batch.map((m, idx) => ({
+          Id: `m${idx}`,
+          MetricStat: {
+            Metric: {
+              Namespace: m.namespace,
+              MetricName: m.metricName,
+              Dimensions: parseDimensions(m.dimensions)
+            },
+            Period: period,
+            Stat: 'Average'
+          }
+        }))
+      })
+    )
+
+    for (let j = 0; j < batch.length; j++) {
+      const m = batch[j]
+      const result = (output.MetricDataResults ?? []).find((r) => r.Id === `m${j}`)
+      const values = result?.Values ?? []
+      results.push({
+        namespace: m.namespace,
+        metricName: m.metricName,
+        dimensions: m.dimensions,
+        latest: values.length > 0 ? values[0] : null,
+        average: values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : null,
+        min: values.length > 0 ? Math.min(...values) : null,
+        max: values.length > 0 ? Math.max(...values) : null,
+        unit: inferUnit(m.metricName)
+      })
+    }
+  }
+
+  return results
+}
+
+export async function getEc2AllMetricSeries(
+  connection: AwsConnection,
+  instanceId: string,
+  periodHours: number
+): Promise<CloudWatchMetricSeries[]> {
+  const metrics = await listEc2InstanceMetrics(connection, instanceId)
+  if (metrics.length === 0) return []
+
+  const client = createCloudWatchClient(connection)
+  const endTime = new Date()
+  const startTime = new Date(endTime.getTime() - periodHours * 60 * 60 * 1000)
+  const period = periodHours <= 3 ? 60 : periodHours <= 24 ? 300 : 3600
+
+  const results: CloudWatchMetricSeries[] = []
+
+  for (let i = 0; i < metrics.length; i += 100) {
+    const batch = metrics.slice(i, i + 100)
+
+    const output = await client.send(
+      new GetMetricDataCommand({
+        StartTime: startTime,
+        EndTime: endTime,
+        ScanBy: 'TimestampAscending',
+        MetricDataQueries: batch.map((m, idx) => ({
+          Id: `m${idx}`,
+          Label: m.metricName,
+          MetricStat: {
+            Metric: {
+              Namespace: m.namespace,
+              MetricName: m.metricName,
+              Dimensions: parseDimensions(m.dimensions)
+            },
+            Period: period,
+            Stat: m.metricName.includes('Utilization') || m.metricName.includes('Percent') ? 'Average' : 'Sum'
+          }
+        }))
+      })
+    )
+
+    for (const result of output.MetricDataResults ?? []) {
+      results.push({
+        metricName: result.Label ?? result.Id ?? '-',
+        unit: inferUnit(result.Label ?? ''),
+        points: (result.Timestamps ?? []).map((ts, j) => ({
+          timestamp: ts.toISOString(),
+          value: Number(result.Values?.[j] ?? 0)
+        }))
+      })
+    }
+  }
+
+  return results
+}
+
+export async function getEc2MetricSeries(
+  connection: AwsConnection,
+  instanceId: string
+): Promise<CloudWatchMetricSeries[]> {
+  const client = createCloudWatchClient(connection)
+  const endTime = new Date()
+  const startTime = new Date(endTime.getTime() - 12 * 60 * 60 * 1000)
+
+  const output = await client.send(
+    new GetMetricDataCommand({
+      StartTime: startTime,
+      EndTime: endTime,
+      ScanBy: 'TimestampAscending',
+      MetricDataQueries: EC2_METRICS.map((metricName, index) => ({
+        Id: `m${index + 1}`,
+        Label: metricName,
+        MetricStat: {
+          Metric: {
+            Namespace: 'AWS/EC2',
+            MetricName: metricName,
+            Dimensions: [{ Name: 'InstanceId', Value: instanceId }]
+          },
+          Period: 300,
+          Stat: metricName === 'CPUUtilization' ? 'Average' : 'Sum'
+        }
+      }))
+    })
+  )
+
+  return (output.MetricDataResults ?? []).map((result) => ({
+    metricName: result.Label ?? result.Id ?? '-',
+    unit: '',
+    points: (result.Timestamps ?? []).map((timestamp, index) => ({
+      timestamp: timestamp.toISOString(),
+      value: Number(result.Values?.[index] ?? 0)
+    }))
+  }))
+}
+
+export async function listCloudWatchLogGroups(connection: AwsConnection): Promise<CloudWatchLogGroupSummary[]> {
+  const client = createLogsClient(connection)
+  const groups: CloudWatchLogGroupSummary[] = []
+  let nextToken: string | undefined
+
+  do {
+    const output = await client.send(
+      new DescribeLogGroupsCommand({
+        nextToken,
+        limit: 50
+      })
+    )
+
+    for (const group of output.logGroups ?? []) {
+      groups.push({
+        name: group.logGroupName ?? '-',
+        arn: group.arn ?? '-',
+        storedBytes: Number(group.storedBytes ?? 0),
+        retentionInDays: group.retentionInDays ?? null,
+        logClass: group.logGroupClass ?? 'STANDARD'
+      })
+    }
+
+    nextToken = output.nextToken
+  } while (nextToken && groups.length < 200)
+
+  return groups.sort((left, right) => left.name.localeCompare(right.name))
+}
+
+export async function listRecentLogEvents(
+  connection: AwsConnection,
+  logGroupName: string
+): Promise<CloudWatchLogEventSummary[]> {
+  const client = createLogsClient(connection)
+  const output = await client.send(
+    new FilterLogEventsCommand({
+      logGroupName,
+      limit: 60,
+      interleaved: true,
+      startTime: Date.now() - 24 * 60 * 60 * 1000
+    })
+  )
+
+  return (output.events ?? [])
+    .map((event) => ({
+      eventId: event.eventId ?? `${event.logStreamName ?? 'stream'}-${event.timestamp ?? 0}`,
+      ingestionTime: new Date(event.ingestionTime ?? 0).toISOString(),
+      timestamp: new Date(event.timestamp ?? 0).toISOString(),
+      logStreamName: event.logStreamName ?? '-',
+      message: event.message ?? ''
+    }))
+    .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
+}
+
+function inferUnit(metricName: string): string {
+  const lower = metricName.toLowerCase()
+  if (lower.includes('utilization') || lower.includes('percent') || lower.endsWith('%')) return 'Percent'
+  if (lower.includes('bytes') || lower === 'networkin' || lower === 'networkout') return 'Bytes'
+  if (lower.includes('count') || lower.includes('ops') || lower.includes('packets')) return 'Count'
+  if (lower.includes('seconds') || lower.includes('latency') || lower.includes('duration')) return 'Seconds'
+  if (lower.includes('credit')) return 'Count'
+  if (lower.includes('statuscheck')) return 'Count'
+  return ''
+}

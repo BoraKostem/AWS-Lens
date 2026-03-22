@@ -1,0 +1,31 @@
+import type { ServiceDescriptor } from '@shared/types'
+
+export const SERVICE_CATALOG: ServiceDescriptor[] = [
+  { id: 'terraform', label: 'Terraform', category: 'Infrastructure', migrated: false },
+  { id: 'overview', label: 'Overview', category: 'Catalog', migrated: true },
+  { id: 'ec2', label: 'EC2', category: 'Compute', migrated: false },
+  { id: 'cloudwatch', label: 'CloudWatch', category: 'Management', migrated: true },
+  { id: 's3', label: 'S3', category: 'Storage', migrated: false },
+  { id: 'lambda', label: 'Lambda', category: 'Compute', migrated: false },
+  { id: 'auto-scaling', label: 'Auto Scaling', category: 'Compute', migrated: false },
+  { id: 'rds', label: 'RDS', category: 'Database', migrated: false },
+  { id: 'cloudformation', label: 'CloudFormation', category: 'Infrastructure', migrated: false },
+  { id: 'cloudtrail', label: 'CloudTrail', category: 'Management', migrated: true },
+  { id: 'ecr', label: 'ECR', category: 'Containers', migrated: false },
+  { id: 'eks', label: 'EKS', category: 'Compute', migrated: false },
+  { id: 'ecs', label: 'ECS', category: 'Containers', migrated: false },
+  { id: 'vpc', label: 'VPC', category: 'Networking', migrated: false },
+  { id: 'load-balancers', label: 'Load Balancers', category: 'Networking', migrated: false },
+  { id: 'route53', label: 'Route 53', category: 'Networking', migrated: false },
+  { id: 'security-groups', label: 'Security Groups', category: 'Security', migrated: false },
+  { id: 'acm', label: 'ACM', category: 'Networking', migrated: false },
+  { id: 'iam', label: 'IAM', category: 'Security', migrated: false },
+  { id: 'identity-center', label: 'Identity Center / SSO', category: 'Security', migrated: true },
+  { id: 'sns', label: 'SNS', category: 'Messaging', migrated: true },
+  { id: 'sqs', label: 'SQS', category: 'Messaging', migrated: true },
+  { id: 'sts', label: 'STS', category: 'Security', migrated: true },
+  { id: 'kms', label: 'KMS', category: 'Security', migrated: false },
+  { id: 'waf', label: 'WAF', category: 'Security', migrated: false },
+  { id: 'secrets-manager', label: 'Secrets Manager', category: 'Security', migrated: false },
+  { id: 'key-pairs', label: 'Key Pairs', category: 'Security', migrated: false }
+]

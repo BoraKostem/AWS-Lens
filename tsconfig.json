@@ -1,0 +1,43 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": false,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "baseUrl": ".",
+    "paths": {
+      "@renderer/*": ["src/renderer/src/*"],
+      "@main/*": ["src/main/*"],
+      "@shared/*": ["src/shared/*"]
+    }
+  },
+  "include": [
+    "src/main/index.ts",
+    "src/main/main.ts",
+    "src/main/awsIpc.ts",
+    "src/main/ec2Ipc.ts",
+    "src/main/ipc.ts",
+    "src/main/store.ts",
+    "src/main/terraform.ts",
+    "src/main/aws/client.ts",
+    "src/main/aws/profiles.ts",
+    "src/main/aws/sts.ts",
+    "src/main/aws/ec2.ts",
+    "src/main/aws/loadBalancers.ts",
+    "src/preload/index.ts",
+    "src/renderer/src/main.tsx",
+    "src/renderer/src/workspaceApi.ts",
+    "src/renderer/src/WorkspaceApp.tsx",
+    "src/renderer/src/vite-env.d.ts",
+    "src/shared/types.ts",
+    "electron.vite.config.ts"
+  ]
+}

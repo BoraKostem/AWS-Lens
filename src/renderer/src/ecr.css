@@ -1,0 +1,466 @@
+/* ── ECR Console ──────────────────────────────────────────── */
+
+.ecr-console {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* ── Messages ─────────────────────────────────────────────── */
+
+.ecr-msg {
+  padding: 8px 12px;
+  border: 1px solid #4a6a4a;
+  border-radius: 4px;
+  background: #2a3a2a;
+  color: #b8e0b8;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ecr-msg-dismiss {
+  padding: 0 6px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #b8e0b8;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.ecr-msg-dismiss:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.ecr-error {
+  padding: 8px 12px;
+  border: 1px solid #6a4a4a;
+  border-radius: 4px;
+  background: #3a2a2a;
+  color: #e0b8b8;
+  font-size: 12px;
+}
+
+.ecr-empty {
+  color: #9ca7b7;
+  padding: 16px;
+  font-size: 13px;
+}
+
+/* ── Split layout (two panels side by side) ───────────────── */
+
+.ecr-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  border: 1px solid #3b4350;
+  border-radius: 6px;
+  overflow: hidden;
+  min-height: 0;
+  max-height: calc(100vh - 200px);
+}
+
+/* ── Panel ────────────────────────────────────────────────── */
+
+.ecr-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #1e232b;
+}
+
+.ecr-panel + .ecr-panel {
+  border-left: 1px solid #3b4350;
+}
+
+/* ── Panel search input ───────────────────────────────────── */
+
+.ecr-search-input {
+  height: 36px;
+  padding: 6px 12px;
+  border: 0;
+  border-bottom: 1px solid #3b4350;
+  border-radius: 0;
+  background: #1e232b;
+  color: #edf1f6;
+  font-size: 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ecr-search-input::placeholder {
+  color: #6b7688;
+}
+
+/* ── Column chips ─────────────────────────────────────────── */
+
+.ecr-column-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-bottom: 1px solid #3b4350;
+  background: #1e232b;
+}
+
+.ecr-chip {
+  padding: 5px 14px;
+  border-radius: 4px;
+  border: 1px solid #3b4350;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  background: #262c35;
+  color: #9ca7b7;
+  transition: all 0.15s;
+}
+
+.ecr-chip:hover {
+  filter: brightness(1.15);
+}
+
+/* ── Data table ───────────────────────────────────────────── */
+
+.ecr-table-area {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: #1e232b;
+}
+
+.ecr-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.ecr-data-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.ecr-data-table th {
+  background: #20252d;
+  color: #9ca7b7;
+  font-weight: 600;
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid #3b4350;
+  white-space: nowrap;
+}
+
+.ecr-data-table td {
+  padding: 10px 14px;
+  color: #d0d8e2;
+  border-bottom: 1px solid #262c35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.ecr-data-table tbody tr {
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.ecr-data-table tbody tr:hover {
+  background: #262c35;
+}
+
+.ecr-data-table tbody tr.active {
+  background: #323947;
+}
+
+/* ── Panel footer (action buttons below table) ────────────── */
+
+.ecr-panel-footer {
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid #3b4350;
+  background: #1e232b;
+}
+
+/* ── Action buttons ───────────────────────────────────────── */
+
+.ecr-action-btn {
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: #3a4150;
+  color: #edf1f6;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  transition: filter 0.15s;
+  white-space: nowrap;
+}
+
+.ecr-action-btn:hover {
+  filter: brightness(1.15);
+}
+
+.ecr-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  filter: none;
+}
+
+.ecr-action-btn.scan {
+  background: #1a7a7a;
+}
+
+.ecr-action-btn.delete {
+  background: #c0392b;
+}
+
+.ecr-action-btn.create {
+  background: #27ae60;
+}
+
+.ecr-action-btn.apply {
+  background: #4a5361;
+}
+
+.ecr-action-btn.login {
+  background: #2563eb;
+}
+
+.ecr-action-btn.pull {
+  background: #a83232;
+}
+
+.ecr-action-btn.push {
+  background: #2d5a5a;
+}
+
+/* ── Confirm guardrail ────────────────────────────────────── */
+
+.ecr-confirming {
+  animation: ecr-pulse 0.8s ease-in-out infinite alternate;
+  background: #b33a2e !important;
+  border-color: #e04a3c !important;
+  color: #fff !important;
+  font-weight: 700 !important;
+}
+
+@keyframes ecr-pulse {
+  from { opacity: 1; }
+  to   { opacity: 0.7; }
+}
+
+/* ── Docker section ───────────────────────────────────────── */
+
+.ecr-docker-section {
+  border-top: 1px solid #3b4350;
+  padding: 10px;
+  background: #1e232b;
+}
+
+.ecr-docker-title {
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: #9ca7b7;
+}
+
+.ecr-docker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ecr-docker-row-end {
+  justify-content: flex-end;
+}
+
+.ecr-docker-label {
+  font-size: 12px;
+  color: #9ca7b7;
+  min-width: 75px;
+  flex-shrink: 0;
+}
+
+.ecr-docker-input {
+  flex: 1;
+  height: 32px;
+  padding: 4px 10px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #1e232b;
+  color: #edf1f6;
+  font-size: 12px;
+  min-width: 0;
+}
+
+/* ── Badges ────────────────────────────────────────────────── */
+
+.ecr-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ecr-badge.COMPLETE,
+.ecr-badge.MUTABLE { background: #1d3a2a; color: #6fcf97; }
+
+.ecr-badge.IN_PROGRESS,
+.ecr-badge.PENDING { background: #3a3a1d; color: #f2c94c; }
+
+.ecr-badge.FAILED,
+.ecr-badge.NOT_SCANNED { background: #3a1d1d; color: #eb5757; }
+
+.ecr-badge.IMMUTABLE { background: #1d2a3a; color: #60a5fa; }
+
+/* ── Severity pills ───────────────────────────────────────── */
+
+.ecr-severity {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  background: #353d49;
+  color: #9ca7b7;
+}
+
+.ecr-severity.CRITICAL { background: #4a2626; color: #f87171; }
+.ecr-severity.HIGH { background: #4a3226; color: #fb923c; }
+.ecr-severity.MEDIUM { background: #4a3726; color: #fbbf24; }
+.ecr-severity.LOW { background: #263249; color: #60a5fa; }
+
+/* ── Findings list ────────────────────────────────────────── */
+
+.ecr-findings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.ecr-finding-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  padding: 6px 8px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #262c35;
+  font-size: 12px;
+}
+
+.ecr-finding-desc {
+  flex-basis: 100%;
+  color: #9ca7b7;
+  font-size: 11px;
+}
+
+/* ── Dialog ───────────────────────────────────────────────── */
+
+.ecr-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: grid;
+  place-items: center;
+  z-index: 100;
+}
+
+.ecr-dialog {
+  background: #2a3039;
+  border: 1px solid #3b4350;
+  border-radius: 8px;
+  padding: 20px;
+  min-width: 380px;
+  max-width: 500px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.ecr-dialog-wide {
+  min-width: 520px;
+  max-width: 720px;
+}
+
+.ecr-dialog h3 {
+  margin: 0 0 16px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #edf1f6;
+}
+
+.ecr-dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: #9ca7b7;
+}
+
+.ecr-dialog-field input,
+.ecr-dialog-field select {
+  height: 32px;
+  padding: 4px 10px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #1e232b;
+  color: #edf1f6;
+  font-size: 12px;
+}
+
+.ecr-dialog-checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.ecr-dialog-checkbox input[type="checkbox"] {
+  height: auto;
+  width: auto;
+}
+
+.ecr-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.ecr-dialog-actions button {
+  padding: 6px 16px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #4a5361;
+  color: #edf1f6;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.ecr-dialog-actions button:hover {
+  background: #5a6371;
+}
+
+/* ── Responsive ────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+  .ecr-split {
+    grid-template-columns: 1fr;
+  }
+
+  .ecr-panel + .ecr-panel {
+    border-left: 0;
+    border-top: 1px solid #3b4350;
+  }
+}

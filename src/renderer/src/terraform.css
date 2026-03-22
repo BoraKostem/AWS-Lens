@@ -1,0 +1,803 @@
+/* ── Terraform Console ────────────────────────────────────── */
+
+.tf-console {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* ── Toolbar ─────────────────────────────────────────────── */
+
+.tf-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.tf-toolbar-btn {
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 4px;
+  background: #3a4150;
+  color: #edf1f6;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: filter 0.15s;
+  white-space: nowrap;
+}
+
+.tf-toolbar-btn:hover {
+  filter: brightness(1.15);
+}
+
+.tf-toolbar-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.tf-toolbar-btn.accent {
+  background: #27ae60;
+}
+
+.tf-toolbar-btn.danger {
+  background: #c0392b;
+}
+
+/* ── CLI Banner ──────────────────────────────────────────── */
+
+.tf-cli-banner {
+  padding: 10px 14px;
+  border: 1px solid #b33a2e;
+  border-radius: 4px;
+  background: #3a2020;
+  color: #ffd9d0;
+  font-size: 12px;
+}
+
+.tf-cli-banner.success {
+  border-color: #4a6a4a;
+  background: #2a3a2a;
+  color: #b8e0b8;
+}
+
+/* ── Messages ────────────────────────────────────────────── */
+
+.tf-msg {
+  padding: 8px 12px;
+  border: 1px solid #4a6a4a;
+  border-radius: 4px;
+  background: #2a3a2a;
+  color: #b8e0b8;
+  font-size: 12px;
+}
+
+.tf-msg.error {
+  border-color: #b33a2e;
+  background: #3a2020;
+  color: #ffd9d0;
+}
+
+.tf-empty {
+  color: #9ca7b7;
+  padding: 16px;
+  font-size: 13px;
+}
+
+/* ── Main Tabs ───────────────────────────────────────────── */
+
+.tf-tab-bar {
+  display: flex;
+  gap: 0;
+  background: #1e232b;
+  border-bottom: 1px solid #3b4350;
+}
+
+.tf-tab {
+  padding: 10px 22px;
+  border: 0;
+  background: transparent;
+  color: #9ca7b7;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.tf-tab:hover {
+  color: #edf1f6;
+}
+
+.tf-tab.active {
+  color: #edf1f6;
+  border-bottom-color: #4a8fe7;
+}
+
+/* ── Main layout (table + sidebar) ───────────────────────── */
+
+.tf-main-layout {
+  display: flex;
+  border: 1px solid #3b4350;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* ── Project Table (left pane) ───────────────────────────── */
+
+.tf-project-table-area {
+  width: 480px;
+  min-width: 380px;
+  overflow: auto;
+  background: #1e232b;
+  max-height: calc(100vh - 340px);
+  border-right: 1px solid #3b4350;
+}
+
+.tf-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.tf-data-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.tf-data-table th {
+  background: #20252d;
+  color: #9ca7b7;
+  font-weight: 600;
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid #3b4350;
+  white-space: nowrap;
+}
+
+.tf-data-table td {
+  padding: 10px 14px;
+  color: #d0d8e2;
+  border-bottom: 1px solid #262c35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.tf-data-table tbody tr {
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.tf-data-table tbody tr:hover {
+  background: #262c35;
+}
+
+.tf-data-table tbody tr.active {
+  background: #323947;
+}
+
+/* ── Right Pane (detail) ─────────────────────────────────── */
+
+.tf-detail-pane {
+  flex: 1;
+  min-width: 0;
+  background: #2a3039;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  max-height: calc(100vh - 340px);
+}
+
+.tf-detail-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid #3b4350;
+  background: #252b33;
+}
+
+.tf-detail-tabs button {
+  padding: 10px 18px;
+  background: transparent;
+  border: 0;
+  color: #9ca7b7;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.tf-detail-tabs button:hover {
+  color: #edf1f6;
+}
+
+.tf-detail-tabs button.active {
+  color: #edf1f6;
+  border-bottom-color: #4a8fe7;
+}
+
+/* ── Detail Section ──────────────────────────────────────── */
+
+.tf-section {
+  padding: 16px;
+  border-bottom: 1px solid #3b4350;
+}
+
+.tf-section:last-child {
+  border-bottom: 0;
+}
+
+.tf-section h3 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #d0d8e2;
+}
+
+.tf-section-hint {
+  color: #9ca7b7;
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+
+/* ── Action Buttons ──────────────────────────────────────── */
+
+.tf-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+
+.tf-action-btn {
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: #3a4150;
+  color: #edf1f6;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  transition: filter 0.15s;
+  white-space: nowrap;
+}
+
+.tf-action-btn:hover {
+  filter: brightness(1.15);
+}
+
+.tf-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.tf-action-btn.init {
+  background: #4a5ab5;
+}
+
+.tf-action-btn.plan {
+  background: #2980b9;
+}
+
+.tf-action-btn.apply {
+  background: #27ae60;
+}
+
+.tf-action-btn.destroy {
+  background: #c0392b;
+}
+
+.tf-action-btn.state {
+  background: #8e44ad;
+}
+
+/* ── Summary Label ───────────────────────────────────────── */
+
+.tf-summary {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: #9ca7b7;
+  margin-bottom: 8px;
+}
+
+.tf-summary-item {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.tf-summary-count {
+  font-weight: 700;
+  color: #edf1f6;
+}
+
+.tf-summary-count.create { color: #2ecc71; }
+.tf-summary-count.update { color: #f39c12; }
+.tf-summary-count.delete { color: #e74c3c; }
+.tf-summary-count.replace { color: #9b59b6; }
+
+/* ── Diagram Container ───────────────────────────────────── */
+
+.tf-diagram-container {
+  position: relative;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #181d24;
+  min-height: 300px;
+  overflow: hidden;
+}
+
+.tf-diagram-container.fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  border-radius: 0;
+  border: 0;
+  min-height: unset;
+}
+
+.tf-diagram-controls {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  z-index: 10;
+}
+
+.tf-diagram-controls button {
+  padding: 4px 8px;
+  border: 1px solid #3b4350;
+  border-radius: 3px;
+  background: #2a3039;
+  color: #9ca7b7;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tf-diagram-controls button:hover {
+  background: #3a4150;
+  color: #edf1f6;
+}
+
+.tf-diagram-svg {
+  width: 100%;
+  height: 100%;
+  min-height: 300px;
+}
+
+.tf-diagram-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  color: #6b7688;
+  font-size: 13px;
+}
+
+/* ── Diagram Legend ──────────────────────────────────────── */
+
+.tf-diagram-legend {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  z-index: 10;
+  padding: 5px 8px;
+  background: rgba(30, 35, 43, 0.88);
+  border-radius: 4px;
+  border: 1px solid #3b4350;
+}
+
+.tf-diagram-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: #9ca7b7;
+  white-space: nowrap;
+}
+
+.tf-diagram-legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.tf-diagram-legend-line {
+  display: inline-block;
+  width: 16px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+/* ── Action Table ────────────────────────────────────────── */
+
+.tf-action-table-wrap {
+  overflow: auto;
+  max-height: 300px;
+}
+
+/* ── Output Panel ────────────────────────────────────────── */
+
+.tf-output-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  color: #9ca7b7;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 0;
+}
+
+.tf-output-toggle:hover {
+  color: #edf1f6;
+}
+
+.tf-output-panel {
+  background: #111820;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  padding: 12px;
+  max-height: 400px;
+  overflow: auto;
+  font-family: "Cascadia Code", "Fira Code", "JetBrains Mono", monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #c0c8d2;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ── KV rows ─────────────────────────────────────────────── */
+
+.tf-kv {
+  display: grid;
+  gap: 2px;
+}
+
+.tf-kv-row {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.tf-kv-label {
+  color: #9ca7b7;
+  font-weight: 600;
+}
+
+.tf-kv-value {
+  color: #d0d8e2;
+  word-break: break-all;
+}
+
+/* ── Confirm guardrail ───────────────────────────────────── */
+
+.tf-confirming {
+  animation: tf-pulse 0.8s ease-in-out infinite alternate;
+  background: #b33a2e !important;
+  border-color: #e04a3c !important;
+  color: #fff !important;
+  font-weight: 700 !important;
+}
+
+@keyframes tf-pulse {
+  from { opacity: 1; }
+  to   { opacity: 0.7; }
+}
+
+/* ── Inputs Dialog ───────────────────────────────────────── */
+
+.tf-inputs-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 500;
+}
+
+.tf-inputs-dialog {
+  background: #1e232b;
+  border: 1px solid #3b4350;
+  border-radius: 8px;
+  padding: 20px;
+  width: 560px;
+  max-height: 80vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tf-inputs-dialog h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #edf1f6;
+}
+
+.tf-inputs-dialog label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #9ca7b7;
+  font-weight: 600;
+}
+
+.tf-inputs-dialog input,
+.tf-inputs-dialog textarea {
+  height: auto;
+  padding: 8px 10px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #111820;
+  color: #edf1f6;
+  font-size: 12px;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.tf-inputs-dialog textarea {
+  min-height: 160px;
+  resize: vertical;
+}
+
+.tf-inputs-dialog .tf-inputs-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.tf-inputs-error {
+  color: #e05252;
+  font-size: 11px;
+}
+
+/* ── Progress Overlay ────────────────────────────────────── */
+
+.tf-progress-items {
+  margin-top: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.tf-progress-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  padding: 2px 0;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+}
+
+.tf-progress-item.done {
+  opacity: 0.6;
+}
+
+.tf-progress-item-status {
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.tf-progress-item-addr {
+  color: #a0c4f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tf-progress-item-label {
+  color: #9ca7b7;
+  white-space: nowrap;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.tf-progress-overlay {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  background: #1e232b;
+  border: 1px solid #3b4350;
+  border-radius: 8px;
+  padding: 12px 16px;
+  min-width: 360px;
+  max-width: 520px;
+  z-index: 600;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.tf-progress-overlay h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: #edf1f6;
+}
+
+.tf-progress-line {
+  font-size: 11px;
+  color: #9ca7b7;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tf-progress-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #3b4350;
+  border-top-color: #4a8fe7;
+  border-radius: 50%;
+  animation: tf-spin 0.6s linear infinite;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+@keyframes tf-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Status badges ───────────────────────────────────────── */
+
+.tf-status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tf-status-badge.ready {
+  background: #2a3a2a;
+  color: #2ecc71;
+}
+
+.tf-status-badge.missing {
+  background: #3a2020;
+  color: #e74c3c;
+}
+
+/* ── Resource Rows (inventory) ───────────────────────────── */
+
+.tf-resource-table-wrap {
+  overflow: auto;
+  max-height: calc(100vh - 480px);
+}
+
+/* ── Typed confirmation dialog ───────────────────────────── */
+
+.tf-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 500;
+}
+
+.tf-confirm-dialog {
+  background: #1e232b;
+  border: 1px solid #3b4350;
+  border-radius: 8px;
+  padding: 20px;
+  width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tf-confirm-dialog.wide {
+  width: 560px;
+  max-height: 80vh;
+}
+
+.tf-change-list {
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  padding: 6px;
+  background: #111820;
+}
+
+.tf-change-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  padding: 3px 4px;
+  border-radius: 2px;
+}
+
+.tf-change-item:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.tf-change-action {
+  flex-shrink: 0;
+  width: 70px;
+  font-weight: 700;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.tf-change-address {
+  color: #a0c4f0;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.tf-change-type {
+  color: #5a6a7a;
+  font-size: 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.tf-confirm-dialog h3 {
+  margin: 0;
+  font-size: 15px;
+  color: #edf1f6;
+}
+
+.tf-confirm-dialog p {
+  margin: 0;
+  font-size: 13px;
+  color: #9ca7b7;
+}
+
+.tf-confirm-dialog input {
+  padding: 8px 10px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #111820;
+  color: #edf1f6;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-align: center;
+}
+
+.tf-confirm-dialog .tf-inputs-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
