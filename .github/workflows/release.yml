@@ -23,7 +23,6 @@ permissions:
 jobs:
   build:
     name: Build ${{ matrix.label }}
-    if: github.event.inputs.target_platform == 'all' || github.event.inputs.target_platform == matrix.platform
     runs-on: ${{ matrix.os }}
     env:
       CSC_LINK: ${{ matrix.os == 'macos-latest' && secrets.CSC_LINK_MAC || '' }}
@@ -34,29 +33,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: windows-latest
-            platform: windows
-            label: Windows
-            build_command: pnpm dist:win
-            artifact_name: windows-installers
-            artifact_glob: release-signed/*.exe
-          - os: macos-latest
-            platform: mac
-            label: macOS
-            build_command: pnpm dist:mac
-            artifact_name: macos-installers
-            artifact_glob: |
-              release/*.dmg
-              release/*.zip
-          - os: ubuntu-latest
-            platform: linux
-            label: Debian
-            build_command: pnpm dist:linux
-            artifact_name: linux-installers
-            artifact_glob: |
-              release/*.deb
-              release/*.AppImage
+        include: ${{ fromJSON(
+          github.event.inputs.target_platform == 'windows' && '[{"os":"windows-latest","platform":"windows","label":"Windows","build_command":"pnpm dist:win","artifact_name":"windows-installers","artifact_glob":"release-signed/*.exe"}]' ||
+          github.event.inputs.target_platform == 'mac' && '[{"os":"macos-latest","platform":"mac","label":"macOS","build_command":"pnpm dist:mac","artifact_name":"macos-installers","artifact_glob":"release/*.dmg\nrelease/*.zip"}]' ||
+          github.event.inputs.target_platform == 'linux' && '[{"os":"ubuntu-latest","platform":"linux","label":"Debian","build_command":"pnpm dist:linux","artifact_name":"linux-installers","artifact_glob":"release/*.deb\nrelease/*.AppImage"}]' ||
+          '[{"os":"windows-latest","platform":"windows","label":"Windows","build_command":"pnpm dist:win","artifact_name":"windows-installers","artifact_glob":"release-signed/*.exe"},{"os":"macos-latest","platform":"mac","label":"macOS","build_command":"pnpm dist:mac","artifact_name":"macos-installers","artifact_glob":"release/*.dmg\nrelease/*.zip"},{"os":"ubuntu-latest","platform":"linux","label":"Debian","build_command":"pnpm dist:linux","artifact_name":"linux-installers","artifact_glob":"release/*.deb\nrelease/*.AppImage"}]'
+        ) }}
 
     steps:
       - name: Validate version input
