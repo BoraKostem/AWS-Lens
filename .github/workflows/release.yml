@@ -7,6 +7,15 @@ on:
         description: App version in x.x.x format
         required: true
         type: string
+      target_platform:
+        description: Which installer set to build and release
+        required: true
+        type: choice
+        options:
+          - all
+          - windows
+          - mac
+          - linux
 
 permissions:
   contents: write
@@ -14,6 +23,7 @@ permissions:
 jobs:
   build:
     name: Build ${{ matrix.label }}
+    if: github.event.inputs.target_platform == 'all' || github.event.inputs.target_platform == matrix.platform
     runs-on: ${{ matrix.os }}
     env:
       CSC_LINK: ${{ matrix.os == 'macos-latest' && secrets.CSC_LINK_MAC || '' }}
@@ -21,18 +31,18 @@ jobs:
       APPLE_API_KEY: ${{ matrix.os == 'macos-latest' && secrets.APPLE_API_KEY || '' }}
       APPLE_API_KEY_ID: ${{ matrix.os == 'macos-latest' && secrets.APPLE_API_KEY_ID || '' }}
       APPLE_API_ISSUER: ${{ matrix.os == 'macos-latest' && secrets.APPLE_API_ISSUER || '' }}
-      WIN_CSC_LINK: ${{ matrix.os == 'windows-latest' && secrets.WIN_CSC_LINK || '' }}
-      WIN_CSC_KEY_PASSWORD: ${{ matrix.os == 'windows-latest' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
+            platform: windows
             label: Windows
             build_command: pnpm dist:win
             artifact_name: windows-installers
-            artifact_glob: release/*.exe
+            artifact_glob: release-signed/*.exe
           - os: macos-latest
+            platform: mac
             label: macOS
             build_command: pnpm dist:mac
             artifact_name: macos-installers
@@ -40,6 +50,7 @@ jobs:
               release/*.dmg
               release/*.zip
           - os: ubuntu-latest
+            platform: linux
             label: Debian
             build_command: pnpm dist:linux
             artifact_name: linux-installers
@@ -88,15 +99,40 @@ jobs:
           test -n "$APPLE_API_KEY_ID"
           test -n "$APPLE_API_ISSUER"
 
-      - name: Validate Windows signing secrets
+      - name: Validate SSL.com eSigner secrets
         if: matrix.os == 'windows-latest'
         shell: bash
         run: |
-          test -n "$WIN_CSC_LINK"
-          test -n "$WIN_CSC_KEY_PASSWORD"
+          test -n "${{ secrets.ES_USERNAME }}"
+          test -n "${{ secrets.ES_PASSWORD }}"
+          test -n "${{ secrets.ES_CREDENTIAL_ID }}"
+          test -n "${{ secrets.ES_TOTP_SECRET }}"
 
       - name: Build installers
         run: ${{ matrix.build_command }}
+
+      - name: Locate Windows installer
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -Path release -Filter *.exe -File | Select-Object -First 1
+          if (-not $installer) {
+            throw "No Windows installer .exe found in release/"
+          }
+          New-Item -ItemType Directory -Force -Path release-signed | Out-Null
+          "WINDOWS_INSTALLER_PATH=$($installer.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Sign Windows installer with SSL.com eSigner
+        if: matrix.os == 'windows-latest'
+        uses: sslcom/actions-codesigner@develop
+        with:
+          command: sign
+          username: ${{ secrets.ES_USERNAME }}
+          password: ${{ secrets.ES_PASSWORD }}
+          credential_id: ${{ secrets.ES_CREDENTIAL_ID }}
+          totp_secret: ${{ secrets.ES_TOTP_SECRET }}
+          file_path: ${{ env.WINDOWS_INSTALLER_PATH }}
+          output_path: ${{ github.workspace }}/release-signed
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
@@ -116,6 +152,35 @@ jobs:
         with:
           path: dist-artifacts
 
+      - name: Validate selected artifacts exist
+        shell: bash
+        run: |
+          shopt -s globstar nullglob
+          case "${{ github.event.inputs.target_platform }}" in
+            windows)
+              files=(dist-artifacts/**/*.exe)
+              ;;
+            mac)
+              files=(dist-artifacts/**/*.dmg dist-artifacts/**/*.zip)
+              ;;
+            linux)
+              files=(dist-artifacts/**/*.deb dist-artifacts/**/*.AppImage)
+              ;;
+            all)
+              files=(
+                dist-artifacts/**/*.exe
+                dist-artifacts/**/*.dmg
+                dist-artifacts/**/*.zip
+                dist-artifacts/**/*.deb
+                dist-artifacts/**/*.AppImage
+              )
+              ;;
+          esac
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No release artifacts found for target_platform=${{ github.event.inputs.target_platform }}" >&2
+            exit 1
+          fi
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
@@ -124,8 +189,13 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
-            dist-artifacts/**/*.exe
-            dist-artifacts/**/*.dmg
-            dist-artifacts/**/*.zip
-            dist-artifacts/**/*.deb
-            dist-artifacts/**/*.AppImage
+            ${{ github.event.inputs.target_platform == 'windows' && 'dist-artifacts/**/*.exe' || '' }}
+            ${{ github.event.inputs.target_platform == 'mac' && 'dist-artifacts/**/*.dmg' || '' }}
+            ${{ github.event.inputs.target_platform == 'mac' && 'dist-artifacts/**/*.zip' || '' }}
+            ${{ github.event.inputs.target_platform == 'linux' && 'dist-artifacts/**/*.deb' || '' }}
+            ${{ github.event.inputs.target_platform == 'linux' && 'dist-artifacts/**/*.AppImage' || '' }}
+            ${{ github.event.inputs.target_platform == 'all' && 'dist-artifacts/**/*.exe' || '' }}
+            ${{ github.event.inputs.target_platform == 'all' && 'dist-artifacts/**/*.dmg' || '' }}
+            ${{ github.event.inputs.target_platform == 'all' && 'dist-artifacts/**/*.zip' || '' }}
+            ${{ github.event.inputs.target_platform == 'all' && 'dist-artifacts/**/*.deb' || '' }}
+            ${{ github.event.inputs.target_platform == 'all' && 'dist-artifacts/**/*.AppImage' || '' }}
