@@ -111,10 +111,10 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: bash
         run: |
-          test -n "${{ secrets.ES_USERNAME }}"
-          test -n "${{ secrets.ES_PASSWORD }}"
-          test -n "${{ secrets.ES_CREDENTIAL_ID }}"
-          test -n "${{ secrets.ES_TOTP_SECRET }}"
+          [ -n "${{ secrets.ES_USERNAME }}" ] || { echo "Missing secret: ES_USERNAME" >&2; exit 1; }
+          [ -n "${{ secrets.ES_PASSWORD }}" ] || { echo "Missing secret: ES_PASSWORD" >&2; exit 1; }
+          [ -n "${{ secrets.CREDENTIAL_ID }}" ] || { echo "Missing secret: CREDENTIAL_ID" >&2; exit 1; }
+          [ -n "${{ secrets.ES_TOTP_SECRET }}" ] || { echo "Missing secret: ES_TOTP_SECRET" >&2; exit 1; }
 
       - name: Build installers
         run: ${{ matrix.build_command }}
@@ -137,7 +137,7 @@ jobs:
           command: sign
           username: ${{ secrets.ES_USERNAME }}
           password: ${{ secrets.ES_PASSWORD }}
-          credential_id: ${{ secrets.ES_CREDENTIAL_ID }}
+          credential_id: ${{ secrets.CREDENTIAL_ID }}
           totp_secret: ${{ secrets.ES_TOTP_SECRET }}
           file_path: ${{ env.WINDOWS_INSTALLER_PATH }}
           output_path: ${{ github.workspace }}/release-signed
