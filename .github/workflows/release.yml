@@ -34,7 +34,7 @@ jobs:
         run: |
           case "${{ github.event.inputs.target_platform }}" in
             windows)
-              matrix='{"include":[{"os":"windows-latest","platform":"windows","label":"Windows","build_command":"pnpm dist:win","artifact_name":"windows-installers-unsigned","artifact_glob":"release/*.exe"}]}'
+              matrix='{"include":[{"os":"windows-latest","platform":"windows","label":"Windows","build_command":"pnpm dist:win","artifact_name":"windows-installers","artifact_glob":"release/*.exe"}]}'
               ;;
             mac)
               matrix='{"include":[{"os":"macos-latest","platform":"mac","label":"macOS","build_command":"pnpm dist:mac","artifact_name":"macos-installers","artifact_glob":"release/*.dmg\nrelease/*.zip"}]}'
@@ -43,7 +43,7 @@ jobs:
               matrix='{"include":[{"os":"ubuntu-latest","platform":"linux","label":"Debian","build_command":"pnpm dist:linux","artifact_name":"linux-installers","artifact_glob":"release/*.deb\nrelease/*.AppImage"}]}'
               ;;
             all)
-              matrix='{"include":[{"os":"windows-latest","platform":"windows","label":"Windows","build_command":"pnpm dist:win","artifact_name":"windows-installers-unsigned","artifact_glob":"release/*.exe"},{"os":"macos-latest","platform":"mac","label":"macOS","build_command":"pnpm dist:mac","artifact_name":"macos-installers","artifact_glob":"release/*.dmg\nrelease/*.zip"},{"os":"ubuntu-latest","platform":"linux","label":"Debian","build_command":"pnpm dist:linux","artifact_name":"linux-installers","artifact_glob":"release/*.deb\nrelease/*.AppImage"}]}'
+              matrix='{"include":[{"os":"windows-latest","platform":"windows","label":"Windows","build_command":"pnpm dist:win","artifact_name":"windows-installers","artifact_glob":"release/*.exe"},{"os":"macos-latest","platform":"mac","label":"macOS","build_command":"pnpm dist:mac","artifact_name":"macos-installers","artifact_glob":"release/*.dmg\nrelease/*.zip"},{"os":"ubuntu-latest","platform":"linux","label":"Debian","build_command":"pnpm dist:linux","artifact_name":"linux-installers","artifact_glob":"release/*.deb\nrelease/*.AppImage"}]}'
               ;;
             *)
               echo "Unsupported target_platform=${{ github.event.inputs.target_platform }}" >&2
@@ -107,8 +107,83 @@ jobs:
           test -n "$APPLE_API_KEY_ID"
           test -n "$APPLE_API_ISSUER"
 
-      - name: Build installers
+      - name: Validate SSL.com eSigner CKA secrets
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          [ -n "${{ secrets.ES_USERNAME }}" ] || { echo "Missing secret: ES_USERNAME" >&2; exit 1; }
+          [ -n "${{ secrets.ES_PASSWORD }}" ] || { echo "Missing secret: ES_PASSWORD" >&2; exit 1; }
+          [ -n "${{ secrets.ES_TOTP_SECRET }}" ] || { echo "Missing secret: ES_TOTP_SECRET" >&2; exit 1; }
+
+      - name: Install SSL.com eSigner CKA
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'eSignerCKA.zip'
+          $extract = Join-Path $env:RUNNER_TEMP 'eSignerCKA'
+          $installDir = Join-Path $env:USERPROFILE 'eSignerCKA'
+          Invoke-WebRequest -OutFile $zip 'https://github.com/SSLcom/eSignerCKA/releases/download/v1.0.6/SSL.COM-eSigner-CKA_1.0.6.zip'
+          Expand-Archive -Path $zip -DestinationPath $extract -Force
+          $installer = Get-ChildItem -Path $extract -Recurse -Filter *.exe | Select-Object -First 1
+          if (-not $installer) {
+            throw 'eSigner CKA installer was not found after extracting the archive.'
+          }
+          New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+          & $installer.FullName /CURRENTUSER /VERYSILENT /SUPPRESSMSGBOXES /DIR="$installDir" | Out-Null
+          "ESIGNER_CKA_DIR=$installDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "ESIGNER_MASTER_KEY=$installDir\\master.key" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Configure SSL.com eSigner CKA
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          & "$env:ESIGNER_CKA_DIR\\eSignerCKATool.exe" config -mode product -user "${{ secrets.ES_USERNAME }}" -pass "${{ secrets.ES_PASSWORD }}" -totp "${{ secrets.ES_TOTP_SECRET }}" -key "$env:ESIGNER_MASTER_KEY" -r
+
+      - name: Load SSL.com code signing certificate
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          & "$env:ESIGNER_CKA_DIR\\eSignerCKATool.exe" unload
+          & "$env:ESIGNER_CKA_DIR\\eSignerCKATool.exe" load
+
+      - name: Select Windows code signing certificate
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Sort-Object NotAfter -Descending | Select-Object -First 1
+          if (-not $cert) {
+            throw 'No code signing certificate was loaded into Cert:\\CurrentUser\\My by eSigner CKA.'
+          }
+          Write-Host "Using code signing certificate subject: $($cert.Subject)"
+          Write-Host "Using code signing certificate thumbprint: $($cert.Thumbprint)"
+          "WINDOWS_CERT_SHA1=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build Windows installers with code signing
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          pnpm build
+          npx electron-builder --win nsis --publish never -c.win.certificateSha1="$env:WINDOWS_CERT_SHA1"
+
+      - name: Build non-Windows installers
+        if: matrix.os != 'windows-latest'
         run: ${{ matrix.build_command }}
+
+      - name: Verify Windows installer signature
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $signtool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Recurse -Filter signtool.exe |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $signtool) {
+            throw 'signtool.exe was not found on the runner.'
+          }
+          $installer = Get-ChildItem release -Filter *.exe -File | Select-Object -First 1
+          if (-not $installer) {
+            throw 'No Windows installer .exe found in release/.'
+          }
+          & $signtool.FullName verify /pa /v $installer.FullName
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
@@ -117,100 +192,15 @@ jobs:
           path: ${{ matrix.artifact_glob }}
           if-no-files-found: error
 
-  sign_windows:
-    name: Sign Windows installer
-    if: github.event.inputs.target_platform == 'windows' || github.event.inputs.target_platform == 'all'
-    runs-on: ubuntu-latest
-    needs: build
-
-    steps:
-      - name: Validate SSL.com eSigner secrets
-        shell: bash
-        run: |
-          [ -n "${{ secrets.ES_USERNAME }}" ] || { echo "Missing secret: ES_USERNAME" >&2; exit 1; }
-          [ -n "${{ secrets.ES_PASSWORD }}" ] || { echo "Missing secret: ES_PASSWORD" >&2; exit 1; }
-          [ -n "${{ secrets.CREDENTIAL_ID }}" ] || { echo "Missing secret: CREDENTIAL_ID" >&2; exit 1; }
-          [ -n "${{ secrets.ES_TOTP_SECRET }}" ] || { echo "Missing secret: ES_TOTP_SECRET" >&2; exit 1; }
-
-      - name: Download unsigned Windows installer
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-installers-unsigned
-          path: unsigned-windows
-
-      - name: Locate unsigned Windows installer
-        id: locate-installer
-        shell: bash
-        run: |
-          shopt -s nullglob
-          files=(unsigned-windows/*.exe)
-          if [ ${#files[@]} -eq 0 ]; then
-            echo "No unsigned Windows installer found in unsigned-windows/" >&2
-            exit 1
-          fi
-          echo "installer_path=${files[0]}" >> "$GITHUB_OUTPUT"
-          echo "installer_name=$(basename "${files[0]}")" >> "$GITHUB_OUTPUT"
-
-      - name: Normalize Windows installer filename
-        id: normalize-installer
-        shell: bash
-        run: |
-          mkdir -p signing-input
-          cp "${{ steps.locate-installer.outputs.installer_path }}" signing-input/windows-installer.exe
-          echo "normalized_path=signing-input/windows-installer.exe" >> "$GITHUB_OUTPUT"
-
-      - name: Prepare signed output directory
-        shell: bash
-        run: mkdir -p release-signed
-
-      - name: Sign Windows installer with SSL.com eSigner
-        uses: sslcom/actions-codesigner@develop
-        with:
-          command: sign
-          username: ${{ secrets.ES_USERNAME }}
-          password: ${{ secrets.ES_PASSWORD }}
-          credential_id: ${{ secrets.CREDENTIAL_ID }}
-          totp_secret: ${{ secrets.ES_TOTP_SECRET }}
-          file_path: ${{ github.workspace }}/${{ steps.normalize-installer.outputs.normalized_path }}
-          output_path: ${{ github.workspace }}/release-signed
-
-      - name: Inspect signed output
-        shell: bash
-        run: |
-          find release-signed -maxdepth 2 -type f || true
-
-      - name: Restore signed installer filename
-        shell: bash
-        run: |
-          shopt -s nullglob
-          files=(release-signed/*.exe)
-          if [ ${#files[@]} -eq 0 ]; then
-            echo "No signed Windows installer found in release-signed/" >&2
-            exit 1
-          fi
-          mv "${files[0]}" "release-signed/${{ steps.locate-installer.outputs.installer_name }}"
-
-      - name: Upload signed Windows installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-installers
-          path: release-signed/**/*.exe
-          if-no-files-found: error
-
   publish:
     name: Publish GitHub release
     if: |
       always() &&
-      needs.build.result == 'success' &&
-      (
-        needs.sign_windows.result == 'success' ||
-        needs.sign_windows.result == 'skipped'
-      )
+      needs.build.result == 'success'
     runs-on: ubuntu-latest
     needs:
       - prepare
       - build
-      - sign_windows
 
     steps:
       - name: Download build artifacts
