@@ -108,6 +108,14 @@ jobs:
           test -n "$APPLE_API_KEY_ID"
           test -n "$APPLE_API_ISSUER"
 
+      - name: Materialize App Store Connect API key file
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          key_path="$RUNNER_TEMP/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8"
+          printf '%s' '${{ secrets.APPLE_API_KEY }}' > "$key_path"
+          echo "APPLE_API_KEY=$key_path" >> "$GITHUB_ENV"
+
       - name: Validate SSL.com eSigner CKA secrets
         if: matrix.os == 'windows-latest'
         shell: bash
@@ -164,7 +172,7 @@ jobs:
         shell: pwsh
         run: |
           pnpm build
-          npx electron-builder --win nsis --publish never -c.win.certificateSha1="$env:WINDOWS_CERT_SHA1"
+          npx electron-builder --win nsis --publish never "--config.win.certificateSha1=$env:WINDOWS_CERT_SHA1"
 
       - name: Build non-Windows installers
         if: matrix.os != 'windows-latest'

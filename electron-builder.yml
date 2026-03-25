@@ -39,6 +39,7 @@ mac:
 
 linux:
   category: Development
+  maintainer: Bora Kostem <BoraKostem@users.noreply.github.com>
   target:
     - deb
     - AppImage
