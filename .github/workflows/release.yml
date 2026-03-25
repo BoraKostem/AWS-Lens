@@ -111,10 +111,23 @@ jobs:
       - name: Materialize App Store Connect API key file
         if: matrix.os == 'macos-latest'
         shell: bash
+        env:
+          APPLE_API_KEY_SECRET: ${{ secrets.APPLE_API_KEY }}
         run: |
           key_path="$RUNNER_TEMP/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8"
-          printf '%s' '${{ secrets.APPLE_API_KEY }}' > "$key_path"
+          if printf '%s' "$APPLE_API_KEY_SECRET" | grep -q 'BEGIN PRIVATE KEY'; then
+            printf '%s' "$APPLE_API_KEY_SECRET" > "$key_path"
+          else
+            printf '%s' "$APPLE_API_KEY_SECRET" | base64 --decode > "$key_path"
+          fi
           echo "APPLE_API_KEY=$key_path" >> "$GITHUB_ENV"
+
+      - name: Validate App Store Connect API key file
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          grep -q 'BEGIN PRIVATE KEY' "$APPLE_API_KEY"
+          openssl pkey -in "$APPLE_API_KEY" -inform PEM -noout
 
       - name: Validate SSL.com eSigner CKA secrets
         if: matrix.os == 'windows-latest'
