@@ -18,6 +18,8 @@ win:
   target:
     - nsis
   icon: assets/aws-lens-logo.ico
+  signtoolOptions:
+    sign: build/win-custom-sign.cjs
 
 nsis:
   oneClick: false
