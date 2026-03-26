@@ -28,9 +28,10 @@
 
 - Loads AWS CLI profiles from local config and credentials files
 - Lets you select a profile and region from a catalog-oriented shell
+- Adds a Session Hub workspace for saving assume-role targets and reusing temporary cross-account sessions
 - Exposes service consoles for AWS inventory, details, and selected mutations
 - Adds a Compliance Center workspace for grouped security, operational, cost, and compliance findings
-- Opens an embedded terminal with `AWS_PROFILE`, `AWS_REGION`, and `AWS_DEFAULT_REGION` aligned to the active connection
+- Opens an embedded terminal with AWS environment variables aligned to the active base profile or assumed session
 - Includes a Terraform workspace for managing local Terraform project folders, running CLI commands, and inspecting Terraform drift against live AWS inventory
 - Packages as a desktop app with `electron-builder`
 
@@ -39,11 +40,21 @@
 ### Multi-Profile & Multi-Region Management
 Switch between AWS CLI profiles and regions instantly. The app reads your local `~/.aws/config` and `~/.aws/credentials`, so there is nothing extra to configure. Every service console and the embedded terminal stay in sync with the active connection.
 
+### Session Hub
+Session Hub turns STS assume-role flows into a reusable app-level workflow. You can save cross-account role targets, assume them on demand, activate an assumed session as the current app context, see expiration countdowns, re-assume expired sessions, and open a terminal already bound to the temporary credentials.
+
+The security posture is intentionally conservative:
+
+- Saved role targets are persisted locally
+- Temporary STS credentials are kept in memory only
+- Temporary credentials are not written into `~/.aws/config` or `~/.aws/credentials`
+- Base profile flows remain available and can be restored instantly
+
 ### 25+ AWS Service Consoles
 Browse, inspect, and act on resources across a wide range of AWS services — from compute (EC2, Lambda, ECS, EKS) and storage (S3, ECR) to networking (VPC, Route 53, Load Balancers, Security Groups), security (IAM, Identity Center, ACM, WAF, KMS, Secrets Manager), messaging (SNS, SQS), databases (RDS), monitoring (CloudWatch, CloudTrail), and infrastructure (CloudFormation, Auto Scaling, STS, Key Pairs).
 
 ### Embedded Terminal
-A fully integrated terminal powered by `node-pty` and `xterm.js`. The terminal session automatically inherits `AWS_PROFILE`, `AWS_REGION`, and `AWS_DEFAULT_REGION` from your current selection, so AWS CLI, `kubectl`, `docker`, and other tools just work without manual env setup.
+A fully integrated terminal powered by `node-pty` and `xterm.js`. The terminal session automatically inherits the AWS environment for your current selection, whether that is a base profile or an assumed session, so AWS CLI, `kubectl`, `docker`, and other tools work without manual env setup.
 
 ### Compliance Center
 The Compliance Center is a dedicated workspace for the active AWS profile and region. It groups findings by severity (`high`, `medium`, `low`) and category (`security`, `cost`, `operations`, `compliance`), supports filters for severity, category, service, and search text, and exposes safe remediation actions where the app already supports them.
@@ -62,6 +73,8 @@ Initial checks include:
 
 ### Terraform Workspace
 The Terraform workspace now also includes operator-focused Drift Intelligence. It compares Terraform-managed inventory with live AWS inventory, highlights `in_sync`, `drifted`, `missing_in_aws`, `unmanaged_in_aws`, and `unsupported` items, and provides AWS console plus `terraform state show` shortcuts from the drift view.
+
+Terraform commands also run against the active app context, so assumed sessions can be reused for Terraform drift checks and CLI runs without editing local AWS credential files.
 
 Terraform Drift Intelligence currently provides:
 
@@ -135,6 +148,7 @@ The renderer currently wires these service or workspace screens:
 
 - Terraform
 - Overview
+- Session Hub
 - Compliance Center
 - EC2
 - CloudWatch
@@ -167,6 +181,8 @@ The renderer currently wires these service or workspace screens:
 The app reads AWS configuration from the standard local AWS files and also stores app-specific data under Electron user data.
 
 - AWS profiles: `~/.aws/config` and `~/.aws/credentials`
+- Session Hub targets: Electron `userData` as `session-hub.json`
+- Assumed STS session credentials: memory only, not persisted to disk
 - Terraform workspace state: Electron `userData` as `terraform-workspace-state.json`
 
 Depending on the service flow, local command-line tools may also be used if they are installed:
@@ -237,7 +253,8 @@ Packaged artifacts are written to `release/`.
 
 - Renderer code should talk to Electron through the preload bridge instead of reaching into Node APIs directly.
 - AWS service actions are implemented in the main process and exposed through focused IPC handlers.
-- The embedded terminal is a shared PTY session whose AWS context is updated when the active profile or region changes.
+- The embedded terminal is a shared PTY session whose AWS context is updated when the active profile, assumed session, or region changes.
+- Session Hub persists assume-role definitions but keeps temporary STS credentials in memory only.
 - Terraform support is local-workspace oriented and depends on the host having the Terraform CLI available.
 - Drift detection is intentionally incremental. It compares existence, selected identifiers, and important attributes for a supported subset of AWS resource types rather than attempting full Terraform semantic diffing.
 - Packaging unpacks `node-pty` from ASAR so the terminal works in packaged builds.

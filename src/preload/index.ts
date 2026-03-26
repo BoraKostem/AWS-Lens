@@ -1,15 +1,33 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-import type { AwsConnection, BastionLaunchConfig, Ec2InstanceAction, EcsFargateServiceConfig, LambdaCreateConfig, SnapshotLaunchConfig, TerraformCommandRequest } from '@shared/types'
+import type {
+  AssumeRoleRequest,
+  AwsAssumeRoleTarget,
+  AwsConnection,
+  BastionLaunchConfig,
+  Ec2InstanceAction,
+  EcsFargateServiceConfig,
+  LambdaCreateConfig,
+  SnapshotLaunchConfig,
+  TerraformCommandRequest
+} from '@shared/types'
 
 /* ── AWS Lens bridge ──────────────────────────────────────── */
 
 const awsLensApi = {
   listProfiles: () => ipcRenderer.invoke('profiles:list'),
+  deleteProfile: (profileName: string) => ipcRenderer.invoke('profiles:delete', profileName),
   chooseAndImportConfig: () => ipcRenderer.invoke('profiles:choose-and-import'),
   saveCredentials: (profileName: string, accessKeyId: string, secretAccessKey: string) =>
     ipcRenderer.invoke('profiles:save-credentials', profileName, accessKeyId, secretAccessKey),
   listRegions: () => ipcRenderer.invoke('regions:list'),
+  getSessionHubState: () => ipcRenderer.invoke('session-hub:list'),
+  saveAssumeRoleTarget: (target: Omit<AwsAssumeRoleTarget, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) =>
+    ipcRenderer.invoke('session-hub:target:save', target),
+  deleteAssumeRoleTarget: (targetId: string) => ipcRenderer.invoke('session-hub:target:delete', targetId),
+  deleteAssumedSession: (sessionId: string) => ipcRenderer.invoke('session-hub:session:delete', sessionId),
+  assumeRoleSession: (request: AssumeRoleRequest) => ipcRenderer.invoke('session-hub:assume', request),
+  assumeSavedRoleTarget: (targetId: string) => ipcRenderer.invoke('session-hub:assume-target', targetId),
   listServices: () => ipcRenderer.invoke('services:list'),
   getCallerIdentity: (connection: AwsConnection) => ipcRenderer.invoke('sts:get-caller-identity', connection),
   listEc2Instances: (connection: AwsConnection) => ipcRenderer.invoke('ec2:list', connection),

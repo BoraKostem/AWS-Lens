@@ -43,7 +43,7 @@ export function KmsConsole({ connection }: { connection: AwsConnection }) {
     finally { setLoading(false) }
   }
 
-  useEffect(() => { void refresh() }, [connection.profile, connection.region])
+useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
 
   const activeCols = COLUMNS.filter(c => visCols.has(c.key))
 

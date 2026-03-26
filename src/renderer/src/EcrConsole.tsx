@@ -235,7 +235,7 @@ export function EcrConsole({ connection }: { connection: AwsConnection }) {
   /* ── Load data ─────────────────────────────────────────── */
   useEffect(() => {
     void loadRepos()
-  }, [connection.profile, connection.region])
+}, [connection.sessionId, connection.region])
 
   async function loadRepos() {
     setError('')

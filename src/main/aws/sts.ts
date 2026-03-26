@@ -1,5 +1,4 @@
 import {
-  AssumeRoleCommand,
   DecodeAuthorizationMessageCommand,
   GetAccessKeyInfoCommand,
   GetCallerIdentityCommand,
@@ -8,6 +7,7 @@ import {
 
 import type { AccessKeyOwnership, AssumeRoleResult, AwsConnection, CallerIdentity, StsDecodedAuthorizationMessage } from '@shared/types'
 import { awsClientConfig } from './client'
+import { assumeRoleSession } from '../sessionHub'
 
 function createClient(connection: AwsConnection): STSClient {
   return new STSClient(awsClientConfig(connection))
@@ -53,22 +53,12 @@ export async function assumeRole(
   sessionName: string,
   externalId?: string
 ): Promise<AssumeRoleResult> {
-  const client = createClient(connection)
-  const output = await client.send(
-    new AssumeRoleCommand({
-      RoleArn: roleArn,
-      RoleSessionName: sessionName,
-      ExternalId: externalId || undefined
-    })
-  )
-
-  return {
-    assumedRoleArn: output.AssumedRoleUser?.Arn ?? '',
-    assumedRoleId: output.AssumedRoleUser?.AssumedRoleId ?? '',
-    accessKeyId: output.Credentials?.AccessKeyId ?? '',
-    secretAccessKey: output.Credentials?.SecretAccessKey ?? '',
-    sessionToken: output.Credentials?.SessionToken ?? '',
-    expiration: output.Credentials?.Expiration?.toISOString() ?? '',
-    packedPolicySize: output.PackedPolicySize ?? 0
-  }
+  return assumeRoleSession({
+    label: roleArn,
+    roleArn,
+    sessionName,
+    externalId,
+    sourceProfile: connection.kind === 'assumed-role' ? connection.sourceProfile : connection.profile,
+    region: connection.region
+  })
 }

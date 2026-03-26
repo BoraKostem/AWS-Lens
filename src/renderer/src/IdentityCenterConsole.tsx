@@ -183,7 +183,7 @@ export function IdentityCenterConsole({ connection }: { connection: AwsConnectio
     finally { setSimLoading(false) }
   }
 
-  useEffect(() => { void loadInstances() }, [connection.profile, connection.region])
+useEffect(() => { void loadInstances() }, [connection.sessionId, connection.region])
 
   /* ── Filtering ──────────────────────────────────────────── */
 

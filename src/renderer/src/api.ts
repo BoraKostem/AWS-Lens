@@ -6,9 +6,12 @@ import type {
   AcmCertificateSummary,
   AcmRequestCertificateInput,
   AssumeRoleResult,
+  AssumeRoleRequest,
+  AwsAssumeRoleTarget,
   AwsConnection,
   AwsProfile,
   AwsRegionOption,
+  SessionHubState,
   CallerIdentity,
   ComplianceReport,
   ServiceDescriptor,
@@ -175,6 +178,7 @@ let awsActivityState: AwsActivityState = {
 
 const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   listProfiles: 'shell',
+  deleteProfile: 'shell',
   chooseAndImportConfig: 'shell',
   saveCredentials: 'shell',
   listRegions: 'shell',
@@ -285,6 +289,7 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
 }
 
 const MUTATING_METHODS = new Set<keyof AwsLensBridge>([
+  'deleteProfile',
   'chooseAndImportConfig',
   'saveCredentials',
   'createEcrRepository',
@@ -592,6 +597,10 @@ export async function listProfiles(): Promise<AwsProfile[]> {
   return unwrap((await awsBridge().listProfiles()) as Wrapped<AwsProfile[]>)
 }
 
+export async function deleteProfile(profileName: string): Promise<void> {
+  return unwrap((await awsBridge().deleteProfile(profileName)) as Wrapped<void>)
+}
+
 export async function chooseAndImportConfig(): Promise<string[]> {
   return unwrap((await awsBridge().chooseAndImportConfig()) as Wrapped<string[]>)
 }
@@ -602,6 +611,30 @@ export async function saveCredentials(profileName: string, accessKeyId: string, 
 
 export async function listRegions(): Promise<AwsRegionOption[]> {
   return unwrap((await awsBridge().listRegions()) as Wrapped<AwsRegionOption[]>)
+}
+
+export async function getSessionHubState(): Promise<SessionHubState> {
+  return unwrap((await awsBridge().getSessionHubState()) as Wrapped<SessionHubState>)
+}
+
+export async function saveAssumeRoleTarget(target: Omit<AwsAssumeRoleTarget, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<AwsAssumeRoleTarget> {
+  return unwrap((await awsBridge().saveAssumeRoleTarget(target)) as Wrapped<AwsAssumeRoleTarget>)
+}
+
+export async function deleteAssumeRoleTarget(targetId: string): Promise<void> {
+  return unwrap((await awsBridge().deleteAssumeRoleTarget(targetId)) as Wrapped<void>)
+}
+
+export async function deleteAssumedSession(sessionId: string): Promise<void> {
+  return unwrap((await awsBridge().deleteAssumedSession(sessionId)) as Wrapped<void>)
+}
+
+export async function assumeRoleSession(request: AssumeRoleRequest): Promise<AssumeRoleResult> {
+  return unwrap((await awsBridge().assumeRoleSession(request)) as Wrapped<AssumeRoleResult>)
+}
+
+export async function assumeSavedRoleTarget(targetId: string): Promise<AssumeRoleResult> {
+  return unwrap((await awsBridge().assumeSavedRoleTarget(targetId)) as Wrapped<AssumeRoleResult>)
 }
 
 export async function listServices(): Promise<ServiceDescriptor[]> {

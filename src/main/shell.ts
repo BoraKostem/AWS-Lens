@@ -1,5 +1,8 @@
 import { spawn } from 'node:child_process'
 
+import type { AwsConnection } from '@shared/types'
+import { getConnectionEnv } from './sessionHub'
+
 export type ShellKind = 'powershell' | 'posix'
 
 export type ShellConfig = {
@@ -50,36 +53,69 @@ export function getShellConfig(): ShellConfig {
   }
 }
 
-export function buildAwsContextCommand(profile: string, region: string): string {
-  const shell = getShellConfig()
+function unsetPowerShell(name: string): string {
+  return `Remove-Item Env:${name} -ErrorAction SilentlyContinue`
+}
 
+function unsetPosix(name: string): string {
+  return `unset ${name}`
+}
+
+function buildEnvCommands(connection: AwsConnection): string[] {
+  const shell = getShellConfig()
+  const env = getConnectionEnv(connection)
+  const baseCommands = shell.kind === 'powershell'
+    ? [
+        unsetPowerShell('AWS_PROFILE'),
+        unsetPowerShell('AWS_ACCESS_KEY_ID'),
+        unsetPowerShell('AWS_SECRET_ACCESS_KEY'),
+        unsetPowerShell('AWS_SESSION_TOKEN')
+      ]
+    : [
+        unsetPosix('AWS_PROFILE'),
+        unsetPosix('AWS_ACCESS_KEY_ID'),
+        unsetPosix('AWS_SECRET_ACCESS_KEY'),
+        unsetPosix('AWS_SESSION_TOKEN')
+      ]
+
+  const assignments = Object.entries(env).map(([key, value]) =>
+    shell.kind === 'powershell'
+      ? `$env:${key} = ${quotePowerShell(value)}`
+      : `export ${key}=${quotePosix(value)}`
+  )
+
+  return [...baseCommands, ...assignments]
+}
+
+export function buildAwsContextCommand(connection: AwsConnection): string {
+  const shell = getShellConfig()
+  const envCommands = buildEnvCommands(connection)
   if (shell.kind === 'powershell') {
     return [
       buildPowerShellUtf8Command(),
-      `$env:AWS_PROFILE = ${quotePowerShell(profile)}`,
-      `$env:AWS_DEFAULT_REGION = ${quotePowerShell(region)}`,
-      `$env:AWS_REGION = ${quotePowerShell(region)}`,
-      `Write-Host ("AWS context: profile=" + $env:AWS_PROFILE + " region=" + $env:AWS_REGION)`
+      ...envCommands,
+      connection.kind === 'profile'
+        ? `Write-Host ("AWS context: profile=" + $env:AWS_PROFILE + " region=" + $env:AWS_REGION)`
+        : `Write-Host ("AWS context: session=" + ${quotePowerShell(connection.label)} + " region=" + $env:AWS_REGION + " account=" + ${quotePowerShell(connection.accountId)})`
     ].join('; ')
   }
 
   return [
-    `export AWS_PROFILE=${quotePosix(profile)}`,
-    `export AWS_DEFAULT_REGION=${quotePosix(region)}`,
-    `export AWS_REGION=${quotePosix(region)}`,
-    'printf "AWS context: profile=%s region=%s\\n" "$AWS_PROFILE" "$AWS_REGION"'
+    ...envCommands,
+    connection.kind === 'profile'
+      ? 'printf "AWS context: profile=%s region=%s\\n" "$AWS_PROFILE" "$AWS_REGION"'
+      : `printf "AWS context: session=%s region=%s account=%s\\n" ${quotePosix(connection.label)} "$AWS_REGION" ${quotePosix(connection.accountId)}`
   ].join('; ')
 }
 
-function buildKubectlStartupCommand(profile: string, region: string, clusterName: string): string {
+function buildKubectlStartupCommand(connection: AwsConnection, clusterName: string): string {
   const shell = getShellConfig()
+  const envCommands = buildEnvCommands(connection)
 
   if (shell.kind === 'powershell') {
     return [
       buildPowerShellUtf8Command(),
-      `$env:AWS_PROFILE = ${quotePowerShell(profile)}`,
-      `$env:AWS_DEFAULT_REGION = ${quotePowerShell(region)}`,
-      `$env:AWS_REGION = ${quotePowerShell(region)}`,
+      ...envCommands,
       `Write-Host ${quotePowerShell(`kubectl context ready for cluster: ${clusterName}`)}`,
       'Write-Host ""',
       'kubectl cluster-info'
@@ -87,9 +123,7 @@ function buildKubectlStartupCommand(profile: string, region: string, clusterName
   }
 
   return [
-    `export AWS_PROFILE=${quotePosix(profile)}`,
-    `export AWS_DEFAULT_REGION=${quotePosix(region)}`,
-    `export AWS_REGION=${quotePosix(region)}`,
+    ...envCommands,
     `printf "kubectl context ready for cluster: %s\\n\\n" ${quotePosix(clusterName)}`,
     'kubectl cluster-info'
   ].join('; ')
@@ -111,12 +145,12 @@ function spawnDetached(command: string, args: string[]): Promise<void> {
   })
 }
 
-export async function launchKubectlShell(profile: string, region: string, clusterName: string, kubeconfigPath: string): Promise<void> {
+export async function launchKubectlShell(connection: AwsConnection, clusterName: string, kubeconfigPath: string): Promise<void> {
   const shell = getShellConfig()
   const kubeconfigCommand = shell.kind === 'powershell'
     ? `$env:KUBECONFIG = ${quotePowerShell(kubeconfigPath)}`
     : `export KUBECONFIG=${quotePosix(kubeconfigPath)}`
-  const command = [kubeconfigCommand, buildKubectlStartupCommand(profile, region, clusterName)].join('; ')
+  const command = [kubeconfigCommand, buildKubectlStartupCommand(connection, clusterName)].join('; ')
 
   if (process.platform === 'win32') {
     await spawnDetached('cmd.exe', ['/c', 'start', '', shell.command, '-NoExit', '-Command', command])

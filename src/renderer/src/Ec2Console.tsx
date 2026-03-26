@@ -357,7 +357,7 @@ export function Ec2Console({
     }
   }
 
-  useEffect(() => { void reload(); void loadRecommendations() }, [connection.profile, connection.region])
+useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessionId, connection.region])
 
   async function selectInstance(id: string) {
     setSelectedId(id)
@@ -674,7 +674,9 @@ export function Ec2Console({
   const bastionLaunchBusy = bastionLaunchStatus !== null && !['completed', 'failed'].includes(bastionLaunchStatus.stage)
 
   const ssmCmd = detail
-    ? `aws ssm start-session --target ${detail.instanceId} --profile ${connection.profile} --region ${connection.region}`
+                  ? connection.kind === 'profile'
+                    ? `aws ssm start-session --target ${detail.instanceId} --profile ${connection.profile} --region ${connection.region}`
+                    : `aws ssm start-session --target ${detail.instanceId} --region ${connection.region}`
     : ''
   const sshCmd = detail
     ? `ssh -i ${quoteSshArg(sshKey || `~/.ssh/${detail.keyName}.pem`)} ${sshUser}@${detail.publicIp !== '-' ? detail.publicIp : detail.privateIp}`

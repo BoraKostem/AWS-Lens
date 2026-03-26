@@ -115,7 +115,7 @@ export function SecretsManagerConsole({ connection }: { connection: AwsConnectio
     }
   }
 
-  useEffect(() => { void refresh() }, [connection.profile, connection.region])
+useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
 
   async function selectSecret(arn: string) {
     setSelectedSecretId(arn)

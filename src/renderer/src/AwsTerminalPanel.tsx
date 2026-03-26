@@ -126,7 +126,7 @@ export function AwsTerminalPanel({
       return
     }
 
-    const nextKey = `${connection.profile}:${connection.region}`
+    const nextKey = `${connection.sessionId}:${connection.region}`
     if (!running) {
       sessionKeyRef.current = nextKey
       const initialCommand = commandToRun?.command
@@ -155,7 +155,7 @@ export function AwsTerminalPanel({
       return
     }
 
-    const nextKey = `${connection.profile}:${connection.region}`
+    const nextKey = `${connection.sessionId}:${connection.region}`
     if (sessionKeyRef.current !== nextKey) {
       return
     }
@@ -184,7 +184,7 @@ export function AwsTerminalPanel({
           <div className="eyebrow">Terminal</div>
           <h3>AWS CLI Shell</h3>
           <p className="terminal-meta">
-            {connection ? `${connection.profile} · ${connection.region}` : 'Select a profile and region to start the terminal.'}
+            {connection ? `${connection.label} · ${connection.region}` : 'Select a profile and region to start the terminal.'}
           </p>
         </div>
         <div className="button-row terminal-actions">

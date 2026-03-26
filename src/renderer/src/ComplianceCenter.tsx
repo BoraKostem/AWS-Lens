@@ -72,7 +72,7 @@ export function ComplianceCenter({
   useEffect(() => {
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connection.profile, connection.region, refreshNonce])
+}, [connection.sessionId, connection.region, refreshNonce])
 
   const serviceOptions = useMemo(() => {
     if (!report) return []

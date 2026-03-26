@@ -536,6 +536,108 @@ button.overview-tile.clickable.active strong {
   grid-template-columns: minmax(0, 1fr) minmax(0, 0.6fr) minmax(0, 1.4fr);
 }
 
+.session-hub-hero {
+  align-items: center;
+}
+
+.session-hub-tiles {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.session-hub-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.session-hub-picker {
+  position: relative;
+}
+
+.session-hub-picker-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 0.35rem;
+  background: linear-gradient(180deg, rgba(29, 34, 42, 0.98), rgba(22, 26, 32, 0.98));
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+
+.session-hub-picker-option {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.82rem;
+  line-height: 1.3;
+}
+
+.session-hub-picker-option:hover {
+  transform: none;
+  background: rgba(223, 105, 42, 0.12);
+  border-color: transparent;
+}
+
+.session-hub-picker-empty {
+  padding: 0.65rem 0.7rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.session-hub-toolbar {
+  margin-top: 0.95rem;
+}
+
+.session-hub-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.session-hub-session-grid {
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.8fr) minmax(0, 0.7fr) minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+}
+
+.session-hub-action-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.session-hub-action-stack button {
+  width: 100%;
+}
+
+.session-hub-compare-grid {
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+}
+
+.session-hub-compare-layout {
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+}
+
+.session-hub-compare-table {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.8fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.session-hub-compare-cell {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 /* ── Signal cards ──────────────────────────────────────────── */
 
 .signal-card {
@@ -966,6 +1068,14 @@ button.overview-tile.clickable.active strong {
   border: 1px solid rgba(255, 139, 114, 0.35);
   background: rgba(255, 139, 114, 0.12);
   color: #ffd9d0;
+}
+
+.success-banner {
+  padding: 0.9rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(96, 211, 148, 0.35);
+  background: rgba(96, 211, 148, 0.12);
+  color: #d8ffe8;
 }
 
 .empty-state {
@@ -1764,6 +1874,24 @@ button.overview-tile.clickable.active strong {
 
   .overview-tiles {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .session-hub-tiles,
+  .session-hub-form-grid,
+  .session-hub-session-grid,
+  .session-hub-compare-grid,
+  .session-hub-compare-table,
+  .session-hub-compare-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .session-hub-action-stack {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .session-hub-action-stack button {
+    width: auto;
   }
 
   .sidebar {

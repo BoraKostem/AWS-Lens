@@ -80,7 +80,7 @@ export function WorkspaceApp({ connection }: { connection: AwsConnection }) {
     finally { setLoading(false) }
   }
 
-  useEffect(() => { void load() }, [connection.profile, connection.region])
+  useEffect(() => { void load() }, [connection.sessionId, connection.region])
 
   function selectLB(arn: string) {
     const ws = workspaces.find(w => w.summary.arn === arn)

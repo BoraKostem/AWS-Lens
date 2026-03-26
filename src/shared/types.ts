@@ -4,6 +4,7 @@ export type AwsProfile = {
   name: string
   source: 'config' | 'credentials'
   region: string
+  managedByApp: boolean
 }
 
 export type AwsRegionOption = {
@@ -11,9 +12,82 @@ export type AwsRegionOption = {
   name: string
 }
 
-export type AwsConnection = {
+export type AwsCredentialSnapshot = {
+  accessKeyId: string
+  secretAccessKey: string
+  sessionToken: string
+  expiration: string
+}
+
+export type AwsAssumeRoleTarget = {
+  id: string
+  label: string
+  roleArn: string
+  defaultSessionName: string
+  externalId: string
+  sourceProfile: string
+  defaultRegion: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type AwsBaseConnection = {
+  kind: 'profile'
+  sessionId: string
+  label: string
   profile: string
   region: string
+}
+
+export type AwsAssumedRoleConnection = {
+  kind: 'assumed-role'
+  sessionId: string
+  label: string
+  profile: string
+  sourceProfile: string
+  region: string
+  roleArn: string
+  assumedRoleArn: string
+  accountId: string
+  accessKeyId: string
+  expiration: string
+  externalId: string
+}
+
+export type AwsConnection = AwsBaseConnection | AwsAssumedRoleConnection
+
+export type AwsSessionStatus = 'active' | 'expired'
+
+export type AwsSessionSummary = {
+  id: string
+  kind: AwsConnection['kind']
+  label: string
+  profile: string
+  region: string
+  status: AwsSessionStatus
+  sourceProfile: string
+  roleArn: string
+  assumedRoleArn: string
+  accountId: string
+  accessKeyId: string
+  expiration: string
+  externalId: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type SessionHubState = {
+  targets: AwsAssumeRoleTarget[]
+  sessions: AwsSessionSummary[]
+}
+
+export type AssumeRoleRequest = {
+  label: string
+  roleArn: string
+  sessionName: string
+  externalId?: string
+  sourceProfile?: string
+  region?: string
 }
 
 export type CallerIdentity = {
@@ -344,6 +418,7 @@ export type LoadBalancerWorkspace = {
 export type ServiceId =
   | 'terraform'
   | 'overview'
+  | 'session-hub'
   | 'compliance-center'
     | 'ec2'
     | 'cloudwatch'
@@ -1538,6 +1613,7 @@ export type TerraformProject = {
 
 export type TerraformCommandRequest = {
   profileName: string
+  connection?: AwsConnection
   projectId: string
   command: TerraformCommandName
   stateAddress?: string
@@ -1701,13 +1777,20 @@ export type AccessKeyOwnership = {
 }
 
 export type AssumeRoleResult = {
+  sessionId: string
+  label: string
+  sourceProfile: string
+  roleArn: string
   assumedRoleArn: string
   assumedRoleId: string
+  accountId: string
   accessKeyId: string
   secretAccessKey: string
   sessionToken: string
   expiration: string
   packedPolicySize: number
+  region: string
+  externalId: string
 }
 
 /* KMS */

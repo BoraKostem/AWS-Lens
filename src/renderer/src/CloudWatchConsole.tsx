@@ -277,7 +277,7 @@ function LogGroupViewer({
 
   useEffect(() => {
     void load()
-  }, [connection.profile, connection.region, logGroupName, timeRange])
+}, [connection.sessionId, connection.region, logGroupName, timeRange])
 
   const filtered = useMemo(() => {
     if (!searchFilter) return events
@@ -455,14 +455,14 @@ export function CloudWatchConsole({
 
   useEffect(() => {
     void load()
-  }, [connection.profile, connection.region, timeRange, ec2InstanceId, isEc2Mode])
+}, [connection.sessionId, connection.region, timeRange, ec2InstanceId, isEc2Mode])
 
   useEffect(() => {
     setTabs([{ type: 'overview' }])
     setActiveTabIndex(0)
     setNamespaceFilter('all')
     setExpandedChart(null)
-  }, [ec2InstanceId, connection.profile, connection.region])
+}, [ec2InstanceId, connection.sessionId, connection.region])
 
   // Filtered metric stats based on namespace filter
   const filteredStats = useMemo(() => {

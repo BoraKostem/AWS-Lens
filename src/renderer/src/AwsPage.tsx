@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
-import type { AwsConnection, AwsProfile, AwsRegionOption, CallerIdentity } from '@shared/types'
-import { getCallerIdentity, listProfiles, listRegions } from './api'
+import type { AwsConnection, AwsProfile, AwsRegionOption, AwsSessionSummary, AwsAssumeRoleTarget, CallerIdentity } from '@shared/types'
+import { getCallerIdentity, getSessionHubState, listProfiles, listRegions } from './api'
 
 const PROFILE_STORAGE_KEY = 'aws-lens:selected-profile'
 const REGION_STORAGE_KEY = 'aws-lens:selected-region'
 const PINNED_PROFILES_STORAGE_KEY = 'aws-lens:pinned-profiles'
+const ACTIVE_SESSION_ID_STORAGE_KEY = 'aws-lens:active-session-id'
 
 function readStoredValue(key: string, fallback: string): string {
   if (typeof window === 'undefined') {
@@ -54,6 +55,9 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1') {
   const [profile, setProfile] = useState('')
   const [region, setRegion] = useState(() => readStoredValue(REGION_STORAGE_KEY, defaultRegion))
   const [pinnedProfileNames, setPinnedProfileNames] = useState<string[]>(() => readStoredList(PINNED_PROFILES_STORAGE_KEY))
+  const [targets, setTargets] = useState<AwsAssumeRoleTarget[]>([])
+  const [sessions, setSessions] = useState<AwsSessionSummary[]>([])
+  const [activeSessionId, setActiveSessionId] = useState(() => readStoredValue(ACTIVE_SESSION_ID_STORAGE_KEY, ''))
   const [identity, setIdentity] = useState<CallerIdentity | null>(null)
   const [connected, setConnected] = useState(false)
   const [connecting, setConnecting] = useState(false)
@@ -62,9 +66,11 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1') {
   useEffect(() => {
     void (async () => {
       try {
-        const [loadedProfiles, loadedRegions] = await Promise.all([listProfiles(), listRegions()])
+        const [loadedProfiles, loadedRegions, sessionState] = await Promise.all([listProfiles(), listRegions(), getSessionHubState()])
         setProfiles(loadedProfiles)
         setRegions(loadedRegions)
+        setTargets(sessionState.targets)
+        setSessions(sessionState.sessions)
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
       }
@@ -83,8 +89,13 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1') {
     writeStoredList(PINNED_PROFILES_STORAGE_KEY, pinnedProfileNames)
   }, [pinnedProfileNames])
 
+  useEffect(() => {
+    writeStoredValue(ACTIVE_SESSION_ID_STORAGE_KEY, activeSessionId)
+  }, [activeSessionId])
+
   function selectProfile(name: string): void {
     setProfile(name)
+    setActiveSessionId('')
     const match = profiles.find((entry) => entry.name === name)
     if (match?.region) {
       setRegion(match.region)
@@ -93,10 +104,44 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1') {
 
   // Profile is only set by explicit user selection — no auto-select
 
+  const activeSession = useMemo(
+    () => sessions.find((entry) => entry.id === activeSessionId) ?? null,
+    [activeSessionId, sessions]
+  )
+
+  useEffect(() => {
+    if (activeSessionId && !activeSession) {
+      setActiveSessionId('')
+    }
+  }, [activeSession, activeSessionId])
+
   const connection = useMemo<AwsConnection | null>(() => {
-    if (!profile || !region) return null
-    return { profile, region }
-  }, [profile, region])
+    if (!region) return null
+    if (activeSession) {
+      return {
+        kind: 'assumed-role',
+        sessionId: activeSession.id,
+        label: activeSession.label,
+        profile: activeSession.profile,
+        sourceProfile: activeSession.sourceProfile,
+        region,
+        roleArn: activeSession.roleArn,
+        assumedRoleArn: activeSession.assumedRoleArn,
+        accountId: activeSession.accountId,
+        accessKeyId: activeSession.accessKeyId,
+        expiration: activeSession.expiration,
+        externalId: activeSession.externalId
+      }
+    }
+    if (!profile) return null
+    return {
+      kind: 'profile',
+      sessionId: `profile:${profile}`,
+      label: profile,
+      profile,
+      region
+    }
+  }, [activeSession, profile, region])
 
   const selectedProfile = useMemo(
     () => profiles.find((entry) => entry.name === profile) ?? null,
@@ -160,12 +205,29 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1') {
 
   async function refreshProfiles(): Promise<void> {
     try {
-      const [loadedProfiles, loadedRegions] = await Promise.all([listProfiles(), listRegions()])
+      const [loadedProfiles, loadedRegions, sessionState] = await Promise.all([listProfiles(), listRegions(), getSessionHubState()])
       setProfiles(loadedProfiles)
       setRegions(loadedRegions)
+      setTargets(sessionState.targets)
+      setSessions(sessionState.sessions)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
+  }
+
+  function activateSession(sessionId: string): void {
+    const nextSession = sessions.find((entry) => entry.id === sessionId)
+    if (!nextSession) {
+      return
+    }
+    setActiveSessionId(sessionId)
+    if (nextSession.region) {
+      setRegion(nextSession.region)
+    }
+  }
+
+  function clearActiveSession(): void {
+    setActiveSessionId('')
   }
 
   return {
@@ -179,6 +241,12 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1') {
     pinnedProfileNames,
     pinnedProfiles,
     togglePinnedProfile,
+    targets,
+    sessions,
+    activeSessionId,
+    activeSession,
+    activateSession,
+    clearActiveSession,
     selectedProfile,
     selectedRegion,
     identity,
@@ -238,7 +306,7 @@ export function AwsConnectionPanel({
       return
     }
 
-    const readyKey = `${state.connection.profile}:${state.connection.region}`
+    const readyKey = `${state.connection.sessionId}:${state.connection.region}`
     if (lastReadyKeyRef.current === readyKey) {
       return
     }

@@ -162,7 +162,7 @@ export function EksConsole({ connection }: { connection: AwsConnection }) {
     }
   }
 
-  useEffect(() => { void reload() }, [connection.profile, connection.region])
+useEffect(() => { void reload() }, [connection.sessionId, connection.region])
 
   async function selectCluster(name: string) {
     setSelectedCluster(name)
@@ -252,6 +252,9 @@ export function EksConsole({ connection }: { connection: AwsConnection }) {
   /* ── Terminal ───────────────────────────────────────── */
   async function openTerminal() {
     if (!selectedCluster || terminalBusy) return
+    const terminalContextLine = connection.kind === 'profile'
+      ? `AWS_PROFILE=${connection.profile} AWS_DEFAULT_REGION=${connection.region}`
+      : `SESSION=${connection.label} AWS_DEFAULT_REGION=${connection.region}`
 
     setTerminalOpen(true)
     setTerminalBusy(true)
@@ -260,19 +263,19 @@ export function EksConsole({ connection }: { connection: AwsConnection }) {
     setTerminalCmd('')
     setTerminalKubeconfigPath('')
     setTerminalOutput(
-      `kubectl terminal for cluster: ${selectedCluster}\nAWS_PROFILE=${connection.profile} AWS_DEFAULT_REGION=${connection.region}\n\nPreparing kubeconfig for ${selectedCluster}...\n`
+      `kubectl terminal for cluster: ${selectedCluster}\n${terminalContextLine}\n\nPreparing kubeconfig for ${selectedCluster}...\n`
     )
 
     try {
       const result = await prepareEksKubectlSession(connection, selectedCluster)
       setTerminalKubeconfigPath(result.path)
       setTerminalOutput(
-        `kubectl terminal for cluster: ${selectedCluster}\nAWS_PROFILE=${connection.profile} AWS_DEFAULT_REGION=${connection.region}\nKUBECONFIG=${result.path}\n\n${result.output}\n\n`
+        `kubectl terminal for cluster: ${selectedCluster}\n${terminalContextLine}\nKUBECONFIG=${result.path}\n\n${result.output}\n\n`
       )
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       setTerminalOutput(
-        `kubectl terminal for cluster: ${selectedCluster}\nAWS_PROFILE=${connection.profile} AWS_DEFAULT_REGION=${connection.region}\n\nError preparing kubeconfig: ${message}\n`
+        `kubectl terminal for cluster: ${selectedCluster}\n${terminalContextLine}\n\nError preparing kubeconfig: ${message}\n`
       )
       setError(message)
     } finally {

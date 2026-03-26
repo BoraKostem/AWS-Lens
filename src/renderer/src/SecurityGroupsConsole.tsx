@@ -149,6 +149,7 @@ function RuleModal({
 export function SecurityGroupsConsole({ connection }: { connection: AwsConnection }) {
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
+  const [error, setError] = useState('')
   const [groups, setGroups] = useState<SecurityGroupSummary[]>([])
   const [selectedId, setSelectedId] = useState('')
   const [detail, setDetail] = useState<SecurityGroupDetail | null>(null)
@@ -158,7 +159,7 @@ export function SecurityGroupsConsole({ connection }: { connection: AwsConnectio
   const [sideTab, setSideTab] = useState<'details' | 'inbound' | 'outbound'>('details')
 
   async function reload() {
-    setLoading(true); setMsg('')
+    setLoading(true); setMsg(''); setError('')
     try {
       const items = await listSecurityGroups(connection)
       setGroups(items)
@@ -170,21 +171,26 @@ export function SecurityGroupsConsole({ connection }: { connection: AwsConnectio
       } else {
         setDetail(await describeSecurityGroup(connection, selectedId))
       }
-    } catch (e) { setMsg(e instanceof Error ? e.message : String(e)) }
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     finally { setLoading(false) }
   }
 
-  useEffect(() => { void reload() }, [connection.profile, connection.region])
+useEffect(() => { void reload() }, [connection.sessionId, connection.region])
 
   async function selectGroup(groupId: string) {
-    setSelectedId(groupId); setMsg('')
+    setSelectedId(groupId); setMsg(''); setError('')
     try { setDetail(await describeSecurityGroup(connection, groupId)) }
-    catch (e) { setMsg(e instanceof Error ? e.message : String(e)) }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)) }
   }
 
   async function onModalDone(feedbackMsg: string) {
-    setModal({ kind: 'closed' }); setMsg(feedbackMsg)
-    if (selectedId) setDetail(await describeSecurityGroup(connection, selectedId))
+    setModal({ kind: 'closed' }); setMsg(feedbackMsg); setError('')
+    if (!selectedId) return
+    try {
+      setDetail(await describeSecurityGroup(connection, selectedId))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
   }
 
   const activeCols = COLUMNS.filter(c => visCols.has(c.key))
@@ -205,6 +211,7 @@ export function SecurityGroupsConsole({ connection }: { connection: AwsConnectio
       </div>
 
       {msg && <div className="svc-msg">{msg}</div>}
+      {error && <div className="svc-error">{error}</div>}
 
       <input className="svc-search" placeholder="Filter rows across selected columns..." value={filter} onChange={e => setFilter(e.target.value)} />
 

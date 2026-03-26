@@ -26,6 +26,7 @@ import type {
   EksUpdateEvent
 } from '@shared/types'
 import { launchKubectlShell } from '../shell'
+import { getConnectionEnv } from '../sessionHub'
 
 const execFileAsync = promisify(execFile)
 
@@ -196,10 +197,17 @@ export async function addEksToKubeconfig(
   const args = [
     'eks', 'update-kubeconfig',
     '--name', clusterName,
-    '--region', connection.region,
-    '--profile', connection.profile
+    '--region', connection.region
   ]
-  const { stdout, stderr } = await execFileAsync('aws', args)
+  if (connection.kind === 'profile') {
+    args.push('--profile', connection.profile)
+  }
+  const { stdout, stderr } = await execFileAsync('aws', args, {
+    env: {
+      ...process.env,
+      ...getConnectionEnv(connection)
+    }
+  })
   return (stdout || stderr).trim()
 }
 
@@ -220,13 +228,19 @@ export async function createTempEksKubeconfig(
     clusterName,
     '--region',
     connection.region,
-    '--profile',
-    connection.profile,
     '--kubeconfig',
     kubeconfigPath
   ]
+  if (connection.kind === 'profile') {
+    args.splice(6, 0, '--profile', connection.profile)
+  }
 
-  const { stdout, stderr } = await execFileAsync('aws', args)
+  const { stdout, stderr } = await execFileAsync('aws', args, {
+    env: {
+      ...process.env,
+      ...getConnectionEnv(connection)
+    }
+  })
 
   return {
     path: kubeconfigPath,
@@ -239,5 +253,5 @@ export async function launchKubectlTerminal(
   clusterName: string
 ): Promise<void> {
   const kubeconfig = await createTempEksKubeconfig(connection, clusterName)
-  await launchKubectlShell(connection.profile, connection.region, clusterName, kubeconfig.path)
+  await launchKubectlShell(connection, clusterName, kubeconfig.path)
 }

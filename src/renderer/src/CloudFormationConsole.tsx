@@ -424,7 +424,7 @@ export function CloudFormationConsole({ connection }: { connection: AwsConnectio
     }
   }
 
-  useEffect(() => { void load() }, [connection.profile, connection.region])
+useEffect(() => { void load() }, [connection.sessionId, connection.region])
 
   const visStackCols = STACK_COLS.filter(c => stackCols.has(c.key))
   const visResCols = RES_COLS.filter(c => resCols.has(c.key))

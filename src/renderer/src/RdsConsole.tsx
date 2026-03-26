@@ -232,7 +232,7 @@ export function RdsConsole({ connection }: { connection: AwsConnection }) {
     }
   }
 
-  useEffect(() => { void reload() }, [connection.profile, connection.region])
+useEffect(() => { void reload() }, [connection.sessionId, connection.region])
 
   async function selectInstance(id: string) {
     setSelectedInstanceId(id)

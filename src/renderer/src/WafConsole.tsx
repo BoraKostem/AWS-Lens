@@ -116,7 +116,7 @@ export function WafConsole({ connection }: { connection: AwsConnection }) {
     }
   }
 
-  useEffect(() => { void refresh(null) }, [connection.profile, connection.region, scope])
+  useEffect(() => { void refresh(null) }, [connection.sessionId, connection.region, scope])
 
   /* ── Action handlers ────────────────────────────────────── */
 

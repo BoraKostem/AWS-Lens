@@ -25,7 +25,7 @@ export function StsConsole({ connection }: { connection: AwsConnection }) {
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
   }
 
-  useEffect(() => { void loadIdentity() }, [connection.profile, connection.region])
+  useEffect(() => { void loadIdentity() }, [connection.sessionId, connection.region])
 
   return (
     <div className="svc-console">

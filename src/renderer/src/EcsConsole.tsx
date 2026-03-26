@@ -159,7 +159,7 @@ export function EcsConsole({ connection }: { connection: AwsConnection }) {
     }
   }
 
-  useEffect(() => { void load() }, [connection.profile, connection.region])
+useEffect(() => { void load() }, [connection.sessionId, connection.region])
 
   async function selectService(serviceName: string) {
     setSelectedServiceName(serviceName)

@@ -86,7 +86,7 @@ export function SnsConsole({ connection }: { connection: AwsConnection }) {
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
   }
 
-  useEffect(() => { void reload() }, [connection.profile, connection.region])
+useEffect(() => { void reload() }, [connection.sessionId, connection.region])
 
   async function handleSelect(arn: string) {
     setSelectedArn(arn); setError('')

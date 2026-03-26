@@ -23,9 +23,11 @@ import type {
   TerraformResourceInventoryItem,
   TerraformResourceRow,
   TerraformS3BackendConfig,
-  TerraformVariableDefinition
+  TerraformVariableDefinition,
+  AwsConnection
 } from '@shared/types'
 import { getProjects, setProjects } from './store'
+import { getConnectionEnv } from './sessionHub'
 
 /* ── Stored project shape (persistence) ───────────────────── */
 
@@ -780,7 +782,7 @@ function readVarFileValues(varFilePath: string): Record<string, unknown> {
   return result
 }
 
-function buildEnvWithVars(project: StoredProject): Record<string, string> {
+function buildEnvWithVars(project: StoredProject, connection?: AwsConnection): Record<string, string> {
   const env: Record<string, string> = { ...process.env as Record<string, string> }
   env.CHECKPOINT_DISABLE = '1'
   env.TF_IN_AUTOMATION = '1'
@@ -810,6 +812,15 @@ function buildEnvWithVars(project: StoredProject): Record<string, string> {
       else env[`TF_VAR_${key}`] = JSON.stringify(value)
     }
   }
+
+  if (connection) {
+    delete env.AWS_PROFILE
+    delete env.AWS_ACCESS_KEY_ID
+    delete env.AWS_SECRET_ACCESS_KEY
+    delete env.AWS_SESSION_TOKEN
+    Object.assign(env, getConnectionEnv(connection))
+  }
+
   return env
 }
 
@@ -1196,7 +1207,7 @@ export async function runProjectCommand(
   }
 
   const args = buildArgs(request, project)
-  const env = buildEnvWithVars(project)
+  const env = buildEnvWithVars(project, request.connection)
   const cleanupStateVarFile = ['state-list', 'state-pull', 'state-show'].includes(request.command)
     ? prepareStateCommandVarFile(project)
     : null

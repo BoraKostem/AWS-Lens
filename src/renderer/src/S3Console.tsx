@@ -242,7 +242,7 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
     void navigate(newPrefix)
   }
 
-  useEffect(() => { void loadBuckets() }, [connection.profile, connection.region])
+useEffect(() => { void loadBuckets() }, [connection.sessionId, connection.region])
 
   useEffect(() => {
     async function handleWindowFocus() {
@@ -263,7 +263,7 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
     const onFocus = () => { void handleWindowFocus() }
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
-  }, [selectedBucket, prefix, selectedKey, showPreview, editing, connection.profile, connection.region, buckets])
+}, [selectedBucket, prefix, selectedKey, showPreview, editing, connection.sessionId, connection.region, buckets])
 
   /* ── Object actions ──────────────────────────────────── */
   async function doDownload() {

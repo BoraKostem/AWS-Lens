@@ -69,6 +69,12 @@ function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))]
 }
 
+function terraformContextKey(connection: AwsConnection): string {
+  return connection.kind === 'profile'
+    ? `profile:${connection.profile}`
+    : `assumed-role:${connection.sessionId}`
+}
+
 function parsePlanSummaryFromOutput(output: string): TerraformProject['lastPlanSummary'] | null {
   const match = output.match(/Plan:\s*(\d+)\s+to add,\s*(\d+)\s+to change,\s*(\d+)\s+to destroy\./i)
   if (!match) return null
@@ -966,6 +972,7 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
   const [progressItems, setProgressItems] = useState<Map<string, { status: string; done: boolean }>>(new Map())
 
   const cliOk = cliInfo?.found === true
+  const contextKey = terraformContextKey(connection)
 
   // Detect CLI on mount
   useEffect(() => {
@@ -982,41 +989,41 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
     setDriftReport(null)
     setDriftError('')
     setSelectedDriftKey('')
-  }, [connection.profile])
+  }, [contextKey])
 
   // Load projects
   const reload = useCallback(async () => {
     setLoading(true)
     try {
-      const list = await listProjects(connection.profile)
+      const list = await listProjects(contextKey)
       setProjectsList(list)
     } catch (err) {
       setMsg(err instanceof Error ? err.message : String(err))
     } finally {
       setLoading(false)
     }
-  }, [connection.profile])
+  }, [contextKey])
 
   useEffect(() => { void reload() }, [reload])
 
   // Load detail when selected
   useEffect(() => {
     if (!selectedId) { setDetail(null); setDriftReport(null); return }
-    void getProject(connection.profile, selectedId).then((p) => {
+    void getProject(contextKey, selectedId).then((p) => {
       setDetail(p)
       setDriftReport(null)
       setDriftError('')
       setSelectedDriftKey('')
-      void setSelectedProjectId(connection.profile, selectedId)
+      void setSelectedProjectId(contextKey, selectedId)
     }).catch(() => setDetail(null))
-  }, [selectedId, connection.profile])
+  }, [contextKey, selectedId])
 
   const loadDrift = useCallback(async () => {
     if (!detail) return
     setDriftLoading(true)
     setDriftError('')
     try {
-      const report = await getDrift(connection.profile, detail.id, connection)
+      const report = await getDrift(contextKey, detail.id, connection)
       setDriftReport(report)
       setSelectedDriftKey((current) => current || (report.items[0] ? driftItemKey(report.items[0]) : ''))
     } catch (err) {
@@ -1080,7 +1087,7 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
     const dir = await chooseProjectDirectory()
     if (!dir) return
     try {
-      const project = await addProject(connection.profile, dir)
+      const project = await addProject(contextKey, dir)
       await reload()
       setSelectedId(project.id)
       setMsg('')
@@ -1092,7 +1099,7 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
   async function handleRemoveProject() {
     if (!selectedId) return
     try {
-      await removeProject(connection.profile, selectedId)
+      await removeProject(contextKey, selectedId)
       setSelectedId('')
       setDetail(null)
       await reload()
@@ -1104,7 +1111,7 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
   async function handleReload() {
     if (!selectedId) { await reload(); return }
     try {
-      const p = await reloadProject(connection.profile, selectedId)
+      const p = await reloadProject(contextKey, selectedId)
       setDetail(p)
       await reload()
     } catch (err) {
@@ -1121,7 +1128,7 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
   async function handleSaveInputs(variables: Record<string, unknown>, varFile: string) {
     if (!detail) return
     try {
-      const updated = await updateInputs(connection.profile, detail.id, variables, varFile)
+      const updated = await updateInputs(contextKey, detail.id, variables, varFile)
       setDetail(updated)
       setShowInputs(false)
       setPrefillMissing([])
@@ -1135,7 +1142,7 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
     if (!detail || running) return null
     setMsg('')
     try {
-      const log = await runCommand({ profileName: connection.profile, projectId: detail.id, command })
+      const log = await runCommand({ profileName: contextKey, connection, projectId: detail.id, command })
       // Handle missing vars
       if (!log.success && log.output) {
         const { missing, invalid } = await detectMissingVars(log.output)
@@ -1176,7 +1183,7 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
           setMsg('Plan failed. Review Command Output and fix the Terraform error before applying.')
           return
         }
-        void getProject(connection.profile, detail.id).then((p) => {
+        void getProject(contextKey, detail.id).then((p) => {
           setDetail(p)
           const fallbackSummary = parsePlanSummaryFromOutput(planLog.output)
           const summary = (

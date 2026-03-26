@@ -129,7 +129,7 @@ export function SqsConsole({ connection }: { connection: AwsConnection }) {
     await loadQueue(url)
   }
 
-  useEffect(() => { void loadQueues() }, [connection.profile, connection.region])
+useEffect(() => { void loadQueues() }, [connection.sessionId, connection.region])
 
   /* ── Action handlers ──────────────────────────────────── */
   async function handleCreateQueue() {

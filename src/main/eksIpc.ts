@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process'
 import { ipcMain } from 'electron'
 
 import type { AwsConnection } from '@shared/types'
+import { getConnectionEnv } from './sessionHub'
 import {
   addEksToKubeconfig,
   createTempEksKubeconfig,
@@ -75,9 +76,7 @@ export function registerEksIpcHandlers(): void {
       return new Promise((resolve) => {
         const env = {
           ...process.env,
-          AWS_PROFILE: connection.profile,
-          AWS_DEFAULT_REGION: connection.region,
-          AWS_REGION: connection.region,
+          ...getConnectionEnv(connection),
           KUBECONFIG: activeKubeconfigPath
         }
 

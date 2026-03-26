@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import appLogoUrl from '../../../assets/aws-lens-logo.png'
 import type { ServiceDescriptor, ServiceId } from '@shared/types'
-import { chooseAndImportConfig, closeAwsTerminal, invalidatePageCache, listServices, saveCredentials, useAwsActivity, type CacheTag } from './api'
+import { chooseAndImportConfig, closeAwsTerminal, deleteProfile, invalidatePageCache, listServices, saveCredentials, useAwsActivity, type CacheTag } from './api'
 import { AcmConsole } from './AcmConsole'
 import { AutoScalingConsole } from './AutoScalingConsole'
 import { AwsTerminalPanel } from './AwsTerminalPanel'
@@ -28,6 +28,7 @@ import { SecretsManagerConsole } from './SecretsManagerConsole'
 import { SecurityGroupsConsole } from './SecurityGroupsConsole'
 import { SnsConsole } from './SnsConsole'
 import { SqsConsole } from './SqsConsole'
+import { SessionHub } from './SessionHub'
 import { StsConsole } from './StsConsole'
 import { TerraformConsole } from './TerraformConsole'
 import { VpcWorkspace } from './VpcWorkspace'
@@ -42,6 +43,7 @@ type FabMode = 'closed' | 'menu' | 'credentials'
 const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   terraform: 'Terraform project browser and command execution workspace.',
   overview: 'Regional summary landing page across AWS services.',
+  'session-hub': 'Saved assume-role targets, active temporary sessions, activation, expiration, and cross-account comparison.',
   'compliance-center': 'Operational and security findings workspace with grouped policy checks and guided remediation.',
   ec2: 'Instances, snapshots, IAM profiles, bastions, and instance actions.',
   cloudwatch: 'Metrics, logs, and recent service telemetry.',
@@ -73,6 +75,7 @@ const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
 const IMPLEMENTED_SCREENS = new Set<ServiceId>([
   'terraform',
   'overview',
+  'session-hub',
   'compliance-center',
   'ec2',
   'cloudwatch',
@@ -161,6 +164,26 @@ function getProfileBadge(name?: string | null): string {
     .join('')
 }
 
+function getRoleDisplayName(roleArn?: string | null): string {
+  if (!roleArn) {
+    return ''
+  }
+
+  const trimmed = roleArn.trim()
+  if (!trimmed) {
+    return ''
+  }
+
+  const roleMarker = ':role/'
+  const markerIndex = trimmed.indexOf(roleMarker)
+  if (markerIndex >= 0) {
+    return trimmed.slice(markerIndex + roleMarker.length)
+  }
+
+  const slashIndex = trimmed.lastIndexOf('/')
+  return slashIndex >= 0 ? trimmed.slice(slashIndex + 1) : trimmed
+}
+
 function PlaceholderScreen({ service }: { service: ServiceDescriptor }) {
   return (
     <>
@@ -222,6 +245,8 @@ function screenCacheTag(screen: Screen): CacheTag | null {
     case 'waf':
     case 'identity-center':
       return screen
+    case 'session-hub':
+      return null
     default:
       return null
   }
@@ -260,6 +285,7 @@ export function App() {
   const [credSecret, setCredSecret] = useState('')
   const [credSaving, setCredSaving] = useState(false)
   const [credError, setCredError] = useState('')
+  const [profileActionMsg, setProfileActionMsg] = useState('')
   const connectionState = useAwsPageConnection('us-east-1')
   const awsActivity = useAwsActivity()
 
@@ -282,7 +308,7 @@ export function App() {
     return [...grouped.entries()].map(([category, items]) => [
       category,
       items
-        .filter((service) => service.id !== 'overview')
+        .filter((service) => service.id !== 'overview' && service.id !== 'session-hub')
         .sort((a, b) => a.label.localeCompare(b.label))
     ] as const)
   }, [services])
@@ -295,7 +321,17 @@ export function App() {
 
   const sidebarProfileLabel = connectionState.selectedProfile?.name || connectionState.profile || ''
   const profileBadge = getProfileBadge(sidebarProfileLabel)
+  const primaryProfileLabel = connectionState.activeSession?.sourceProfile || connectionState.selectedProfile?.name || connectionState.profile || 'No profile selected'
+  const assumedRoleLabel = connectionState.activeSession
+    ? `Assumed role: ${getRoleDisplayName(connectionState.activeSession.roleArn) || connectionState.activeSession.label}`
+    : ''
+  const profileMetaLabel = connectionState.activeSession
+    ? assumedRoleLabel
+    : connectionState.selectedProfile
+      ? `${connectionState.selectedProfile.source} profile`
+      : 'Click to select a profile'
   const overviewService = services.find((service) => service.id === 'overview')
+  const sessionHubService = services.find((service) => service.id === 'session-hub')
   const activityLabel = awsActivity.pendingCount > 0
     ? `Fetching ${awsActivity.pendingCount} AWS request${awsActivity.pendingCount === 1 ? '' : 's'}`
     : connectionState.connection
@@ -325,10 +361,10 @@ export function App() {
 
   // Redirect to profiles when connection fails (e.g. SSO session expired)
   useEffect(() => {
-    if (connectionState.error && !connectionState.connected && connectionState.profile) {
-      setScreen('profiles')
+    if (connectionState.error && !connectionState.connected && connectionState.connection) {
+      setScreen(connectionState.activeSession ? 'session-hub' : 'profiles')
     }
-  }, [connectionState.error, connectionState.connected, connectionState.profile])
+  }, [connectionState.activeSession, connectionState.connected, connectionState.connection, connectionState.error])
 
   useEffect(() => {
     setRefreshState((current) => {
@@ -371,10 +407,14 @@ export function App() {
 
   async function handleLoadAwsConfig(): Promise<void> {
     setFabMode('closed')
+    setProfileActionMsg('')
     try {
       const imported = await chooseAndImportConfig()
       if (imported.length > 0) {
         await connectionState.refreshProfiles()
+        setProfileActionMsg(`Imported ${imported.length} profile${imported.length === 1 ? '' : 's'} from AWS config`)
+      } else {
+        setProfileActionMsg('No new profiles were imported')
       }
     } catch (err) {
       connectionState.setError(err instanceof Error ? err.message : String(err))
@@ -384,6 +424,7 @@ export function App() {
   async function handleSaveCredentials(): Promise<void> {
     setCredSaving(true)
     setCredError('')
+    setProfileActionMsg('')
     try {
       await saveCredentials(credName, credKeyId, credSecret)
       await connectionState.refreshProfiles()
@@ -391,10 +432,42 @@ export function App() {
       setCredKeyId('')
       setCredSecret('')
       setFabMode('closed')
+      setProfileActionMsg(`Profile "${credName}" saved`)
     } catch (err) {
       setCredError(err instanceof Error ? err.message : String(err))
     } finally {
       setCredSaving(false)
+    }
+  }
+
+  async function handleDeleteProfile(profileName: string): Promise<void> {
+    const confirmed = window.confirm(`Delete AWS profile "${profileName}" from your local AWS config/credentials files?`)
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      setProfileActionMsg('')
+      const wasSelectedProfile = connectionState.profile === profileName
+      await deleteProfile(profileName)
+
+      if (connectionState.pinnedProfileNames.includes(profileName)) {
+        connectionState.togglePinnedProfile(profileName)
+      }
+
+      if (wasSelectedProfile) {
+        connectionState.setProfile('')
+        connectionState.clearActiveSession()
+      }
+
+      await connectionState.refreshProfiles()
+      setProfileActionMsg(`Profile "${profileName}" deleted`)
+
+      if (screen !== 'profiles' && wasSelectedProfile) {
+        setScreen('profiles')
+      }
+    } catch (err) {
+      connectionState.setError(err instanceof Error ? err.message : String(err))
     }
   }
 
@@ -433,6 +506,11 @@ export function App() {
                   <button type="button" className={connectionState.pinnedProfileNames.includes(entry.name) ? 'active' : ''} onClick={() => connectionState.togglePinnedProfile(entry.name)}>
                     {connectionState.pinnedProfileNames.includes(entry.name) ? 'Unpin' : 'Pin'}
                   </button>
+                  {entry.managedByApp && (
+                    <button type="button" onClick={() => void handleDeleteProfile(entry.name)}>
+                      Delete
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -473,6 +551,21 @@ export function App() {
       return <OverviewConsole state={connectionState} embedded refreshNonce={pageRefreshNonceByScreen['overview'] ?? 0} onNavigate={(target) => {
         if (IMPLEMENTED_SCREENS.has(target)) setScreen(target as Screen)
       }} />
+    }
+
+    if (targetScreen === 'session-hub') {
+      return (
+        <SessionHub
+          connectionState={connectionState}
+          onOpenTerminal={(connection) => {
+            setTerminalOpen(true)
+            setPendingTerminalCommand(null)
+            if (connection.kind === 'assumed-role') {
+              connectionState.activateSession(connection.sessionId)
+            }
+          }}
+        />
+      )
     }
 
     if (targetScreen === 'compliance-center' && targetService?.id === 'compliance-center') {
@@ -576,8 +669,8 @@ export function App() {
             <div className="field">
               <span>Profile</span>
               <button type="button" className="selector-trigger sidebar-selector" onClick={() => setScreen('profiles')}>
-                <strong>{connectionState.selectedProfile?.name || 'No profile selected'}</strong>
-                <span>{connectionState.selectedProfile ? `${connectionState.selectedProfile.source} profile` : 'Click to select a profile'}</span>
+                <strong>{primaryProfileLabel}</strong>
+                <span>{profileMetaLabel}</span>
               </button>
             </div>
             <label className="field">
@@ -611,6 +704,16 @@ export function App() {
                 <span>{overviewService.label} ({connectionState.region})</span>
               </button>
             )}
+            {sessionHubService && (
+              <button
+                type="button"
+                className={`service-link overview-link ${screen === 'session-hub' ? 'active' : ''}`}
+                disabled={!connectionState.connected}
+                onClick={() => setScreen('session-hub')}
+              >
+                <span>{sessionHubService.label}</span>
+              </button>
+            )}
             {groupedServices.map(([category, items]) => (
               items.length > 0 && (
                 <section key={category} className="service-group">
@@ -640,6 +743,7 @@ export function App() {
 
       <main className="catalog-main">
         {(catalogError || connectionState.error) && <div className="error-banner">{catalogError || connectionState.error}</div>}
+        {profileActionMsg && <div className="success-banner">{profileActionMsg}</div>}
         {visitedScreens.map((visitedScreen) => (
           <section
             key={`${visitedScreen}:${pageRefreshNonceByScreen[visitedScreen] ?? 0}`}
@@ -689,6 +793,11 @@ export function App() {
                     <button type="button" className={connectionState.pinnedProfileNames.includes(entry.name) ? 'active' : ''} onClick={() => connectionState.togglePinnedProfile(entry.name)}>
                       {connectionState.pinnedProfileNames.includes(entry.name) ? 'Unpin' : 'Pin'}
                     </button>
+                    {entry.managedByApp && (
+                      <button type="button" onClick={() => void handleDeleteProfile(entry.name)}>
+                        Delete
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -868,7 +977,9 @@ export function App() {
           <strong>{activityLabel}</strong>
           <span>
             {connectionState.connection
-              ? `AWS_PROFILE=${connectionState.connection.profile} · AWS_REGION=${connectionState.connection.region}`
+              ? connectionState.connection.kind === 'profile'
+                ? `AWS_PROFILE=${connectionState.connection.profile} · AWS_REGION=${connectionState.connection.region}`
+                : `SESSION=${connectionState.connection.label} · AWS_REGION=${connectionState.connection.region}`
               : 'Select an AWS profile and region to enable CLI context.'}
           </span>
         </div>

@@ -3,6 +3,7 @@ import { spawn, type IPty } from 'node-pty'
 
 import type { AwsConnection } from '@shared/types'
 import { buildAwsContextCommand, getShellConfig, getTerminalCwd } from './shell'
+import { getConnectionEnv } from './sessionHub'
 
 type TerminalEvent =
   | { type: 'output'; text: string }
@@ -22,11 +23,11 @@ function emitToOwner(ownerId: number, payload: TerminalEvent): void {
 }
 
 function getContextKey(connection: AwsConnection): string {
-  return `${connection.profile}:${connection.region}`
+  return `${connection.sessionId}:${connection.region}`
 }
 
 function buildContextCommand(connection: AwsConnection): string {
-  return buildAwsContextCommand(connection.profile, connection.region)
+  return buildAwsContextCommand(connection)
 }
 
 function updateContext(connection: AwsConnection): void {
@@ -73,9 +74,7 @@ function createSession(sender: WebContents, connection: AwsConnection): Terminal
     cwd: getTerminalCwd(),
     env: {
       ...process.env,
-      AWS_PROFILE: connection.profile,
-      AWS_DEFAULT_REGION: connection.region,
-      AWS_REGION: connection.region,
+      ...getConnectionEnv(connection),
       LANG: 'en_US.UTF-8',
       LC_ALL: 'en_US.UTF-8',
       PYTHONIOENCODING: 'utf-8'

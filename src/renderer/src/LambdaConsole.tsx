@@ -69,7 +69,7 @@ export function LambdaConsole({ connection }: { connection: AwsConnection }) {
     finally { setLoading(false) }
   }
 
-  useEffect(() => { void load() }, [connection.profile, connection.region])
+useEffect(() => { void load() }, [connection.sessionId, connection.region])
 
   const activeCols = COLUMNS.filter(c => visCols.has(c.key))
   const filtered = useMemo(() => {

@@ -1,14 +1,31 @@
 /// <reference types="vite/client" />
 
-import type { AwsConnection, BastionLaunchConfig, Ec2InstanceAction, EcsFargateServiceConfig, LambdaCreateConfig, SnapshotLaunchConfig, TerraformCommandRequest } from '@shared/types'
+import type {
+  AssumeRoleRequest,
+  AwsAssumeRoleTarget,
+  AwsConnection,
+  BastionLaunchConfig,
+  Ec2InstanceAction,
+  EcsFargateServiceConfig,
+  LambdaCreateConfig,
+  SnapshotLaunchConfig,
+  TerraformCommandRequest
+} from '@shared/types'
 
 declare global {
   interface Window {
     awsLens: {
       listProfiles: () => Promise<unknown>
+      deleteProfile: (profileName: string) => Promise<unknown>
       chooseAndImportConfig: () => Promise<unknown>
       saveCredentials: (profileName: string, accessKeyId: string, secretAccessKey: string) => Promise<unknown>
       listRegions: () => Promise<unknown>
+      getSessionHubState: () => Promise<unknown>
+      saveAssumeRoleTarget: (target: Omit<AwsAssumeRoleTarget, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => Promise<unknown>
+      deleteAssumeRoleTarget: (targetId: string) => Promise<unknown>
+      deleteAssumedSession: (sessionId: string) => Promise<unknown>
+      assumeRoleSession: (request: AssumeRoleRequest) => Promise<unknown>
+      assumeSavedRoleTarget: (targetId: string) => Promise<unknown>
       listServices: () => Promise<unknown>
       getCallerIdentity: (connection: AwsConnection) => Promise<unknown>
       listEc2Instances: (connection: AwsConnection) => Promise<unknown>
