@@ -755,3 +755,49 @@
     grid-template-columns: 1fr;
   }
 }
+
+.acm-watch-toolbar {
+  padding: 10px 12px;
+}
+
+.acm-watch-toolbar .svc-inline {
+  width: 100%;
+}
+
+.acm-watch-toolbar .svc-search {
+  min-width: 260px;
+}
+
+.acm-watch-card {
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.acm-watch-card.active {
+  border-color: #4a8fe7;
+  background: #313a47;
+}
+
+.acm-watch-card.warning {
+  border-color: #7a5c22;
+}
+
+.acm-watch-card.critical {
+  border-color: #7a3333;
+}
+
+.acm-watch-primary {
+  font-weight: 600;
+  color: #edf1f6;
+}
+
+.acm-watch-secondary {
+  margin-top: 3px;
+  font-size: 11px;
+  color: #9ca7b7;
+}
+
+.acm-watch-danger {
+  color: #fca5a5;
+}

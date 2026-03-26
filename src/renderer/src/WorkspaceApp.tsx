@@ -41,7 +41,13 @@ type SideTab = 'details' | 'targets' | 'rules' | 'timeline'
 
 /* ── Main Console ─────────────────────────────────────────── */
 
-export function WorkspaceApp({ connection }: { connection: AwsConnection }) {
+export function WorkspaceApp({
+  connection,
+  focusLoadBalancer
+}: {
+  connection: AwsConnection
+  focusLoadBalancer?: { token: number; loadBalancerArn: string } | null
+}) {
   const [workspaces, setWorkspaces] = useState<LoadBalancerWorkspace[]>([])
   const [instances, setInstances] = useState<Ec2InstanceSummary[]>([])
   const [selectedArn, setSelectedArn] = useState('')
@@ -54,6 +60,7 @@ export function WorkspaceApp({ connection }: { connection: AwsConnection }) {
   const [filter, setFilter] = useState('')
   const [visCols, setVisCols] = useState<Set<ColKey>>(() => new Set(COLUMNS.map(c => c.key)))
   const [sideTab, setSideTab] = useState<SideTab>('details')
+  const [appliedFocusToken, setAppliedFocusToken] = useState(0)
 
   const selected = useMemo(() => workspaces.find(w => w.summary.arn === selectedArn) ?? null, [workspaces, selectedArn])
   const selectedListener = useMemo(() => selected?.listeners.find(l => l.arn === selectedListenerArn) ?? null, [selected, selectedListenerArn])
@@ -81,6 +88,21 @@ export function WorkspaceApp({ connection }: { connection: AwsConnection }) {
   }
 
   useEffect(() => { void load() }, [connection.sessionId, connection.region])
+
+  useEffect(() => {
+    if (!focusLoadBalancer || focusLoadBalancer.token === appliedFocusToken) {
+      return
+    }
+
+    const match = workspaces.find((workspace) => workspace.summary.arn === focusLoadBalancer.loadBalancerArn)
+    if (!match) {
+      return
+    }
+
+    setAppliedFocusToken(focusLoadBalancer.token)
+    setSideTab('details')
+    selectLB(match.summary.arn)
+  }, [appliedFocusToken, focusLoadBalancer, workspaces])
 
   function selectLB(arn: string) {
     const ws = workspaces.find(w => w.summary.arn === arn)

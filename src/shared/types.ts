@@ -1643,9 +1643,36 @@ export type AcmCertificateSummary = {
   status: string
   type: string
   inUse: boolean
+  unused: boolean
   createdAt: string
   issuedAt: string
   notAfter: string
+  daysUntilExpiry: number | null
+  urgencySeverity: 'critical' | 'warning' | 'stable' | 'none'
+  urgencyReason: string
+  renewalEligibility: string
+  renewalStatus: string
+  pendingValidationCount: number
+  dnsValidationIssueCount: number
+  inUseByCount: number
+  loadBalancerAssociations: AcmLoadBalancerAssociation[]
+  inUseAssociations: AcmInUseAssociation[]
+}
+
+export type AcmLoadBalancerAssociation = {
+  loadBalancerArn: string
+  loadBalancerName: string
+  dnsName: string
+  listenerArn: string
+  listenerPort: number
+  listenerProtocol: string
+}
+
+export type AcmInUseAssociation = {
+  arn: string
+  service: string
+  resourceType: string
+  label: string
 }
 
 export type AcmCertificateDetail = {
@@ -1660,9 +1687,18 @@ export type AcmCertificateDetail = {
   issuedAt: string
   notBefore: string
   notAfter: string
+  daysUntilExpiry: number | null
+  urgencySeverity: 'critical' | 'warning' | 'stable' | 'none'
+  urgencyReason: string
   renewalEligibility: string
   renewalStatus: string
+  inUse: boolean
+  unused: boolean
   inUseBy: string[]
+  inUseAssociations: AcmInUseAssociation[]
+  loadBalancerAssociations: AcmLoadBalancerAssociation[]
+  pendingValidationCount: number
+  dnsValidationIssueCount: number
   domainValidationOptions: Array<{
     domainName: string
     validationStatus: string
@@ -1670,6 +1706,7 @@ export type AcmCertificateDetail = {
     resourceRecordName: string
     resourceRecordType: string
     resourceRecordValue: string
+    validationIssue: string
   }>
 }
 

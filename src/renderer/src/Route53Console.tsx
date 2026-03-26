@@ -15,7 +15,26 @@ const COLUMNS: { key: ColKey; label: string; color: string }[] = [
 
 const EMPTY_RECORD: Route53RecordChange = { name: '', type: 'A', ttl: 300, values: [''], isAlias: false, aliasDnsName: '', aliasHostedZoneId: '', evaluateTargetHealth: false, setIdentifier: '' }
 
-export function Route53Console({ connection }: { connection: AwsConnection }) {
+function normalizeDnsName(value: string): string {
+  return value.trim().replace(/\.+$/, '').toLowerCase()
+}
+
+function findBestZoneId(
+  zones: Array<{ id: string; name: string; recordSetCount: number; privateZone: boolean }>,
+  recordName: string
+): string {
+  const normalizedRecord = normalizeDnsName(recordName)
+  const matches = zones.filter((zone) => normalizedRecord.endsWith(normalizeDnsName(zone.name)))
+  return matches.sort((left, right) => normalizeDnsName(right.name).length - normalizeDnsName(left.name).length)[0]?.id ?? ''
+}
+
+export function Route53Console({
+  connection,
+  focusRecord
+}: {
+  connection: AwsConnection
+  focusRecord?: { token: number; record: Route53RecordChange } | null
+}) {
   const [zones, setZones] = useState<Array<{ id: string; name: string; recordSetCount: number; privateZone: boolean }>>([])
   const [loading, setLoading] = useState(false)
   const [selectedZone, setSelectedZone] = useState('')
@@ -25,6 +44,7 @@ export function Route53Console({ connection }: { connection: AwsConnection }) {
   const [msg, setMsg] = useState('')
   const [filter, setFilter] = useState('')
   const [visCols, setVisCols] = useState<Set<ColKey>>(() => new Set(COLUMNS.map(c => c.key)))
+  const [appliedFocusToken, setAppliedFocusToken] = useState(0)
 
   async function load(zoneId?: string) {
     setError('')
@@ -40,6 +60,24 @@ export function Route53Console({ connection }: { connection: AwsConnection }) {
   }
 
 useEffect(() => { void load() }, [connection.sessionId, connection.region])
+
+  useEffect(() => {
+    if (!focusRecord || focusRecord.token === appliedFocusToken || zones.length === 0) {
+      return
+    }
+
+    setAppliedFocusToken(focusRecord.token)
+    setDraft({
+      ...focusRecord.record,
+      ttl: focusRecord.record.ttl ?? 300,
+      values: focusRecord.record.values.length ? focusRecord.record.values : ['']
+    })
+
+    const matchedZoneId = findBestZoneId(zones, focusRecord.record.name)
+    if (matchedZoneId) {
+      void load(matchedZoneId)
+    }
+  }, [appliedFocusToken, focusRecord, zones])
 
   const activeCols = COLUMNS.filter(c => visCols.has(c.key))
 
