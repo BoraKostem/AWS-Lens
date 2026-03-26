@@ -84,6 +84,14 @@ function stateCachePath(rootPath: string): string {
   return path.join(rootPath, STATE_CACHE_FILE)
 }
 
+function planPath(rootPath: string): string {
+  return path.join(rootPath, PLAN_FILE)
+}
+
+function planJsonPath(rootPath: string): string {
+  return `${planPath(rootPath)}.json`
+}
+
 function stripAnsi(text: string): string {
   return text.replace(/\x1b\[[0-9;]*m/g, '')
 }
@@ -537,8 +545,7 @@ function readPlanSnapshot(rootPath: string): {
   planChanges: TerraformPlanChange[]
   lastPlanSummary: { create: number; update: number; delete: number; replace: number; noop: number }
 } {
-  const planJsonPath = path.join(rootPath, `${PLAN_FILE}.json`)
-  const plan = parseJsonFile<Record<string, unknown> | null>(planJsonPath, null)
+  const plan = parseJsonFile<Record<string, unknown> | null>(planJsonPath(rootPath), null)
   if (!plan || !Array.isArray(plan.resource_changes)) {
     return { planChanges: [], lastPlanSummary: { create: 0, update: 0, delete: 0, replace: 0, noop: 0 } }
   }
@@ -1102,13 +1109,35 @@ async function runTerraformShowJson(rootPath: string, planPath: string, env: Rec
   fs.writeFileSync(jsonPath, output, 'utf-8')
 }
 
-async function refreshRemoteStateCache(rootPath: string, env: Record<string, string>): Promise<void> {
+function clearSavedPlanArtifacts(rootPath: string): void {
+  for (const filePath of [planPath(rootPath), planJsonPath(rootPath)]) {
+    try {
+      fs.unlinkSync(filePath)
+    } catch {
+      /* ok */
+    }
+  }
+}
+
+function clearStateCache(rootPath: string): void {
+  try {
+    fs.unlinkSync(stateCachePath(rootPath))
+  } catch {
+    /* ok */
+  }
+}
+
+async function refreshRemoteStateCache(rootPath: string, env: Record<string, string>): Promise<boolean> {
   try {
     const result = await runChildProcess(rootPath, 'terraform', ['state', 'pull'], env)
     if (result.exitCode === 0 && result.output.trim()) {
       fs.writeFileSync(stateCachePath(rootPath), result.output, 'utf-8')
+      return true
     }
-  } catch { /* keep previous cache */ }
+  } catch {
+    /* keep previous cache */
+  }
+  return false
 }
 
 function buildArgs(request: TerraformCommandRequest, project: StoredProject): string[] {
@@ -1221,13 +1250,17 @@ export async function runProjectCommand(
 
     // Post-command actions
     if (request.command === 'plan' && log.success) {
-      await runTerraformShowJson(project.rootPath, path.join(project.rootPath, PLAN_FILE), env)
-      savedPlanPaths.set(project.id, path.join(project.rootPath, PLAN_FILE))
+      await runTerraformShowJson(project.rootPath, planPath(project.rootPath), env)
+      savedPlanPaths.set(project.id, planPath(project.rootPath))
     }
     if (request.command === 'apply' || request.command === 'destroy') {
       savedPlanPaths.delete(project.id)
+      clearSavedPlanArtifacts(project.rootPath)
       if (result.exitCode === 0) {
-        await refreshRemoteStateCache(project.rootPath, env)
+        const refreshed = await refreshRemoteStateCache(project.rootPath, env)
+        if (request.command === 'destroy' && !refreshed) {
+          clearStateCache(project.rootPath)
+        }
       }
     }
     if (request.command === 'state-pull' && result.exitCode === 0 && log.output.trim()) {

@@ -1,4 +1,4 @@
-import { dialog, ipcMain, type BrowserWindow } from 'electron'
+import { dialog, ipcMain, shell, type BrowserWindow } from 'electron'
 
 import type { AwsConnection, TerraformCommandRequest } from '@shared/types'
 import { importAwsConfigFile } from './aws/profiles'
@@ -19,6 +19,7 @@ import {
   runProjectCommand,
   updateProjectInputs
 } from './terraform'
+import { getTerraformDriftReport } from './terraformDrift'
 import {
   addUserToGroup, attachGroupPolicy, attachRolePolicy, attachUserPolicy,
   createAccessKey, createGroup, createLoginProfile, createPolicy,
@@ -80,6 +81,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   )
   ipcMain.handle('terraform:projects:remove', async (_event, profileName: string, projectId: string) => wrap(() => removeProject(profileName, projectId)))
   ipcMain.handle('terraform:projects:reload', async (_event, profileName: string, projectId: string) => wrap(() => getProject(profileName, projectId)))
+  ipcMain.handle('terraform:drift:get', async (_event, profileName: string, projectId: string, connection: AwsConnection) =>
+    wrap(() => getTerraformDriftReport(profileName, projectId, connection))
+  )
   ipcMain.handle('terraform:inputs:update', async (_event, profileName: string, projectId: string, inputs: Record<string, unknown>, varFile?: string) =>
     wrap(() => updateProjectInputs(profileName, projectId, inputs, varFile))
   )
@@ -90,6 +94,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('terraform:plan:has-saved', async (_event, projectId: string) => wrap(() => hasSavedPlan(projectId)))
   ipcMain.handle('terraform:plan:clear', async (_event, projectId: string) => wrap(() => clearSavedPlan(projectId)))
   ipcMain.handle('terraform:detect-missing-vars', async (_event, output: string) => wrap(() => detectMissingVars(output)))
+  ipcMain.handle('shell:open-external', async (_event, url: string) => wrap(() => shell.openExternal(url)))
 
   /* ── AWS profile import ─────────────────────────────────── */
   ipcMain.handle('profiles:choose-and-import', async () =>

@@ -322,6 +322,11 @@
 .tf-summary-count.update { color: #f39c12; }
 .tf-summary-count.delete { color: #e74c3c; }
 .tf-summary-count.replace { color: #9b59b6; }
+.tf-summary-count.in_sync { color: #2ecc71; }
+.tf-summary-count.drifted { color: #f39c12; }
+.tf-summary-count.missing_in_aws { color: #e74c3c; }
+.tf-summary-count.unmanaged_in_aws { color: #4a8fe7; }
+.tf-summary-count.unsupported { color: #9b59b6; }
 
 /* ── Diagram Container ───────────────────────────────────── */
 
@@ -489,6 +494,100 @@
 .tf-kv-value {
   color: #d0d8e2;
   word-break: break-all;
+}
+
+.tf-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tf-drift-filters {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.tf-drift-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tf-drift-status-row button {
+  padding: 7px 10px;
+  border: 1px solid #3b4350;
+  border-radius: 999px;
+  background: #252b33;
+  color: #9ca7b7;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tf-drift-status-row button.active,
+.tf-drift-status-row button:hover {
+  color: #edf1f6;
+  border-color: #4a8fe7;
+}
+
+.tf-drift-filter-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #9ca7b7;
+}
+
+.tf-drift-filter-select select {
+  padding: 7px 10px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #20252d;
+  color: #edf1f6;
+}
+
+.tf-drift-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.tf-drift-badge.in_sync {
+  background: rgba(46, 204, 113, 0.16);
+  color: #7ee2a5;
+}
+
+.tf-drift-badge.drifted {
+  background: rgba(243, 156, 18, 0.16);
+  color: #ffd082;
+}
+
+.tf-drift-badge.missing_in_aws {
+  background: rgba(231, 76, 60, 0.16);
+  color: #ff9e92;
+}
+
+.tf-drift-badge.unmanaged_in_aws {
+  background: rgba(74, 143, 231, 0.16);
+  color: #9ec7ff;
+}
+
+.tf-drift-badge.unsupported {
+  background: rgba(155, 89, 182, 0.16);
+  color: #dcb0f3;
+}
+
+.tf-drift-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 /* ── Confirm guardrail ───────────────────────────────────── */

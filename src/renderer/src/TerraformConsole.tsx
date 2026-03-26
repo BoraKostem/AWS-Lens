@@ -6,6 +6,9 @@ import type {
   TerraformActionRow,
   TerraformCliInfo,
   TerraformCommandLog,
+  TerraformDriftItem,
+  TerraformDriftReport,
+  TerraformDriftStatus,
   TerraformDiagram,
   TerraformGraphEdge,
   TerraformGraphNode,
@@ -14,6 +17,7 @@ import type {
   TerraformProjectListItem,
   TerraformResourceRow
 } from '@shared/types'
+import { openExternalUrl } from './api'
 import {
   addProject,
   chooseProjectDirectory,
@@ -21,6 +25,7 @@ import {
   clearSavedPlan,
   detectCli,
   detectMissingVars,
+  getDrift,
   getProject,
   listProjects,
   reloadProject,
@@ -32,7 +37,7 @@ import {
   updateInputs
 } from './terraformApi'
 
-type DetailTab = 'actions' | 'resources'
+type DetailTab = 'actions' | 'resources' | 'drift'
 
 /* ── db_password validation ───────────────────────────────── */
 
@@ -763,7 +768,172 @@ function ResourcesTab({ project }: { project: TerraformProject }) {
 
 /* ── Main Terraform Console ───────────────────────────────── */
 
-export function TerraformConsole({ connection }: { connection: AwsConnection }) {
+const DRIFT_STATUS_LABELS: Record<Exclude<TerraformDriftStatus, 'unsupported'>, string> = {
+  in_sync: 'In Sync',
+  drifted: 'Drifted',
+  missing_in_aws: 'Missing In AWS',
+  unmanaged_in_aws: 'Unmanaged In AWS'
+}
+
+function driftItemKey(item: TerraformDriftItem): string {
+  return `${item.terraformAddress}|${item.resourceType}|${item.cloudIdentifier}|${item.logicalName}|${item.status}`
+}
+
+function DriftTab({
+  report,
+  loading,
+  error,
+  statusFilter,
+  typeFilter,
+  selectedKey,
+  onStatusFilterChange,
+  onTypeFilterChange,
+  onSelectItem,
+  onRefresh,
+  onOpenConsole,
+  onRunStateShow
+}: {
+  report: TerraformDriftReport | null
+  loading: boolean
+  error: string
+  statusFilter: 'all' | Exclude<TerraformDriftStatus, 'unsupported'>
+  typeFilter: string
+  selectedKey: string
+  onStatusFilterChange: (value: 'all' | Exclude<TerraformDriftStatus, 'unsupported'>) => void
+  onTypeFilterChange: (value: string) => void
+  onSelectItem: (key: string) => void
+  onRefresh: () => void
+  onOpenConsole: (item: TerraformDriftItem) => void
+  onRunStateShow: (item: TerraformDriftItem) => void
+}) {
+  const items = report?.items ?? []
+  const resourceTypes = useMemo(
+    () => report?.summary.resourceTypeCounts.map((entry) => entry.resourceType) ?? [],
+    [report]
+  )
+  const filteredItems = useMemo(
+    () => items.filter((item) =>
+      (statusFilter === 'all' || item.status === statusFilter) &&
+      (typeFilter === 'all' || item.resourceType === typeFilter)
+    ),
+    [items, statusFilter, typeFilter]
+  )
+  const selectedItem = useMemo(
+    () => filteredItems.find((item) => driftItemKey(item) === selectedKey) ?? filteredItems[0] ?? null,
+    [filteredItems, selectedKey]
+  )
+
+  return (
+    <>
+      <div className="tf-section">
+        <div className="tf-section-head">
+          <div>
+            <h3>Drift Summary</h3>
+            <div className="tf-section-hint">
+              Terraform state vs live AWS inventory for region {report?.region ?? '-'}.
+            </div>
+          </div>
+          <button type="button" className="tf-toolbar-btn" onClick={onRefresh} disabled={loading}>
+            {loading ? 'Scanning...' : 'Refresh Drift'}
+          </button>
+        </div>
+        {report && (
+          <div className="tf-summary">
+            <span className="tf-summary-item"><span className="tf-summary-count">{report.summary.total}</span> total</span>
+            <span className="tf-summary-item"><span className="tf-summary-count drifted">{report.summary.statusCounts.drifted}</span> drifted</span>
+            <span className="tf-summary-item"><span className="tf-summary-count missing_in_aws">{report.summary.statusCounts.missing_in_aws}</span> missing</span>
+            <span className="tf-summary-item"><span className="tf-summary-count unmanaged_in_aws">{report.summary.statusCounts.unmanaged_in_aws}</span> unmanaged</span>
+            <span className="tf-summary-item"><span className="tf-summary-count in_sync">{report.summary.statusCounts.in_sync}</span> in sync</span>
+            <span className="tf-summary-item">scanned: {report.summary.scannedAt ? new Date(report.summary.scannedAt).toLocaleString() : '-'}</span>
+          </div>
+        )}
+        <div className="tf-drift-filters">
+          <div className="tf-drift-status-row">
+            <button type="button" className={statusFilter === 'all' ? 'active' : ''} onClick={() => onStatusFilterChange('all')}>All</button>
+            {(Object.keys(DRIFT_STATUS_LABELS) as Array<Exclude<TerraformDriftStatus, 'unsupported'>>).map((status) => (
+              <button key={status} type="button" className={statusFilter === status ? 'active' : ''} onClick={() => onStatusFilterChange(status)}>
+                {DRIFT_STATUS_LABELS[status]}
+              </button>
+            ))}
+          </div>
+          <label className="tf-drift-filter-select">
+            <span>Type</span>
+            <select value={typeFilter} onChange={(event) => onTypeFilterChange(event.target.value)}>
+              <option value="all">All resource types</option>
+              {resourceTypes.map((resourceType) => (
+                <option key={resourceType} value={resourceType}>{resourceType}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </div>
+      {error && <div className="tf-section"><div className="tf-msg error">{error}</div></div>}
+      {!loading && !error && filteredItems.length === 0 && (
+        <div className="tf-section"><div className="tf-empty">No drift items matched the current filters.</div></div>
+      )}
+      {filteredItems.length > 0 && (
+        <>
+          <div className="tf-section">
+            <div className="tf-resource-table-wrap">
+              <table className="tf-data-table">
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>Type</th>
+                    <th>Logical Name</th>
+                    <th>Terraform Address</th>
+                    <th>Cloud Identifier</th>
+                    <th>Region</th>
+                    <th>Explanation</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredItems.map((item) => {
+                    const key = driftItemKey(item)
+                    return (
+                      <tr key={key} className={selectedItem && driftItemKey(selectedItem) === key ? 'active' : ''} onClick={() => onSelectItem(key)}>
+                        <td><span className={`tf-drift-badge ${item.status}`}>{DRIFT_STATUS_LABELS[item.status as Exclude<TerraformDriftStatus, 'unsupported'>]}</span></td>
+                        <td>{item.resourceType}</td>
+                        <td>{item.logicalName || '-'}</td>
+                        <td title={item.terraformAddress}>{item.terraformAddress || '-'}</td>
+                        <td title={item.cloudIdentifier}>{item.cloudIdentifier || '-'}</td>
+                        <td>{item.region || '-'}</td>
+                        <td title={item.explanation}>{item.explanation}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          {selectedItem && (
+            <div className="tf-section">
+              <div className="tf-section-head">
+                <h3>Selected Drift Item</h3>
+                <div className="tf-drift-actions">
+                  <button type="button" className="tf-toolbar-btn" onClick={() => onOpenConsole(selectedItem)} disabled={!selectedItem.consoleUrl}>Open In AWS Console</button>
+                  <button type="button" className="tf-toolbar-btn" onClick={() => onRunStateShow(selectedItem)} disabled={!selectedItem.terminalCommand}>terraform state show</button>
+                </div>
+              </div>
+              <div className="tf-kv">
+                <div className="tf-kv-row"><div className="tf-kv-label">Status</div><div className="tf-kv-value">{DRIFT_STATUS_LABELS[selectedItem.status as Exclude<TerraformDriftStatus, 'unsupported'>]}</div></div>
+                <div className="tf-kv-row"><div className="tf-kv-label">Resource Type</div><div className="tf-kv-value">{selectedItem.resourceType}</div></div>
+                <div className="tf-kv-row"><div className="tf-kv-label">Logical Name</div><div className="tf-kv-value">{selectedItem.logicalName || '-'}</div></div>
+                <div className="tf-kv-row"><div className="tf-kv-label">Terraform Address</div><div className="tf-kv-value">{selectedItem.terraformAddress || '-'}</div></div>
+                <div className="tf-kv-row"><div className="tf-kv-label">Cloud Identifier</div><div className="tf-kv-value">{selectedItem.cloudIdentifier || '-'}</div></div>
+                <div className="tf-kv-row"><div className="tf-kv-label">Region</div><div className="tf-kv-value">{selectedItem.region || '-'}</div></div>
+                <div className="tf-kv-row"><div className="tf-kv-label">Explanation</div><div className="tf-kv-value">{selectedItem.explanation}</div></div>
+                <div className="tf-kv-row"><div className="tf-kv-label">Suggested Next Step</div><div className="tf-kv-value">{selectedItem.suggestedNextStep}</div></div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </>
+  )
+}
+
+export function TerraformConsole({ connection, onRunTerminalCommand }: { connection: AwsConnection; onRunTerminalCommand?: (command: string) => void }) {
   const [cliInfo, setCliInfo] = useState<TerraformCliInfo | null>(null)
   const [projects, setProjectsList] = useState<TerraformProjectListItem[]>([])
   const [selectedId, setSelectedId] = useState('')
@@ -773,6 +943,12 @@ export function TerraformConsole({ connection }: { connection: AwsConnection }) 
   const [running, setRunning] = useState(false)
   const [msg, setMsg] = useState('')
   const [lastLog, setLastLog] = useState<TerraformCommandLog | null>(null)
+  const [driftReport, setDriftReport] = useState<TerraformDriftReport | null>(null)
+  const [driftLoading, setDriftLoading] = useState(false)
+  const [driftError, setDriftError] = useState('')
+  const [driftStatusFilter, setDriftStatusFilter] = useState<'all' | Exclude<TerraformDriftStatus, 'unsupported'>>('all')
+  const [driftTypeFilter, setDriftTypeFilter] = useState('all')
+  const [selectedDriftKey, setSelectedDriftKey] = useState('')
 
   // Dialogs
   const [showInputs, setShowInputs] = useState(false)
@@ -803,6 +979,9 @@ export function TerraformConsole({ connection }: { connection: AwsConnection }) 
     setSelectedId('')
     setDetail(null)
     setProjectsList([])
+    setDriftReport(null)
+    setDriftError('')
+    setSelectedDriftKey('')
   }, [connection.profile])
 
   // Load projects
@@ -822,12 +1001,36 @@ export function TerraformConsole({ connection }: { connection: AwsConnection }) 
 
   // Load detail when selected
   useEffect(() => {
-    if (!selectedId) { setDetail(null); return }
+    if (!selectedId) { setDetail(null); setDriftReport(null); return }
     void getProject(connection.profile, selectedId).then((p) => {
       setDetail(p)
+      setDriftReport(null)
+      setDriftError('')
+      setSelectedDriftKey('')
       void setSelectedProjectId(connection.profile, selectedId)
     }).catch(() => setDetail(null))
   }, [selectedId, connection.profile])
+
+  const loadDrift = useCallback(async () => {
+    if (!detail) return
+    setDriftLoading(true)
+    setDriftError('')
+    try {
+      const report = await getDrift(connection.profile, detail.id, connection)
+      setDriftReport(report)
+      setSelectedDriftKey((current) => current || (report.items[0] ? driftItemKey(report.items[0]) : ''))
+    } catch (err) {
+      setDriftError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setDriftLoading(false)
+    }
+  }, [connection, detail])
+
+  useEffect(() => {
+    if (detailTab !== 'drift' || !detail) return
+    if (driftReport?.projectId === detail.id && driftReport.region === connection.region) return
+    void loadDrift()
+  }, [connection.region, detail, detailTab, driftReport, loadDrift])
 
   // Subscribe to terraform events
   useEffect(() => {
@@ -1062,6 +1265,17 @@ export function TerraformConsole({ connection }: { connection: AwsConnection }) 
     })
   }
 
+  function handleOpenDriftConsole(item: TerraformDriftItem) {
+    if (!item.consoleUrl) return
+    void openExternalUrl(item.consoleUrl)
+  }
+
+  function handleRunDriftStateShow(item: TerraformDriftItem) {
+    if (!item.terminalCommand) return
+    onRunTerminalCommand?.(item.terminalCommand)
+    setMsg('Terraform state command opened in terminal')
+  }
+
   return (
     <div className="tf-console">
       {/* CLI Banner */}
@@ -1128,6 +1342,7 @@ export function TerraformConsole({ connection }: { connection: AwsConnection }) 
               <div className="tf-detail-tabs">
                 <button className={detailTab === 'actions' ? 'active' : ''} onClick={() => setDetailTab('actions')}>Actions</button>
                 <button className={detailTab === 'resources' ? 'active' : ''} onClick={() => setDetailTab('resources')}>Resources</button>
+                <button className={detailTab === 'drift' ? 'active' : ''} onClick={() => setDetailTab('drift')}>Drift</button>
               </div>
 
               {/* Project info */}
@@ -1158,6 +1373,22 @@ export function TerraformConsole({ connection }: { connection: AwsConnection }) 
               />
               )}
               {detailTab === 'resources' && <ResourcesTab project={detail} />}
+              {detailTab === 'drift' && (
+                <DriftTab
+                  report={driftReport}
+                  loading={driftLoading}
+                  error={driftError}
+                  statusFilter={driftStatusFilter}
+                  typeFilter={driftTypeFilter}
+                  selectedKey={selectedDriftKey}
+                  onStatusFilterChange={setDriftStatusFilter}
+                  onTypeFilterChange={setDriftTypeFilter}
+                  onSelectItem={setSelectedDriftKey}
+                  onRefresh={() => void loadDrift()}
+                  onOpenConsole={handleOpenDriftConsole}
+                  onRunStateShow={handleRunDriftStateShow}
+                />
+              )}
             </>
           )}
         </div>

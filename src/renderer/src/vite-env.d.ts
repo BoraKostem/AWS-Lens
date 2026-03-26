@@ -55,6 +55,7 @@ declare global {
       getRelationshipMap: (connection: AwsConnection) => Promise<unknown>
       searchByTag: (connection: AwsConnection, tagKey: string, tagValue?: string) => Promise<unknown>
       getCostBreakdown: (connection: AwsConnection) => Promise<unknown>
+      openExternalUrl: (url: string) => Promise<unknown>
       listEksClusters: (connection: AwsConnection) => Promise<unknown>
       describeEksCluster: (connection: AwsConnection, clusterName: string) => Promise<unknown>
       listEksNodegroups: (connection: AwsConnection, clusterName: string) => Promise<unknown>
@@ -288,6 +289,7 @@ declare global {
     terraformWorkspace: {
       listProjects: (profileName: string) => Promise<unknown>
       getProject: (profileName: string, projectId: string) => Promise<unknown>
+      getDrift: (profileName: string, projectId: string, connection: AwsConnection) => Promise<unknown>
       chooseProjectDirectory: () => Promise<unknown>
       addProject: (profileName: string, rootPath: string) => Promise<unknown>
       renameProject: (profileName: string, projectId: string, name: string) => Promise<unknown>

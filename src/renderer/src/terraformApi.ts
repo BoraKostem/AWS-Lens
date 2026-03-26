@@ -2,6 +2,7 @@ import type {
   TerraformCliInfo,
   TerraformCommandLog,
   TerraformCommandRequest,
+  TerraformDriftReport,
   TerraformMissingVarsResult,
   TerraformProject,
   TerraformProjectListItem
@@ -35,6 +36,10 @@ export async function listProjects(profileName: string): Promise<TerraformProjec
 
 export async function getProject(profileName: string, projectId: string): Promise<TerraformProject> {
   return unwrap(await bridge().getProject(profileName, projectId) as Wrapped<TerraformProject>)
+}
+
+export async function getDrift(profileName: string, projectId: string, connection: { profile: string; region: string }): Promise<TerraformDriftReport> {
+  return unwrap(await bridge().getDrift(profileName, projectId, connection) as Wrapped<TerraformDriftReport>)
 }
 
 export async function chooseProjectDirectory(): Promise<string> {

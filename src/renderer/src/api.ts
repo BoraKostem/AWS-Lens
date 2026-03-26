@@ -81,6 +81,7 @@ import type {
   StsDecodedAuthorizationMessage,
   TerraformCommandLog,
   TerraformCommandRequest,
+  TerraformDriftReport,
   TerraformProject,
   TerraformProjectListItem,
   TransitGatewaySummary,
@@ -541,6 +542,10 @@ export function useAwsActivity(): AwsActivityState {
 
 export async function openAwsTerminal(connection: AwsConnection, initialCommand?: string): Promise<void> {
   await rawAwsBridge().openAwsTerminal(connection, initialCommand)
+}
+
+export async function openExternalUrl(url: string): Promise<void> {
+  await rawAwsBridge().openExternalUrl(url)
 }
 
 export async function updateAwsTerminalContext(connection: AwsConnection): Promise<void> {

@@ -30,7 +30,7 @@
 - Lets you select a profile and region from a catalog-oriented shell
 - Exposes service consoles for AWS inventory, details, and selected mutations
 - Opens an embedded terminal with `AWS_PROFILE`, `AWS_REGION`, and `AWS_DEFAULT_REGION` aligned to the active connection
-- Includes a Terraform workspace for managing local Terraform project folders and running CLI commands
+- Includes a Terraform workspace for managing local Terraform project folders, running CLI commands, and inspecting Terraform drift against live AWS inventory
 - Packages as a desktop app with `electron-builder`
 
 ## Extended Features
@@ -45,6 +45,27 @@ Browse, inspect, and act on resources across a wide range of AWS services — fr
 A fully integrated terminal powered by `node-pty` and `xterm.js`. The terminal session automatically inherits `AWS_PROFILE`, `AWS_REGION`, and `AWS_DEFAULT_REGION` from your current selection, so AWS CLI, `kubectl`, `docker`, and other tools just work without manual env setup.
 
 ### Terraform Workspace
+The Terraform workspace now also includes operator-focused Drift Intelligence. It compares Terraform-managed inventory with live AWS inventory, highlights `in_sync`, `drifted`, `missing_in_aws`, `unmanaged_in_aws`, and `unsupported` items, and provides AWS console plus `terraform state show` shortcuts from the drift view.
+
+Terraform Drift Intelligence currently provides:
+
+- A `Drift` tab inside each Terraform project workspace
+- Summary counts and filters for `in_sync`, `drifted`, `missing_in_aws`, `unmanaged_in_aws`, and `unsupported`
+- Per-item details including Terraform address, resource type, logical name, cloud identifier, region, explanation, and suggested next step
+- AWS console shortcuts for matched live resources
+- A terminal shortcut for `terraform state show` on supported Terraform-managed items
+- Clear `unsupported` labeling for Terraform AWS resource types not yet covered by the initial comparison set
+
+Initial drift coverage includes:
+
+- EC2 instances
+- Security groups
+- VPCs
+- Subnets
+- S3 buckets
+- Lambda functions
+- RDS instances
+- ECR repositories
 Manage local Terraform projects from within the app. Discover project folders, run `plan`, `apply`, `destroy`, and other CLI commands, and visualize Terraform state — all without leaving the console.
 
 ### Cross-Platform Desktop App
@@ -87,6 +108,7 @@ Key areas:
 - `src/main/*Ipc.ts`: Electron IPC entry points for renderer requests
 - `src/main/terminalIpc.ts`: embedded terminal session management via `node-pty`
 - `src/main/terraform.ts`: Terraform project discovery, command execution, and state handling
+- `src/main/terraformDrift.ts`: Terraform drift normalization and live AWS comparison logic
 - `src/preload/index.ts`: safe renderer bridge
 - `src/renderer/src/App.tsx`: top-level shell, profile catalog, service routing, and terminal toggle
 - `src/shared/types.ts`: shared contracts between main, preload, and renderer
@@ -200,6 +222,7 @@ Packaged artifacts are written to `release/`.
 - AWS service actions are implemented in the main process and exposed through focused IPC handlers.
 - The embedded terminal is a shared PTY session whose AWS context is updated when the active profile or region changes.
 - Terraform support is local-workspace oriented and depends on the host having the Terraform CLI available.
+- Drift detection is intentionally incremental. It compares existence, selected identifiers, and important attributes for a supported subset of AWS resource types rather than attempting full Terraform semantic diffing.
 - Packaging unpacks `node-pty` from ASAR so the terminal works in packaged builds.
 
 ## Contributing

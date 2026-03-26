@@ -420,7 +420,7 @@ export function App() {
     if (targetScreen === 'terraform' && targetService?.id === 'terraform') {
       return (
         <ConnectedServiceScreen service={targetService} state={connectionState}>
-          {(connection) => <TerraformConsole connection={connection} />}
+          {(connection) => <TerraformConsole connection={connection} onRunTerminalCommand={handleOpenTerminalCommand} />}
         </ConnectedServiceScreen>
       )
     }

@@ -92,6 +92,7 @@ const awsLensApi = {
     ipcRenderer.invoke('overview:search-tags', connection, tagKey, tagValue),
   getCostBreakdown: (connection: AwsConnection) =>
     ipcRenderer.invoke('overview:cost-breakdown', connection),
+  openExternalUrl: (url: string) => ipcRenderer.invoke('shell:open-external', url),
 
   /* EKS */
   listEksClusters: (connection: AwsConnection) => ipcRenderer.invoke('eks:list-clusters', connection),
@@ -491,6 +492,8 @@ const api = {
   getCliInfo: () => ipcRenderer.invoke('terraform:cli:info'),
   listProjects: (profileName: string) => ipcRenderer.invoke('terraform:projects:list', profileName),
   getProject: (profileName: string, projectId: string) => ipcRenderer.invoke('terraform:projects:get', profileName, projectId),
+  getDrift: (profileName: string, projectId: string, connection: AwsConnection) =>
+    ipcRenderer.invoke('terraform:drift:get', profileName, projectId, connection),
   chooseProjectDirectory: () => ipcRenderer.invoke('terraform:projects:choose-directory'),
   chooseVarFile: () => ipcRenderer.invoke('terraform:projects:choose-file'),
   addProject: (profileName: string, rootPath: string) => ipcRenderer.invoke('terraform:projects:add', profileName, rootPath),

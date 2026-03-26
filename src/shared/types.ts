@@ -751,7 +751,7 @@ export type TagCostEntry = {
   tagKey: string
   tagValue: string
   resourceCount: number
-  estimatedCost: number
+  monthlyCost: number
 }
 
 export type TagSearchResult = {
@@ -1420,6 +1420,42 @@ export type TerraformCommandLog = {
 }
 
 export type TerraformProjectStatus = 'Ready' | 'Missing'
+
+export type TerraformDriftStatus =
+  | 'in_sync'
+  | 'drifted'
+  | 'missing_in_aws'
+  | 'unmanaged_in_aws'
+  | 'unsupported'
+
+export type TerraformDriftItem = {
+  terraformAddress: string
+  resourceType: string
+  logicalName: string
+  cloudIdentifier: string
+  region: string
+  status: TerraformDriftStatus
+  explanation: string
+  suggestedNextStep: string
+  consoleUrl: string
+  terminalCommand: string
+}
+
+export type TerraformDriftSummary = {
+  total: number
+  statusCounts: Record<TerraformDriftStatus, number>
+  resourceTypeCounts: Array<{ resourceType: string; count: number }>
+  scannedAt: string
+}
+
+export type TerraformDriftReport = {
+  projectId: string
+  projectName: string
+  profileName: string
+  region: string
+  summary: TerraformDriftSummary
+  items: TerraformDriftItem[]
+}
 
 export type TerraformProject = {
   id: string

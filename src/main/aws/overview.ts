@@ -678,18 +678,59 @@ function matchesTag(tags: Record<string, string>, tagKey: string, tagValue?: str
 
 function addMatchedTaggedResource(
   resources: TaggedResource[],
-  costMap: Map<string, { count: number; cost: number }>,
+  countMap: Map<string, number>,
   item: { resourceId: string; resourceType: string; service: string; name: string; tags: Record<string, string> },
-  matchedTag: { key: string; value: string },
-  estimatedCost: number
+  matchedTag: { key: string; value: string }
 ): void {
   resources.push(item)
 
   const mapKey = `${matchedTag.key}=${matchedTag.value}`
-  const existing = costMap.get(mapKey) ?? { count: 0, cost: 0 }
-  existing.count += 1
-  existing.cost += estimatedCost
-  costMap.set(mapKey, existing)
+  countMap.set(mapKey, (countMap.get(mapKey) ?? 0) + 1)
+}
+
+function getCurrentMonthTimePeriod(): { start: Date; end: Date; label: string } {
+  const now = new Date()
+  const start = new Date(now.getFullYear(), now.getMonth(), 1)
+  const end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
+  const label = `${start.toLocaleString('en', { month: 'short' })} ${start.getFullYear()}`
+
+  return { start, end, label }
+}
+
+function formatCostExplorerDate(date: Date): string {
+  return date.toISOString().slice(0, 10)
+}
+
+async function getMonthlyCostForTag(
+  connection: AwsConnection,
+  tagKey: string,
+  tagValue: string
+): Promise<number> {
+  const client = new CostExplorerClient(awsClientConfig({ ...connection, region: 'us-east-1' }))
+  const { start, end } = getCurrentMonthTimePeriod()
+
+  const resp = await client.send(new GetCostAndUsageCommand({
+    TimePeriod: {
+      Start: formatCostExplorerDate(start),
+      End: formatCostExplorerDate(end)
+    },
+    Granularity: 'MONTHLY',
+    Metrics: ['UnblendedCost'],
+    Filter: {
+      Tags: {
+        Key: tagKey,
+        Values: [tagValue],
+        MatchOptions: ['EQUALS']
+      }
+    }
+  }))
+
+  let total = 0
+  for (const result of resp.ResultsByTime ?? []) {
+    total += parseFloat(result.Total?.UnblendedCost?.Amount ?? '0')
+  }
+
+  return Math.round(total * 100) / 100
 }
 
 /* ── public API ───────────────────────────────────────────── */
@@ -828,16 +869,10 @@ export async function getOverviewMetrics(
 
 export async function getCostBreakdown(connection: AwsConnection): Promise<CostBreakdown> {
   const client = new CostExplorerClient(awsClientConfig({ ...connection, region: 'us-east-1' }))
-
-  const now = new Date()
-  const start = new Date(now.getFullYear(), now.getMonth(), 1)
-  // Use tomorrow as end date to ensure we get all MTD data
-  const end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-
-  const fmt = (d: Date) => d.toISOString().slice(0, 10)
+  const { start, end, label } = getCurrentMonthTimePeriod()
 
   const resp = await client.send(new GetCostAndUsageCommand({
-    TimePeriod: { Start: fmt(start), End: fmt(end) },
+    TimePeriod: { Start: formatCostExplorerDate(start), End: formatCostExplorerDate(end) },
     Granularity: 'MONTHLY',
     Metrics: ['UnblendedCost'],
     GroupBy: [{ Type: 'DIMENSION', Key: 'SERVICE' }],
@@ -867,9 +902,7 @@ export async function getCostBreakdown(connection: AwsConnection): Promise<CostB
   entries.sort((a, b) => b.amount - a.amount)
   total = Math.round(total * 100) / 100
 
-  const period = `${start.toLocaleString('en', { month: 'short' })} ${start.getFullYear()}`
-
-  return { entries, total, period }
+  return { entries, total, period: label }
 }
 
 /* ── relationship-specific fetchers ───────────────────────── */
@@ -1404,19 +1437,19 @@ export async function searchByTag(
   ])
 
   const resources: TaggedResource[] = []
-  const costMap = new Map<string, { count: number; cost: number }>()
+  const countMap = new Map<string, number>()
 
   // Search EC2 tags
   for (const inst of ec2.instances) {
     const matchedTag = matchesTag(inst.tags, tagKey, tagValue)
     if (matchedTag) {
-      addMatchedTaggedResource(resources, costMap, {
+      addMatchedTaggedResource(resources, countMap, {
         resourceId: inst.id,
         resourceType: 'EC2 Instance',
         service: 'ec2',
         name: inst.name,
         tags: inst.tags
-      }, matchedTag, COST_EC2_INSTANCE)
+      }, matchedTag)
     }
   }
 
@@ -1424,132 +1457,148 @@ export async function searchByTag(
   for (const group of asg.groups) {
     const matchedTag = matchesTag(group.tags, tagKey, tagValue)
     if (matchedTag) {
-      addMatchedTaggedResource(resources, costMap, {
+      addMatchedTaggedResource(resources, countMap, {
         resourceId: group.name,
         resourceType: 'Auto Scaling Group',
         service: 'auto-scaling',
         name: group.name,
         tags: group.tags
-      }, matchedTag, group.instances * COST_ASG_INSTANCE)
+      }, matchedTag)
     }
   }
 
   for (const fn of lambda) {
     const matchedTag = matchesTag(fn.tags, tagKey, tagValue)
     if (matchedTag) {
-      addMatchedTaggedResource(resources, costMap, {
+      addMatchedTaggedResource(resources, countMap, {
         resourceId: fn.id,
         resourceType: 'Lambda Function',
         service: 'lambda',
         name: fn.name,
         tags: fn.tags
-      }, matchedTag, COST_LAMBDA_FUNCTION)
+      }, matchedTag)
     }
   }
 
   for (const cluster of eks) {
     const matchedTag = matchesTag(cluster.tags, tagKey, tagValue)
     if (matchedTag) {
-      addMatchedTaggedResource(resources, costMap, {
+      addMatchedTaggedResource(resources, countMap, {
         resourceId: cluster.id,
         resourceType: 'EKS Cluster',
         service: 'eks',
         name: cluster.name,
         tags: cluster.tags
-      }, matchedTag, COST_EKS_CLUSTER)
+      }, matchedTag)
     }
   }
 
   for (const vpc of vpcs) {
     const matchedTag = matchesTag(vpc.tags, tagKey, tagValue)
     if (matchedTag) {
-      addMatchedTaggedResource(resources, costMap, {
+      addMatchedTaggedResource(resources, countMap, {
         resourceId: vpc.id,
         resourceType: 'VPC',
         service: 'vpc',
         name: vpc.name,
         tags: vpc.tags
-      }, matchedTag, COST_VPC)
+      }, matchedTag)
     }
   }
 
   for (const group of securityGroups) {
     const matchedTag = matchesTag(group.tags, tagKey, tagValue)
     if (matchedTag) {
-      addMatchedTaggedResource(resources, costMap, {
+      addMatchedTaggedResource(resources, countMap, {
         resourceId: group.id,
         resourceType: 'Security Group',
         service: 'security-groups',
         name: group.name,
         tags: group.tags
-      }, matchedTag, COST_SECURITY_GROUP)
+      }, matchedTag)
     }
   }
 
   for (const topic of snsTopics) {
     const matchedTag = matchesTag(topic.tags, tagKey, tagValue)
     if (matchedTag) {
-      addMatchedTaggedResource(resources, costMap, {
+      addMatchedTaggedResource(resources, countMap, {
         resourceId: topic.id,
         resourceType: 'SNS Topic',
         service: 'sns',
         name: topic.name,
         tags: topic.tags
-      }, matchedTag, COST_SNS_TOPIC)
+      }, matchedTag)
     }
   }
 
   for (const queue of sqsQueues) {
     const matchedTag = matchesTag(queue.tags, tagKey, tagValue)
     if (matchedTag) {
-      addMatchedTaggedResource(resources, costMap, {
+      addMatchedTaggedResource(resources, countMap, {
         resourceId: queue.id,
         resourceType: 'SQS Queue',
         service: 'sqs',
         name: queue.name,
         tags: queue.tags
-      }, matchedTag, COST_SQS_QUEUE)
+      }, matchedTag)
     }
   }
 
   for (const secret of secrets) {
     const matchedTag = matchesTag(secret.tags, tagKey, tagValue)
     if (matchedTag) {
-      addMatchedTaggedResource(resources, costMap, {
+      addMatchedTaggedResource(resources, countMap, {
         resourceId: secret.id,
         resourceType: 'Secret',
         service: 'secrets-manager',
         name: secret.name,
         tags: secret.tags
-      }, matchedTag, COST_SECRET)
+      }, matchedTag)
     }
   }
 
   for (const keyPair of keyPairs) {
     const matchedTag = matchesTag(keyPair.tags, tagKey, tagValue)
     if (matchedTag) {
-      addMatchedTaggedResource(resources, costMap, {
+      addMatchedTaggedResource(resources, countMap, {
         resourceId: keyPair.id,
         resourceType: 'Key Pair',
         service: 'key-pairs',
         name: keyPair.name,
         tags: keyPair.tags
-      }, matchedTag, COST_KEY_PAIR)
+      }, matchedTag)
     }
   }
 
+  const monthlyCosts = await mapWithConcurrency(
+    Array.from(countMap.entries()),
+    4,
+    async ([mapKey, resourceCount]) => {
+      const separatorIndex = mapKey.indexOf('=')
+      const tagKey = separatorIndex >= 0 ? mapKey.slice(0, separatorIndex) : mapKey
+      const tagValue = separatorIndex >= 0 ? mapKey.slice(separatorIndex + 1) : ''
+
+      const monthlyCost = await safeCount(
+        () => getMonthlyCostForTag(connection, tagKey, tagValue),
+        0
+      )
+
+      return { tagKey, tagValue, resourceCount, monthlyCost }
+    }
+  )
+
   const costBreakdown: TagCostEntry[] = []
-  for (const [mapKey, entry] of costMap) {
-    const [key, ...rest] = mapKey.split('=')
+  for (const entry of monthlyCosts) {
     costBreakdown.push({
-      tagKey: key,
-      tagValue: rest.join('='),
-      resourceCount: entry.count,
-      estimatedCost: entry.cost
+      tagKey: entry.tagKey,
+      tagValue: entry.tagValue,
+      resourceCount: entry.resourceCount,
+      monthlyCost: entry.monthlyCost
     })
   }
 
-  costBreakdown.sort((a, b) => b.estimatedCost - a.estimatedCost)
+  costBreakdown.sort((a, b) => b.monthlyCost - a.monthlyCost)
 
   return { resources, costBreakdown }
 }

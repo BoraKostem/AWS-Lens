@@ -795,13 +795,13 @@ export function OverviewConsole({
                   </div>
                   <div className="column stack">
                     <div className="panel">
-                      <div className="panel-header"><h3>Cost Breakdown</h3></div>
+                      <div className="panel-header"><h3>Current Monthly Cost</h3></div>
                       <div className="selection-list">
                         {tagResults.costBreakdown.map((entry) => (
                           <div key={`${entry.tagKey}-${entry.tagValue}`} className="selection-item">
                             <span>{entry.tagKey}={entry.tagValue}</span>
                             <strong>{entry.resourceCount} resources</strong>
-                            <span>{fmtCurrency(entry.estimatedCost)}</span>
+                            <span>{fmtCurrency(entry.monthlyCost)}</span>
                           </div>
                         ))}
                         {!tagResults.costBreakdown.length && <div className="empty-state compact">No cost breakdown.</div>}
