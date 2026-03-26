@@ -1,4 +1,4 @@
-import { dialog, ipcMain, shell, type BrowserWindow } from 'electron'
+import { dialog, ipcMain, shell, type BrowserWindow, type OpenDialogOptions } from 'electron'
 
 import type { AwsConnection, TerraformCommandRequest } from '@shared/types'
 import { importAwsConfigFile } from './aws/profiles'
@@ -72,6 +72,23 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       const result = owner
         ? await dialog.showOpenDialog(owner, { properties: ['openFile'], filters: [{ name: 'Terraform Vars', extensions: ['tfvars', 'json', 'tfvars.json'] }] })
         : await dialog.showOpenDialog({ properties: ['openFile'], filters: [{ name: 'Terraform Vars', extensions: ['tfvars', 'json', 'tfvars.json'] }] })
+      return result.canceled ? '' : result.filePaths[0] ?? ''
+    })
+  )
+  ipcMain.handle('ec2:ssh:choose-key', async () =>
+    wrap(async () => {
+      const owner = getWindow()
+      const dialogOptions: OpenDialogOptions = {
+        title: 'Select SSH private key',
+        properties: ['openFile'],
+        filters: [
+          { name: 'SSH Private Keys', extensions: ['pem', 'ppk', 'key'] },
+          { name: 'All Files', extensions: ['*'] }
+        ]
+      }
+      const result = owner
+        ? await dialog.showOpenDialog(owner, dialogOptions)
+        : await dialog.showOpenDialog(dialogOptions)
       return result.canceled ? '' : result.filePaths[0] ?? ''
     })
   )

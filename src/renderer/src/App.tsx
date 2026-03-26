@@ -227,6 +227,21 @@ function screenCacheTag(screen: Screen): CacheTag | null {
   }
 }
 
+function refreshTagsForScreen(screen: Screen): CacheTag[] {
+  const primaryTag = screenCacheTag(screen)
+
+  if (!primaryTag) {
+    return []
+  }
+
+  switch (screen) {
+    case 'ec2':
+      return ['ec2', 'key-pairs', 'vpc', 'cloudtrail']
+    default:
+      return [primaryTag]
+  }
+}
+
 export function App() {
   const [screen, setScreen] = useState<Screen>('profiles')
   const [navOpen, setNavOpen] = useState(true)
@@ -329,12 +344,16 @@ export function App() {
   }, [awsActivity.pendingCount])
 
   function handlePageRefresh(): void {
-    if (!activeCacheTag) {
+    const refreshTags = refreshTagsForScreen(screen)
+
+    if (refreshTags.length === 0) {
       return
     }
 
     setRefreshState({ screen, sawPending: false })
-    invalidatePageCache(activeCacheTag)
+    for (const tag of refreshTags) {
+      invalidatePageCache(tag)
+    }
     setPageRefreshNonceByScreen((current) => ({
       ...current,
       [screen]: (current[screen] ?? 0) + 1

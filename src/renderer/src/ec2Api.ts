@@ -13,19 +13,21 @@ import type {
   Ec2VpcDetail,
   SnapshotLaunchConfig
 } from '@shared/types'
+import { trackedAwsBridge } from './api'
 
 type Wrapped<T> = { ok: true; data: T } | { ok: false; error: string }
 
 function bridge() {
-  if (!window.awsLens) {
-    throw new Error('AWS preload bridge did not load.')
-  }
-  return window.awsLens
+  return trackedAwsBridge()
 }
 
 function unwrap<T>(result: Wrapped<T>): T {
   if (!result.ok) throw new Error(result.error)
   return result.data
+}
+
+export async function chooseEc2SshKey(): Promise<string> {
+  return unwrap((await bridge().chooseEc2SshKey()) as Wrapped<string>)
 }
 
 export async function listEc2Instances(c: AwsConnection): Promise<Ec2InstanceSummary[]> {

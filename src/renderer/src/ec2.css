@@ -449,6 +449,141 @@
   color: #9ca7b7;
 }
 
+.ec2-status-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(13, 17, 23, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 40;
+}
+
+.ec2-status-dialog {
+  width: min(680px, 100%);
+  background: #20252d;
+  border: 1px solid #3b4350;
+  border-radius: 12px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+  padding: 20px;
+  display: grid;
+  gap: 16px;
+}
+
+.ec2-status-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.ec2-status-header h3 {
+  margin: 4px 0 0;
+  font-size: 20px;
+  color: #edf1f6;
+}
+
+.ec2-status-eyebrow {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9ca7b7;
+}
+
+.ec2-status-copy {
+  font-size: 13px;
+  color: #cbd5df;
+  line-height: 1.5;
+}
+
+.ec2-status-steps {
+  display: grid;
+  gap: 10px;
+}
+
+.ec2-status-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #3b4350;
+  border-radius: 8px;
+  background: #171c23;
+  color: #8f9aab;
+  font-size: 13px;
+}
+
+.ec2-status-step.active {
+  border-color: #4a8fe7;
+  color: #edf1f6;
+  background: #1b2837;
+}
+
+.ec2-status-step.completed {
+  border-color: #2d6a4f;
+  color: #9fe3bb;
+  background: #16271f;
+}
+
+.ec2-status-step.failed {
+  border-color: #9f3a35;
+  color: #ffb4a9;
+  background: #2f1718;
+}
+
+.ec2-status-step-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+
+.ec2-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ec2-status-grid div {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #313948;
+  background: #171c23;
+}
+
+.ec2-status-grid span {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #8190a5;
+}
+
+.ec2-status-grid strong {
+  font-size: 13px;
+  color: #edf1f6;
+  word-break: break-word;
+}
+
+.ec2-status-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@media (max-width: 720px) {
+  .ec2-status-dialog {
+    padding: 16px;
+  }
+
+  .ec2-status-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .ec2-type-list {
   max-height: 180px;
   overflow-y: auto;

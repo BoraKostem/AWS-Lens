@@ -243,6 +243,7 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   describeSecret: 'secrets-manager',
   getSecretValue: 'secrets-manager',
   listKeyPairs: 'key-pairs',
+  getEc2Recommendations: 'ec2',
   decodeAuthorizationMessage: 'sts',
   lookupAccessKeyOwnership: 'sts',
   listKmsKeys: 'kms',
@@ -402,6 +403,10 @@ const MUTATING_METHODS = new Set<keyof AwsLensBridge>([
   'generateIamCredentialReport'
 ])
 
+const BACKGROUND_METHODS = new Set<keyof AwsLensBridge>([
+  'getEc2Recommendations'
+])
+
 function notifyAwsActivity(): void {
   for (const listener of awsActivityListeners) {
     listener(awsActivityState)
@@ -497,9 +502,11 @@ function awsBridge(): AwsLensBridge {
             endAwsActivity()
           })
         }
+        const invokeWithoutActivity = () => Promise.resolve(value.apply(bridge, args))
+        const loader = BACKGROUND_METHODS.has(method) ? invokeWithoutActivity : invoke
 
         if (!tag) {
-          return invoke()
+          return loader()
         }
 
         if (MUTATING_METHODS.has(method)) {
@@ -509,7 +516,7 @@ function awsBridge(): AwsLensBridge {
           })
         }
 
-        return readCached(tag, key, args, invoke)
+        return readCached(tag, key, args, loader)
       }
     } else {
       ;(wrapper as Record<string, unknown>)[key] = value
@@ -518,6 +525,10 @@ function awsBridge(): AwsLensBridge {
 
   awsBridgeCache.set(bridge, wrapper)
   return wrapper
+}
+
+export function trackedAwsBridge(): AwsLensBridge {
+  return awsBridge()
 }
 
 function unwrap<T>(result: Wrapped<T>): T {

@@ -95,6 +95,7 @@ const awsLensApi = {
   getCostBreakdown: (connection: AwsConnection) =>
     ipcRenderer.invoke('overview:cost-breakdown', connection),
   openExternalUrl: (url: string) => ipcRenderer.invoke('shell:open-external', url),
+  chooseEc2SshKey: () => ipcRenderer.invoke('ec2:ssh:choose-key'),
 
   /* EKS */
   listEksClusters: (connection: AwsConnection) => ipcRenderer.invoke('eks:list-clusters', connection),
