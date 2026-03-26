@@ -6,6 +6,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage } from 'electron
 
 import { hasPendingAwsCredentialActivity, waitForAwsCredentialActivity } from './aws/client'
 import { registerAwsIpcHandlers } from './awsIpc'
+import { registerComplianceIpcHandlers } from './complianceIpc'
 import { registerEc2IpcHandlers } from './ec2Ipc'
 import { registerEcrIpcHandlers } from './ecrIpc'
 import { registerEksIpcHandlers } from './eksIpc'
@@ -145,6 +146,7 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null)
   registerIpcHandlers(() => mainWindow)
   registerAwsIpcHandlers()
+  registerComplianceIpcHandlers()
   registerEc2IpcHandlers()
   registerEcrIpcHandlers()
   registerEksIpcHandlers()

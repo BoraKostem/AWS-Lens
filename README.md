@@ -29,6 +29,7 @@
 - Loads AWS CLI profiles from local config and credentials files
 - Lets you select a profile and region from a catalog-oriented shell
 - Exposes service consoles for AWS inventory, details, and selected mutations
+- Adds a Compliance Center workspace for grouped security, operational, cost, and compliance findings
 - Opens an embedded terminal with `AWS_PROFILE`, `AWS_REGION`, and `AWS_DEFAULT_REGION` aligned to the active connection
 - Includes a Terraform workspace for managing local Terraform project folders, running CLI commands, and inspecting Terraform drift against live AWS inventory
 - Packages as a desktop app with `electron-builder`
@@ -43,6 +44,21 @@ Browse, inspect, and act on resources across a wide range of AWS services — fr
 
 ### Embedded Terminal
 A fully integrated terminal powered by `node-pty` and `xterm.js`. The terminal session automatically inherits `AWS_PROFILE`, `AWS_REGION`, and `AWS_DEFAULT_REGION` from your current selection, so AWS CLI, `kubectl`, `docker`, and other tools just work without manual env setup.
+
+### Compliance Center
+The Compliance Center is a dedicated workspace for the active AWS profile and region. It groups findings by severity (`high`, `medium`, `low`) and category (`security`, `cost`, `operations`, `compliance`), supports filters for severity, category, service, and search text, and exposes safe remediation actions where the app already supports them.
+
+Initial checks include:
+
+- CloudTrail not configured or not actively logging
+- CloudWatch alarms missing while EC2 resources exist
+- Load balancers without WAF associations
+- Security groups with internet-exposed risky inbound rules
+- Secrets Manager secrets with rotation disabled
+- Excess stopped EC2 instances
+- Large unused-looking key pair inventory
+- VPC sprawl and security group sprawl
+- Weak tagging coverage across supported resources
 
 ### Terraform Workspace
 The Terraform workspace now also includes operator-focused Drift Intelligence. It compares Terraform-managed inventory with live AWS inventory, highlights `in_sync`, `drifted`, `missing_in_aws`, `unmanaged_in_aws`, and `unsupported` items, and provides AWS console plus `terraform state show` shortcuts from the drift view.
@@ -119,6 +135,7 @@ The renderer currently wires these service or workspace screens:
 
 - Terraform
 - Overview
+- Compliance Center
 - EC2
 - CloudWatch
 - S3

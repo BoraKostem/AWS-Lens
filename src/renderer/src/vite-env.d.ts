@@ -52,6 +52,7 @@ declare global {
       lookupCloudTrailEventsByResource: (connection: AwsConnection, resourceName: string, startTime: string, endTime: string) => Promise<unknown>
       getOverviewMetrics: (connection: AwsConnection, regions: string[]) => Promise<unknown>
       getOverviewStatistics: (connection: AwsConnection) => Promise<unknown>
+      getComplianceReport: (connection: AwsConnection) => Promise<unknown>
       getRelationshipMap: (connection: AwsConnection) => Promise<unknown>
       searchByTag: (connection: AwsConnection, tagKey: string, tagValue?: string) => Promise<unknown>
       getCostBreakdown: (connection: AwsConnection) => Promise<unknown>

@@ -10,6 +10,7 @@ import type {
   AwsProfile,
   AwsRegionOption,
   CallerIdentity,
+  ComplianceReport,
   ServiceDescriptor,
   CloudWatchLogEventSummary,
   CloudWatchLogGroupSummary,
@@ -132,6 +133,7 @@ type AwsLensBridge = Window['awsLens']
 export type CacheTag =
   | 'shell'
   | 'overview'
+  | 'compliance-center'
   | 'ec2'
   | 'cloudwatch'
   | 's3'
@@ -180,6 +182,7 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   getCallerIdentity: 'shell',
   getOverviewMetrics: 'overview',
   getOverviewStatistics: 'overview',
+  getComplianceReport: 'compliance-center',
   getRelationshipMap: 'overview',
   getCostBreakdown: 'overview',
   searchByTag: 'overview',
@@ -1014,6 +1017,10 @@ export async function getCostBreakdown(connection: AwsConnection): Promise<CostB
 
 export async function getOverviewStatistics(connection: AwsConnection): Promise<OverviewStatistics> {
   return unwrap((await awsBridge().getOverviewStatistics(connection)) as Wrapped<OverviewStatistics>)
+}
+
+export async function getComplianceReport(connection: AwsConnection): Promise<ComplianceReport> {
+  return unwrap((await awsBridge().getComplianceReport(connection)) as Wrapped<ComplianceReport>)
 }
 
 export async function getRelationshipMap(connection: AwsConnection): Promise<RelationshipMap> {

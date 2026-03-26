@@ -344,6 +344,7 @@ export type LoadBalancerWorkspace = {
 export type ServiceId =
   | 'terraform'
   | 'overview'
+  | 'compliance-center'
     | 'ec2'
     | 'cloudwatch'
     | 's3'
@@ -737,6 +738,54 @@ export type OverviewStatistics = {
   stats: OverviewStat[]
   insights: InsightItem[]
   signals: RegionalSignal[]
+}
+
+export type ComplianceSeverity = 'high' | 'medium' | 'low'
+
+export type ComplianceCategory = 'security' | 'cost' | 'operations' | 'compliance'
+
+export type ComplianceRemediationAction =
+  | {
+      kind: 'navigate'
+      label: string
+      serviceId: ServiceId
+      resourceId?: string
+    }
+  | {
+      kind: 'terminal'
+      label: string
+      command: string
+    }
+  | {
+      kind: 'secret-rotate'
+      label: string
+      secretId: string
+    }
+
+export type ComplianceFinding = {
+  id: string
+  title: string
+  severity: ComplianceSeverity
+  category: ComplianceCategory
+  service: ServiceId
+  region: string
+  resourceId: string
+  description: string
+  recommendedAction: string
+  remediation?: ComplianceRemediationAction
+}
+
+export type ComplianceSummary = {
+  total: number
+  bySeverity: Record<ComplianceSeverity, number>
+  byCategory: Record<ComplianceCategory, number>
+}
+
+export type ComplianceReport = {
+  generatedAt: string
+  findings: ComplianceFinding[]
+  summary: ComplianceSummary
+  warnings: string[]
 }
 
 export type TaggedResource = {

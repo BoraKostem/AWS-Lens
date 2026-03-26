@@ -7,6 +7,7 @@ import { AcmConsole } from './AcmConsole'
 import { AutoScalingConsole } from './AutoScalingConsole'
 import { AwsTerminalPanel } from './AwsTerminalPanel'
 import { CloudFormationConsole } from './CloudFormationConsole'
+import { ComplianceCenter } from './ComplianceCenter'
 import { CloudTrailConsole } from './CloudTrailConsole'
 import { CloudWatchConsole } from './CloudWatchConsole'
 import { useAwsPageConnection } from './AwsPage'
@@ -41,6 +42,7 @@ type FabMode = 'closed' | 'menu' | 'credentials'
 const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   terraform: 'Terraform project browser and command execution workspace.',
   overview: 'Regional summary landing page across AWS services.',
+  'compliance-center': 'Operational and security findings workspace with grouped policy checks and guided remediation.',
   ec2: 'Instances, snapshots, IAM profiles, bastions, and instance actions.',
   cloudwatch: 'Metrics, logs, and recent service telemetry.',
   s3: 'Bucket inventory, objects, and common storage actions.',
@@ -71,6 +73,7 @@ const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
 const IMPLEMENTED_SCREENS = new Set<ServiceId>([
   'terraform',
   'overview',
+  'compliance-center',
   'ec2',
   'cloudwatch',
   's3',
@@ -118,7 +121,7 @@ function ConnectedServiceScreen({
         <div className="hero-connection">
           <div className="connection-summary">
             <span>Status</span>
-            <strong>{service.migrated ? 'Cataloged' : 'Live'}</strong>
+            <strong>Live</strong>
           </div>
           <div className="connection-summary">
             <span>Category</span>
@@ -192,6 +195,7 @@ function PlaceholderScreen({ service }: { service: ServiceDescriptor }) {
 function screenCacheTag(screen: Screen): CacheTag | null {
   switch (screen) {
     case 'overview':
+    case 'compliance-center':
     case 'ec2':
     case 'cloudwatch':
     case 's3':
@@ -449,6 +453,23 @@ export function App() {
       return <OverviewConsole state={connectionState} embedded refreshNonce={pageRefreshNonceByScreen['overview'] ?? 0} onNavigate={(target) => {
         if (IMPLEMENTED_SCREENS.has(target)) setScreen(target as Screen)
       }} />
+    }
+
+    if (targetScreen === 'compliance-center' && targetService?.id === 'compliance-center') {
+      return (
+        <ConnectedServiceScreen service={targetService} state={connectionState}>
+          {(connection) => (
+            <ComplianceCenter
+              connection={connection}
+              refreshNonce={pageRefreshNonceByScreen['compliance-center'] ?? 0}
+              onNavigate={(target) => {
+                if (IMPLEMENTED_SCREENS.has(target)) setScreen(target as Screen)
+              }}
+              onRunTerminalCommand={handleOpenTerminalCommand}
+            />
+          )}
+        </ConnectedServiceScreen>
+      )
     }
 
     if (targetScreen === 'vpc' && targetService?.id === 'vpc') {

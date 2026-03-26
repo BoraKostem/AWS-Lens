@@ -3989,3 +3989,104 @@ button.overview-tile.clickable.active strong {
   background: rgba(224, 82, 82, 0.1);
   border-radius: 8px;
 }
+
+.compliance-summary-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.compliance-filter-grid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.compliance-category-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.compliance-category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.compliance-category-header h4 {
+  margin: 0;
+  text-transform: capitalize;
+}
+
+.compliance-finding-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.compliance-finding-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(12, 21, 27, 0.72);
+}
+
+.compliance-finding-card h5 {
+  margin: 0.35rem 0 0;
+  font-size: 1rem;
+}
+
+.compliance-finding-card p {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.55;
+}
+
+.compliance-finding-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.compliance-finding-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.compliance-finding-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+}
+
+.compliance-next-step {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.compliance-action-button {
+  align-self: flex-start;
+}
+
+@media (max-width: 1100px) {
+  .compliance-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .compliance-summary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .compliance-finding-header {
+    flex-direction: column;
+  }
+}
