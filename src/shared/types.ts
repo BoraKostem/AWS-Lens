@@ -4,6 +4,7 @@ export type AwsProfile = {
   name: string
   source: 'config' | 'credentials'
   region: string
+  managedByApp: boolean
 }
 
 export type AwsRegionOption = {

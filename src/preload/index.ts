@@ -16,6 +16,7 @@ import type {
 
 const awsLensApi = {
   listProfiles: () => ipcRenderer.invoke('profiles:list'),
+  deleteProfile: (profileName: string) => ipcRenderer.invoke('profiles:delete', profileName),
   chooseAndImportConfig: () => ipcRenderer.invoke('profiles:choose-and-import'),
   saveCredentials: (profileName: string, accessKeyId: string, secretAccessKey: string) =>
     ipcRenderer.invoke('profiles:save-credentials', profileName, accessKeyId, secretAccessKey),

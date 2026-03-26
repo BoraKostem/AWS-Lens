@@ -168,12 +168,40 @@ export function SessionHub({
   }, [])
 
   useEffect(() => {
+    if (editingTargetId) {
+      return
+    }
+
     setDraft((current) => ({
       ...current,
-      sourceProfile: current.sourceProfile || connectionState.selectedProfile?.name || connectionState.profile,
-      defaultRegion: current.defaultRegion || connectionState.region
+      sourceProfile: connectionState.selectedProfile?.name || connectionState.profile,
+      defaultRegion: connectionState.region
     }))
-  }, [connectionState.profile, connectionState.region, connectionState.selectedProfile])
+  }, [connectionState.profile, connectionState.region, connectionState.selectedProfile, editingTargetId])
+
+  const scopedProfileName = connectionState.selectedProfile?.name || connectionState.profile
+
+  const visibleTargets = useMemo(() => {
+    if (!scopedProfileName) {
+      return []
+    }
+
+    return connectionState.targets.filter((target) => target.sourceProfile === scopedProfileName)
+  }, [connectionState.targets, scopedProfileName])
+
+  useEffect(() => {
+    if (!editingTargetId) {
+      return
+    }
+
+    const isStillVisible = visibleTargets.some((target) => target.id === editingTargetId)
+    if (isStillVisible) {
+      return
+    }
+
+    setEditingTargetId('')
+    setDraft(emptyDraft(scopedProfileName, connectionState.region))
+  }, [connectionState.region, editingTargetId, scopedProfileName, visibleTargets])
 
   const compareOptions = useMemo<CompareOption[]>(() => {
     const options: CompareOption[] = []
@@ -227,13 +255,15 @@ export function SessionHub({
 
   const roleArnOptions = useMemo(() => {
     const fromAws = availableRoles.map((role) => role.arn)
-    const fromSaved = connectionState.targets.map((target) => target.roleArn)
+    const fromSaved = connectionState.targets
+      .filter((target) => target.sourceProfile === draft.sourceProfile.trim())
+      .map((target) => target.roleArn)
     const query = draft.roleArn.trim().toLowerCase()
 
     return [...new Set([...fromAws, ...fromSaved].filter(Boolean))]
       .filter((roleArn) => !query || roleArn.toLowerCase().includes(query))
       .sort((a, b) => a.localeCompare(b))
-  }, [availableRoles, connectionState.targets, draft.roleArn])
+  }, [availableRoles, connectionState.targets, draft.roleArn, draft.sourceProfile])
 
   const sourceProfileOptions = useMemo(() => {
     const query = draft.sourceProfile.trim().toLowerCase()
@@ -447,7 +477,7 @@ export function SessionHub({
 
       <section className="overview-tiles session-hub-tiles">
         <div className="overview-tile highlight">
-          <strong>{connectionState.targets.length}</strong>
+          <strong>{visibleTargets.length}</strong>
           <span>Saved Targets</span>
         </div>
         <div className="overview-tile">
@@ -572,11 +602,15 @@ export function SessionHub({
             <div className="panel-header">
               <h3>Saved Targets</h3>
             </div>
-            {connectionState.targets.length === 0 ? (
-              <div className="empty-state compact">No saved assume-role targets yet.</div>
+            {visibleTargets.length === 0 ? (
+              <div className="empty-state compact">
+                {scopedProfileName
+                  ? `No saved assume-role targets for ${scopedProfileName} yet.`
+                  : 'Select a base profile to view saved assume-role targets.'}
+              </div>
             ) : (
               <div className="session-hub-card-list">
-                {connectionState.targets.map((target) => (
+                {visibleTargets.map((target) => (
                   <article key={target.id} className="signal-card">
                     <div className="signal-card-header">
                       <div>

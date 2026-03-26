@@ -2,7 +2,7 @@ import { ipcMain } from 'electron'
 
 import type { AssumeRoleRequest, AwsAssumeRoleTarget, AwsConnection } from '@shared/types'
 import { deleteLoadBalancer, listLoadBalancerWorkspaces } from './aws/loadBalancers'
-import { listAwsProfiles, saveAwsCredentials } from './aws/profiles'
+import { deleteAwsProfile, listAwsProfiles, saveAwsCredentials } from './aws/profiles'
 import { listAwsRegions } from './aws/regions'
 import { getCallerIdentity } from './aws/sts'
 import {
@@ -26,6 +26,7 @@ async function wrap<T>(fn: () => Promise<T> | T): Promise<HandlerResult<T>> {
 
 export function registerAwsIpcHandlers(): void {
   ipcMain.handle('profiles:list', async () => wrap(() => listAwsProfiles()))
+  ipcMain.handle('profiles:delete', async (_event, profileName: string) => wrap(() => deleteAwsProfile(profileName)))
   ipcMain.handle('regions:list', async () => wrap(() => listAwsRegions()))
   ipcMain.handle('session-hub:list', async () => wrap(() => listSessionHubState()))
   ipcMain.handle('session-hub:target:save', async (_event, target: Omit<AwsAssumeRoleTarget, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) =>

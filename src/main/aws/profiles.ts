@@ -1,8 +1,67 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { app } from 'electron'
 
 import type { AwsProfile } from '@shared/types'
+import { clearCredentialsProviderCache } from './client'
+
+type ProfileRegistry = {
+  manualProfiles: string[]
+}
+
+function appProfileRegistryPath(): string {
+  return path.join(app.getPath('userData'), 'profile-registry.json')
+}
+
+function readProfileRegistry(): ProfileRegistry {
+  const filePath = appProfileRegistryPath()
+  if (!fs.existsSync(filePath)) {
+    return { manualProfiles: [] }
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8')) as Partial<ProfileRegistry>
+    return {
+      manualProfiles: Array.isArray(parsed.manualProfiles)
+        ? parsed.manualProfiles.filter((entry): entry is string => typeof entry === 'string')
+        : []
+    }
+  } catch {
+    return { manualProfiles: [] }
+  }
+}
+
+function writeProfileRegistry(registry: ProfileRegistry): void {
+  const filePath = appProfileRegistryPath()
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  fs.writeFileSync(filePath, `${JSON.stringify(registry, null, 2)}\n`, 'utf8')
+}
+
+function markProfileAsManual(profileName: string): void {
+  const registry = readProfileRegistry()
+  if (registry.manualProfiles.includes(profileName)) {
+    return
+  }
+
+  registry.manualProfiles.push(profileName)
+  registry.manualProfiles.sort((a, b) => a.localeCompare(b))
+  writeProfileRegistry(registry)
+}
+
+function unmarkProfileAsManual(profileName: string): void {
+  const registry = readProfileRegistry()
+  const nextProfiles = registry.manualProfiles.filter((entry) => entry !== profileName)
+  if (nextProfiles.length === registry.manualProfiles.length) {
+    return
+  }
+
+  writeProfileRegistry({ manualProfiles: nextProfiles })
+}
+
+function isManualProfile(profileName: string): boolean {
+  return readProfileRegistry().manualProfiles.includes(profileName)
+}
 
 function parseIniSections(filePath: string): string[] {
   if (!fs.existsSync(filePath)) {
@@ -142,6 +201,8 @@ export function importAwsConfigFile(filePath: string): string[] {
     imported.push(name)
   }
 
+  clearCredentialsProviderCache()
+
   return imported
 }
 
@@ -162,18 +223,39 @@ export function saveAwsCredentials(profileName: string, accessKeyId: string, sec
   }
 
   const credentialsPath = path.join(awsDir, 'credentials')
-  appendCredentialSection(credentialsPath, profileName.trim(), {
+  const trimmedProfileName = profileName.trim()
+  appendCredentialSection(credentialsPath, trimmedProfileName, {
     aws_access_key_id: accessKeyId.trim(),
     aws_secret_access_key: secretAccessKey.trim()
   })
+  markProfileAsManual(trimmedProfileName)
+  clearCredentialsProviderCache(trimmedProfileName)
+}
+
+export function deleteAwsProfile(profileName: string): void {
+  const trimmed = profileName.trim()
+  if (!trimmed) {
+    throw new Error('Profile name is required.')
+  }
+  if (!isManualProfile(trimmed)) {
+    throw new Error('Only profiles created manually in AWS Lens can be deleted from the catalog.')
+  }
+
+  const awsDir = path.join(os.homedir(), '.aws')
+  const credentialsPath = path.join(awsDir, 'credentials')
+  const configPath = path.join(awsDir, 'config')
+
+  removeCredentialSection(credentialsPath, trimmed)
+  removeConfigSection(configPath, trimmed)
+  unmarkProfileAsManual(trimmed)
+  clearCredentialsProviderCache(trimmed)
 }
 
 function appendCredentialSection(filePath: string, name: string, fields: Record<string, string>): void {
   let content = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : ''
 
   // Remove existing section if present
-  const sectionRegex = new RegExp(`(^|\\n)\\[${escapeRegExp(name)}\\][^\\[]*`, 'g')
-  content = content.replace(sectionRegex, '$1')
+  content = removeSection(content, [new RegExp(`^\\[${escapeRegExp(name)}\\]$`)])
   content = content.replace(/\n{3,}/g, '\n\n').trim()
 
   const block = `\n\n[${name}]\n` + Object.entries(fields).map(([k, v]) => `${k} = ${v}`).join('\n') + '\n'
@@ -184,10 +266,10 @@ function appendConfigSection(filePath: string, name: string, fields: Record<stri
   let content = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : ''
 
   const header = name === 'default' ? `[${name}]` : `[profile ${name}]`
-  const sectionRegex = name === 'default'
-    ? new RegExp(`(^|\\n)\\[default\\][^\\[]*`, 'g')
-    : new RegExp(`(^|\\n)\\[profile ${escapeRegExp(name)}\\][^\\[]*`, 'g')
-  content = content.replace(sectionRegex, '$1')
+  content = removeSection(content, name === 'default'
+    ? [new RegExp(`^\\[default\\]$`)]
+    : [new RegExp(`^\\[profile ${escapeRegExp(name)}\\]$`)]
+  )
   content = content.replace(/\n{3,}/g, '\n\n').trim()
 
   const block = `\n\n${header}\n` + Object.entries(fields).map(([k, v]) => `${k} = ${v}`).join('\n') + '\n'
@@ -198,6 +280,58 @@ function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+function removeSection(content: string, headerPatterns: RegExp[]): string {
+  const lines = content.split(/\r?\n/)
+  const kept: string[] = []
+  let skip = false
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    const isHeader = trimmed.startsWith('[') && trimmed.endsWith(']')
+
+    if (isHeader) {
+      skip = headerPatterns.some((pattern) => pattern.test(trimmed))
+    }
+
+    if (!skip) {
+      kept.push(line)
+    }
+  }
+
+  return kept.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+}
+
+function removeCredentialSection(filePath: string, name: string): void {
+  if (!fs.existsSync(filePath)) {
+    return
+  }
+
+  const next = removeSection(fs.readFileSync(filePath, 'utf8'), [new RegExp(`^\\[${escapeRegExp(name)}\\]$`)])
+  writeOrDeleteFile(filePath, next)
+}
+
+function removeConfigSection(filePath: string, name: string): void {
+  if (!fs.existsSync(filePath)) {
+    return
+  }
+
+  const patterns = name === 'default'
+    ? [new RegExp(`^\\[default\\]$`)]
+    : [new RegExp(`^\\[profile ${escapeRegExp(name)}\\]$`)]
+  const next = removeSection(fs.readFileSync(filePath, 'utf8'), patterns)
+  writeOrDeleteFile(filePath, next)
+}
+
+function writeOrDeleteFile(filePath: string, content: string): void {
+  const trimmed = content.trim()
+  if (!trimmed) {
+    fs.unlinkSync(filePath)
+    return
+  }
+
+  fs.writeFileSync(filePath, `${trimmed}\n`, 'utf8')
+}
+
 export function listAwsProfiles(): AwsProfile[] {
   const awsDir = path.join(os.homedir(), '.aws')
   const configPath = path.join(awsDir, 'config')
@@ -205,6 +339,7 @@ export function listAwsProfiles(): AwsProfile[] {
   const configProfiles = parseIniSections(configPath)
   const credentialProfiles = parseIniSections(credentialsPath)
   const regions = parseConfigRegions(configPath)
+  const manualProfiles = new Set(readProfileRegistry().manualProfiles)
 
   const merged = new Map<string, AwsProfile>()
 
@@ -212,7 +347,8 @@ export function listAwsProfiles(): AwsProfile[] {
     merged.set(name, {
       name,
       source: 'config',
-      region: regions.get(name) ?? 'us-east-1'
+      region: regions.get(name) ?? 'us-east-1',
+      managedByApp: manualProfiles.has(name)
     })
   }
 
@@ -221,8 +357,17 @@ export function listAwsProfiles(): AwsProfile[] {
       merged.set(name, {
         name,
         source: 'credentials',
-        region: regions.get(name) ?? 'us-east-1'
+        region: regions.get(name) ?? 'us-east-1',
+        managedByApp: manualProfiles.has(name)
       })
+    } else {
+      const existing = merged.get(name)
+      if (existing) {
+        merged.set(name, {
+          ...existing,
+          managedByApp: existing.managedByApp || manualProfiles.has(name)
+        })
+      }
     }
   }
 

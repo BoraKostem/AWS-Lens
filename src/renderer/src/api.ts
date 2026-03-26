@@ -178,6 +178,7 @@ let awsActivityState: AwsActivityState = {
 
 const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   listProfiles: 'shell',
+  deleteProfile: 'shell',
   chooseAndImportConfig: 'shell',
   saveCredentials: 'shell',
   listRegions: 'shell',
@@ -288,6 +289,7 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
 }
 
 const MUTATING_METHODS = new Set<keyof AwsLensBridge>([
+  'deleteProfile',
   'chooseAndImportConfig',
   'saveCredentials',
   'createEcrRepository',
@@ -593,6 +595,10 @@ export function subscribeToAwsTerminal(listener: (event: TerminalEvent) => void)
 
 export async function listProfiles(): Promise<AwsProfile[]> {
   return unwrap((await awsBridge().listProfiles()) as Wrapped<AwsProfile[]>)
+}
+
+export async function deleteProfile(profileName: string): Promise<void> {
+  return unwrap((await awsBridge().deleteProfile(profileName)) as Wrapped<void>)
 }
 
 export async function chooseAndImportConfig(): Promise<string[]> {

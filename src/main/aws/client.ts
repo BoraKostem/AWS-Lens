@@ -31,6 +31,15 @@ function getCredentialsProvider(profile: string): AwsCredentialsProvider {
   return trackedProvider
 }
 
+export function clearCredentialsProviderCache(profile?: string): void {
+  if (profile) {
+    credentialProviders.delete(profile)
+    return
+  }
+
+  credentialProviders.clear()
+}
+
 export function awsClientConfig(connection: AwsConnection) {
   const credentials = connection.kind === 'assumed-role'
     ? (() => {

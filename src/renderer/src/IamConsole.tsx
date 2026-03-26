@@ -243,6 +243,13 @@ function formatTs(value: string): string {
   return value && value !== '-' ? new Date(value).toLocaleString() : '-'
 }
 
+function confirmIamDelete(actionLabel: string, targetLabel: string): boolean {
+  const firstPrompt = `Delete ${actionLabel} ${targetLabel}?`
+  const secondPrompt = `Confirm deletion of ${actionLabel} ${targetLabel}. This action may be irreversible.`
+
+  return window.confirm(firstPrompt) && window.confirm(secondPrompt)
+}
+
 const USER_COLS: ColDef<IamUserSummary>[] = [
   { key: 'userName', label: 'UserName', color: '#3b82f6', getValue: u => u.userName },
   { key: 'userId', label: 'UserId', color: '#14b8a6', getValue: u => u.userId },
@@ -701,6 +708,7 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
 
   async function handleDeleteAccessKey(keyId: string) {
     if (!connection || !selectedUser) return
+    if (!confirmIamDelete('access key', `${keyId} for user ${selectedUser.userName}`)) return
     setError('')
     try {
       await deleteIamAccessKey(connection, selectedUser.userName, keyId)
@@ -724,6 +732,7 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
 
   async function handleDeleteMfa(serialNumber: string) {
     if (!connection || !selectedUser) return
+    if (!confirmIamDelete('MFA device', `${serialNumber} for user ${selectedUser.userName}`)) return
     setError('')
     try {
       await deleteIamMfaDevice(connection, selectedUser.userName, serialNumber)
@@ -794,6 +803,7 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
 
   async function handleDeleteUserInlinePolicy(policyName: string) {
     if (!connection || !selectedUser) return
+    if (!confirmIamDelete('inline policy', `${policyName} for user ${selectedUser.userName}`)) return
     setError('')
     try {
       await deleteIamUserInlinePolicy(connection, selectedUser.userName, policyName)
@@ -817,6 +827,7 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
 
   async function handleDeleteLoginProfile() {
     if (!connection || !selectedUser) return
+    if (!confirmIamDelete('console login profile', `for user ${selectedUser.userName}`)) return
     setError('')
     try {
       await deleteIamLoginProfile(connection, selectedUser.userName)
@@ -840,6 +851,7 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
 
   async function handleDeleteUser(userName: string) {
     if (!connection) return
+    if (!confirmIamDelete('IAM user', userName)) return
     setError('')
     try {
       await deleteIamUser(connection, userName)
@@ -900,6 +912,7 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
 
   async function handleDeleteGroup(groupName: string) {
     if (!connection) return
+    if (!confirmIamDelete('IAM group', groupName)) return
     setError('')
     try {
       await deleteIamGroup(connection, groupName)
@@ -968,6 +981,7 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
 
   async function handleDeleteRoleInlinePolicy(policyName: string) {
     if (!connection || !selectedRole) return
+    if (!confirmIamDelete('inline policy', `${policyName} for role ${selectedRole.roleName}`)) return
     setError('')
     try {
       await deleteIamRoleInlinePolicy(connection, selectedRole.roleName, policyName)
@@ -1003,6 +1017,7 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
 
   async function handleDeleteRole(roleName: string) {
     if (!connection) return
+    if (!confirmIamDelete('IAM role', roleName)) return
     setError('')
     try {
       await deleteIamRole(connection, roleName)
@@ -1062,6 +1077,7 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
 
   async function handleDeletePolicyVersion(versionId: string) {
     if (!connection || !selectedPolicy) return
+    if (!confirmIamDelete('policy version', `${versionId} from ${selectedPolicy.policyName}`)) return
     setError('')
     try {
       await deleteIamPolicyVersion(connection, selectedPolicy.arn, versionId)
@@ -1087,6 +1103,8 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
 
   async function handleDeletePolicy(arn: string) {
     if (!connection) return
+    const targetLabel = selectedPolicy?.arn === arn ? selectedPolicy.policyName : arn
+    if (!confirmIamDelete('IAM policy', targetLabel)) return
     setError('')
     try {
       await deleteIamPolicy(connection, arn)

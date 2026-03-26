@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import appLogoUrl from '../../../assets/aws-lens-logo.png'
 import type { ServiceDescriptor, ServiceId } from '@shared/types'
-import { chooseAndImportConfig, closeAwsTerminal, invalidatePageCache, listServices, saveCredentials, useAwsActivity, type CacheTag } from './api'
+import { chooseAndImportConfig, closeAwsTerminal, deleteProfile, invalidatePageCache, listServices, saveCredentials, useAwsActivity, type CacheTag } from './api'
 import { AcmConsole } from './AcmConsole'
 import { AutoScalingConsole } from './AutoScalingConsole'
 import { AwsTerminalPanel } from './AwsTerminalPanel'
@@ -404,6 +404,35 @@ export function App() {
     }
   }
 
+  async function handleDeleteProfile(profileName: string): Promise<void> {
+    const confirmed = window.confirm(`Delete AWS profile "${profileName}" from your local AWS config/credentials files?`)
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      const wasSelectedProfile = connectionState.profile === profileName
+      await deleteProfile(profileName)
+
+      if (connectionState.pinnedProfileNames.includes(profileName)) {
+        connectionState.togglePinnedProfile(profileName)
+      }
+
+      if (wasSelectedProfile) {
+        connectionState.setProfile('')
+        connectionState.clearActiveSession()
+      }
+
+      await connectionState.refreshProfiles()
+
+      if (screen !== 'profiles' && wasSelectedProfile) {
+        setScreen('profiles')
+      }
+    } catch (err) {
+      connectionState.setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   function renderScreenContent(targetScreen: Screen): React.ReactNode {
     const targetService = services.find((service) => service.id === targetScreen)
 
@@ -439,6 +468,11 @@ export function App() {
                   <button type="button" className={connectionState.pinnedProfileNames.includes(entry.name) ? 'active' : ''} onClick={() => connectionState.togglePinnedProfile(entry.name)}>
                     {connectionState.pinnedProfileNames.includes(entry.name) ? 'Unpin' : 'Pin'}
                   </button>
+                  {entry.managedByApp && (
+                    <button type="button" onClick={() => void handleDeleteProfile(entry.name)}>
+                      Delete
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -726,6 +760,11 @@ export function App() {
                     <button type="button" className={connectionState.pinnedProfileNames.includes(entry.name) ? 'active' : ''} onClick={() => connectionState.togglePinnedProfile(entry.name)}>
                       {connectionState.pinnedProfileNames.includes(entry.name) ? 'Unpin' : 'Pin'}
                     </button>
+                    {entry.managedByApp && (
+                      <button type="button" onClick={() => void handleDeleteProfile(entry.name)}>
+                        Delete
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}

@@ -37,6 +37,23 @@ type InMemorySession = {
 
 const sessionStore = new Map<string, InMemorySession>()
 
+const REGION_NORMALIZATIONS: Record<string, string> = {
+  'eu-cental-1': 'eu-central-1',
+  'ca-cental-1': 'ca-central-1',
+  'me-cental-1': 'me-central-1',
+  'il-cental-1': 'il-central-1'
+}
+
+function normalizeRegion(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return trimmed
+  }
+
+  const lower = trimmed.toLowerCase()
+  return REGION_NORMALIZATIONS[lower] ?? lower
+}
+
 function sessionHubPath(): string {
   return path.join(app.getPath('userData'), 'session-hub.json')
 }
@@ -119,7 +136,7 @@ export function createBaseConnection(profile: string, region: string): AwsConnec
     sessionId: `profile:${profile}`,
     label: profile,
     profile,
-    region
+    region: normalizeRegion(region)
   }
 }
 
@@ -141,7 +158,7 @@ export function saveAssumeRoleTarget(
   const roleArn = input.roleArn.trim()
   const defaultSessionName = input.defaultSessionName.trim()
   const sourceProfile = input.sourceProfile.trim()
-  const defaultRegion = input.defaultRegion.trim()
+  const defaultRegion = normalizeRegion(input.defaultRegion)
 
   if (!label || !roleArn || !defaultSessionName) {
     throw new Error('Label, role ARN, and default session name are required.')
@@ -242,7 +259,7 @@ export function createConnectionFromSession(sessionId: string, region?: string):
     label: session.label,
     profile: session.sourceProfile,
     sourceProfile: session.sourceProfile,
-    region: region?.trim() || session.region,
+    region: normalizeRegion(region ?? session.region),
     roleArn: session.roleArn,
     assumedRoleArn: session.assumedRoleArn,
     accountId: session.accountId,
@@ -256,7 +273,7 @@ export async function assumeRoleSession(request: AssumeRoleRequest): Promise<Ass
   const roleArn = request.roleArn.trim()
   const sessionName = request.sessionName.trim()
   const sourceProfile = request.sourceProfile?.trim() ?? ''
-  const region = request.region?.trim() || 'us-east-1'
+  const region = normalizeRegion(request.region || 'us-east-1')
 
   if (!roleArn || !sessionName || !sourceProfile) {
     throw new Error('Role ARN, source profile, and session name are required.')
