@@ -80,6 +80,60 @@ function resolveBucketConnectionFromList(
   return resolveBucketConnection(connection, bucketList, bucketName)
 }
 
+function bucketStorageKey(connection: AwsConnection): string {
+  return connection.kind === 'profile'
+    ? `aws-lens:s3-known-buckets:profile:${connection.profile}`
+    : `aws-lens:s3-known-buckets:assumed-role:${connection.profile}:${connection.roleArn}`
+}
+
+function loadStoredBuckets(connection: AwsConnection): S3BucketSummary[] {
+  try {
+    const raw = window.localStorage.getItem(bucketStorageKey(connection))
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter((entry): entry is S3BucketSummary =>
+        Boolean(entry) &&
+        typeof entry === 'object' &&
+        typeof (entry as S3BucketSummary).name === 'string' &&
+        typeof (entry as S3BucketSummary).creationDate === 'string' &&
+        typeof (entry as S3BucketSummary).region === 'string'
+      )
+      .sort((left, right) => left.name.localeCompare(right.name))
+  } catch {
+    return []
+  }
+}
+
+function persistBuckets(connection: AwsConnection, bucketList: S3BucketSummary[]): void {
+  try {
+    window.localStorage.setItem(bucketStorageKey(connection), JSON.stringify(bucketList))
+  } catch {
+    // Ignore storage failures; bucket browsing still works for the current session.
+  }
+}
+
+function upsertBucket(bucketList: S3BucketSummary[], bucket: S3BucketSummary): S3BucketSummary[] {
+  const merged = new Map(bucketList.map((entry) => [entry.name, entry]))
+  const existing = merged.get(bucket.name)
+  merged.set(bucket.name, {
+    name: bucket.name,
+    creationDate: bucket.creationDate !== '-' ? bucket.creationDate : existing?.creationDate ?? '-',
+    region: bucket.region || existing?.region || ''
+  })
+  return [...merged.values()].sort((left, right) => left.name.localeCompare(right.name))
+}
+
+function isBucketInventoryPermissionError(message: string): boolean {
+  const normalized = message.toLowerCase()
+  return normalized.includes('listallmybuckets') ||
+    normalized.includes('listbuckets') ||
+    normalized.includes('accessdenied') ||
+    normalized.includes('access denied') ||
+    normalized.includes('not authorized')
+}
+
 /* ── Column definitions for objects table ─────────────────── */
 
 type ColKey = 'name' | 'type' | 'key' | 'size' | 'modified' | 'storageClass'
@@ -126,12 +180,14 @@ function getBucketColValue(b: S3BucketSummary, col: BucketColKey): string {
 
 export function S3Console({ connection }: { connection: AwsConnection }) {
   /* ── Bucket state ────────────────────────────────────── */
-  const [buckets, setBuckets] = useState<S3BucketSummary[]>([])
+  const [buckets, setBuckets] = useState<S3BucketSummary[]>(() => loadStoredBuckets(connection))
   const [selectedBucket, setSelectedBucket] = useState('')
   const [bucketFilter, setBucketFilter] = useState('')
   const [visibleBucketCols, setVisibleBucketCols] = useState<Set<BucketColKey>>(new Set(['name', 'created', 'public']))
   const [newBucketName, setNewBucketName] = useState('')
   const [showCreateBucket, setShowCreateBucket] = useState(false)
+  const [manualBucketName, setManualBucketName] = useState('')
+  const [inventoryMessage, setInventoryMessage] = useState('')
 
   /* ── Object browser state ────────────────────────────── */
   const [objects, setObjects] = useState<S3ObjectSummary[]>([])
@@ -160,13 +216,58 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  function rememberBucket(bucket: S3BucketSummary): S3BucketSummary[] {
+    const next = upsertBucket(buckets, bucket)
+    setBuckets(next)
+    persistBuckets(connection, next)
+    return next
+  }
+
+  function replaceBuckets(bucketList: S3BucketSummary[]): void {
+    setBuckets(bucketList)
+    persistBuckets(connection, bucketList)
+  }
+
+  async function openBucketByName(name: string, newPrefix = '', options?: { suppressInventoryError?: boolean }) {
+    const trimmedName = name.trim()
+    if (!trimmedName) return
+
+    setLoading(true)
+    if (!options?.suppressInventoryError) {
+      setError('')
+    }
+    try {
+      const bucket = {
+        name: trimmedName,
+        creationDate: '-',
+        region: connection.region
+      }
+      const nextBuckets = upsertBucket(buckets, bucket)
+      const bucketConnection = resolveBucketConnectionFromList(connection, nextBuckets, trimmedName)
+      const nextObjects = await listS3Objects(bucketConnection, trimmedName, newPrefix)
+      replaceBuckets(nextBuckets)
+      setSelectedBucket(trimmedName)
+      setPrefix(newPrefix)
+      setSelectedKey('')
+      closePreview()
+      setObjects(nextObjects)
+      setManualBucketName('')
+      setInventoryMessage((current) => current || 'Bucket inventory is limited for this profile. Open buckets directly by name.')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
   /* ── Load buckets ──────────────────────────────────── */
   async function loadBuckets(selectBucket?: string) {
     setLoading(true)
     setError('')
     try {
       const list = await listS3Buckets(connection)
-      setBuckets(list)
+      replaceBuckets(list)
+      setInventoryMessage('')
       const target = selectBucket ?? (selectedBucket || list[0]?.name || '')
       if (target) {
         setSelectedBucket(target)
@@ -176,7 +277,20 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
         setObjects(await listS3Objects(resolveBucketConnectionFromList(connection, list, target), target, ''))
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      const message = e instanceof Error ? e.message : String(e)
+      const storedBuckets = loadStoredBuckets(connection)
+      if (isBucketInventoryPermissionError(message)) {
+        replaceBuckets(storedBuckets)
+        setInventoryMessage('This profile cannot list every bucket. Open a bucket directly by name, or pick one that was previously opened.')
+        const target = selectBucket ?? selectedBucket
+        if (target) {
+          await openBucketByName(target, '', { suppressInventoryError: true })
+        } else {
+          setObjects([])
+        }
+      } else {
+        setError(message)
+      }
     } finally {
       setLoading(false)
     }
@@ -199,7 +313,8 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
     setError('')
     try {
       const list = await listS3Buckets(connection)
-      setBuckets(list)
+      replaceBuckets(list)
+      setInventoryMessage('')
 
       const targetBucket = bucketName || list[0]?.name || ''
       if (!targetBucket) {
@@ -217,7 +332,22 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
       closePreview()
       setObjects(await listS3Objects(resolveBucketConnectionFromList(connection, list, targetBucket), targetBucket, nextPrefix))
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      const message = e instanceof Error ? e.message : String(e)
+      if (isBucketInventoryPermissionError(message)) {
+        const storedBuckets = loadStoredBuckets(connection)
+        replaceBuckets(storedBuckets)
+        setInventoryMessage('This profile cannot list every bucket. Open a bucket directly by name, or pick one that was previously opened.')
+
+        const targetBucket = bucketName || selectedBucket
+        if (!targetBucket) {
+          setObjects([])
+          return
+        }
+
+        await openBucketByName(targetBucket, nextPrefix, { suppressInventoryError: true })
+      } else {
+        setError(message)
+      }
     } finally {
       setLoading(false)
     }
@@ -243,6 +373,17 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
   }
 
 useEffect(() => { void loadBuckets() }, [connection.sessionId, connection.region])
+
+  useEffect(() => {
+    setBuckets(loadStoredBuckets(connection))
+    setSelectedBucket('')
+    setObjects([])
+    setPrefix('')
+    setSelectedKey('')
+    closePreview()
+    setInventoryMessage('')
+    setManualBucketName('')
+  }, [connection.sessionId])
 
   useEffect(() => {
     async function handleWindowFocus() {
@@ -332,6 +473,7 @@ useEffect(() => { void loadBuckets() }, [connection.sessionId, connection.region
     if (!newBucketName) return
     try {
       await createS3Bucket(connection, newBucketName)
+      rememberBucket({ name: newBucketName, creationDate: '-', region: connection.region })
       setMsg(`Bucket "${newBucketName}" created`)
       setNewBucketName('')
       setShowCreateBucket(false)
@@ -430,12 +572,28 @@ useEffect(() => { void loadBuckets() }, [connection.sessionId, connection.region
       <div className="s3-layout">
         {/* ── Left: Bucket list ───────────────────────── */}
         <div className="s3-bucket-panel">
+          {inventoryMessage && <div className="s3-msg">{inventoryMessage}</div>}
           <input
             className="s3-filter-input"
             placeholder="Filter rows across selected columns..."
             value={bucketFilter}
             onChange={e => setBucketFilter(e.target.value)}
           />
+          <div className="s3-inline-form">
+            <input
+              placeholder="open bucket by name"
+              value={manualBucketName}
+              onChange={e => setManualBucketName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  void openBucketByName(manualBucketName)
+                }
+              }}
+            />
+            <button className="s3-btn" type="button" onClick={() => void openBucketByName(manualBucketName)} disabled={!manualBucketName.trim()}>
+              Open Bucket
+            </button>
+          </div>
           <div className="s3-column-chips">
             {BUCKET_COLUMNS.map(col => (
               <button

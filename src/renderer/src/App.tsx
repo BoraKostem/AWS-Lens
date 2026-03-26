@@ -10,6 +10,7 @@ import { CloudFormationConsole } from './CloudFormationConsole'
 import { ComplianceCenter } from './ComplianceCenter'
 import { CloudTrailConsole } from './CloudTrailConsole'
 import { CloudWatchConsole } from './CloudWatchConsole'
+import { DirectResourceConsole } from './DirectResourceConsole'
 import { useAwsPageConnection } from './AwsPage'
 import { EcsConsole } from './EcsConsole'
 import { Ec2Console } from './Ec2Console'
@@ -35,7 +36,7 @@ import { VpcWorkspace } from './VpcWorkspace'
 import { WafConsole } from './WafConsole'
 import { WorkspaceApp } from './WorkspaceApp'
 
-type Screen = 'profiles' | ServiceId
+type Screen = 'profiles' | 'direct-access' | ServiceId
 type PendingTerminalCommand = { id: number; command: string } | null
 type RefreshState = { screen: Screen; sawPending: boolean } | null
 type FabMode = 'closed' | 'menu' | 'credentials'
@@ -568,6 +569,31 @@ export function App() {
       )
     }
 
+    if (targetScreen === 'direct-access') {
+      return (
+        <section className="panel stack">
+          <section className="hero catalog-hero">
+            <div>
+              <div className="eyebrow">Access</div>
+              <h2>Direct Resource Access</h2>
+              <p className="hero-path">Open known resources by identifier when account-wide list permissions are blocked.</p>
+            </div>
+          </section>
+          {connectionState.connection && connectionState.connected ? (
+            <DirectResourceConsole connection={connectionState.connection} />
+          ) : (
+            <section className="empty-hero">
+              <div>
+                <div className="eyebrow">Access</div>
+                <h2>Select a profile to use direct resource access</h2>
+                <p>Known resource identifiers still require an active AWS connection.</p>
+              </div>
+            </section>
+          )}
+        </section>
+      )
+    }
+
     if (targetScreen === 'compliance-center' && targetService?.id === 'compliance-center') {
       return (
         <ConnectedServiceScreen service={targetService} state={connectionState}>
@@ -704,6 +730,14 @@ export function App() {
                 <span>{overviewService.label} ({connectionState.region})</span>
               </button>
             )}
+            <button
+              type="button"
+              className={`service-link overview-link ${screen === 'direct-access' ? 'active' : ''}`}
+              disabled={!connectionState.connected}
+              onClick={() => setScreen('direct-access')}
+            >
+              <span>Direct Resource Access</span>
+            </button>
             {sessionHubService && (
               <button
                 type="button"
