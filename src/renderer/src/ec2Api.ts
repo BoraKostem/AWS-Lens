@@ -11,6 +11,10 @@ import type {
   Ec2Recommendation,
   Ec2SnapshotSummary,
   Ec2VpcDetail,
+  EbsTempInspectionEnvironment,
+  EbsTempInspectionProgress,
+  EbsVolumeDetail,
+  EbsVolumeSummary,
   SnapshotLaunchConfig
 } from '@shared/types'
 import { trackedAwsBridge } from './api'
@@ -34,8 +38,16 @@ export async function listEc2Instances(c: AwsConnection): Promise<Ec2InstanceSum
   return unwrap((await bridge().listEc2Instances(c)) as Wrapped<Ec2InstanceSummary[]>)
 }
 
+export async function listEbsVolumes(c: AwsConnection): Promise<EbsVolumeSummary[]> {
+  return unwrap((await bridge().listEbsVolumes(c)) as Wrapped<EbsVolumeSummary[]>)
+}
+
 export async function describeEc2Instance(c: AwsConnection, id: string): Promise<Ec2InstanceDetail | null> {
   return unwrap((await bridge().describeEc2Instance(c, id)) as Wrapped<Ec2InstanceDetail | null>)
+}
+
+export async function describeEbsVolume(c: AwsConnection, id: string): Promise<EbsVolumeDetail | null> {
+  return unwrap((await bridge().describeEbsVolume(c, id)) as Wrapped<EbsVolumeDetail | null>)
 }
 
 export async function runEc2InstanceAction(c: AwsConnection, id: string, action: Ec2InstanceAction): Promise<void> {
@@ -98,6 +110,14 @@ export async function deleteBastion(c: AwsConnection, targetInstanceId: string):
   return unwrap((await bridge().deleteBastion(c, targetInstanceId)) as Wrapped<void>)
 }
 
+export async function createTempVolumeCheck(c: AwsConnection, volumeId: string): Promise<EbsTempInspectionEnvironment> {
+  return unwrap((await bridge().createTempVolumeCheck(c, volumeId)) as Wrapped<EbsTempInspectionEnvironment>)
+}
+
+export async function deleteTempVolumeCheck(c: AwsConnection, tempUuidOrInstanceId: string): Promise<void> {
+  return unwrap((await bridge().deleteTempVolumeCheck(c, tempUuidOrInstanceId)) as Wrapped<void>)
+}
+
 export async function listBastions(c: AwsConnection): Promise<Ec2InstanceSummary[]> {
   return unwrap((await bridge().listBastions(c)) as Wrapped<Ec2InstanceSummary[]>)
 }
@@ -126,4 +146,9 @@ export async function sendSshPublicKey(
 
 export async function getEc2Recommendations(c: AwsConnection): Promise<Ec2Recommendation[]> {
   return unwrap((await bridge().getEc2Recommendations(c)) as Wrapped<Ec2Recommendation[]>)
+}
+
+export function subscribeToTempVolumeProgress(listener: (event: EbsTempInspectionProgress) => void): () => void {
+  bridge().subscribeTempVolumeProgress(listener)
+  return () => bridge().unsubscribeTempVolumeProgress(listener)
 }

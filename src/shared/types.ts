@@ -153,6 +153,83 @@ export type Ec2SnapshotSummary = {
   tags: Record<string, string>
 }
 
+export type EbsVolumeStatus = 'attached' | 'available-orphan' | 'multi-attach' | 'unknown'
+
+export type EbsVolumeAttachment = {
+  instanceId: string
+  device: string
+  state: string
+  attachTime: string
+  deleteOnTermination: boolean
+}
+
+export type EbsTempInspectionEnvironment = {
+  tempUuid: string
+  purpose: string
+  sourceVolumeId: string
+  instanceId: string
+  instanceState: string
+  availabilityZone: string
+  subnetId: string
+  vpcId: string
+  securityGroupId: string
+  iamRoleName: string
+  instanceProfileName: string
+  attachDevice: string
+  ssmReady: boolean
+  launchTime: string
+  tags: Record<string, string>
+}
+
+export type EbsTempInspectionProgress = {
+  mode: 'create' | 'delete'
+  tempUuid: string
+  volumeId: string
+  instanceId: string
+  stage:
+    | 'preparing'
+    | 'creating-iam-profile-if-needed'
+    | 'creating-instance'
+    | 'waiting-for-instance-readiness'
+    | 'verifying-ssm-readiness'
+    | 'attaching-target-volume'
+    | 'detaching-inspected-volume-if-needed'
+    | 'deleting-temp-resources'
+    | 'terminating-instance'
+    | 'waiting-for-termination'
+    | 'finalizing'
+    | 'completed'
+    | 'failed'
+  status: 'running' | 'completed' | 'failed'
+  message: string
+  error?: string
+}
+
+export type EbsVolumeSummary = {
+  volumeId: string
+  name: string
+  state: string
+  status: EbsVolumeStatus
+  sizeGiB: number
+  type: string
+  iops: number
+  throughput: number
+  encrypted: boolean
+  availabilityZone: string
+  createTime: string
+  snapshotId: string
+  multiAttachEnabled: boolean
+  attachments: EbsVolumeAttachment[]
+  attachedInstanceIds: string[]
+  attachedDevices: string[]
+  tags: Record<string, string>
+  tempEnvironment: EbsTempInspectionEnvironment | null
+}
+
+export type EbsVolumeDetail = EbsVolumeSummary & {
+  isOrphan: boolean
+}
+
 export type Ec2InstanceTypeOption = {
   instanceType: string
   vcpus: number

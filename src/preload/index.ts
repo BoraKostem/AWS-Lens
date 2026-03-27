@@ -6,11 +6,15 @@ import type {
   AwsConnection,
   BastionLaunchConfig,
   Ec2InstanceAction,
+  EbsTempInspectionProgress,
   EcsFargateServiceConfig,
   LambdaCreateConfig,
   SnapshotLaunchConfig,
   TerraformCommandRequest
 } from '@shared/types'
+
+const terminalListenerMap = new Map<(event: unknown) => void, (...args: unknown[]) => void>()
+const tempVolumeProgressListenerMap = new Map<(event: unknown) => void, (...args: unknown[]) => void>()
 
 /* ── AWS Lens bridge ──────────────────────────────────────── */
 
@@ -31,8 +35,11 @@ const awsLensApi = {
   listServices: () => ipcRenderer.invoke('services:list'),
   getCallerIdentity: (connection: AwsConnection) => ipcRenderer.invoke('sts:get-caller-identity', connection),
   listEc2Instances: (connection: AwsConnection) => ipcRenderer.invoke('ec2:list', connection),
+  listEbsVolumes: (connection: AwsConnection) => ipcRenderer.invoke('ec2:list-volumes', connection),
   describeEc2Instance: (connection: AwsConnection, instanceId: string) =>
     ipcRenderer.invoke('ec2:describe', connection, instanceId),
+  describeEbsVolume: (connection: AwsConnection, volumeId: string) =>
+    ipcRenderer.invoke('ec2:describe-volume', connection, volumeId),
   runEc2InstanceAction: (connection: AwsConnection, instanceId: string, action: Ec2InstanceAction) =>
     ipcRenderer.invoke('ec2:action', connection, instanceId, action),
   terminateEc2Instance: (connection: AwsConnection, instanceId: string) =>
@@ -62,6 +69,10 @@ const awsLensApi = {
     ipcRenderer.invoke('ec2:find-bastion-connections', connection, targetInstanceId),
   deleteBastion: (connection: AwsConnection, targetInstanceId: string) =>
     ipcRenderer.invoke('ec2:delete-bastion', connection, targetInstanceId),
+  createTempVolumeCheck: (connection: AwsConnection, volumeId: string) =>
+    ipcRenderer.invoke('ec2:create-temp-volume-check', connection, volumeId),
+  deleteTempVolumeCheck: (connection: AwsConnection, tempUuidOrInstanceId: string) =>
+    ipcRenderer.invoke('ec2:delete-temp-volume-check', connection, tempUuidOrInstanceId),
   listBastions: (connection: AwsConnection) => ipcRenderer.invoke('ec2:list-bastions', connection),
   listPopularBastionAmis: (connection: AwsConnection, architecture?: string) =>
     ipcRenderer.invoke('ec2:list-popular-bastion-amis', connection, architecture),
@@ -439,16 +450,29 @@ const awsLensApi = {
   closeTerminal: () => ipcRenderer.invoke('terminal:close'),
   subscribeTerminal: (listener: (event: unknown) => void) => {
     const wrapped = (_event: unknown, payload: unknown) => listener(payload)
-    listenerMap.set(listener, wrapped)
+    terminalListenerMap.set(listener, wrapped)
     ipcRenderer.on('terminal:event', wrapped)
   },
   unsubscribeTerminal: (listener: (event: unknown) => void) => {
-    const wrapped = listenerMap.get(listener)
+    const wrapped = terminalListenerMap.get(listener)
     if (!wrapped) {
       return
     }
     ipcRenderer.removeListener('terminal:event', wrapped)
-    listenerMap.delete(listener)
+    terminalListenerMap.delete(listener)
+  },
+  subscribeTempVolumeProgress: (listener: (event: EbsTempInspectionProgress) => void) => {
+    const wrapped = (_event: unknown, payload: unknown) => listener(payload as EbsTempInspectionProgress)
+    tempVolumeProgressListenerMap.set(listener as (event: unknown) => void, wrapped)
+    ipcRenderer.on('ec2:temp-volume-progress', wrapped)
+  },
+  unsubscribeTempVolumeProgress: (listener: (event: EbsTempInspectionProgress) => void) => {
+    const wrapped = tempVolumeProgressListenerMap.get(listener as (event: unknown) => void)
+    if (!wrapped) {
+      return
+    }
+    ipcRenderer.removeListener('ec2:temp-volume-progress', wrapped)
+    tempVolumeProgressListenerMap.delete(listener as (event: unknown) => void)
   },
 
   /* IAM */

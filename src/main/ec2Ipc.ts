@@ -4,14 +4,18 @@ import type { AwsConnection, BastionLaunchConfig, SnapshotLaunchConfig } from '@
 import {
   attachIamProfile,
   createEc2Snapshot,
+  createTempInspectionEnvironment,
   deleteBastionForInstance,
   deleteEc2Snapshot,
+  deleteTempInspectionEnvironment,
+  describeEbsVolume,
   describeEc2Instance,
   describeVpc,
   findBastionConnectionsForInstance,
   getIamAssociation,
   launchBastion,
   launchFromSnapshot,
+  listEbsVolumes,
   listBastions,
   listEc2Instances,
   listEc2Snapshots,
@@ -41,8 +45,14 @@ export function registerEc2IpcHandlers(): void {
   ipcMain.handle('ec2:list', async (_event, connection: AwsConnection) =>
     wrap(() => listEc2Instances(connection))
   )
+  ipcMain.handle('ec2:list-volumes', async (_event, connection: AwsConnection) =>
+    wrap(() => listEbsVolumes(connection))
+  )
   ipcMain.handle('ec2:describe', async (_event, connection: AwsConnection, instanceId: string) =>
     wrap(() => describeEc2Instance(connection, instanceId))
+  )
+  ipcMain.handle('ec2:describe-volume', async (_event, connection: AwsConnection, volumeId: string) =>
+    wrap(() => describeEbsVolume(connection, volumeId))
   )
   ipcMain.handle(
     'ec2:action',
@@ -98,6 +108,20 @@ export function registerEc2IpcHandlers(): void {
   )
   ipcMain.handle('ec2:delete-bastion', async (_event, connection: AwsConnection, targetInstanceId: string) =>
     wrap(() => deleteBastionForInstance(connection, targetInstanceId))
+  )
+  ipcMain.handle('ec2:create-temp-volume-check', async (event, connection: AwsConnection, volumeId: string) =>
+    wrap(() =>
+      createTempInspectionEnvironment(connection, volumeId, (progress) => {
+        event.sender.send('ec2:temp-volume-progress', progress)
+      })
+    )
+  )
+  ipcMain.handle('ec2:delete-temp-volume-check', async (event, connection: AwsConnection, tempUuidOrInstanceId: string) =>
+    wrap(() =>
+      deleteTempInspectionEnvironment(connection, tempUuidOrInstanceId, (progress) => {
+        event.sender.send('ec2:temp-volume-progress', progress)
+      })
+    )
   )
   ipcMain.handle('ec2:list-bastions', async (_event, connection: AwsConnection) =>
     wrap(() => listBastions(connection))

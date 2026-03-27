@@ -6,6 +6,7 @@ import type {
   AwsConnection,
   BastionLaunchConfig,
   Ec2InstanceAction,
+  EbsTempInspectionProgress,
   EcsFargateServiceConfig,
   LambdaCreateConfig,
   SnapshotLaunchConfig,
@@ -29,7 +30,9 @@ declare global {
       listServices: () => Promise<unknown>
       getCallerIdentity: (connection: AwsConnection) => Promise<unknown>
       listEc2Instances: (connection: AwsConnection) => Promise<unknown>
+      listEbsVolumes: (connection: AwsConnection) => Promise<unknown>
       describeEc2Instance: (connection: AwsConnection, instanceId: string) => Promise<unknown>
+      describeEbsVolume: (connection: AwsConnection, volumeId: string) => Promise<unknown>
       runEc2InstanceAction: (connection: AwsConnection, instanceId: string, action: Ec2InstanceAction) => Promise<unknown>
       terminateEc2Instance: (connection: AwsConnection, instanceId: string) => Promise<unknown>
       resizeEc2Instance: (connection: AwsConnection, instanceId: string, instanceType: string) => Promise<unknown>
@@ -45,6 +48,8 @@ declare global {
       launchBastion: (connection: AwsConnection, config: BastionLaunchConfig) => Promise<unknown>
       findBastionConnectionsForInstance: (connection: AwsConnection, targetInstanceId: string) => Promise<unknown>
       deleteBastion: (connection: AwsConnection, targetInstanceId: string) => Promise<unknown>
+      createTempVolumeCheck: (connection: AwsConnection, volumeId: string) => Promise<unknown>
+      deleteTempVolumeCheck: (connection: AwsConnection, tempUuidOrInstanceId: string) => Promise<unknown>
       listBastions: (connection: AwsConnection) => Promise<unknown>
       listPopularBastionAmis: (connection: AwsConnection, architecture?: string) => Promise<unknown>
       describeVpc: (connection: AwsConnection, vpcId: string) => Promise<unknown>
@@ -256,6 +261,8 @@ declare global {
       closeTerminal: () => Promise<unknown>
       subscribeTerminal: (listener: (event: unknown) => void) => void
       unsubscribeTerminal: (listener: (event: unknown) => void) => void
+      subscribeTempVolumeProgress: (listener: (event: EbsTempInspectionProgress) => void) => void
+      unsubscribeTempVolumeProgress: (listener: (event: EbsTempInspectionProgress) => void) => void
       listIamUsers: (c: AwsConnection) => Promise<unknown>
       listIamGroups: (c: AwsConnection) => Promise<unknown>
       listIamRoles: (c: AwsConnection) => Promise<unknown>

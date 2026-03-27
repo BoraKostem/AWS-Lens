@@ -14,6 +14,10 @@ import type {
   Ec2Recommendation,
   Ec2SnapshotSummary,
   Ec2VpcDetail,
+  EbsTempInspectionEnvironment,
+  EbsTempInspectionProgress,
+  EbsVolumeDetail,
+  EbsVolumeSummary,
   KeyPairSummary,
   SecurityGroupSummary,
   SubnetSummary
@@ -23,8 +27,11 @@ import {
   attachIamProfile,
   chooseEc2SshKey,
   createEc2Snapshot,
+  createTempVolumeCheck,
   deleteBastion,
   deleteEc2Snapshot,
+  deleteTempVolumeCheck,
+  describeEbsVolume,
   describeEc2Instance,
   describeVpc,
   findBastionConnectionsForInstance,
@@ -33,6 +40,7 @@ import {
   launchBastion,
   launchFromSnapshot,
   listBastions,
+  listEbsVolumes,
   listEc2Instances,
   listEc2Snapshots,
   listInstanceTypes,
@@ -42,12 +50,13 @@ import {
   resizeEc2Instance,
   runEc2InstanceAction,
   sendSshPublicKey,
+  subscribeToTempVolumeProgress,
   tagEc2Snapshot,
   terminateEc2Instance
 } from './ec2Api'
 import { ConfirmButton } from './ConfirmButton'
 
-type MainTab = 'instances' | 'snapshots'
+type MainTab = 'instances' | 'volumes' | 'snapshots'
 type SideTab = 'overview' | 'timeline'
 type ColumnKey = 'name' | 'instanceId' | 'type' | 'state' | 'az' | 'publicIp' | 'privateIp'
 type BastionWorkflowMode = 'create' | 'destroy'
@@ -66,8 +75,20 @@ type BastionWorkflowStatus = {
   error?: string
 }
 
+type VolumeWorkflowStatus = {
+  mode: 'create' | 'delete'
+  volumeId: string
+  volumeName: string
+  tempUuid: string
+  instanceId: string
+  stage: EbsTempInspectionProgress['stage']
+  message: string
+  error?: string
+}
+
 const BASTION_PURPOSE_TAG = 'aws-lens:purpose'
 const BASTION_TARGET_INSTANCE_TAG = 'aws-lens:bastion-target-instance-id'
+const GOVERNANCE_TAG_KEYS = ['Owner', 'Environment', 'CostCenter']
 
 const COLUMNS: { key: ColumnKey; label: string; color: string }[] = [
   { key: 'name', label: 'Name', color: '#3b82f6' },
@@ -149,6 +170,51 @@ function bastionStepState(current: BastionWorkflowStage, step: 'preparing' | 'ex
     return 'active'
   }
 
+  return 'pending'
+}
+
+function volumeStepState(
+  current: EbsTempInspectionProgress['stage'],
+  mode: 'create' | 'delete',
+  step: EbsTempInspectionProgress['stage']
+): 'pending' | 'active' | 'completed' | 'failed' {
+  const order = mode === 'create'
+    ? [
+        'preparing',
+        'creating-iam-profile-if-needed',
+        'creating-instance',
+        'waiting-for-instance-readiness',
+        'verifying-ssm-readiness',
+        'attaching-target-volume',
+        'finalizing'
+      ]
+    : [
+        'preparing',
+        'detaching-inspected-volume-if-needed',
+        'terminating-instance',
+        'waiting-for-termination',
+        'deleting-temp-resources',
+        'finalizing'
+      ]
+
+  if (current === 'failed') {
+    return step === order[order.length - 1] ? 'pending' : 'failed'
+  }
+  if (current === 'completed') {
+    return 'completed'
+  }
+
+  const currentIndex = order.indexOf(current)
+  const stepIndex = order.indexOf(step)
+  if (stepIndex === -1) {
+    return 'pending'
+  }
+  if (stepIndex < currentIndex) {
+    return 'completed'
+  }
+  if (stepIndex === currentIndex) {
+    return 'active'
+  }
   return 'pending'
 }
 
@@ -257,6 +323,13 @@ export function Ec2Console({
   const [snapLaunchSg, setSnapLaunchSg] = useState('')
   const [snapLaunchArch, setSnapLaunchArch] = useState('x86_64')
 
+  /* ── Volumes state ───────────────────────────────────────── */
+  const [volumes, setVolumes] = useState<EbsVolumeSummary[]>([])
+  const [selectedVolumeId, setSelectedVolumeId] = useState('')
+  const [volumeDetail, setVolumeDetail] = useState<EbsVolumeDetail | null>(null)
+  const [volumeFilter, setVolumeFilter] = useState('')
+  const [volumeWorkflowStatus, setVolumeWorkflowStatus] = useState<VolumeWorkflowStatus | null>(null)
+
   /* ── Bastion state ───────────────────────────────────────── */
   const [bastions, setBastions] = useState<Ec2InstanceSummary[]>([])
   const [bastionAmi, setBastionAmi] = useState('')
@@ -333,12 +406,14 @@ export function Ec2Console({
     setLoading(true)
     setMsg('')
     try {
-      const [inst, snaps, bast] = await Promise.all([
+      const [inst, vols, snaps, bast] = await Promise.all([
         listEc2Instances(connection),
+        listEbsVolumes(connection),
         listEc2Snapshots(connection),
         listBastions(connection)
       ])
       setInstances(inst)
+      setVolumes(vols)
       setSnapshots(snaps)
       setBastions(bast)
       if (!selectedId || !inst.some((i) => i.instanceId === selectedId)) {
@@ -350,6 +425,15 @@ export function Ec2Console({
       if (!selectedSnapId || !snaps.some((s) => s.snapshotId === selectedSnapId)) {
         setSelectedSnapId(snaps[0]?.snapshotId ?? '')
       }
+      if (!selectedVolumeId || !vols.some((v) => v.volumeId === selectedVolumeId)) {
+        const firstVolumeId = vols[0]?.volumeId ?? ''
+        setSelectedVolumeId(firstVolumeId)
+        if (firstVolumeId) {
+          await selectVolume(firstVolumeId)
+        } else {
+          setVolumeDetail(null)
+        }
+      }
     } catch (e) {
       setMsg(e instanceof Error ? e.message : String(e))
     } finally {
@@ -358,6 +442,19 @@ export function Ec2Console({
   }
 
 useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessionId, connection.region])
+
+  useEffect(() => subscribeToTempVolumeProgress((progress) => {
+    setVolumeWorkflowStatus((current) => ({
+      mode: progress.mode,
+      volumeId: progress.volumeId,
+      volumeName: current?.volumeId === progress.volumeId ? current.volumeName : volumeDetail?.name ?? progress.volumeId,
+      tempUuid: progress.tempUuid,
+      instanceId: progress.instanceId,
+      stage: progress.stage,
+      message: progress.message,
+      error: progress.error
+    }))
+  }), [volumeDetail?.name])
 
   async function selectInstance(id: string) {
     setSelectedId(id)
@@ -378,6 +475,14 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
     } else {
       setLinkedBastions([])
     }
+  }
+
+  async function selectVolume(id: string) {
+    setSelectedVolumeId(id)
+    setVolumeDetail(null)
+    setMsg('')
+    const detail = await describeEbsVolume(connection, id)
+    setVolumeDetail(detail)
   }
 
   /* ── Action handlers ─────────────────────────────────────── */
@@ -533,6 +638,69 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
     }
   }
 
+  async function doCheckVolume() {
+    if (!volumeDetail || volumeDetail.status !== 'available-orphan') {
+      return
+    }
+    setVolumeWorkflowStatus({
+      mode: 'create',
+      volumeId: volumeDetail.volumeId,
+      volumeName: volumeDetail.name,
+      tempUuid: '',
+      instanceId: '',
+      stage: 'preparing',
+      message: `Preparing temporary inspection environment for ${volumeDetail.volumeId}.`
+    })
+    try {
+      const environment = await createTempVolumeCheck(connection, volumeDetail.volumeId)
+      await reload()
+      await selectVolume(volumeDetail.volumeId)
+      setMsg('Temporary inspection instance is ready. Connect via SSM and inspect the attached volume under /mnt.')
+      setVolumeWorkflowStatus({
+        mode: 'create',
+        volumeId: volumeDetail.volumeId,
+        volumeName: volumeDetail.name,
+        tempUuid: environment.tempUuid,
+        instanceId: environment.instanceId,
+        stage: 'completed',
+        message: 'Temporary inspection instance is ready. Connect via SSM and inspect the attached volume under /mnt.'
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setMsg(message)
+      setVolumeWorkflowStatus((current) => current ? { ...current, stage: 'failed', error: message, message } : null)
+    }
+  }
+
+  async function doDeleteTempInspection(target: string, fallbackVolumeId?: string) {
+    const currentVolumeId = fallbackVolumeId ?? volumeDetail?.volumeId ?? '-'
+    setVolumeWorkflowStatus({
+      mode: 'delete',
+      volumeId: currentVolumeId,
+      volumeName: volumeDetail?.name ?? currentVolumeId,
+      tempUuid: target.startsWith('i-') ? '' : target,
+      instanceId: target.startsWith('i-') ? target : '',
+      stage: 'preparing',
+      message: `Preparing cleanup for ${target}.`
+    })
+    try {
+      await deleteTempVolumeCheck(connection, target)
+      await reload()
+      if (currentVolumeId && currentVolumeId !== '-') {
+        await selectVolume(currentVolumeId).catch(() => undefined)
+      }
+      if (detail?.instanceId === target) {
+        await selectInstance(detail.tags['aws-lens:source-volume-id'] || detail.instanceId).catch(() => undefined)
+      }
+      setMsg('Temporary inspection resources deleted')
+      setVolumeWorkflowStatus((current) => current ? { ...current, stage: 'completed', message: 'Temporary inspection resources were deleted.' } : null)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setMsg(message)
+      setVolumeWorkflowStatus((current) => current ? { ...current, stage: 'failed', error: message, message } : null)
+    }
+  }
+
   async function loadPopularAmis(): Promise<void> {
     setLoadingPopularBastionAmis(true)
     try {
@@ -654,6 +822,24 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
     return true
   })
 
+  const filteredVolumes = volumes.filter((volume) => {
+    if (!volumeFilter) {
+      return true
+    }
+    const search = volumeFilter.toLowerCase()
+    return [
+      volume.volumeId,
+      volume.name,
+      volume.state,
+      volume.status,
+      volume.type,
+      volume.availabilityZone,
+      volume.snapshotId,
+      volume.attachedInstanceIds.join(' '),
+      volume.attachedDevices.join(' ')
+    ].some((value) => value.toLowerCase().includes(search))
+  })
+
   function toggleColumn(key: ColumnKey) {
     setVisibleCols(prev => {
       const next = new Set(prev)
@@ -668,10 +854,21 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
   /* ── Derived data ────────────────────────────────────────── */
   const selectedInstance = instances.find((instance) => instance.instanceId === selectedId) ?? null
   const isTerminatedInstance = selectedInstance?.state === 'terminated'
+  const selectedVolume = volumes.find((volume) => volume.volumeId === selectedVolumeId) ?? null
   const selectedSnap = snapshots.find((s) => s.snapshotId === selectedSnapId) ?? null
-  const hasManagedBastionTag = Object.keys(detail?.tags ?? {}).some((key) => key.startsWith('aws-lens-bastion#'))
+  const hasManagedBastionTag = Object.keys(detail?.tags ?? {}).some((key) => key.startsWith('aws-lens-bastion/') || key.startsWith('aws-lens-bastion#'))
   const isSelectedBastion = bastions.some((instance) => instance.instanceId === selectedId)
+  const isSelectedTempInspectionInstance = detail?.tags?.['aws-lens:purpose'] === 'ebs-inspection'
   const bastionLaunchBusy = bastionLaunchStatus !== null && !['completed', 'failed'].includes(bastionLaunchStatus.stage)
+  const volumeWorkflowBusy = volumeWorkflowStatus !== null && !['completed', 'failed'].includes(volumeWorkflowStatus.stage)
+  const volumeWarnings = volumeDetail ? [
+    !volumeDetail.encrypted && volumeDetail.status === 'available-orphan' ? 'High priority: orphan volume is unencrypted.' : '',
+    volumeDetail.type === 'gp2' ? 'Recommendation: migrate gp2 to gp3 for lower cost and more predictable performance.' : '',
+    volumeDetail.status === 'available-orphan' && volumeDetail.createTime !== '-' && (Date.now() - new Date(volumeDetail.createTime).getTime()) > 1000 * 60 * 60 * 24 * 14
+      ? 'Warning: orphan volume looks stale and has been unattached for more than 14 days.'
+      : '',
+    GOVERNANCE_TAG_KEYS.some((key) => !(volumeDetail.tags[key] || '').trim()) ? 'Warning: missing governance tags (Owner, Environment, or CostCenter).' : ''
+  ].filter(Boolean) : []
 
   const ssmCmd = detail
                   ? connection.kind === 'profile'
@@ -693,6 +890,11 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
           type="button"
           onClick={() => setMainTab('instances')}
         >Instances</button>
+        <button
+          className={`ec2-tab ${mainTab === 'volumes' ? 'active' : ''}`}
+          type="button"
+          onClick={() => setMainTab('volumes')}
+        >Volumes</button>
         <button
           className={`ec2-tab ${mainTab === 'snapshots' ? 'active' : ''}`}
           type="button"
@@ -846,6 +1048,11 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                       {isSelectedBastion && (
                         <ConfirmButton className="ec2-action-btn remove" type="button" onConfirm={() => void doDeleteBastion()}>
                           Delete Bastion
+                        </ConfirmButton>
+                      )}
+                      {isSelectedTempInspectionInstance && detail?.instanceId && (
+                        <ConfirmButton className="ec2-action-btn remove" type="button" onConfirm={() => void doDeleteTempInspection(detail.instanceId, detail.tags['aws-lens:source-volume-id'])}>
+                          Delete Temp Instance
                         </ConfirmButton>
                       )}
                       <button className="ec2-action-btn" type="button" onClick={() => {
@@ -1097,6 +1304,155 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
         </>
       )}
 
+      {mainTab === 'volumes' && (
+        <div className="ec2-split">
+          <div className="ec2-panel ec2-list-panel">
+            <h3>Volumes ({volumes.length})</h3>
+            <input
+              className="ec2-search-input"
+              placeholder="Filter volumes..."
+              value={volumeFilter}
+              onChange={(e) => setVolumeFilter(e.target.value)}
+            />
+            <div className="ec2-list">
+              {filteredVolumes.map((volume) => {
+                const highPriority = volume.status === 'available-orphan' && !volume.encrypted
+                return (
+                  <button
+                    key={volume.volumeId}
+                    className={`${volume.volumeId === selectedVolumeId ? 'ec2-list-item active' : 'ec2-list-item'} ${volume.status === 'available-orphan' ? 'ec2-list-item-orphan' : ''}`}
+                    type="button"
+                    onClick={() => void selectVolume(volume.volumeId)}
+                  >
+                    <div className="ec2-list-title">
+                      <span className="ec2-list-title-text">{volume.name !== '-' ? volume.name : volume.volumeId}</span>
+                      {highPriority && <span className="ec2-high-priority">High priority</span>}
+                    </div>
+                    <div className="ec2-list-meta">{volume.volumeId} | {volume.sizeGiB} GiB | {volume.type}</div>
+                    <div className="ec2-list-meta">
+                      <span className={`ec2-badge ${volume.state}`}>{volume.state}</span> | {volume.status}
+                    </div>
+                  </button>
+                )
+              })}
+              {!filteredVolumes.length && <div className="ec2-empty">No volumes match the current filter.</div>}
+            </div>
+          </div>
+
+          <div className="ec2-detail-stack">
+            <div className="ec2-panel">
+              <h3>Volume Details</h3>
+              {volumeDetail ? (
+                <>
+                  <KV items={[
+                    ['Volume ID', volumeDetail.volumeId],
+                    ['Name', volumeDetail.name],
+                    ['State', volumeDetail.state],
+                    ['Normalized Status', volumeDetail.status],
+                    ['Size', `${volumeDetail.sizeGiB} GiB`],
+                    ['Type', volumeDetail.type],
+                    ['IOPS', String(volumeDetail.iops || '-')],
+                    ['Throughput', volumeDetail.throughput ? `${volumeDetail.throughput} MiB/s` : '-'],
+                    ['Encrypted', volumeDetail.encrypted ? 'Yes' : 'No'],
+                    ['AZ', volumeDetail.availabilityZone],
+                    ['Created', volumeDetail.createTime !== '-' ? new Date(volumeDetail.createTime).toLocaleString() : '-'],
+                    ['Snapshot', volumeDetail.snapshotId],
+                    ['Attachments', volumeDetail.attachments.length ? volumeDetail.attachments.map((attachment) => `${attachment.instanceId} ${attachment.device}`).join(', ') : 'None']
+                  ]} />
+
+                  <div className="ec2-btn-row" style={{ marginTop: 10, flexWrap: 'wrap' }}>
+                    {volumeDetail.status === 'available-orphan' && (
+                      <button className="ec2-action-btn ssm" type="button" onClick={() => void doCheckVolume()}>
+                        Check Volume
+                      </button>
+                    )}
+                    {volumeDetail.tempEnvironment && (
+                      <ConfirmButton className="ec2-action-btn remove" type="button" onConfirm={() => void doDeleteTempInspection(volumeDetail.tempEnvironment?.tempUuid || volumeDetail.tempEnvironment?.instanceId || '', volumeDetail.volumeId)}>
+                        Delete Temp Instance
+                      </ConfirmButton>
+                    )}
+                    <button className="ec2-action-btn" type="button" onClick={() => {
+                      setSnapVolume(volumeDetail.volumeId)
+                      setMainTab('snapshots')
+                    }}>Create Snapshot</button>
+                    {volumeDetail.attachedInstanceIds[0] && (
+                      <button className="ec2-action-btn" type="button" onClick={() => {
+                        setMainTab('instances')
+                        void selectInstance(volumeDetail.attachedInstanceIds[0])
+                      }}>Open Related Instance</button>
+                    )}
+                  </div>
+                </>
+              ) : <div className="ec2-empty">Select a volume.</div>}
+            </div>
+
+            {volumeDetail && (
+              <div className="ec2-panel">
+                <h3>Attachments</h3>
+                {volumeDetail.attachments.length ? (
+                  <div className="ec2-table">
+                    <div className="ec2-thead"><div>Instance</div><div>Device</div><div>State</div><div>Attached</div></div>
+                    {volumeDetail.attachments.map((attachment) => (
+                      <div key={`${attachment.instanceId}-${attachment.device}`} className="ec2-trow">
+                        <div>{attachment.instanceId}</div>
+                        <div>{attachment.device}</div>
+                        <div>{attachment.state}</div>
+                        <div>{attachment.attachTime !== '-' ? new Date(attachment.attachTime).toLocaleString() : '-'}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="ec2-empty">No active attachments.</div>
+                )}
+              </div>
+            )}
+
+            {volumeDetail && (
+              <div className="ec2-panel">
+                <h3>Recommendations</h3>
+                {volumeWarnings.length ? volumeWarnings.map((warning) => (
+                  <div key={warning} className="ec2-volume-warning">{warning}</div>
+                )) : <div className="ec2-empty">No immediate recommendations.</div>}
+                <div className="ec2-volume-actions-note">
+                  Additional actions: delete volume, tag/untag, attach/detach, and modify size/type/IOPS/throughput should follow the same EC2 detail workflow next.
+                </div>
+              </div>
+            )}
+
+            {volumeDetail && (
+              <div className="ec2-panel">
+                <h3>Tags</h3>
+                {Object.keys(volumeDetail.tags).length ? (
+                  <div className="ec2-table">
+                    <div className="ec2-thead"><div>Key</div><div>Value</div><div /><div /></div>
+                    {Object.entries(volumeDetail.tags).map(([key, value]) => (
+                      <div key={key} className="ec2-trow"><div>{key}</div><div>{value}</div><div /><div /></div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="ec2-empty">No tags.</div>
+                )}
+              </div>
+            )}
+
+            {volumeDetail?.tempEnvironment && (
+              <div className="ec2-panel">
+                <h3>Temporary Environment</h3>
+                <KV items={[
+                  ['Temp UUID', volumeDetail.tempEnvironment.tempUuid],
+                  ['Instance', volumeDetail.tempEnvironment.instanceId],
+                  ['State', volumeDetail.tempEnvironment.instanceState],
+                  ['Subnet', volumeDetail.tempEnvironment.subnetId],
+                  ['Security Group', volumeDetail.tempEnvironment.securityGroupId],
+                  ['Instance Profile', volumeDetail.tempEnvironment.instanceProfileName],
+                  ['Role', volumeDetail.tempEnvironment.iamRoleName]
+                ]} />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ══════════════════ SNAPSHOTS ══════════════════ */}
       {mainTab === 'snapshots' && (
         <div className="ec2-split">
@@ -1259,6 +1615,72 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
               )}
               <button className="ec2-action-btn" type="button" onClick={() => setBastionLaunchStatus(null)} disabled={bastionLaunchBusy}>
                 {bastionLaunchBusy ? 'Running...' : 'Close'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {volumeWorkflowStatus && (
+        <div className="ec2-status-overlay" role="dialog" aria-modal="true" aria-labelledby="volume-status-title">
+          <div className="ec2-status-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="ec2-status-header">
+              <div>
+                <div className="ec2-status-eyebrow">Volume Check Workflow</div>
+                <h3 id="volume-status-title">{volumeWorkflowStatus.mode === 'create' ? 'Check Volume' : 'Delete Temp Instance'}</h3>
+              </div>
+              <span className={`ec2-badge ${volumeWorkflowStatus.stage === 'completed' ? 'completed' : volumeWorkflowStatus.stage === 'failed' ? 'stopped' : 'pending'}`}>
+                {volumeWorkflowStatus.stage === 'completed' ? 'Completed' : volumeWorkflowStatus.stage === 'failed' ? 'Failed' : 'In progress'}
+              </span>
+            </div>
+
+            <div className="ec2-status-copy">
+              {volumeWorkflowStatus.error ?? volumeWorkflowStatus.message}
+            </div>
+
+            <div className="ec2-status-steps">
+              {((volumeWorkflowStatus.mode === 'create'
+                ? [
+                    ['preparing', 'Preparing'],
+                    ['creating-iam-profile-if-needed', 'Creating IAM/profile'],
+                    ['creating-instance', 'Creating instance'],
+                    ['waiting-for-instance-readiness', 'Waiting for instance readiness'],
+                    ['verifying-ssm-readiness', 'Verifying SSM readiness'],
+                    ['attaching-target-volume', 'Attaching target volume'],
+                    ['finalizing', 'Finalizing']
+                  ]
+                : [
+                    ['preparing', 'Preparing'],
+                    ['detaching-inspected-volume-if-needed', 'Detaching inspected volume'],
+                    ['terminating-instance', 'Terminating instance'],
+                    ['waiting-for-termination', 'Waiting for termination'],
+                    ['deleting-temp-resources', 'Deleting temp resources'],
+                    ['finalizing', 'Finalizing']
+                  ]) as Array<[EbsTempInspectionProgress['stage'], string]>).map(([stepKey, stepLabel]) => {
+                const state = volumeStepState(volumeWorkflowStatus.stage, volumeWorkflowStatus.mode, stepKey)
+                return (
+                  <div key={stepKey} className={`ec2-status-step ${state}`}>
+                    <span className="ec2-status-step-dot" />
+                    <span>{stepLabel}</span>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="ec2-status-grid">
+              <div><span>Volume</span><strong>{volumeWorkflowStatus.volumeName !== '-' ? `${volumeWorkflowStatus.volumeName} (${volumeWorkflowStatus.volumeId})` : volumeWorkflowStatus.volumeId}</strong></div>
+              {volumeWorkflowStatus.tempUuid && <div><span>Temp UUID</span><strong>{volumeWorkflowStatus.tempUuid}</strong></div>}
+              {volumeWorkflowStatus.instanceId && <div><span>Instance</span><strong>{volumeWorkflowStatus.instanceId}</strong></div>}
+            </div>
+
+            <div className="ec2-status-actions">
+              {volumeWorkflowStatus.stage === 'failed' && volumeWorkflowStatus.mode === 'create' && (
+                <button className="ec2-action-btn apply" type="button" onClick={() => void doCheckVolume()}>
+                  Retry Check
+                </button>
+              )}
+              <button className="ec2-action-btn" type="button" onClick={() => setVolumeWorkflowStatus(null)} disabled={volumeWorkflowBusy}>
+                {volumeWorkflowBusy ? 'Running...' : 'Close'}
               </button>
             </div>
           </div>

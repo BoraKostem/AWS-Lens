@@ -303,6 +303,37 @@
   background: #4a5ab5;
 }
 
+.ec2-list-item-orphan {
+  border-left: 3px solid #d97706;
+}
+
+.ec2-high-priority {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #7f1d1d;
+  color: #fecaca;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ec2-volume-warning {
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #322611;
+  border: 1px solid #7c5a13;
+  color: #f7d48a;
+  font-size: 12px;
+}
+
+.ec2-volume-actions-note {
+  margin-top: 12px;
+  color: #9ca7b7;
+  font-size: 11px;
+}
+
 /* ── Confirm guardrail ────────────────────────────────────── */
 
 .ec2-confirming {
@@ -748,6 +779,7 @@
   grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
   gap: 12px;
   min-width: 0;
+  align-items: start;
 }
 
 .ec2-detail-stack {
@@ -785,18 +817,25 @@
 /* ── List ──────────────────────────────────────────────────── */
 
 .ec2-list-panel {
-  max-height: calc(100vh - 220px);
-  overflow-y: auto;
+  max-height: calc(100vh - 140px);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: sticky;
+  top: 12px;
 }
 
 .ec2-list {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
   gap: 1px;
   background: #3b4350;
   border: 1px solid #3b4350;
   border-radius: 4px;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .ec2-list-item {
@@ -813,9 +852,19 @@
 }
 
 .ec2-list-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
   font-size: 13px;
   font-weight: 600;
   margin-bottom: 3px;
+}
+
+.ec2-list-title-text {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
 }
 
 .ec2-list-meta {

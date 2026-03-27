@@ -1,4 +1,5 @@
 import {
+  AttachVolumeCommand,
   AssociateIamInstanceProfileCommand,
   CreateSecurityGroupCommand,
   CreateSnapshotCommand,
@@ -6,14 +7,19 @@ import {
   DeleteSecurityGroupCommand,
   DeleteSnapshotCommand,
   DeleteTagsCommand,
+  DeleteVolumeCommand,
   DescribeImagesCommand,
   DescribeIamInstanceProfileAssociationsCommand,
   DescribeInstanceTypesCommand,
   DescribeInstancesCommand,
   DescribeSecurityGroupsCommand,
+  DescribeRouteTablesCommand,
+  DescribeVolumesCommand,
+  DescribeVpcEndpointsCommand,
   DescribeSubnetsCommand,
   DescribeSnapshotsCommand,
   DescribeVpcsCommand,
+  DetachVolumeCommand,
   DisassociateIamInstanceProfileCommand,
   EC2Client,
   ModifyInstanceAttributeCommand,
@@ -26,10 +32,35 @@ import {
   TerminateInstancesCommand,
   AuthorizeSecurityGroupIngressCommand,
   RevokeSecurityGroupIngressCommand,
+  waitUntilInstanceRunning,
   waitUntilInstanceTerminated,
-  type Instance
+  type Instance,
+  type RouteTable,
+  type Subnet,
+  type Volume
 } from '@aws-sdk/client-ec2'
 import { EC2InstanceConnectClient, SendSSHPublicKeyCommand } from '@aws-sdk/client-ec2-instance-connect'
+import {
+  AttachRolePolicyCommand,
+  CreateInstanceProfileCommand,
+  CreateRoleCommand,
+  DeleteInstanceProfileCommand,
+  DeleteRoleCommand,
+  DetachRolePolicyCommand,
+  GetInstanceProfileCommand,
+  IAMClient,
+  ListAttachedRolePoliciesCommand,
+  ListInstanceProfilesCommand,
+  ListInstanceProfileTagsCommand,
+  ListRolesCommand,
+  ListRoleTagsCommand,
+  RemoveRoleFromInstanceProfileCommand,
+  AddRoleToInstanceProfileCommand
+} from '@aws-sdk/client-iam'
+import {
+  DescribeInstanceInformationCommand,
+  SSMClient
+} from '@aws-sdk/client-ssm'
 
 import { awsClientConfig, readTags } from './client'
 import type {
@@ -45,6 +76,12 @@ import type {
   Ec2Recommendation,
   Ec2SnapshotSummary,
   Ec2VpcDetail,
+  EbsTempInspectionEnvironment,
+  EbsTempInspectionProgress,
+  EbsVolumeAttachment,
+  EbsVolumeDetail,
+  EbsVolumeStatus,
+  EbsVolumeSummary,
   SnapshotLaunchConfig
 } from '@shared/types'
 
@@ -52,11 +89,35 @@ function createClient(connection: AwsConnection): EC2Client {
   return new EC2Client(awsClientConfig(connection))
 }
 
-const BASTION_TAG_PREFIX = 'aws-lens-bastion#'
+const BASTION_TAG_PREFIX = 'aws-lens-bastion/'
+const LEGACY_BASTION_TAG_PREFIX = 'aws-lens-bastion#'
 const BASTION_PURPOSE_TAG = 'aws-lens:purpose'
 const BASTION_UUID_TAG = 'aws-lens:bastion-uuid'
 const BASTION_TARGET_INSTANCE_TAG = 'aws-lens:bastion-target-instance-id'
 const BASTION_MANAGED_SG_TAG = 'aws-lens:bastion-managed-sg'
+const TEMP_TAG_PREFIX = 'aws-lens-temp/'
+const LEGACY_TEMP_TAG_PREFIX = 'aws-lens-temp#'
+const TEMP_PURPOSE_TAG = 'aws-lens:purpose'
+const TEMP_UUID_TAG = 'aws-lens:temp-uuid'
+const TEMP_SOURCE_VOLUME_TAG = 'aws-lens:source-volume-id'
+const TEMP_PURPOSE_EBS_INSPECTION = 'ebs-inspection'
+const TEMP_MANAGED_SG_TAG = 'aws-lens:temp-managed-sg'
+const TEMP_MANAGED_ROLE_TAG = 'aws-lens:temp-managed-role'
+const TEMP_MANAGED_INSTANCE_PROFILE_TAG = 'aws-lens:temp-managed-instance-profile'
+const TEMP_ATTACH_DEVICE = '/dev/sdf'
+const GOVERNANCE_TAG_KEYS = ['Owner', 'Environment', 'CostCenter']
+const SSM_MANAGED_POLICY_ARN = 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
+const TEMP_INSPECTION_AMI_ID = 'ami-096a4fdbcf530d8e0'
+
+type TempProgressReporter = (progress: EbsTempInspectionProgress) => void
+
+function createIamClient(connection: AwsConnection): IAMClient {
+  return new IAMClient(awsClientConfig(connection))
+}
+
+function createSsmClient(connection: AwsConnection): SSMClient {
+  return new SSMClient(awsClientConfig(connection))
+}
 
 function buildBastionTagKey(uuid: string): string {
   return `${BASTION_TAG_PREFIX}${uuid}`
@@ -64,9 +125,46 @@ function buildBastionTagKey(uuid: string): string {
 
 function listBastionUuids(tags: Record<string, string> | undefined): string[] {
   return Object.entries(tags ?? {})
-    .filter(([key, value]) => key.startsWith(BASTION_TAG_PREFIX) && value === 'true')
-    .map(([key]) => key.slice(BASTION_TAG_PREFIX.length))
+    .filter(([, value]) => value === 'true')
+    .map(([key]) => {
+      if (key.startsWith(BASTION_TAG_PREFIX)) {
+        return key.slice(BASTION_TAG_PREFIX.length)
+      }
+      if (key.startsWith(LEGACY_BASTION_TAG_PREFIX)) {
+        return key.slice(LEGACY_BASTION_TAG_PREFIX.length)
+      }
+      return ''
+    })
     .filter(Boolean)
+}
+
+function buildTempTagKey(uuid: string): string {
+  return `${TEMP_TAG_PREFIX}${uuid}`
+}
+
+function listTempUuids(tags: Record<string, string> | undefined): string[] {
+  return Object.entries(tags ?? {})
+    .filter(([, value]) => value === 'true')
+    .map(([key]) => {
+      if (key.startsWith(TEMP_TAG_PREFIX)) {
+        return key.slice(TEMP_TAG_PREFIX.length)
+      }
+      if (key.startsWith(LEGACY_TEMP_TAG_PREFIX)) {
+        return key.slice(LEGACY_TEMP_TAG_PREFIX.length)
+      }
+      return ''
+    })
+    .filter(Boolean)
+}
+
+function buildTempTags(uuid: string, volumeId: string, extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    [buildTempTagKey(uuid)]: 'true',
+    [TEMP_PURPOSE_TAG]: TEMP_PURPOSE_EBS_INSPECTION,
+    [TEMP_UUID_TAG]: uuid,
+    [TEMP_SOURCE_VOLUME_TAG]: volumeId,
+    ...extra
+  }
 }
 
 function sshPortForPlatform(platform: string): number {
@@ -310,6 +408,447 @@ async function findBastionConnectionByUuid(
   }
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function normalizeVolumeAttachment(attachment: NonNullable<Volume['Attachments']>[number]): EbsVolumeAttachment {
+  return {
+    instanceId: attachment?.InstanceId ?? '-',
+    device: attachment?.Device ?? '-',
+    state: attachment?.State ?? '-',
+    attachTime: attachment?.AttachTime?.toISOString() ?? '-',
+    deleteOnTermination: attachment?.DeleteOnTermination ?? false
+  }
+}
+
+function hasActiveVolumeAttachments(attachments: EbsVolumeAttachment[]): boolean {
+  return attachments.some((attachment) => attachment.state !== 'detached' && attachment.instanceId !== '-')
+}
+
+function classifyVolumeStatus(volume: Volume, attachments: EbsVolumeAttachment[]): EbsVolumeStatus {
+  if (volume.MultiAttachEnabled) {
+    return 'multi-attach'
+  }
+  if ((volume.State ?? '') === 'available' && !hasActiveVolumeAttachments(attachments)) {
+    return 'available-orphan'
+  }
+  if (hasActiveVolumeAttachments(attachments)) {
+    return 'attached'
+  }
+  return 'unknown'
+}
+
+async function findTempInspectionEnvironmentByUuid(
+  client: EC2Client,
+  uuid: string
+): Promise<EbsTempInspectionEnvironment | null> {
+  const output = await client.send(
+    new DescribeInstancesCommand({
+      Filters: [
+        { Name: `tag:${buildTempTagKey(uuid)}`, Values: ['true'] },
+        { Name: `tag:${TEMP_PURPOSE_TAG}`, Values: [TEMP_PURPOSE_EBS_INSPECTION] },
+        { Name: 'instance-state-name', Values: ['pending', 'running', 'stopping', 'stopped'] }
+      ]
+    })
+  )
+
+  for (const reservation of output.Reservations ?? []) {
+    for (const instance of reservation.Instances ?? []) {
+      if (!instance.InstanceId) {
+        continue
+      }
+      const tags = readTags(instance.Tags)
+      const managedGroup = (instance.SecurityGroups ?? []).find((group) => group.GroupId && group.GroupName?.startsWith(`aws-lens-ebs-inspection-${uuid}`))
+      return {
+        tempUuid: uuid,
+        purpose: tags[TEMP_PURPOSE_TAG] ?? TEMP_PURPOSE_EBS_INSPECTION,
+        sourceVolumeId: tags[TEMP_SOURCE_VOLUME_TAG] ?? '-',
+        instanceId: instance.InstanceId,
+        instanceState: instance.State?.Name ?? '-',
+        availabilityZone: instance.Placement?.AvailabilityZone ?? '-',
+        subnetId: instance.SubnetId ?? '-',
+        vpcId: instance.VpcId ?? '-',
+        securityGroupId: managedGroup?.GroupId ?? instance.SecurityGroups?.[0]?.GroupId ?? '-',
+        iamRoleName: tags[TEMP_MANAGED_ROLE_TAG] ?? '',
+        instanceProfileName: tags[TEMP_MANAGED_INSTANCE_PROFILE_TAG] ?? '',
+        attachDevice: TEMP_ATTACH_DEVICE,
+        ssmReady: false,
+        launchTime: instance.LaunchTime?.toISOString() ?? '-',
+        tags
+      }
+    }
+  }
+
+  return null
+}
+
+async function findTempInspectionEnvironmentForVolume(
+  client: EC2Client,
+  volumeId: string
+): Promise<EbsTempInspectionEnvironment | null> {
+  const output = await client.send(
+    new DescribeInstancesCommand({
+      Filters: [
+        { Name: `tag:${TEMP_PURPOSE_TAG}`, Values: [TEMP_PURPOSE_EBS_INSPECTION] },
+        { Name: `tag:${TEMP_SOURCE_VOLUME_TAG}`, Values: [volumeId] },
+        { Name: 'instance-state-name', Values: ['pending', 'running', 'stopping', 'stopped'] }
+      ]
+    })
+  )
+
+  for (const reservation of output.Reservations ?? []) {
+    for (const instance of reservation.Instances ?? []) {
+      const tags = readTags(instance.Tags)
+      const [tempUuid] = listTempUuids(tags)
+      if (!tempUuid || !instance.InstanceId) {
+        continue
+      }
+      return {
+        tempUuid,
+        purpose: tags[TEMP_PURPOSE_TAG] ?? TEMP_PURPOSE_EBS_INSPECTION,
+        sourceVolumeId: tags[TEMP_SOURCE_VOLUME_TAG] ?? volumeId,
+        instanceId: instance.InstanceId,
+        instanceState: instance.State?.Name ?? '-',
+        availabilityZone: instance.Placement?.AvailabilityZone ?? '-',
+        subnetId: instance.SubnetId ?? '-',
+        vpcId: instance.VpcId ?? '-',
+        securityGroupId: instance.SecurityGroups?.[0]?.GroupId ?? '-',
+        iamRoleName: tags[TEMP_MANAGED_ROLE_TAG] ?? '',
+        instanceProfileName: tags[TEMP_MANAGED_INSTANCE_PROFILE_TAG] ?? '',
+        attachDevice: TEMP_ATTACH_DEVICE,
+        ssmReady: false,
+        launchTime: instance.LaunchTime?.toISOString() ?? '-',
+        tags
+      }
+    }
+  }
+
+  return null
+}
+
+async function toVolumeSummary(client: EC2Client, volume: Volume): Promise<EbsVolumeSummary> {
+  const tags = readTags(volume.Tags)
+  const attachments = (volume.Attachments ?? []).map(normalizeVolumeAttachment)
+  const tempEnvironment = volume.VolumeId
+    ? await findTempInspectionEnvironmentForVolume(client, volume.VolumeId)
+    : null
+
+  return {
+    volumeId: volume.VolumeId ?? '-',
+    name: tags.Name ?? '-',
+    state: volume.State ?? '-',
+    status: classifyVolumeStatus(volume, attachments),
+    sizeGiB: volume.Size ?? 0,
+    type: volume.VolumeType ?? '-',
+    iops: volume.Iops ?? 0,
+    throughput: volume.Throughput ?? 0,
+    encrypted: volume.Encrypted ?? false,
+    availabilityZone: volume.AvailabilityZone ?? '-',
+    createTime: volume.CreateTime?.toISOString() ?? '-',
+    snapshotId: volume.SnapshotId ?? '-',
+    multiAttachEnabled: volume.MultiAttachEnabled ?? false,
+    attachments,
+    attachedInstanceIds: attachments.map((attachment) => attachment.instanceId).filter((id) => id !== '-'),
+    attachedDevices: attachments.map((attachment) => attachment.device).filter((device) => device !== '-'),
+    tags,
+    tempEnvironment
+  }
+}
+
+function emitProgress(
+  report: TempProgressReporter | undefined,
+  progress: EbsTempInspectionProgress
+): void {
+  report?.(progress)
+}
+
+async function loadSingleVolume(client: EC2Client, volumeId: string): Promise<Volume | null> {
+  const output = await client.send(new DescribeVolumesCommand({ VolumeIds: [volumeId] }))
+  return output.Volumes?.[0] ?? null
+}
+
+async function describeTargetVolume(client: EC2Client, volumeId: string): Promise<Volume> {
+  const volume = await loadSingleVolume(client, volumeId)
+  if (!volume) {
+    throw new Error(`Selected EBS volume ${volumeId} was not found`)
+  }
+  return volume
+}
+
+async function findRouteTableForSubnet(client: EC2Client, subnet: Subnet): Promise<RouteTable | null> {
+  if (!subnet.SubnetId || !subnet.VpcId) {
+    return null
+  }
+
+  const direct = await client.send(
+    new DescribeRouteTablesCommand({
+      Filters: [{ Name: 'association.subnet-id', Values: [subnet.SubnetId] }]
+    })
+  )
+  const directTable = direct.RouteTables?.find((table) => table.RouteTableId)
+  if (directTable) {
+    return directTable
+  }
+
+  const main = await client.send(
+    new DescribeRouteTablesCommand({
+      Filters: [
+        { Name: 'vpc-id', Values: [subnet.VpcId] },
+        { Name: 'association.main', Values: ['true'] }
+      ]
+    })
+  )
+  return main.RouteTables?.find((table) => table.RouteTableId) ?? null
+}
+
+async function vpcHasRequiredSsmEndpoints(client: EC2Client, vpcId: string): Promise<boolean> {
+  const output = await client.send(
+    new DescribeVpcEndpointsCommand({
+      Filters: [{ Name: 'vpc-id', Values: [vpcId] }]
+    })
+  )
+  const services = new Set(
+    (output.VpcEndpoints ?? [])
+      .filter((endpoint) => String(endpoint.State ?? '').toLowerCase() === 'available')
+      .map((endpoint) => endpoint.ServiceName ?? '')
+  )
+  return ['ssm', 'ssmmessages', 'ec2messages'].every((suffix) =>
+    [...services].some((service) => service.endsWith(`.${suffix}`))
+  )
+}
+
+function routeTableHasOutboundAccess(routeTable: RouteTable | null): boolean {
+  return (routeTable?.Routes ?? []).some((route) =>
+    route.State === 'active' &&
+    (route.DestinationCidrBlock === '0.0.0.0/0' || route.DestinationIpv6CidrBlock === '::/0') &&
+    Boolean(route.GatewayId || route.NatGatewayId || route.TransitGatewayId || route.NetworkInterfaceId)
+  )
+}
+
+async function selectInspectionSubnet(client: EC2Client, availabilityZone: string): Promise<{ subnetId: string; vpcId: string }> {
+  const output = await client.send(
+    new DescribeSubnetsCommand({
+      Filters: [
+        { Name: 'availability-zone', Values: [availabilityZone] },
+        { Name: 'state', Values: ['available'] }
+      ]
+    })
+  )
+  const candidates = (output.Subnets ?? []).filter((subnet) => subnet.SubnetId && subnet.VpcId)
+  if (candidates.length === 0) {
+    throw new Error(`No usable subnet was found in availability zone ${availabilityZone}`)
+  }
+
+  const evaluated = await Promise.all(candidates.map(async (subnet) => {
+    const routeTable = await findRouteTableForSubnet(client, subnet)
+    const hasOutboundRoute = routeTableHasOutboundAccess(routeTable)
+    const hasSsmEndpoints = subnet.VpcId ? await vpcHasRequiredSsmEndpoints(client, subnet.VpcId) : false
+    return {
+      subnet,
+      score: [
+        subnet.DefaultForAz ? 1 : 0,
+        subnet.MapPublicIpOnLaunch ? 1 : 0,
+        hasOutboundRoute ? 1 : 0,
+        hasSsmEndpoints ? 1 : 0
+      ],
+      usable: hasOutboundRoute || hasSsmEndpoints
+    }
+  }))
+
+  const best = evaluated
+    .filter((candidate) => candidate.usable)
+    .sort((left, right) => right.score.join('').localeCompare(left.score.join('')))[0]
+
+  if (!best?.subnet.SubnetId || !best.subnet.VpcId) {
+    throw new Error(
+      `No subnet in ${availabilityZone} has outbound access or the required SSM VPC endpoints. ` +
+      'Temporary volume inspection requires either internet/NAT egress or SSM interface endpoints.'
+    )
+  }
+
+  return { subnetId: best.subnet.SubnetId, vpcId: best.subnet.VpcId }
+}
+
+async function selectInspectionAmi(client: EC2Client): Promise<string> {
+  const output = await client.send(
+    new DescribeImagesCommand({
+      ImageIds: [TEMP_INSPECTION_AMI_ID]
+    })
+  )
+  const image = output.Images?.find((candidate) => candidate.ImageId === TEMP_INSPECTION_AMI_ID)
+  if (!image?.ImageId || image.State !== 'available') {
+    throw new Error(`Temporary inspection AMI ${TEMP_INSPECTION_AMI_ID} was not found or is not available in this region`)
+  }
+
+  return image.ImageId
+}
+
+async function createManagedInspectionSecurityGroup(
+  client: EC2Client,
+  vpcId: string,
+  uuid: string,
+  volumeId: string
+): Promise<string> {
+  const output = await client.send(
+    new CreateSecurityGroupCommand({
+      GroupName: `aws-lens-ebs-inspection-${uuid}`,
+      Description: `AWS Lens temporary EBS inspection for ${volumeId}`,
+      VpcId: vpcId,
+      TagSpecifications: [
+        {
+          ResourceType: 'security-group',
+          Tags: Object.entries({
+            Name: `aws-lens-ebs-inspection-${uuid}`,
+            ...buildTempTags(uuid, volumeId, {
+              [TEMP_MANAGED_SG_TAG]: 'true'
+            })
+          }).map(([Key, Value]) => ({ Key, Value }))
+        }
+      ]
+    })
+  )
+  if (!output.GroupId) {
+    throw new Error('Failed to create temporary inspection security group')
+  }
+  return output.GroupId
+}
+
+async function ensureInspectionRole(
+  iamClient: IAMClient,
+  uuid: string,
+  volumeId: string
+): Promise<{ roleName: string; instanceProfileName: string }> {
+  const shortId = uuid.replace(/[^A-Za-z0-9+=,.@_-]/g, '').slice(0, 12) || 'temp'
+  const roleName = `awl-ebs-inspect-role-${shortId}`
+  const instanceProfileName = `awl-ebs-inspect-profile-${shortId}`
+  const trustPolicy = JSON.stringify({
+    Version: '2012-10-17',
+    Statement: [
+      {
+        Effect: 'Allow',
+        Principal: { Service: 'ec2.amazonaws.com' },
+        Action: 'sts:AssumeRole'
+      }
+    ]
+  })
+  const tags = Object.entries(buildTempTags(uuid, volumeId, {
+    [TEMP_MANAGED_ROLE_TAG]: roleName,
+    [TEMP_MANAGED_INSTANCE_PROFILE_TAG]: instanceProfileName
+  })).map(([Key, Value]) => ({ Key, Value }))
+
+  await iamClient.send(
+    new CreateRoleCommand({
+      RoleName: roleName,
+      AssumeRolePolicyDocument: trustPolicy,
+      Description: `AWS Lens temporary EBS inspection role for ${volumeId}`,
+      Tags: tags
+    })
+  )
+  await iamClient.send(
+    new AttachRolePolicyCommand({
+      RoleName: roleName,
+      PolicyArn: SSM_MANAGED_POLICY_ARN
+    })
+  )
+  await iamClient.send(
+    new CreateInstanceProfileCommand({
+      InstanceProfileName: instanceProfileName,
+      Tags: tags
+    })
+  )
+  await sleep(3000)
+  await iamClient.send(
+    new AddRoleToInstanceProfileCommand({
+      InstanceProfileName: instanceProfileName,
+      RoleName: roleName
+    })
+  )
+  await sleep(5000)
+
+  return { roleName, instanceProfileName }
+}
+
+async function waitForSsmReadiness(ssmClient: SSMClient, instanceId: string, timeoutMs = 180000): Promise<void> {
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < timeoutMs) {
+    const output = await ssmClient.send(
+      new DescribeInstanceInformationCommand({
+        Filters: [
+          { Key: 'InstanceIds', Values: [instanceId] }
+        ]
+      })
+    )
+    const match = output.InstanceInformationList?.find((entry) => entry.InstanceId === instanceId)
+    if (match?.PingStatus === 'Online') {
+      return
+    }
+    await sleep(5000)
+  }
+  throw new Error(`Timed out waiting for SSM readiness on ${instanceId}`)
+}
+
+async function waitForVolumeAttachment(
+  client: EC2Client,
+  volumeId: string,
+  instanceId: string,
+  desiredState: 'attached' | 'available',
+  timeoutMs = 180000
+): Promise<void> {
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < timeoutMs) {
+    const volume = await describeTargetVolume(client, volumeId)
+    const attachment = (volume.Attachments ?? []).find((entry) => entry.InstanceId === instanceId)
+    if (desiredState === 'attached' && attachment?.State === 'attached') {
+      return
+    }
+    if (desiredState === 'available' && !attachment && volume.State === 'available') {
+      return
+    }
+    await sleep(4000)
+  }
+  throw new Error(`Timed out waiting for volume ${volumeId} to reach ${desiredState}`)
+}
+
+async function findTaggedSecurityGroupIds(client: EC2Client, uuid: string): Promise<string[]> {
+  const output = await client.send(
+    new DescribeSecurityGroupsCommand({
+      Filters: [{ Name: `tag:${buildTempTagKey(uuid)}`, Values: ['true'] }]
+    })
+  )
+  return (output.SecurityGroups ?? []).map((group) => group.GroupId ?? '').filter(Boolean)
+}
+
+async function listTaggedRoleNames(iamClient: IAMClient, uuid: string): Promise<string[]> {
+  const output = await iamClient.send(new ListRolesCommand({}))
+  const roleNames: string[] = []
+  for (const role of output.Roles ?? []) {
+    if (!role.RoleName) {
+      continue
+    }
+    const tags = await iamClient.send(new ListRoleTagsCommand({ RoleName: role.RoleName }))
+    if ((tags.Tags ?? []).some((tag) => tag.Key === buildTempTagKey(uuid) && tag.Value === 'true')) {
+      roleNames.push(role.RoleName)
+    }
+  }
+  return roleNames
+}
+
+async function listTaggedInstanceProfiles(iamClient: IAMClient, uuid: string): Promise<string[]> {
+  const output = await iamClient.send(new ListInstanceProfilesCommand({}))
+  const profileNames: string[] = []
+  for (const profile of output.InstanceProfiles ?? []) {
+    if (!profile.InstanceProfileName) {
+      continue
+    }
+    const tags = await iamClient.send(new ListInstanceProfileTagsCommand({ InstanceProfileName: profile.InstanceProfileName }))
+    if ((tags.Tags ?? []).some((tag) => tag.Key === buildTempTagKey(uuid) && tag.Value === 'true')) {
+      profileNames.push(profile.InstanceProfileName)
+    }
+  }
+  return profileNames
+}
+
 /* ── Instance list ─────────────────────────────────────────── */
 
 function toInstanceSummary(instance: Instance): Ec2InstanceSummary {
@@ -348,6 +887,26 @@ export async function listEc2Instances(connection: AwsConnection): Promise<Ec2In
   } while (nextToken)
 
   return instances
+}
+
+export async function listEbsVolumes(connection: AwsConnection): Promise<EbsVolumeSummary[]> {
+  const client = createClient(connection)
+  const output = await client.send(new DescribeVolumesCommand({}))
+  const volumes = await Promise.all((output.Volumes ?? []).map((volume) => toVolumeSummary(client, volume)))
+  return volumes.sort((left, right) => left.volumeId.localeCompare(right.volumeId))
+}
+
+export async function describeEbsVolume(connection: AwsConnection, volumeId: string): Promise<EbsVolumeDetail | null> {
+  const client = createClient(connection)
+  const volume = await loadSingleVolume(client, volumeId)
+  if (!volume) {
+    return null
+  }
+  const summary = await toVolumeSummary(client, volume)
+  return {
+    ...summary,
+    isOrphan: summary.status === 'available-orphan'
+  }
 }
 
 /* ── Instance detail ───────────────────────────────────────── */
@@ -794,6 +1353,358 @@ export async function deleteBastionForInstance(connection: AwsConnection, target
   }
 
   await removeTagKeys(client, [targetInstanceId], [BASTION_UUID_TAG])
+}
+
+export async function createTempInspectionEnvironment(
+  connection: AwsConnection,
+  volumeId: string,
+  reportProgress?: TempProgressReporter
+): Promise<EbsTempInspectionEnvironment> {
+  const client = createClient(connection)
+  const iamClient = createIamClient(connection)
+  const ssmClient = createSsmClient(connection)
+  const volume = await describeTargetVolume(client, volumeId)
+  const attachments = (volume.Attachments ?? []).map(normalizeVolumeAttachment)
+  const status = classifyVolumeStatus(volume, attachments)
+  if (status !== 'available-orphan') {
+    throw new Error(`Volume ${volumeId} is not an orphan volume and cannot be checked`)
+  }
+
+  const existing = await findTempInspectionEnvironmentForVolume(client, volumeId)
+  if (existing) {
+    return existing
+  }
+
+  const uuid = globalThis.crypto.randomUUID()
+  const baseProgress = {
+    mode: 'create' as const,
+    tempUuid: uuid,
+    volumeId,
+    instanceId: ''
+  }
+
+  emitProgress(reportProgress, {
+    ...baseProgress,
+    stage: 'preparing',
+    status: 'running',
+    message: `Preparing temporary inspection environment for ${volumeId}.`
+  })
+
+  const availabilityZone = volume.AvailabilityZone ?? ''
+  if (!availabilityZone) {
+    throw new Error(`Volume ${volumeId} is missing an availability zone`)
+  }
+
+  const amiId = await selectInspectionAmi(client)
+  const { subnetId, vpcId } = await selectInspectionSubnet(client, availabilityZone)
+
+  emitProgress(reportProgress, {
+    ...baseProgress,
+    stage: 'creating-iam-profile-if-needed',
+    status: 'running',
+    message: 'Creating IAM role and instance profile for Systems Manager.'
+  })
+
+  let securityGroupId = ''
+  let roleName = ''
+  let instanceProfileName = ''
+  let instanceId = ''
+
+  try {
+    const roleInfo = await ensureInspectionRole(iamClient, uuid, volumeId)
+    roleName = roleInfo.roleName
+    instanceProfileName = roleInfo.instanceProfileName
+    securityGroupId = await createManagedInspectionSecurityGroup(client, vpcId, uuid, volumeId)
+
+    emitProgress(reportProgress, {
+      ...baseProgress,
+      stage: 'creating-instance',
+      status: 'running',
+      message: 'Creating temporary inspection instance.'
+    })
+
+    const tags = buildTempTags(uuid, volumeId, {
+      [TEMP_MANAGED_ROLE_TAG]: roleName,
+      [TEMP_MANAGED_INSTANCE_PROFILE_TAG]: instanceProfileName
+    })
+    const output = await client.send(
+      new RunInstancesCommand({
+        ImageId: amiId,
+        InstanceType: 't3.micro',
+        MinCount: 1,
+        MaxCount: 1,
+        IamInstanceProfile: { Name: instanceProfileName },
+        NetworkInterfaces: [
+          {
+            DeviceIndex: 0,
+            AssociatePublicIpAddress: true,
+            SubnetId: subnetId,
+            Groups: [securityGroupId]
+          }
+        ],
+        UserData: Buffer.from(
+          [
+            '#!/bin/bash',
+            'set -euxo pipefail',
+            'mkdir -p /mnt',
+            'if ! systemctl list-unit-files | grep -q "^amazon-ssm-agent"; then',
+            '  if command -v dnf >/dev/null 2>&1; then dnf install -y amazon-ssm-agent || true; fi',
+            '  if command -v yum >/dev/null 2>&1; then yum install -y amazon-ssm-agent || true; fi',
+            'fi',
+            'systemctl daemon-reload || true',
+            'systemctl enable amazon-ssm-agent || true',
+            'systemctl restart amazon-ssm-agent || systemctl start amazon-ssm-agent || true',
+            'systemctl status amazon-ssm-agent --no-pager || true',
+            `cat >/etc/motd <<'EOF'`,
+            `AWS Lens attached ${volumeId} to this instance.`,
+            'Connect via SSM, inspect the extra device, and mount it under /mnt if needed.',
+            'Nitro instances may expose the attached EBS device as /dev/nvme*n1 instead of the AWS attachment name.',
+            'EOF'
+          ].join('\n')
+        ).toString('base64'),
+        TagSpecifications: [
+          {
+            ResourceType: 'instance',
+            Tags: Object.entries({
+              Name: `aws-lens-ebs-inspection-${uuid}`,
+              ...tags
+            }).map(([Key, Value]) => ({ Key, Value }))
+          },
+          {
+            ResourceType: 'volume',
+            Tags: Object.entries({
+              Name: `aws-lens-ebs-inspection-root-${uuid}`,
+              ...tags
+            }).map(([Key, Value]) => ({ Key, Value }))
+          }
+        ]
+      })
+    )
+    instanceId = output.Instances?.[0]?.InstanceId ?? ''
+    if (!instanceId) {
+      throw new Error('Failed to create temporary inspection instance')
+    }
+
+    emitProgress(reportProgress, {
+      ...baseProgress,
+      instanceId,
+      stage: 'waiting-for-instance-readiness',
+      status: 'running',
+      message: `Waiting for ${instanceId} to enter running state.`
+    })
+    await waitUntilInstanceRunning({ client, maxWaitTime: 180 }, { InstanceIds: [instanceId] })
+
+    emitProgress(reportProgress, {
+      ...baseProgress,
+      instanceId,
+      stage: 'verifying-ssm-readiness',
+      status: 'running',
+      message: 'Verifying Systems Manager readiness.'
+    })
+    await waitForSsmReadiness(ssmClient, instanceId)
+
+    emitProgress(reportProgress, {
+      ...baseProgress,
+      instanceId,
+      stage: 'attaching-target-volume',
+      status: 'running',
+      message: `Attaching ${volumeId} to ${instanceId}.`
+    })
+    await client.send(
+      new AttachVolumeCommand({
+        Device: TEMP_ATTACH_DEVICE,
+        InstanceId: instanceId,
+        VolumeId: volumeId
+      })
+    )
+    await waitForVolumeAttachment(client, volumeId, instanceId, 'attached')
+
+    emitProgress(reportProgress, {
+      ...baseProgress,
+      instanceId,
+      stage: 'finalizing',
+      status: 'running',
+      message: 'Finalizing temporary inspection environment.'
+    })
+
+    const environment = await findTempInspectionEnvironmentByUuid(client, uuid)
+    if (!environment) {
+      throw new Error('Temporary inspection instance was created but could not be rediscovered')
+    }
+
+    emitProgress(reportProgress, {
+      ...baseProgress,
+      instanceId,
+      stage: 'completed',
+      status: 'completed',
+      message: 'Temporary inspection instance is ready. Connect via SSM and inspect the attached volume under /mnt.'
+    })
+    return { ...environment, ssmReady: true }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    emitProgress(reportProgress, {
+      ...baseProgress,
+      instanceId,
+      stage: 'failed',
+      status: 'failed',
+      message,
+      error: message
+    })
+    if (instanceId) {
+      await client.send(new TerminateInstancesCommand({ InstanceIds: [instanceId] })).catch(() => undefined)
+    }
+    if (securityGroupId) {
+      await client.send(new DeleteSecurityGroupCommand({ GroupId: securityGroupId })).catch(() => undefined)
+    }
+    if (instanceProfileName) {
+      await iamClient.send(new RemoveRoleFromInstanceProfileCommand({
+        InstanceProfileName: instanceProfileName,
+        RoleName: roleName
+      })).catch(() => undefined)
+      await iamClient.send(new DeleteInstanceProfileCommand({ InstanceProfileName: instanceProfileName })).catch(() => undefined)
+    }
+    if (roleName) {
+      await iamClient.send(new DetachRolePolicyCommand({
+        RoleName: roleName,
+        PolicyArn: SSM_MANAGED_POLICY_ARN
+      })).catch(() => undefined)
+      await iamClient.send(new DeleteRoleCommand({ RoleName: roleName })).catch(() => undefined)
+    }
+    throw error
+  }
+}
+
+export async function deleteTempInspectionEnvironment(
+  connection: AwsConnection,
+  tempUuidOrInstanceId: string,
+  reportProgress?: TempProgressReporter
+): Promise<void> {
+  const client = createClient(connection)
+  const iamClient = createIamClient(connection)
+
+  let tempUuid = tempUuidOrInstanceId
+  let environment: EbsTempInspectionEnvironment | null = null
+
+  if (tempUuidOrInstanceId.startsWith('i-')) {
+    const instance = await loadSingleInstance(client, tempUuidOrInstanceId)
+    const tags = readTags(instance?.Tags)
+    tempUuid = listTempUuids(tags)[0] ?? tags[TEMP_UUID_TAG] ?? ''
+  }
+
+  if (!tempUuid) {
+    throw new Error('Could not resolve temporary inspection UUID')
+  }
+
+  environment = await findTempInspectionEnvironmentByUuid(client, tempUuid)
+  const volumeId = environment?.sourceVolumeId ?? '-'
+  const instanceId = environment?.instanceId ?? ''
+  const baseProgress = {
+    mode: 'delete' as const,
+    tempUuid,
+    volumeId,
+    instanceId
+  }
+
+  emitProgress(reportProgress, {
+    ...baseProgress,
+    stage: 'preparing',
+    status: 'running',
+    message: `Preparing cleanup for temporary inspection environment ${tempUuid}.`
+  })
+
+  if (environment?.sourceVolumeId && environment.instanceId) {
+    const volume = await describeTargetVolume(client, environment.sourceVolumeId)
+    const attached = (volume.Attachments ?? []).some((attachment) => attachment.InstanceId === environment?.instanceId)
+    if (attached) {
+      emitProgress(reportProgress, {
+        ...baseProgress,
+        stage: 'detaching-inspected-volume-if-needed',
+        status: 'running',
+        message: `Detaching ${environment.sourceVolumeId} from ${environment.instanceId}.`
+      })
+      await client.send(
+        new DetachVolumeCommand({
+          VolumeId: environment.sourceVolumeId,
+          InstanceId: environment.instanceId,
+          Device: TEMP_ATTACH_DEVICE
+        })
+      )
+      await waitForVolumeAttachment(client, environment.sourceVolumeId, environment.instanceId, 'available')
+    }
+  }
+
+  if (instanceId) {
+    emitProgress(reportProgress, {
+      ...baseProgress,
+      stage: 'terminating-instance',
+      status: 'running',
+      message: `Terminating ${instanceId}.`
+    })
+    await client.send(new TerminateInstancesCommand({ InstanceIds: [instanceId] }))
+    emitProgress(reportProgress, {
+      ...baseProgress,
+      stage: 'waiting-for-termination',
+      status: 'running',
+      message: `Waiting for ${instanceId} to terminate.`
+    })
+    await waitUntilInstanceTerminated({ client, maxWaitTime: 180 }, { InstanceIds: [instanceId] })
+  }
+
+  emitProgress(reportProgress, {
+    ...baseProgress,
+    stage: 'deleting-temp-resources',
+    status: 'running',
+    message: 'Deleting app-created temporary resources.'
+  })
+
+  for (const groupId of await findTaggedSecurityGroupIds(client, tempUuid)) {
+    await client.send(new DeleteSecurityGroupCommand({ GroupId: groupId })).catch(() => undefined)
+  }
+
+  for (const profileName of await listTaggedInstanceProfiles(iamClient, tempUuid)) {
+    const profile = await iamClient.send(new GetInstanceProfileCommand({ InstanceProfileName: profileName })).catch(() => null)
+    for (const role of profile?.InstanceProfile?.Roles ?? []) {
+      if (!role.RoleName) {
+        continue
+      }
+      await iamClient.send(
+        new RemoveRoleFromInstanceProfileCommand({
+          InstanceProfileName: profileName,
+          RoleName: role.RoleName
+        })
+      ).catch(() => undefined)
+    }
+    await iamClient.send(new DeleteInstanceProfileCommand({ InstanceProfileName: profileName })).catch(() => undefined)
+  }
+
+  for (const roleName of await listTaggedRoleNames(iamClient, tempUuid)) {
+    const attachedPolicies = await iamClient.send(new ListAttachedRolePoliciesCommand({ RoleName: roleName })).catch(() => null)
+    for (const policy of attachedPolicies?.AttachedPolicies ?? []) {
+      if (!policy.PolicyArn) {
+        continue
+      }
+      await iamClient.send(
+        new DetachRolePolicyCommand({
+          RoleName: roleName,
+          PolicyArn: policy.PolicyArn
+        })
+      ).catch(() => undefined)
+    }
+    await iamClient.send(new DeleteRoleCommand({ RoleName: roleName })).catch(() => undefined)
+  }
+
+  emitProgress(reportProgress, {
+    ...baseProgress,
+    stage: 'finalizing',
+    status: 'running',
+    message: 'Finalizing cleanup.'
+  })
+  emitProgress(reportProgress, {
+    ...baseProgress,
+    stage: 'completed',
+    status: 'completed',
+    message: 'Temporary inspection resources were deleted.'
+  })
 }
 
 export async function listPopularBastionAmis(
