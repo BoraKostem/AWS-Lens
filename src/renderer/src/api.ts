@@ -171,6 +171,7 @@ type CacheEntry = {
 const awsActivityListeners = new Set<(state: AwsActivityState) => void>()
 const awsBridgeCache = new WeakMap<AwsLensBridge, AwsLensBridge>()
 const pageCache = new Map<string, CacheEntry>()
+let pageCacheVersion = 0
 let awsActivityState: AwsActivityState = {
   pendingCount: 0,
   lastCompletedAt: null
@@ -450,13 +451,18 @@ function readCached<T>(tag: CacheTag, method: string, args: unknown[], loader: (
     return Promise.resolve(cached.value as T)
   }
 
+  const cacheVersionAtLoad = pageCacheVersion
   const pending = loader()
     .then((result) => {
-      pageCache.set(key, { status: 'resolved', value: result })
+      if (pageCacheVersion === cacheVersionAtLoad) {
+        pageCache.set(key, { status: 'resolved', value: result })
+      }
       return result
     })
     .catch((error) => {
-      pageCache.delete(key)
+      if (pageCacheVersion === cacheVersionAtLoad) {
+        pageCache.delete(key)
+      }
       throw error
     })
 
@@ -471,6 +477,11 @@ export function invalidatePageCache(tag: CacheTag): void {
       pageCache.delete(key)
     }
   }
+}
+
+export function invalidateAllPageCaches(): void {
+  pageCacheVersion += 1
+  pageCache.clear()
 }
 
 function terraformBridge() {

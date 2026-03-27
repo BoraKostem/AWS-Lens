@@ -647,6 +647,7 @@ function ActionsTab({
 }) {
   const [outputOpen, setOutputOpen] = useState(false)
   const s = project.lastPlanSummary
+  const hasSavedPlan = project.hasSavedPlan
 
   return (
     <>
@@ -655,9 +656,26 @@ function ActionsTab({
         <div className="tf-actions-grid">
           <button className="tf-action-btn init" disabled={!cliOk || running} onClick={onInit}>Init</button>
           <button className="tf-action-btn plan" disabled={!cliOk || running} onClick={onPlan}>Plan</button>
-          <button className="tf-action-btn apply" disabled={!cliOk || running} onClick={onApply}>Apply</button>
-          <button className="tf-action-btn destroy" disabled={!cliOk || running} onClick={onDestroy}>Destroy</button>
+          <button
+            className="tf-action-btn apply"
+            disabled={!cliOk || running || !hasSavedPlan}
+            onClick={onApply}
+            title={!hasSavedPlan ? 'Run Plan first to enable Apply.' : undefined}
+          >
+            Apply
+          </button>
+          <button
+            className="tf-action-btn destroy"
+            disabled={!cliOk || running || !hasSavedPlan}
+            onClick={onDestroy}
+            title={!hasSavedPlan ? 'Run Plan first to enable Destroy.' : undefined}
+          >
+            Destroy
+          </button>
         </div>
+        {!hasSavedPlan && (
+          <div className="tf-section-hint">Run Plan first. Apply and Destroy stay disabled until a saved plan exists.</div>
+        )}
       </div>
       {(s.create > 0 || s.update > 0 || s.delete > 0 || s.replace > 0) && (
         <div className="tf-section">
@@ -1175,53 +1193,7 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
   function handleApply() {
     if (!detail) return
     if (!detail.hasSavedPlan) {
-      // Need to plan first
-      setMsg('Running Plan first...')
-      void execCommand('plan').then((planLog) => {
-        if (!planLog) return
-        if (!planLog.success) {
-          setMsg('Plan failed. Review Command Output and fix the Terraform error before applying.')
-          return
-        }
-        void getProject(contextKey, detail.id).then((p) => {
-          setDetail(p)
-          const fallbackSummary = parsePlanSummaryFromOutput(planLog.output)
-          const summary = (
-            p.lastPlanSummary.create +
-            p.lastPlanSummary.update +
-            p.lastPlanSummary.delete +
-            p.lastPlanSummary.replace
-          ) > 0 ? p.lastPlanSummary : (fallbackSummary ?? p.lastPlanSummary)
-          const changeCount =
-            summary.create +
-            summary.update +
-            summary.delete +
-            summary.replace
-          if (planLog.exitCode === 0 || changeCount === 0) {
-            setMsg('No changes to apply.')
-            return
-          }
-          setSummaryDialog({
-              title: 'Apply Changes — Review',
-              summary,
-              changes: p.planChanges,
-              onConfirm: () => {
-                setSummaryDialog(null)
-                setConfirmDialog({
-                  title: 'Confirm Apply',
-                  description: `You are about to apply ${summary.create} create, ${summary.update} update, ${summary.delete} delete, ${summary.replace} replace. This action cannot be easily undone.`,
-                  confirmWord: 'APPLY',
-                  onConfirm: () => {
-                    setConfirmDialog(null)
-                    void execCommand('apply')
-                  }
-                })
-              }
-            })
-        }).catch((err) => {
-          setMsg(err instanceof Error ? err.message : String(err))
-        })
-      })
+      setMsg('Run Plan first to create a saved plan before applying.')
       return
     }
     // Has saved plan - go directly to summary with resource list
@@ -1246,6 +1218,10 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
 
   function handleDestroy() {
     if (!detail) return
+    if (!detail.hasSavedPlan) {
+      setMsg('Run Plan first to create a saved plan before destroying.')
+      return
+    }
     // First confirmation: show what will be destroyed
     const destroySummary = { create: 0, update: 0, delete: detail.stateAddresses.length, replace: 0, noop: 0 }
     const destroyChanges: TerraformPlanChange[] = detail.stateAddresses.map(addr => {

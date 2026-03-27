@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import appLogoUrl from '../../../assets/aws-lens-logo.png'
 import type { ServiceDescriptor, ServiceId } from '@shared/types'
-import { chooseAndImportConfig, closeAwsTerminal, deleteProfile, invalidatePageCache, listServices, saveCredentials, useAwsActivity, type CacheTag } from './api'
+import { chooseAndImportConfig, closeAwsTerminal, deleteProfile, invalidateAllPageCaches, invalidatePageCache, listServices, saveCredentials, useAwsActivity, type CacheTag } from './api'
 import { AcmConsole } from './AcmConsole'
 import { AutoScalingConsole } from './AutoScalingConsole'
 import { AwsTerminalPanel } from './AwsTerminalPanel'
@@ -297,6 +297,7 @@ export function App() {
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [pendingTerminalCommand, setPendingTerminalCommand] = useState<PendingTerminalCommand>(null)
   const [pageRefreshNonceByScreen, setPageRefreshNonceByScreen] = useState<Record<string, number>>({})
+  const [connectionRenderEpoch, setConnectionRenderEpoch] = useState(0)
   const [refreshState, setRefreshState] = useState<RefreshState>(null)
   const [fabMode, setFabMode] = useState<FabMode>('closed')
   const [credName, setCredName] = useState('')
@@ -363,6 +364,9 @@ export function App() {
   const activeCacheTag = screenCacheTag(screen)
   const activePageNonce = pageRefreshNonceByScreen[screen] ?? 0
   const isCurrentScreenRefreshing = refreshState?.screen === screen
+  const connectionScopeKey = connectionState.connection
+    ? `${connectionState.connection.sessionId}:${connectionState.connection.region}`
+    : 'disconnected'
 
   useEffect(() => {
     return () => {
@@ -379,6 +383,12 @@ export function App() {
   useEffect(() => {
     setVisitedScreens((current) => (current.includes(screen) ? current : [...current, screen]))
   }, [screen])
+
+  useEffect(() => {
+    invalidateAllPageCaches()
+    setRefreshState(null)
+    setConnectionRenderEpoch((current) => current + 1)
+  }, [connectionScopeKey])
 
   // Redirect to profiles when connection fails (e.g. SSO session expired)
   useEffect(() => {
@@ -806,7 +816,7 @@ export function App() {
         {profileActionMsg && <div className="success-banner">{profileActionMsg}</div>}
         {visitedScreens.map((visitedScreen) => (
           <section
-            key={`${visitedScreen}:${pageRefreshNonceByScreen[visitedScreen] ?? 0}`}
+            key={`${connectionRenderEpoch}:${visitedScreen}:${pageRefreshNonceByScreen[visitedScreen] ?? 0}`}
             className={`catalog-main-content ${visitedScreen === screen ? 'active' : 'hidden'} ${refreshState?.screen === visitedScreen ? 'refreshing' : ''}`}
             aria-hidden={visitedScreen === screen ? undefined : true}
           >
