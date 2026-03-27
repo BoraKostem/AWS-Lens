@@ -1300,6 +1300,64 @@ export type CloudFormationResourceSummary = {
   timestamp: string
 }
 
+export type CloudFormationChangeSetSummary = {
+  stackName: string
+  stackId: string
+  changeSetName: string
+  changeSetId: string
+  description: string
+  status: string
+  executionStatus: string
+  statusReason: string
+  changeSetType: string
+  creationTime: string
+}
+
+export type CloudFormationChangeSetDetail = {
+  summary: CloudFormationChangeSetSummary
+  parameters: Array<{
+    parameterKey: string
+    parameterValue: string
+    usePreviousValue: boolean
+  }>
+  capabilities: string[]
+  changes: Array<{
+    action: string
+    logicalResourceId: string
+    physicalResourceId: string
+    resourceType: string
+    replacement: string
+    scope: string[]
+    details: string[]
+  }>
+  rawJson: string
+}
+
+export type CloudFormationStackDriftSummary = {
+  stackName: string
+  stackId: string
+  stackDriftStatus: string
+  detectionStatus: string
+  detectionStatusReason: string
+  driftDetectionId: string
+  lastCheckTimestamp: string
+}
+
+export type CloudFormationDriftedResourceRow = {
+  logicalResourceId: string
+  physicalResourceId: string
+  resourceType: string
+  driftStatus: string
+  details: string
+  propertyDifferences: Array<{
+    propertyPath: string
+    expectedValue: string
+    actualValue: string
+    differenceType: string
+  }>
+  rawJson: string
+}
+
 /* ── ECS ──────────────────────────────────────────────────── */
 
 export type EcsClusterSummary = {

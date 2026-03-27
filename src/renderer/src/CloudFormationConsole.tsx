@@ -1,7 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { AwsConnection, CloudFormationStackSummary, CloudFormationResourceSummary } from '@shared/types'
-import { listCloudFormationStackResources, listCloudFormationStacks } from './api'
+import type {
+  AwsConnection,
+  CloudFormationChangeSetDetail,
+  CloudFormationChangeSetSummary,
+  CloudFormationDriftedResourceRow,
+  CloudFormationResourceSummary,
+  CloudFormationStackDriftSummary,
+  CloudFormationStackSummary
+} from '@shared/types'
+import {
+  createCloudFormationChangeSet,
+  deleteCloudFormationChangeSet,
+  executeCloudFormationChangeSet,
+  getCloudFormationChangeSetDetail,
+  getCloudFormationDriftDetectionStatus,
+  getCloudFormationDriftSummary,
+  listCloudFormationChangeSets,
+  listCloudFormationStackResources,
+  listCloudFormationStacks,
+  startCloudFormationDriftDetection
+} from './api'
+import { ConfirmButton } from './ConfirmButton'
 
 type CfnTab = 'stacks' | 'diagram'
 type StackColKey = 'stackName' | 'status' | 'creationTime'
@@ -397,18 +417,172 @@ function CfnDiagramView({ diagram }: { diagram: Diagram }) {
 
 /* ── Main Console ────────────────────────────────────────── */
 
+type StackDetailTab = 'resources' | 'change-sets' | 'drift'
+type ChangeSetTemplateMode = 'existing' | 'body' | 'url'
+
+function badgeClass(value: string): string {
+  const normalized = value.toLowerCase()
+  if (normalized.includes('complete') || normalized.includes('available') || normalized === 'in_sync' || normalized === 'execute_complete') return 'ok'
+  if (normalized.includes('progress') || normalized.includes('pending') || normalized.includes('review') || normalized.includes('unavailable')) return 'warn'
+  if (normalized.includes('fail') || normalized.includes('delete') || normalized.includes('obsolete') || normalized === 'drifted' || normalized === 'modified') return 'danger'
+  if (normalized.includes('not_checked') || normalized.includes('unsupported') || normalized.includes('unknown') || normalized === 'not_started') return 'muted'
+  return 'active'
+}
+
+function safePretty(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function parseChangeSetParameters(input: string): Array<{
+  parameterKey: string
+  parameterValue?: string
+  usePreviousValue?: boolean
+}> {
+  const trimmed = input.trim()
+  if (!trimmed) return []
+
+  const parsed = JSON.parse(trimmed) as unknown
+  if (!Array.isArray(parsed)) {
+    throw new Error('Parameters JSON must be an array.')
+  }
+
+  return parsed.map((item, index) => {
+    if (!item || typeof item !== 'object') {
+      throw new Error(`Parameter at index ${index} must be an object.`)
+    }
+
+    const record = item as Record<string, unknown>
+    const parameterKey = typeof record.parameterKey === 'string'
+      ? record.parameterKey
+      : typeof record.ParameterKey === 'string'
+        ? record.ParameterKey
+        : ''
+
+    if (!parameterKey) {
+      throw new Error(`Parameter at index ${index} is missing parameterKey.`)
+    }
+
+    return {
+      parameterKey,
+      parameterValue: typeof record.parameterValue === 'string'
+        ? record.parameterValue
+        : typeof record.ParameterValue === 'string'
+          ? record.ParameterValue
+          : undefined,
+      usePreviousValue: typeof record.usePreviousValue === 'boolean'
+        ? record.usePreviousValue
+        : typeof record.UsePreviousValue === 'boolean'
+          ? record.UsePreviousValue
+          : undefined
+    }
+  })
+}
+
+function parseCapabilities(input: string): string[] {
+  return input.split(',').map((value) => value.trim()).filter(Boolean)
+}
+
+function RawJsonBlock({ title, json }: { title: string; json: string }) {
+  return (
+    <details style={{ marginTop: 12 }}>
+      <summary style={{ cursor: 'pointer', color: '#9ca7b7', fontSize: 12 }}>{title}</summary>
+      <pre className="svc-code" style={{ marginTop: 10 }}>{json}</pre>
+    </details>
+  )
+}
+
 export function CloudFormationConsole({ connection }: { connection: AwsConnection }) {
   const [tab, setTab] = useState<CfnTab>('stacks')
+  const [detailTab, setDetailTab] = useState<StackDetailTab>('resources')
   const [stacks, setStacks] = useState<CloudFormationStackSummary[]>([])
   const [loading, setLoading] = useState(false)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [changeSetDetailLoading, setChangeSetDetailLoading] = useState(false)
+  const [driftLoading, setDriftLoading] = useState(false)
   const [selectedStack, setSelectedStack] = useState('')
   const [resources, setResources] = useState<CloudFormationResourceSummary[]>([])
+  const [changeSets, setChangeSets] = useState<CloudFormationChangeSetSummary[]>([])
+  const [selectedChangeSetName, setSelectedChangeSetName] = useState('')
+  const [selectedChangeSetDetail, setSelectedChangeSetDetail] = useState<CloudFormationChangeSetDetail | null>(null)
+  const [driftSummary, setDriftSummary] = useState<CloudFormationStackDriftSummary | null>(null)
+  const [driftRows, setDriftRows] = useState<CloudFormationDriftedResourceRow[]>([])
   const [error, setError] = useState('')
   const [filter, setFilter] = useState('')
   const [stackCols, setStackCols] = useState<Set<StackColKey>>(() => new Set(STACK_COLS.map(c => c.key)))
   const [resCols, setResCols] = useState<Set<ResColKey>>(() => new Set(RES_COLS.map(c => c.key)))
+  const [createError, setCreateError] = useState('')
+  const [templateMode, setTemplateMode] = useState<ChangeSetTemplateMode>('existing')
+  const [changeSetName, setChangeSetName] = useState('')
+  const [changeSetDescription, setChangeSetDescription] = useState('')
+  const [templateBody, setTemplateBody] = useState('')
+  const [templateUrl, setTemplateUrl] = useState('')
+  const [parametersJson, setParametersJson] = useState('')
+  const [capabilitiesInput, setCapabilitiesInput] = useState('CAPABILITY_NAMED_IAM')
 
-  async function load(stackName?: string) {
+  const loadChangeSetDetail = useCallback(async (stackName: string, nextChangeSetName: string) => {
+    if (!stackName || !nextChangeSetName) {
+      setSelectedChangeSetDetail(null)
+      return
+    }
+
+    setChangeSetDetailLoading(true)
+    try {
+      const detail = await getCloudFormationChangeSetDetail(connection, stackName, nextChangeSetName)
+      setSelectedChangeSetDetail(detail)
+    } catch (reason) {
+      setSelectedChangeSetDetail(null)
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setChangeSetDetailLoading(false)
+    }
+  }, [connection])
+
+  const loadStackDetail = useCallback(async (stackName: string) => {
+    if (!stackName) {
+      setResources([])
+      setChangeSets([])
+      setSelectedChangeSetName('')
+      setSelectedChangeSetDetail(null)
+      setDriftSummary(null)
+      setDriftRows([])
+      return
+    }
+
+    setDetailLoading(true)
+    setError('')
+    try {
+      const [nextResources, nextChangeSets, nextDriftSummary] = await Promise.all([
+        listCloudFormationStackResources(connection, stackName),
+        listCloudFormationChangeSets(connection, stackName),
+        getCloudFormationDriftSummary(connection, stackName)
+      ])
+
+      setResources(nextResources)
+      setChangeSets(nextChangeSets)
+      setDriftSummary(nextDriftSummary)
+      setDriftRows([])
+
+      const nextSelectedChangeSet = nextChangeSets.find((item) => item.changeSetName === selectedChangeSetName)?.changeSetName
+        ?? nextChangeSets[0]?.changeSetName
+        ?? ''
+      setSelectedChangeSetName(nextSelectedChangeSet)
+      if (nextSelectedChangeSet) {
+        void loadChangeSetDetail(stackName, nextSelectedChangeSet)
+      } else {
+        setSelectedChangeSetDetail(null)
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setDetailLoading(false)
+    }
+  }, [connection, loadChangeSetDetail, selectedChangeSetName])
+
+  const load = useCallback(async (stackName?: string) => {
     setError('')
     setLoading(true)
     try {
@@ -416,15 +590,38 @@ export function CloudFormationConsole({ connection }: { connection: AwsConnectio
       setStacks(nextStacks)
       const resolved = stackName ?? selectedStack ?? nextStacks[0]?.stackName ?? ''
       setSelectedStack(resolved)
-      setResources(resolved ? await listCloudFormationStackResources(connection, resolved) : [])
+      await loadStackDetail(resolved)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
       setLoading(false)
     }
-  }
+  }, [connection, loadStackDetail, selectedStack])
 
-useEffect(() => { void load() }, [connection.sessionId, connection.region])
+  useEffect(() => {
+    void load()
+  }, [connection.sessionId, connection.region, load])
+
+  useEffect(() => {
+    if (!driftSummary?.driftDetectionId || driftSummary.detectionStatus !== 'DETECTION_IN_PROGRESS') {
+      return
+    }
+
+    const timer = window.setTimeout(async () => {
+      setDriftLoading(true)
+      try {
+        const result = await getCloudFormationDriftDetectionStatus(connection, selectedStack, driftSummary.driftDetectionId)
+        setDriftSummary(result.summary)
+        setDriftRows(result.rows)
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : String(reason))
+      } finally {
+        setDriftLoading(false)
+      }
+    }, 2500)
+
+    return () => window.clearTimeout(timer)
+  }, [connection, driftSummary, selectedStack])
 
   const visStackCols = STACK_COLS.filter(c => stackCols.has(c.key))
   const visResCols = RES_COLS.filter(c => resCols.has(c.key))
@@ -446,12 +643,92 @@ useEffect(() => { void load() }, [connection.sessionId, connection.region])
     return r[k] ?? '-'
   }
 
+  async function handleCreateChangeSet() {
+    if (!selectedStack || !changeSetName.trim()) return
+
+    setCreateError('')
+    try {
+      const created = await createCloudFormationChangeSet(connection, {
+        stackName: selectedStack,
+        changeSetName: changeSetName.trim(),
+        description: changeSetDescription.trim() || undefined,
+        usePreviousTemplate: templateMode === 'existing',
+        templateBody: templateMode === 'body' ? templateBody : undefined,
+        templateUrl: templateMode === 'url' ? templateUrl.trim() : undefined,
+        capabilities: parseCapabilities(capabilitiesInput),
+        parameters: parseChangeSetParameters(parametersJson)
+      })
+
+      await loadStackDetail(selectedStack)
+      setSelectedChangeSetName(created.changeSetName)
+      setChangeSetName('')
+      setChangeSetDescription('')
+      setTemplateBody('')
+      setTemplateUrl('')
+      setParametersJson('')
+    } catch (reason) {
+      setCreateError(reason instanceof Error ? reason.message : String(reason))
+    }
+  }
+
+  async function handleExecuteChangeSet(nextChangeSetName: string) {
+    await executeCloudFormationChangeSet(connection, selectedStack, nextChangeSetName)
+    await load(selectedStack)
+  }
+
+  async function handleDeleteChangeSet(nextChangeSetName: string) {
+    await deleteCloudFormationChangeSet(connection, selectedStack, nextChangeSetName)
+    await loadStackDetail(selectedStack)
+  }
+
+  async function handleRefreshDrift() {
+    if (!selectedStack) return
+    setDriftLoading(true)
+    try {
+      const summary = await getCloudFormationDriftSummary(connection, selectedStack)
+      setDriftSummary(summary)
+      if (summary.driftDetectionId && summary.detectionStatus === 'DETECTION_COMPLETE') {
+        const result = await getCloudFormationDriftDetectionStatus(connection, selectedStack, summary.driftDetectionId)
+        setDriftSummary(result.summary)
+        setDriftRows(result.rows)
+      } else {
+        setDriftRows([])
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setDriftLoading(false)
+    }
+  }
+
+  async function handleStartDriftDetection() {
+    if (!selectedStack) return
+    setDriftLoading(true)
+    try {
+      const driftDetectionId = await startCloudFormationDriftDetection(connection, selectedStack)
+      setDriftSummary((current) => ({
+        stackName: current?.stackName ?? selectedStack,
+        stackId: current?.stackId ?? '-',
+        stackDriftStatus: current?.stackDriftStatus ?? 'NOT_CHECKED',
+        detectionStatus: 'DETECTION_IN_PROGRESS',
+        detectionStatusReason: '',
+        driftDetectionId,
+        lastCheckTimestamp: current?.lastCheckTimestamp ?? ''
+      }))
+      setDriftRows([])
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setDriftLoading(false)
+    }
+  }
+
   return (
     <div className="svc-console">
       <div className="svc-tab-bar">
         <button className={`svc-tab ${tab === 'stacks' ? 'active' : ''}`} type="button" onClick={() => setTab('stacks')}>Stacks</button>
         <button className={`svc-tab ${tab === 'diagram' ? 'active' : ''}`} type="button" onClick={() => setTab('diagram')}>Diagram</button>
-        <button className="svc-tab right" type="button" onClick={() => void load()}>Refresh</button>
+        <button className="svc-tab right" type="button" onClick={() => void load(selectedStack)}>Refresh</button>
       </div>
 
       {error && <div className="svc-error">{error}</div>}
@@ -477,12 +754,12 @@ useEffect(() => { void load() }, [connection.sessionId, connection.region])
               <table className="svc-table">
                 <thead><tr>{visStackCols.map(c => <th key={c.key}>{c.label}</th>)}</tr></thead>
                 <tbody>
-                  {loading && <tr><td colSpan={visStackCols.length}>Gathering data</td></tr>}
+                  {loading && <tr><td colSpan={Math.max(1, visStackCols.length)}>Gathering data</td></tr>}
                   {!loading && filteredStacks.map(s => (
-                    <tr key={s.stackName} className={s.stackName === selectedStack ? 'active' : ''} onClick={() => void load(s.stackName)}>
+                    <tr key={s.stackName} className={s.stackName === selectedStack ? 'active' : ''} onClick={() => { setSelectedStack(s.stackName); void loadStackDetail(s.stackName) }}>
                       {visStackCols.map(c => (
                         <td key={c.key}>
-                          {c.key === 'status' ? <span className={`svc-badge ${s.status.includes('COMPLETE') ? 'ok' : s.status.includes('PROGRESS') ? 'warn' : s.status.includes('FAILED') ? 'danger' : 'muted'}`}>{s.status}</span> : getStackVal(s, c.key)}
+                          {c.key === 'status' ? <span className={`svc-badge ${badgeClass(s.status)}`}>{s.status}</span> : getStackVal(s, c.key)}
                         </td>
                       ))}
                     </tr>
@@ -494,36 +771,232 @@ useEffect(() => { void load() }, [connection.sessionId, connection.region])
 
             <div className="svc-sidebar">
               <div className="svc-section">
-                <h3>Resources ({resources.length})</h3>
-                <div className="svc-chips" style={{ marginBottom: 10 }}>
-                  {RES_COLS.map(col => (
-                    <button
-                      key={col.key}
-                      className={`svc-chip ${resCols.has(col.key) ? 'active' : ''}`}
-                      type="button"
-                      style={resCols.has(col.key) ? { background: col.color, borderColor: col.color } : undefined}
-                      onClick={() => setResCols(p => { const n = new Set(p); n.has(col.key) ? n.delete(col.key) : n.add(col.key); return n })}
-                    >{col.label}</button>
-                  ))}
+                <h3>{selectedStack || 'Stack Detail'}</h3>
+                <div className="svc-kv">
+                  <div className="svc-kv-row"><div className="svc-kv-label">Resources</div><div className="svc-kv-value">{resources.length}</div></div>
+                  <div className="svc-kv-row"><div className="svc-kv-label">Change Sets</div><div className="svc-kv-value">{changeSets.length}</div></div>
+                  <div className="svc-kv-row"><div className="svc-kv-label">Drift</div><div className="svc-kv-value"><span className={`svc-badge ${badgeClass(driftSummary?.stackDriftStatus ?? 'NOT_CHECKED')}`}>{driftSummary?.stackDriftStatus ?? 'NOT_CHECKED'}</span></div></div>
                 </div>
-                <div style={{ maxHeight: 'calc(100vh - 440px)', overflow: 'auto' }}>
-                  <table className="svc-table">
-                    <thead><tr>{visResCols.map(c => <th key={c.key}>{c.label}</th>)}</tr></thead>
-                    <tbody>
-                      {resources.map(r => (
-                        <tr key={`${r.logicalResourceId}-${r.physicalResourceId}`}>
-                          {visResCols.map(c => (
-                            <td key={c.key}>
-                              {c.key === 'resourceStatus' ? <span className={`svc-badge ${r.resourceStatus.includes('COMPLETE') ? 'ok' : r.resourceStatus.includes('PROGRESS') ? 'warn' : r.resourceStatus.includes('FAILED') ? 'danger' : 'muted'}`}>{r.resourceStatus}</span> : getResVal(r, c.key)}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {!resources.length && <div className="svc-empty">Select a stack to view resources.</div>}
-                </div>
+                {detailLoading && <div className="svc-section-hint" style={{ marginTop: 10 }}>Refreshing stack detail...</div>}
               </div>
+
+              <div className="svc-side-tabs">
+                <button className={detailTab === 'resources' ? 'active' : ''} type="button" onClick={() => setDetailTab('resources')}>Resources</button>
+                <button className={detailTab === 'change-sets' ? 'active' : ''} type="button" onClick={() => setDetailTab('change-sets')}>Change Sets</button>
+                <button className={detailTab === 'drift' ? 'active' : ''} type="button" onClick={() => setDetailTab('drift')}>Drift</button>
+              </div>
+
+              {detailTab === 'resources' && (
+                <div className="svc-section">
+                  <h3>Resources ({resources.length})</h3>
+                  <div className="svc-chips" style={{ marginBottom: 10 }}>
+                    {RES_COLS.map(col => (
+                      <button
+                        key={col.key}
+                        className={`svc-chip ${resCols.has(col.key) ? 'active' : ''}`}
+                        type="button"
+                        style={resCols.has(col.key) ? { background: col.color, borderColor: col.color } : undefined}
+                        onClick={() => setResCols(p => { const n = new Set(p); n.has(col.key) ? n.delete(col.key) : n.add(col.key); return n })}
+                      >{col.label}</button>
+                    ))}
+                  </div>
+                  <div style={{ maxHeight: 'calc(100vh - 440px)', overflow: 'auto' }}>
+                    <table className="svc-table">
+                      <thead><tr>{visResCols.map(c => <th key={c.key}>{c.label}</th>)}</tr></thead>
+                      <tbody>
+                        {resources.map(r => (
+                          <tr key={`${r.logicalResourceId}-${r.physicalResourceId}`}>
+                            {visResCols.map(c => (
+                              <td key={c.key}>
+                                {c.key === 'resourceStatus' ? <span className={`svc-badge ${badgeClass(r.resourceStatus)}`}>{r.resourceStatus}</span> : getResVal(r, c.key)}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {!resources.length && <div className="svc-empty">Select a stack to view resources.</div>}
+                  </div>
+                </div>
+              )}
+
+              {detailTab === 'change-sets' && (
+                <>
+                  <div className="svc-section">
+                    <h3>Create Change Set</h3>
+                    {createError && <div className="svc-error" style={{ marginBottom: 10 }}>{createError}</div>}
+                    <div className="svc-form">
+                      <label><span>Name</span><input value={changeSetName} onChange={(event) => setChangeSetName(event.target.value)} placeholder="preview-update" /></label>
+                      <label><span>Description</span><input value={changeSetDescription} onChange={(event) => setChangeSetDescription(event.target.value)} placeholder="Preview stack update" /></label>
+                      <label><span>Template</span><select value={templateMode} onChange={(event) => setTemplateMode(event.target.value as ChangeSetTemplateMode)}><option value="existing">Use current stack template</option><option value="body">Paste template body</option><option value="url">Template URL</option></select></label>
+                      {templateMode === 'body' && <label><span>Body</span><textarea value={templateBody} onChange={(event) => setTemplateBody(event.target.value)} placeholder="Paste YAML or JSON template body" /></label>}
+                      {templateMode === 'url' && <label><span>Template URL</span><input value={templateUrl} onChange={(event) => setTemplateUrl(event.target.value)} placeholder="https://..." /></label>}
+                      <label><span>Capabilities</span><input value={capabilitiesInput} onChange={(event) => setCapabilitiesInput(event.target.value)} placeholder="CAPABILITY_IAM,CAPABILITY_NAMED_IAM" /></label>
+                      <label><span>Parameters JSON</span><textarea value={parametersJson} onChange={(event) => setParametersJson(event.target.value)} placeholder='[{"parameterKey":"ImageTag","parameterValue":"v2"}]' /></label>
+                    </div>
+                    <div className="svc-section-hint">Parameters must be JSON objects with `parameterKey`, `parameterValue`, and optional `usePreviousValue`.</div>
+                    <div className="svc-btn-row" style={{ marginTop: 10 }}>
+                      <button className="svc-btn primary" type="button" disabled={!selectedStack || !changeSetName.trim()} onClick={() => void handleCreateChangeSet()}>Create Change Set</button>
+                    </div>
+                  </div>
+
+                  <div className="svc-section">
+                    <h3>Change Sets ({changeSets.length})</h3>
+                    {changeSets.length > 0 ? (
+                      <div className="svc-list">
+                        {changeSets.map((changeSet) => (
+                          <button
+                            key={changeSet.changeSetId || changeSet.changeSetName}
+                            className={`svc-list-item ${selectedChangeSetName === changeSet.changeSetName ? 'active' : ''}`}
+                            type="button"
+                            onClick={() => {
+                              setSelectedChangeSetName(changeSet.changeSetName)
+                              void loadChangeSetDetail(selectedStack, changeSet.changeSetName)
+                            }}
+                          >
+                            <div className="svc-list-title">{changeSet.changeSetName}</div>
+                            <div className="svc-list-meta"><span className={`svc-badge ${badgeClass(changeSet.status)}`}>{changeSet.status}</span>{' '}<span className={`svc-badge ${badgeClass(changeSet.executionStatus)}`}>{changeSet.executionStatus}</span>{' '}{fmtTs(changeSet.creationTime)}</div>
+                            <div className="svc-list-meta">{changeSet.description || changeSet.statusReason || 'No description.'}</div>
+                          </button>
+                        ))}
+                      </div>
+                    ) : <div className="svc-empty">No change sets found for this stack.</div>}
+                  </div>
+
+                  <div className="svc-section">
+                    <h3>Change Set Detail</h3>
+                    {changeSetDetailLoading && <div className="svc-empty">Loading change set detail...</div>}
+                    {!changeSetDetailLoading && !selectedChangeSetDetail && <div className="svc-empty">Select a change set to inspect changes before execution.</div>}
+                    {!changeSetDetailLoading && selectedChangeSetDetail && (
+                      <>
+                        <div className="svc-btn-row" style={{ marginBottom: 12 }}>
+                          <ConfirmButton
+                            className="svc-btn success"
+                            confirmLabel="Confirm execute"
+                            modalTitle={`Execute ${selectedChangeSetDetail.summary.changeSetName}`}
+                            modalBody={`Execute change set ${selectedChangeSetDetail.summary.changeSetName} against stack ${selectedStack}? This will start the stack update immediately.`}
+                            onConfirm={() => void handleExecuteChangeSet(selectedChangeSetDetail.summary.changeSetName)}
+                            disabled={selectedChangeSetDetail.summary.status.toUpperCase().includes('FAILED')}
+                          >
+                            Execute Change Set
+                          </ConfirmButton>
+                          <ConfirmButton
+                            className="svc-btn danger"
+                            confirmLabel="Confirm delete"
+                            modalTitle={`Delete ${selectedChangeSetDetail.summary.changeSetName}`}
+                            modalBody={`Delete change set ${selectedChangeSetDetail.summary.changeSetName} for stack ${selectedStack}? This only removes the preview and cannot be undone.`}
+                            onConfirm={() => void handleDeleteChangeSet(selectedChangeSetDetail.summary.changeSetName)}
+                          >
+                            Delete Change Set
+                          </ConfirmButton>
+                        </div>
+
+                        <div className="svc-kv">
+                          <div className="svc-kv-row"><div className="svc-kv-label">Status</div><div className="svc-kv-value"><span className={`svc-badge ${badgeClass(selectedChangeSetDetail.summary.status)}`}>{selectedChangeSetDetail.summary.status}</span></div></div>
+                          <div className="svc-kv-row"><div className="svc-kv-label">Execution</div><div className="svc-kv-value"><span className={`svc-badge ${badgeClass(selectedChangeSetDetail.summary.executionStatus)}`}>{selectedChangeSetDetail.summary.executionStatus}</span></div></div>
+                          <div className="svc-kv-row"><div className="svc-kv-label">Type</div><div className="svc-kv-value">{selectedChangeSetDetail.summary.changeSetType}</div></div>
+                          <div className="svc-kv-row"><div className="svc-kv-label">Created</div><div className="svc-kv-value">{fmtTs(selectedChangeSetDetail.summary.creationTime)}</div></div>
+                          <div className="svc-kv-row"><div className="svc-kv-label">Reason</div><div className="svc-kv-value">{selectedChangeSetDetail.summary.statusReason || '-'}</div></div>
+                        </div>
+
+                        <div style={{ marginTop: 14 }}>
+                          <h4>Change Preview ({selectedChangeSetDetail.changes.length})</h4>
+                          {selectedChangeSetDetail.changes.length > 0 ? (
+                            <div className="svc-table-area" style={{ border: '1px solid #3b4350', borderRadius: 6, maxHeight: 260 }}>
+                              <table className="svc-table">
+                                <thead><tr><th>Action</th><th>Logical ID</th><th>Type</th><th>Replacement</th><th>Scope</th><th>Details</th></tr></thead>
+                                <tbody>
+                                  {selectedChangeSetDetail.changes.map((change, index) => (
+                                    <tr key={`${change.logicalResourceId}-${index}`}>
+                                      <td><span className={`svc-badge ${badgeClass(change.action)}`}>{change.action}</span></td>
+                                      <td>{change.logicalResourceId}</td>
+                                      <td>{change.resourceType}</td>
+                                      <td>{change.replacement}</td>
+                                      <td>{change.scope.join(', ') || '-'}</td>
+                                      <td style={{ whiteSpace: 'pre-wrap', maxWidth: 420 }}>{change.details.join('\n') || '-'}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : <div className="svc-empty">No change rows returned yet.</div>}
+                        </div>
+
+                        <div style={{ marginTop: 14 }}>
+                          <h4>Parameters ({selectedChangeSetDetail.parameters.length})</h4>
+                          {selectedChangeSetDetail.parameters.length > 0 ? (
+                            <div className="svc-table-area" style={{ border: '1px solid #3b4350', borderRadius: 6, maxHeight: 220 }}>
+                              <table className="svc-table">
+                                <thead><tr><th>Key</th><th>Value</th><th>Use Previous</th></tr></thead>
+                                <tbody>
+                                  {selectedChangeSetDetail.parameters.map((parameter) => (
+                                    <tr key={parameter.parameterKey}>
+                                      <td>{parameter.parameterKey}</td>
+                                      <td>{parameter.parameterValue || '-'}</td>
+                                      <td>{parameter.usePreviousValue ? 'Yes' : 'No'}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : <div className="svc-empty">No parameter overrides were supplied.</div>}
+                        </div>
+
+                        <RawJsonBlock title="Raw JSON" json={selectedChangeSetDetail.rawJson} />
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {detailTab === 'drift' && (
+                <div className="svc-section">
+                  <h3>Drift Detection</h3>
+                  <div className="svc-btn-row" style={{ marginBottom: 12 }}>
+                    <button className="svc-btn primary" type="button" disabled={driftLoading || driftSummary?.detectionStatus === 'DETECTION_IN_PROGRESS'} onClick={() => void handleStartDriftDetection()}>
+                      {driftSummary?.detectionStatus === 'DETECTION_IN_PROGRESS' ? 'Polling Drift Status...' : 'Start Drift Detection'}
+                    </button>
+                    <button className="svc-btn" type="button" disabled={driftLoading} onClick={() => void handleRefreshDrift()}>Refresh Drift</button>
+                  </div>
+
+                  {driftLoading && <div className="svc-section-hint">Refreshing drift state...</div>}
+                  {driftSummary ? (
+                    <>
+                      <div className="svc-kv">
+                        <div className="svc-kv-row"><div className="svc-kv-label">Drift Status</div><div className="svc-kv-value"><span className={`svc-badge ${badgeClass(driftSummary.stackDriftStatus)}`}>{driftSummary.stackDriftStatus}</span></div></div>
+                        <div className="svc-kv-row"><div className="svc-kv-label">Detection</div><div className="svc-kv-value"><span className={`svc-badge ${badgeClass(driftSummary.detectionStatus)}`}>{driftSummary.detectionStatus}</span></div></div>
+                        <div className="svc-kv-row"><div className="svc-kv-label">Last Check</div><div className="svc-kv-value">{driftSummary.lastCheckTimestamp ? fmtTs(driftSummary.lastCheckTimestamp) : '-'}</div></div>
+                        <div className="svc-kv-row"><div className="svc-kv-label">Detection ID</div><div className="svc-kv-value">{driftSummary.driftDetectionId || '-'}</div></div>
+                        <div className="svc-kv-row"><div className="svc-kv-label">Notes</div><div className="svc-kv-value">{driftSummary.detectionStatusReason || '-'}</div></div>
+                      </div>
+
+                      <div style={{ marginTop: 14 }}>
+                        <h4>Drifted Resources ({driftRows.length})</h4>
+                        {driftRows.length > 0 ? (
+                          <div className="svc-table-area" style={{ border: '1px solid #3b4350', borderRadius: 6, maxHeight: 300 }}>
+                            <table className="svc-table">
+                              <thead><tr><th>Type</th><th>Logical ID</th><th>Physical ID</th><th>Status</th><th>Details</th></tr></thead>
+                              <tbody>
+                                {driftRows.map((row) => (
+                                  <tr key={`${row.logicalResourceId}-${row.physicalResourceId}`}>
+                                    <td>{row.resourceType}</td>
+                                    <td>{row.logicalResourceId}</td>
+                                    <td>{row.physicalResourceId}</td>
+                                    <td><span className={`svc-badge ${badgeClass(row.driftStatus)}`}>{row.driftStatus}</span></td>
+                                    <td style={{ whiteSpace: 'normal', maxWidth: 420, verticalAlign: 'top' }}>{row.details}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : <div className="svc-empty">{driftSummary.detectionStatus === 'DETECTION_COMPLETE' ? 'No drifted resources were returned for this stack.' : 'Run drift detection to compare the template against live resources.'}</div>}
+                      </div>
+
+                      {driftRows.length > 0 && <RawJsonBlock title="Raw Drift JSON" json={safePretty(driftRows.map((row) => ({ logicalResourceId: row.logicalResourceId, physicalResourceId: row.physicalResourceId, resourceType: row.resourceType, driftStatus: row.driftStatus, propertyDifferences: row.propertyDifferences })))} />}
+                    </>
+                  ) : <div className="svc-empty">Select a stack to inspect drift state.</div>}
+                </div>
+              )}
             </div>
           </div>
         </>
@@ -538,7 +1011,7 @@ useEffect(() => { void load() }, [connection.sessionId, connection.region])
                 className={`svc-chip ${selectedStack === s.stackName ? 'active' : ''}`}
                 type="button"
                 style={selectedStack === s.stackName ? { background: '#4a8fe7', borderColor: '#4a8fe7' } : undefined}
-                onClick={() => void load(s.stackName)}
+                onClick={() => { setSelectedStack(s.stackName); void loadStackDetail(s.stackName) }}
               >{s.stackName}</button>
             ))}
           </div>

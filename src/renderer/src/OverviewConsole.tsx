@@ -593,7 +593,22 @@ export function OverviewConsole({
           {tab === 'statistics' && (() => {
             const allInsights = statistics?.insights ?? []
             const allSignals = statistics?.signals ?? []
-            const allStats = statistics?.stats ?? []
+            const allStats = (statistics?.stats ?? []).map((stat) => {
+              if (stat.label !== 'Est. Monthly Cost') return stat
+              if (costBreakdown) {
+                return {
+                  ...stat,
+                  label: 'Monthly Cost',
+                  value: fmtCurrency(costBreakdown.total),
+                  detail: `Current month (${costBreakdown.period}) from Cost Explorer`
+                }
+              }
+
+              return {
+                ...stat,
+                detail: 'Estimated from resource heuristics'
+              }
+            })
 
             const infoCount = allInsights.filter((i) => i.severity === 'info').length
             const warningCount = allInsights.filter((i) => i.severity === 'warning').length
@@ -613,7 +628,7 @@ export function OverviewConsole({
             const networkStats = allStats.filter((s) => ['VPCs', 'Load Balancers', 'Route 53 Zones', 'Security Groups'].includes(s.label))
             const securityStats = allStats.filter((s) => ['ACM Certificates', 'KMS Keys', 'WAF Web ACLs', 'Secrets', 'Key Pairs', 'IAM Users & Roles'].includes(s.label))
             const mgmtStats = allStats.filter((s) => ['CloudFormation Stacks', 'CloudWatch Alarms', 'CloudTrail Trails', 'SNS Topics', 'SQS Queues'].includes(s.label))
-            const summaryStats = allStats.filter((s) => ['Total Resources', 'Est. Monthly Cost'].includes(s.label))
+            const summaryStats = allStats.filter((s) => ['Total Resources', 'Est. Monthly Cost', 'Monthly Cost'].includes(s.label))
 
             return (
               <>

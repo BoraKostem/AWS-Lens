@@ -264,6 +264,22 @@ const awsLensApi = {
   listCloudFormationStacks: (connection: AwsConnection) => ipcRenderer.invoke('cloudformation:list-stacks', connection),
   listCloudFormationStackResources: (connection: AwsConnection, stackName: string) =>
     ipcRenderer.invoke('cloudformation:list-stack-resources', connection, stackName),
+  listCloudFormationChangeSets: (connection: AwsConnection, stackName: string) =>
+    ipcRenderer.invoke('cloudformation:list-change-sets', connection, stackName),
+  createCloudFormationChangeSet: (connection: AwsConnection, input: unknown) =>
+    ipcRenderer.invoke('cloudformation:create-change-set', connection, input),
+  getCloudFormationChangeSetDetail: (connection: AwsConnection, stackName: string, changeSetName: string) =>
+    ipcRenderer.invoke('cloudformation:get-change-set-detail', connection, stackName, changeSetName),
+  executeCloudFormationChangeSet: (connection: AwsConnection, stackName: string, changeSetName: string) =>
+    ipcRenderer.invoke('cloudformation:execute-change-set', connection, stackName, changeSetName),
+  deleteCloudFormationChangeSet: (connection: AwsConnection, stackName: string, changeSetName: string) =>
+    ipcRenderer.invoke('cloudformation:delete-change-set', connection, stackName, changeSetName),
+  getCloudFormationDriftSummary: (connection: AwsConnection, stackName: string) =>
+    ipcRenderer.invoke('cloudformation:get-drift-summary', connection, stackName),
+  startCloudFormationDriftDetection: (connection: AwsConnection, stackName: string) =>
+    ipcRenderer.invoke('cloudformation:start-drift-detection', connection, stackName),
+  getCloudFormationDriftDetectionStatus: (connection: AwsConnection, stackName: string, driftDetectionId: string) =>
+    ipcRenderer.invoke('cloudformation:get-drift-detection-status', connection, stackName, driftDetectionId),
 
   /* ECR */
   listEcrRepositories: (connection: AwsConnection) => ipcRenderer.invoke('ecr:list-repos', connection),

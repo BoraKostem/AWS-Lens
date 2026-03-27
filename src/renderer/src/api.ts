@@ -21,7 +21,11 @@ import type {
   CloudWatchMetricStatistic,
   CloudWatchMetricSummary,
   CloudWatchNamespaceSummary,
+  CloudFormationChangeSetDetail,
+  CloudFormationChangeSetSummary,
+  CloudFormationDriftedResourceRow,
   CloudFormationResourceSummary,
+  CloudFormationStackDriftSummary,
   CloudFormationStackSummary,
   CloudTrailEventSummary,
   CloudTrailSummary,
@@ -218,6 +222,9 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   describeRdsCluster: 'rds',
   listCloudFormationStacks: 'cloudformation',
   listCloudFormationStackResources: 'cloudformation',
+  listCloudFormationChangeSets: 'cloudformation',
+  getCloudFormationChangeSetDetail: 'cloudformation',
+  getCloudFormationDriftSummary: 'cloudformation',
   listTrails: 'cloudtrail',
   lookupCloudTrailEvents: 'cloudtrail',
   lookupCloudTrailEventsByResource: 'cloudtrail',
@@ -343,6 +350,10 @@ const MUTATING_METHODS = new Set<keyof AwsLensBridge>([
   'stopRdsCluster',
   'failoverRdsCluster',
   'createRdsClusterSnapshot',
+  'createCloudFormationChangeSet',
+  'executeCloudFormationChangeSet',
+  'deleteCloudFormationChangeSet',
+  'startCloudFormationDriftDetection',
   'deleteLoadBalancer',
   'requestAcmCertificate',
   'deleteAcmCertificate',
@@ -1087,6 +1098,67 @@ export async function listCloudFormationStacks(connection: AwsConnection): Promi
 
 export async function listCloudFormationStackResources(connection: AwsConnection, stackName: string): Promise<CloudFormationResourceSummary[]> {
   return unwrap((await awsBridge().listCloudFormationStackResources(connection, stackName)) as Wrapped<CloudFormationResourceSummary[]>)
+}
+
+export async function listCloudFormationChangeSets(connection: AwsConnection, stackName: string): Promise<CloudFormationChangeSetSummary[]> {
+  return unwrap((await awsBridge().listCloudFormationChangeSets(connection, stackName)) as Wrapped<CloudFormationChangeSetSummary[]>)
+}
+
+export async function createCloudFormationChangeSet(
+  connection: AwsConnection,
+  input: {
+    stackName: string
+    changeSetName: string
+    description?: string
+    templateBody?: string
+    templateUrl?: string
+    usePreviousTemplate?: boolean
+    capabilities?: string[]
+    parameters?: Array<{
+      parameterKey: string
+      parameterValue?: string
+      usePreviousValue?: boolean
+    }>
+  }
+): Promise<CloudFormationChangeSetSummary> {
+  return unwrap((await awsBridge().createCloudFormationChangeSet(connection, input)) as Wrapped<CloudFormationChangeSetSummary>)
+}
+
+export async function getCloudFormationChangeSetDetail(
+  connection: AwsConnection,
+  stackName: string,
+  changeSetName: string
+): Promise<CloudFormationChangeSetDetail> {
+  return unwrap((await awsBridge().getCloudFormationChangeSetDetail(connection, stackName, changeSetName)) as Wrapped<CloudFormationChangeSetDetail>)
+}
+
+export async function executeCloudFormationChangeSet(connection: AwsConnection, stackName: string, changeSetName: string): Promise<void> {
+  return unwrap((await awsBridge().executeCloudFormationChangeSet(connection, stackName, changeSetName)) as Wrapped<void>)
+}
+
+export async function deleteCloudFormationChangeSet(connection: AwsConnection, stackName: string, changeSetName: string): Promise<void> {
+  return unwrap((await awsBridge().deleteCloudFormationChangeSet(connection, stackName, changeSetName)) as Wrapped<void>)
+}
+
+export async function getCloudFormationDriftSummary(connection: AwsConnection, stackName: string): Promise<CloudFormationStackDriftSummary> {
+  return unwrap((await awsBridge().getCloudFormationDriftSummary(connection, stackName)) as Wrapped<CloudFormationStackDriftSummary>)
+}
+
+export async function startCloudFormationDriftDetection(connection: AwsConnection, stackName: string): Promise<string> {
+  return unwrap((await awsBridge().startCloudFormationDriftDetection(connection, stackName)) as Wrapped<string>)
+}
+
+export async function getCloudFormationDriftDetectionStatus(
+  connection: AwsConnection,
+  stackName: string,
+  driftDetectionId: string
+): Promise<{ summary: CloudFormationStackDriftSummary; rows: CloudFormationDriftedResourceRow[] }> {
+  return unwrap(
+    (await awsBridge().getCloudFormationDriftDetectionStatus(connection, stackName, driftDetectionId)) as Wrapped<{
+      summary: CloudFormationStackDriftSummary
+      rows: CloudFormationDriftedResourceRow[]
+    }>
+  )
 }
 
 export async function getOverviewMetrics(connection: AwsConnection, regions: string[]): Promise<OverviewMetrics> {
