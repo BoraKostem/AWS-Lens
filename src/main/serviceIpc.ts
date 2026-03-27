@@ -4,7 +4,18 @@ import type { AwsConnection, CloudWatchMetricSummary, EcsFargateServiceConfig, L
 import { listAutoScalingGroupInstances, listAutoScalingGroups, deleteAutoScalingGroup, startAutoScalingInstanceRefresh, updateAutoScalingGroupCapacity } from './aws/autoScaling'
 import { listCloudWatchLogGroups, listCloudWatchMetrics, listRecentLogEvents, getEc2MetricSeries, listEc2InstanceMetrics, getMetricStatistics, getEc2AllMetricSeries } from './aws/cloudwatch'
 import { lookupEvents, lookupEventsByResource, listTrails } from './aws/cloudtrail'
-import { listStacks, listStackResources } from './aws/cloudformation'
+import {
+  createChangeSet,
+  deleteChangeSet,
+  executeChangeSet,
+  getChangeSetDetail,
+  getStackDriftDetectionStatus,
+  getStackDriftSummary,
+  listChangeSets,
+  listStacks,
+  listStackResources,
+  startStackDriftDetection
+} from './aws/cloudformation'
 import { createFargateService, deleteService, describeService, forceRedeploy, getContainerLogs, listClusters, listServices, listTasks, stopTask, updateDesiredCount } from './aws/ecs'
 import { createInstance, deleteInstance, listAccountAssignments, listGroups, listInstances, listPermissionSets, listUsers, simulatePermissions } from './aws/identityCenter'
 import { createLambdaFunction, deleteLambdaFunction, getLambdaFunctionCode, getLambdaFunctionDetails, invokeLambdaFunction, listLambdaFunctions } from './aws/lambda'
@@ -271,6 +282,52 @@ export function registerServiceIpcHandlers(): void {
   )
   ipcMain.handle('cloudformation:list-stack-resources', async (_event, connection: AwsConnection, stackName: string) =>
     wrap(() => listStackResources(connection, stackName))
+  )
+  ipcMain.handle('cloudformation:list-change-sets', async (_event, connection: AwsConnection, stackName: string) =>
+    wrap(() => listChangeSets(connection, stackName))
+  )
+  ipcMain.handle(
+    'cloudformation:create-change-set',
+    async (_event, connection: AwsConnection, input: {
+      stackName: string
+      changeSetName: string
+      description?: string
+      templateBody?: string
+      templateUrl?: string
+      usePreviousTemplate?: boolean
+      capabilities?: string[]
+      parameters?: Array<{
+        parameterKey: string
+        parameterValue?: string
+        usePreviousValue?: boolean
+      }>
+    }) => wrap(() => createChangeSet(connection, input))
+  )
+  ipcMain.handle(
+    'cloudformation:get-change-set-detail',
+    async (_event, connection: AwsConnection, stackName: string, changeSetName: string) =>
+      wrap(() => getChangeSetDetail(connection, stackName, changeSetName))
+  )
+  ipcMain.handle(
+    'cloudformation:execute-change-set',
+    async (_event, connection: AwsConnection, stackName: string, changeSetName: string) =>
+      wrap(() => executeChangeSet(connection, stackName, changeSetName))
+  )
+  ipcMain.handle(
+    'cloudformation:delete-change-set',
+    async (_event, connection: AwsConnection, stackName: string, changeSetName: string) =>
+      wrap(() => deleteChangeSet(connection, stackName, changeSetName))
+  )
+  ipcMain.handle('cloudformation:get-drift-summary', async (_event, connection: AwsConnection, stackName: string) =>
+    wrap(() => getStackDriftSummary(connection, stackName))
+  )
+  ipcMain.handle('cloudformation:start-drift-detection', async (_event, connection: AwsConnection, stackName: string) =>
+    wrap(() => startStackDriftDetection(connection, stackName))
+  )
+  ipcMain.handle(
+    'cloudformation:get-drift-detection-status',
+    async (_event, connection: AwsConnection, stackName: string, driftDetectionId: string) =>
+      wrap(() => getStackDriftDetectionStatus(connection, stackName, driftDetectionId))
   )
 
   ipcMain.handle('sso:list-instances', async (_event, connection: AwsConnection) =>

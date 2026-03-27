@@ -151,6 +151,14 @@ declare global {
       createRdsClusterSnapshot: (connection: AwsConnection, dbClusterIdentifier: string, dbClusterSnapshotIdentifier: string) => Promise<unknown>
       listCloudFormationStacks: (connection: AwsConnection) => Promise<unknown>
       listCloudFormationStackResources: (connection: AwsConnection, stackName: string) => Promise<unknown>
+      listCloudFormationChangeSets: (connection: AwsConnection, stackName: string) => Promise<unknown>
+      createCloudFormationChangeSet: (connection: AwsConnection, input: unknown) => Promise<unknown>
+      getCloudFormationChangeSetDetail: (connection: AwsConnection, stackName: string, changeSetName: string) => Promise<unknown>
+      executeCloudFormationChangeSet: (connection: AwsConnection, stackName: string, changeSetName: string) => Promise<unknown>
+      deleteCloudFormationChangeSet: (connection: AwsConnection, stackName: string, changeSetName: string) => Promise<unknown>
+      getCloudFormationDriftSummary: (connection: AwsConnection, stackName: string) => Promise<unknown>
+      startCloudFormationDriftDetection: (connection: AwsConnection, stackName: string) => Promise<unknown>
+      getCloudFormationDriftDetectionStatus: (connection: AwsConnection, stackName: string, driftDetectionId: string) => Promise<unknown>
       listVpcs: (connection: AwsConnection) => Promise<unknown>
       listSubnets: (connection: AwsConnection, vpcId?: string) => Promise<unknown>
       listRouteTables: (connection: AwsConnection, vpcId?: string) => Promise<unknown>
