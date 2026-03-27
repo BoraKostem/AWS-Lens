@@ -20,6 +20,11 @@ import type {
   EbsVolumeSummary,
   KeyPairSummary,
   SecurityGroupSummary,
+  SsmCommandExecutionResult,
+  SsmConnectionTarget,
+  SsmManagedInstanceSummary,
+  SsmPortForwardPreset,
+  SsmSessionSummary,
   SubnetSummary
 } from '@shared/types'
 import { listKeyPairs, listSecurityGroupsForVpc, listSubnets, lookupCloudTrailEventsByResource } from './api'
@@ -37,6 +42,7 @@ import {
   findBastionConnectionsForInstance,
   getEc2Recommendations,
   getIamAssociation,
+  getSsmConnectionTarget,
   launchBastion,
   launchFromSnapshot,
   listBastions,
@@ -45,11 +51,15 @@ import {
   listEc2Snapshots,
   listInstanceTypes,
   listPopularBastionAmis,
+  listSsmManagedInstances,
+  listSsmSessions,
   removeIamProfile,
   replaceIamProfile,
   resizeEc2Instance,
   runEc2InstanceAction,
+  sendSsmCommand,
   sendSshPublicKey,
+  startSsmSession,
   subscribeToTempVolumeProgress,
   tagEc2Snapshot,
   terminateEc2Instance
@@ -57,7 +67,7 @@ import {
 import { ConfirmButton } from './ConfirmButton'
 
 type MainTab = 'instances' | 'volumes' | 'snapshots'
-type SideTab = 'overview' | 'timeline'
+type SideTab = 'overview' | 'ssm' | 'timeline'
 type ColumnKey = 'name' | 'instanceId' | 'type' | 'state' | 'az' | 'publicIp' | 'privateIp'
 type BastionWorkflowMode = 'create' | 'destroy'
 type BastionWorkflowStage = 'preparing' | 'executing' | 'refreshing' | 'completed' | 'failed'
@@ -89,6 +99,30 @@ type VolumeWorkflowStatus = {
 const BASTION_PURPOSE_TAG = 'aws-lens:purpose'
 const BASTION_TARGET_INSTANCE_TAG = 'aws-lens:bastion-target-instance-id'
 const GOVERNANCE_TAG_KEYS = ['Owner', 'Environment', 'CostCenter']
+
+const SSM_COMMAND_PRESETS = [
+  {
+    id: 'disk',
+    label: 'Disk layout',
+    linux: ['df -h', 'lsblk'],
+    windows: ['Get-Volume | Format-Table -AutoSize']
+  },
+  {
+    id: 'processes',
+    label: 'Top processes',
+    linux: ['ps aux --sort=-%mem | head -n 15'],
+    windows: ['Get-Process | Sort-Object WorkingSet -Descending | Select-Object -First 15']
+  },
+  {
+    id: 'ssm-agent',
+    label: 'SSM agent',
+    linux: [
+      'if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files | grep -q "^amazon-ssm-agent"; then systemctl status amazon-ssm-agent --no-pager; elif command -v snap >/dev/null 2>&1 && snap list amazon-ssm-agent >/dev/null 2>&1; then snap services amazon-ssm-agent; elif command -v rpm >/dev/null 2>&1; then rpm -q amazon-ssm-agent || true; elif command -v dpkg >/dev/null 2>&1; then dpkg -s amazon-ssm-agent || true; fi',
+      'pgrep -a amazon-ssm-agent || ps aux | grep amazon-ssm-agent | grep -v grep || true'
+    ],
+    windows: ['Get-Service AmazonSSMAgent | Format-List *']
+  }
+] as const
 
 const COLUMNS: { key: ColumnKey; label: string; color: string }[] = [
   { key: 'name', label: 'Name', color: '#3b82f6' },
@@ -128,6 +162,22 @@ function iamProfilePlaceholder(detail: Ec2InstanceDetail | null, iamAssoc: Ec2Ia
 
 function quoteSshArg(value: string): string {
   return `'${value.replace(/'/g, "''")}'`
+}
+
+function isWindowsPlatform(platform: string): boolean {
+  return /windows/i.test(platform)
+}
+
+function ssmStatusTone(status: Ec2InstanceSummary['ssmStatus'] | Ec2InstanceDetail['ssmStatus'] | SsmConnectionTarget['status']): string {
+  if (status === 'managed-online') return 'ssm-online'
+  if (status === 'managed-offline') return 'ssm-offline'
+  return 'ssm-unmanaged'
+}
+
+function ssmStatusLabel(status: Ec2InstanceSummary['ssmStatus'] | Ec2InstanceDetail['ssmStatus'] | SsmConnectionTarget['status']): string {
+  if (status === 'managed-online') return 'SSM Online'
+  if (status === 'managed-offline') return 'SSM Offline'
+  return 'Not Managed'
 }
 
 function sleep(ms: number): Promise<void> {
@@ -308,6 +358,17 @@ export function Ec2Console({
   const [sshUser, setSshUser] = useState('ec2-user')
   const [sshKey, setSshKey] = useState('')
   const [showDescribe, setShowDescribe] = useState(false)
+  const [ssmManagedInstances, setSsmManagedInstances] = useState<SsmManagedInstanceSummary[]>([])
+  const [ssmTarget, setSsmTarget] = useState<SsmConnectionTarget | null>(null)
+  const [ssmSessions, setSsmSessions] = useState<SsmSessionSummary[]>([])
+  const [ssmCommandHistory, setSsmCommandHistory] = useState<Record<string, SsmCommandExecutionResult[]>>({})
+  const [ssmLoading, setSsmLoading] = useState(false)
+  const [ssmShellBusy, setSsmShellBusy] = useState(false)
+  const [ssmCommandBusy, setSsmCommandBusy] = useState(false)
+  const [ssmCommandDocument, setSsmCommandDocument] = useState('AWS-RunShellScript')
+  const [ssmCommandInput, setSsmCommandInput] = useState('uname -a\nwhoami')
+  const [customRemotePort, setCustomRemotePort] = useState('8080')
+  const [customLocalPort, setCustomLocalPort] = useState('18080')
 
   /* ── Snapshots state ─────────────────────────────────────── */
   const [snapshots, setSnapshots] = useState<Ec2SnapshotSummary[]>([])
@@ -406,21 +467,23 @@ export function Ec2Console({
     setLoading(true)
     setMsg('')
     try {
-      const [inst, vols, snaps, bast] = await Promise.all([
+      const [inst, vols, snaps, bast, managed] = await Promise.all([
         listEc2Instances(connection),
         listEbsVolumes(connection),
         listEc2Snapshots(connection),
-        listBastions(connection)
+        listBastions(connection),
+        listSsmManagedInstances(connection)
       ])
       setInstances(inst)
       setVolumes(vols)
       setSnapshots(snaps)
       setBastions(bast)
+      setSsmManagedInstances(managed)
       if (!selectedId || !inst.some((i) => i.instanceId === selectedId)) {
         const first = inst[0]?.instanceId ?? ''
         setSelectedId(first)
         if (first) await selectInstance(first)
-        else { setDetail(null); setIamAssoc(null); setVpcDetail(null) }
+        else { setDetail(null); setIamAssoc(null); setVpcDetail(null); setSsmTarget(null); setSsmSessions([]) }
       }
       if (!selectedSnapId || !snaps.some((s) => s.snapshotId === selectedSnapId)) {
         setSelectedSnapId(snaps[0]?.snapshotId ?? '')
@@ -456,6 +519,30 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
     }))
   }), [volumeDetail?.name])
 
+  async function loadSsmForInstance(instanceId: string): Promise<void> {
+    if (!instanceId) {
+      setSsmTarget(null)
+      setSsmSessions([])
+      return
+    }
+    setSsmLoading(true)
+    try {
+      const [target, sessions] = await Promise.all([
+        getSsmConnectionTarget(connection, instanceId),
+        listSsmSessions(connection, instanceId).catch(() => [] as SsmSessionSummary[])
+      ])
+      setSsmTarget(target)
+      setSsmSessions(sessions)
+      setSsmCommandDocument(isWindowsPlatform(target.managedInstance?.platformName ?? detail?.platform ?? '') ? 'AWS-RunPowerShellScript' : 'AWS-RunShellScript')
+    } catch (error) {
+      setSsmTarget(null)
+      setSsmSessions([])
+      setMsg(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSsmLoading(false)
+    }
+  }
+
   async function selectInstance(id: string) {
     setSelectedId(id)
     setMsg('')
@@ -463,6 +550,8 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
     setIamAssoc(null)
     setVpcDetail(null)
     setLinkedBastions([])
+    setSsmTarget(null)
+    setSsmSessions([])
     const d = await describeEc2Instance(connection, id)
     setDetail(d)
     if (d) {
@@ -472,8 +561,11 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
         try { setVpcDetail(await describeVpc(connection, d.vpcId)) } catch { setVpcDetail(null) }
       }
       try { setLinkedBastions(await findBastionConnectionsForInstance(connection, id)) } catch { setLinkedBastions([]) }
+      await loadSsmForInstance(id)
     } else {
       setLinkedBastions([])
+      setSsmTarget(null)
+      setSsmSessions([])
     }
   }
 
@@ -812,12 +904,120 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
   }
 
   /* ── Filtering ─────────────────────────────────────────── */
+  async function doOpenSsmShell(targetInstanceId = selectedId): Promise<void> {
+    if (!targetInstanceId || !onRunTerminalCommand) {
+      return
+    }
+    setSsmShellBusy(true)
+    try {
+      const launch = await startSsmSession(connection, {
+        targetInstanceId,
+        accessType: 'shell'
+      })
+      onRunTerminalCommand(launch.launchCommand)
+      setMsg(`Session Manager shell opened for ${targetInstanceId}`)
+      setTimeout(() => {
+        void loadSsmForInstance(targetInstanceId)
+      }, 3000)
+    } catch (error) {
+      setMsg(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSsmShellBusy(false)
+    }
+  }
+
+  async function doOpenPortForward(preset: SsmPortForwardPreset): Promise<void> {
+    if (!selectedId || !onRunTerminalCommand) {
+      return
+    }
+    setSsmShellBusy(true)
+    try {
+      const launch = await startSsmSession(connection, {
+        targetInstanceId: selectedId,
+        documentName: preset.documentName,
+        parameters: {
+          portNumber: [String(preset.remotePort)],
+          localPortNumber: [String(preset.localPort)],
+          ...(preset.remoteHost ? { host: [preset.remoteHost] } : {})
+        },
+        accessType: 'port-forward'
+      })
+      onRunTerminalCommand(launch.launchCommand)
+      setMsg(`${preset.label} tunnel opened in terminal`)
+      setTimeout(() => {
+        void loadSsmForInstance(selectedId)
+      }, 3000)
+    } catch (error) {
+      setMsg(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSsmShellBusy(false)
+    }
+  }
+
+  async function doOpenCustomPortForward(): Promise<void> {
+    const remotePort = Number(customRemotePort)
+    const localPort = Number(customLocalPort)
+    if (!selectedId || !onRunTerminalCommand || !Number.isInteger(remotePort) || !Number.isInteger(localPort) || remotePort <= 0 || localPort <= 0) {
+      setMsg('Enter valid local and remote ports.')
+      return
+    }
+    await doOpenPortForward({
+      id: 'custom',
+      label: `Custom ${localPort}:${remotePort}`,
+      description: 'Custom port forward',
+      documentName: 'AWS-StartPortForwardingSession',
+      localPort,
+      remotePort,
+      remoteHost: ''
+    })
+  }
+
+  async function doRunSsmCommand(): Promise<void> {
+    if (!selectedId || !ssmCommandInput.trim()) {
+      return
+    }
+    setSsmCommandBusy(true)
+    try {
+      const result = await sendSsmCommand(connection, {
+        instanceId: selectedId,
+        documentName: ssmCommandDocument,
+        commands: ssmCommandInput
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean),
+        comment: `${ssmCommandDocument} from AWS Lens`
+      })
+      setSsmCommandHistory((current) => ({
+        ...current,
+        [selectedId]: [result, ...(current[selectedId] ?? [])].slice(0, 10)
+      }))
+      await loadSsmForInstance(selectedId)
+      setMsg(`Command ${result.statusDetails}`)
+    } catch (error) {
+      setMsg(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSsmCommandBusy(false)
+    }
+  }
+
+  function applySsmCommandPreset(presetId: string): void {
+    const preset = SSM_COMMAND_PRESETS.find((entry) => entry.id === presetId)
+    if (!preset) {
+      return
+    }
+    const commands = isWindowsPlatform(detail?.platform ?? '') ? preset.windows : preset.linux
+    setSsmCommandDocument(isWindowsPlatform(detail?.platform ?? '') ? 'AWS-RunPowerShellScript' : 'AWS-RunShellScript')
+    setSsmCommandInput(commands.join('\n'))
+  }
+
   const filteredInstances = instances.filter(i => {
     if (stateFilter !== 'all' && i.state !== stateFilter) return false
     if (searchFilter) {
       const search = searchFilter.toLowerCase()
       const cols = Array.from(visibleCols)
-      return cols.some(col => getColumnValue(i, col).toLowerCase().includes(search))
+      return cols.some(col => getColumnValue(i, col).toLowerCase().includes(search)) ||
+        ssmStatusLabel(i.ssmStatus).toLowerCase().includes(search) ||
+        (i.isTempInspectionInstance && 'temporary inspection'.includes(search))
     }
     return true
   })
@@ -861,6 +1061,8 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
   const isSelectedTempInspectionInstance = detail?.tags?.['aws-lens:purpose'] === 'ebs-inspection'
   const bastionLaunchBusy = bastionLaunchStatus !== null && !['completed', 'failed'].includes(bastionLaunchStatus.stage)
   const volumeWorkflowBusy = volumeWorkflowStatus !== null && !['completed', 'failed'].includes(volumeWorkflowStatus.stage)
+  const ssmHistory = selectedId ? (ssmCommandHistory[selectedId] ?? []) : []
+  const ssmOnlineCount = ssmManagedInstances.filter((instance) => instance.pingStatus === 'Online').length
   const volumeWarnings = volumeDetail ? [
     !volumeDetail.encrypted && volumeDetail.status === 'available-orphan' ? 'High priority: orphan volume is unencrypted.' : '',
     volumeDetail.type === 'gp2' ? 'Recommendation: migrate gp2 to gp3 for lower cost and more predictable performance.' : '',
@@ -870,11 +1072,6 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
     GOVERNANCE_TAG_KEYS.some((key) => !(volumeDetail.tags[key] || '').trim()) ? 'Warning: missing governance tags (Owner, Environment, or CostCenter).' : ''
   ].filter(Boolean) : []
 
-  const ssmCmd = detail
-                  ? connection.kind === 'profile'
-                    ? `aws ssm start-session --target ${detail.instanceId} --profile ${connection.profile} --region ${connection.region}`
-                    : `aws ssm start-session --target ${detail.instanceId} --region ${connection.region}`
-    : ''
   const sshCmd = detail
     ? `ssh -i ${quoteSshArg(sshKey || `~/.ssh/${detail.keyName}.pem`)} ${sshUser}@${detail.publicIp !== '-' ? detail.publicIp : detail.privateIp}`
     : ''
@@ -975,7 +1172,14 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                         {activeCols.map(col => (
                           <td key={col.key}>
                             {col.key === 'state'
-                              ? <span className={`ec2-badge ${inst.state}`}>{inst.state}</span>
+                              ? (
+                                <div className="ec2-cell-stack">
+                                  <span className={`ec2-badge ${inst.state}`}>{inst.state}</span>
+                                  <span className={`ec2-badge ${ssmStatusTone(inst.ssmStatus)}`}>{ssmStatusLabel(inst.ssmStatus)}</span>
+                                </div>
+                              )
+                              : col.key === 'name' && inst.isTempInspectionInstance
+                                ? <span className="ec2-rec-name">{getColumnValue(inst, col.key)} <span className="ec2-inline-flag">Temp</span></span>
                               : col.key === 'name' && rec
                                 ? <span className="ec2-rec-name">{getColumnValue(inst, col.key)} <span className="ec2-rec-icon" title={rec.reason}>!</span></span>
                                 : col.key === 'type' && rec
@@ -1002,6 +1206,11 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                   type="button"
                   onClick={() => setSideTab('overview')}
                 >Overview</button>
+                <button
+                  className={sideTab === 'ssm' ? 'active' : ''}
+                  type="button"
+                  onClick={() => setSideTab('ssm')}
+                >SSM</button>
                 <button
                   className={sideTab === 'timeline' ? 'active' : ''}
                   type="button"
@@ -1222,6 +1431,15 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                     <h3>Connect</h3>
                     <div className="ec2-connect-grid">
                       <div className="ec2-connect-row">
+                        <span className="ec2-connect-label">SSM</span>
+                        <div className="ec2-connect-status">
+                          <span className={`ec2-badge ${ssmStatusTone(ssmTarget?.status ?? detail?.ssmStatus ?? 'not-managed')}`}>
+                            {ssmStatusLabel(ssmTarget?.status ?? detail?.ssmStatus ?? 'not-managed')}
+                          </span>
+                          {detail?.isTempInspectionInstance && <span className="ec2-inline-flag">Temp inspection</span>}
+                        </div>
+                      </div>
+                      <div className="ec2-connect-row">
                         <span className="ec2-connect-label">Username</span>
                         <input value={sshUser} onChange={e => setSshUser(e.target.value)} />
                       </div>
@@ -1236,10 +1454,8 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                         <button
                           className="ec2-action-btn ssm"
                           type="button"
-                          onClick={() => {
-                            onRunTerminalCommand?.(ssmCmd)
-                            setMsg('SSM command opened in terminal')
-                          }}
+                          disabled={!onRunTerminalCommand || !(ssmTarget?.canStartSession ?? detail?.ssmStatus === 'managed-online') || ssmShellBusy}
+                          onClick={() => void doOpenSsmShell()}
                         >SSM Connect</button>
                         <button
                           className="ec2-action-btn ssh"
@@ -1250,6 +1466,154 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                           }}
                         >SSH Connect</button>
                       </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {sideTab === 'ssm' && (
+                <>
+                  <div className="ec2-sidebar-section">
+                    <div className="ec2-btn-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h3 style={{ margin: 0 }}>Systems Manager</h3>
+                      <button className="ec2-action-btn" type="button" onClick={() => void loadSsmForInstance(selectedId)} disabled={!selectedId || ssmLoading}>
+                        {ssmLoading ? 'Refreshing...' : 'Refresh'}
+                      </button>
+                    </div>
+                    {ssmTarget ? (
+                      <>
+                        <KV items={[
+                          ['Readiness', ssmStatusLabel(ssmTarget.status)],
+                          ['Managed ID', ssmTarget.managedInstance?.managedInstanceId ?? '-'],
+                          ['Ping', ssmTarget.managedInstance?.pingStatus ?? '-'],
+                          ['Last Ping', ssmTarget.managedInstance?.lastPingAt !== '-' ? new Date(ssmTarget.managedInstance?.lastPingAt ?? '-').toLocaleString() : '-'],
+                          ['Platform', ssmTarget.managedInstance?.platformName ?? detail?.platform ?? '-'],
+                          ['Source', detail?.isTempInspectionInstance ? `Temporary inspection (${detail.tempInspectionSourceVolumeId})` : 'EC2 instance']
+                        ]} />
+                        <div className="ec2-diagnostics-list">
+                          {ssmTarget.diagnostics.map((diagnostic) => (
+                            <div key={diagnostic.code} className={`ec2-diagnostic ${diagnostic.severity}`}>
+                              <strong>{diagnostic.summary}</strong>
+                              <span>{diagnostic.detail}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="ec2-btn-row" style={{ marginTop: 10, flexWrap: 'wrap' }}>
+                          <button className="ec2-action-btn ssm" type="button" disabled={!onRunTerminalCommand || !ssmTarget.canStartSession || ssmShellBusy} onClick={() => void doOpenSsmShell()}>
+                            {ssmShellBusy ? 'Opening...' : 'Open SSM Shell'}
+                          </button>
+                          {!detail?.isTempInspectionInstance && ssmTarget.portForwardPresets.map((preset) => (
+                            <button key={preset.id} className="ec2-action-btn" type="button" disabled={!onRunTerminalCommand || !ssmTarget.canStartSession || ssmShellBusy} onClick={() => void doOpenPortForward(preset)}>
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="ec2-sidebar-hint" style={{ marginTop: 8 }}>
+                          Port forwarding only works if a process is already listening on the target TCP port inside the instance.
+                          {detail?.isTempInspectionInstance
+                            ? ' Temporary inspection instances are meant for SSM shell access first; use Open SSM Shell to inspect and mount the attached volume.'
+                            : ' It does not start SSH or any other service for you.'}
+                        </div>
+                        <div className="ec2-ssm-port-form">
+                          <label className="ec2-ssm-port-field">
+                            <span>Local port</span>
+                            <input
+                              value={customLocalPort}
+                              onChange={(e) => setCustomLocalPort(e.target.value)}
+                              placeholder="Local port"
+                              inputMode="numeric"
+                            />
+                          </label>
+                          <label className="ec2-ssm-port-field">
+                            <span>Destination port</span>
+                            <input
+                              value={customRemotePort}
+                              onChange={(e) => setCustomRemotePort(e.target.value)}
+                              placeholder="Destination port"
+                              inputMode="numeric"
+                            />
+                          </label>
+                          <button className="ec2-action-btn" type="button" disabled={!onRunTerminalCommand || !ssmTarget.canStartSession || ssmShellBusy} onClick={() => void doOpenCustomPortForward()}>
+                            Custom Port
+                          </button>
+                        </div>
+
+                        <div className="ec2-ssm-command-box">
+                          <div className="ec2-ssm-command-toolbar">
+                            <select value={ssmCommandDocument} onChange={(e) => setSsmCommandDocument(e.target.value)}>
+                              <option value="AWS-RunShellScript">AWS-RunShellScript</option>
+                              <option value="AWS-RunPowerShellScript">AWS-RunPowerShellScript</option>
+                            </select>
+                            <select defaultValue="" onChange={(e) => {
+                              if (e.target.value) {
+                                applySsmCommandPreset(e.target.value)
+                                e.target.value = ''
+                              }
+                            }}>
+                              <option value="">Apply preset</option>
+                              {SSM_COMMAND_PRESETS.map((preset) => (
+                                <option key={preset.id} value={preset.id}>{preset.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <textarea
+                            className="ec2-ssm-textarea"
+                            value={ssmCommandInput}
+                            onChange={(e) => setSsmCommandInput(e.target.value)}
+                            placeholder="One command per line"
+                          />
+                          <div className="ec2-btn-row">
+                            <button className="ec2-action-btn apply" type="button" disabled={!ssmTarget.canStartSession || ssmCommandBusy} onClick={() => void doRunSsmCommand()}>
+                              {ssmCommandBusy ? 'Running...' : 'Run Command'}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="ec2-ssm-history">
+                          <h4>Session History</h4>
+                          {ssmSessions.length ? ssmSessions.slice(0, 6).map((session) => (
+                            <div key={session.sessionId} className="ec2-ssm-history-item">
+                              <strong>{session.documentName}</strong>
+                              <span>{session.status} · {session.startedAt !== '-' ? new Date(session.startedAt).toLocaleString() : '-'}</span>
+                            </div>
+                          )) : <div className="ec2-empty">No recent SSM sessions.</div>}
+                          <h4>Command History</h4>
+                          {ssmHistory.length ? ssmHistory.map((item) => (
+                            <div key={item.commandId} className="ec2-ssm-history-item">
+                              <strong>{item.commandLabel}</strong>
+                              <span>{item.statusDetails} · code {item.responseCode ?? '-'} · {item.requestedAt !== '-' ? new Date(item.requestedAt).toLocaleString() : '-'}</span>
+                              {(item.standardOutput || item.standardError) && (
+                                <pre className="ec2-ssm-output">{(item.standardOutput || item.standardError).slice(0, 1200)}</pre>
+                              )}
+                            </div>
+                          )) : <div className="ec2-empty">No commands run in this view yet.</div>}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="ec2-empty">Select an instance to inspect Session Manager state.</div>
+                    )}
+                  </div>
+
+                  <div className="ec2-sidebar-section">
+                    <h3>Managed Fleet</h3>
+                    <div className="ec2-sidebar-hint">{ssmOnlineCount} of {ssmManagedInstances.length} managed instances are online.</div>
+                    <div className="ec2-managed-list">
+                      {ssmManagedInstances.slice(0, 10).map((instance) => (
+                        <button
+                          key={instance.instanceId}
+                          className={instance.instanceId === selectedId ? 'ec2-list-item active' : 'ec2-list-item'}
+                          type="button"
+                          onClick={() => void selectInstance(instance.instanceId)}
+                        >
+                          <div className="ec2-list-title">
+                            <span className="ec2-list-title-text">{instance.name !== '-' ? instance.name : instance.instanceId}</span>
+                            <span className={`ec2-badge ${instance.pingStatus === 'Online' ? 'ssm-online' : 'ssm-offline'}`}>{instance.pingStatus}</span>
+                          </div>
+                          <div className="ec2-list-meta">{instance.instanceId} · {instance.platformName}</div>
+                          {instance.source === 'temp-inspection' && <div className="ec2-list-meta">Temp inspection for {instance.sourceVolumeId}</div>}
+                        </button>
+                      ))}
+                      {!ssmManagedInstances.length && <div className="ec2-empty">No managed instances in this region.</div>}
                     </div>
                   </div>
                 </>
@@ -1367,6 +1731,16 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                       </button>
                     )}
                     {volumeDetail.tempEnvironment && (
+                      <button
+                        className="ec2-action-btn ssm"
+                        type="button"
+                        disabled={!volumeDetail.tempEnvironment.ssmReady || !onRunTerminalCommand}
+                        onClick={() => void doOpenSsmShell(volumeDetail.tempEnvironment?.instanceId)}
+                      >
+                        Open SSM Session
+                      </button>
+                    )}
+                    {volumeDetail.tempEnvironment && (
                       <ConfirmButton className="ec2-action-btn remove" type="button" onConfirm={() => void doDeleteTempInspection(volumeDetail.tempEnvironment?.tempUuid || volumeDetail.tempEnvironment?.instanceId || '', volumeDetail.volumeId)}>
                         Delete Temp Instance
                       </ConfirmButton>
@@ -1442,11 +1816,19 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                   ['Temp UUID', volumeDetail.tempEnvironment.tempUuid],
                   ['Instance', volumeDetail.tempEnvironment.instanceId],
                   ['State', volumeDetail.tempEnvironment.instanceState],
+                  ['SSM', volumeDetail.tempEnvironment.ssmReady ? 'Ready' : 'Not ready'],
                   ['Subnet', volumeDetail.tempEnvironment.subnetId],
                   ['Security Group', volumeDetail.tempEnvironment.securityGroupId],
                   ['Instance Profile', volumeDetail.tempEnvironment.instanceProfileName],
                   ['Role', volumeDetail.tempEnvironment.iamRoleName]
                 ]} />
+                {volumeDetail.tempEnvironment.ssmReady && (
+                  <div className="ec2-btn-row" style={{ marginTop: 10 }}>
+                    <button className="ec2-action-btn ssm" type="button" disabled={!onRunTerminalCommand} onClick={() => void doOpenSsmShell(volumeDetail.tempEnvironment?.instanceId)}>
+                      Open SSM Session
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>

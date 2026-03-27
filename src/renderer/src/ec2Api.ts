@@ -15,6 +15,13 @@ import type {
   EbsTempInspectionProgress,
   EbsVolumeDetail,
   EbsVolumeSummary,
+  SsmCommandExecutionResult,
+  SsmConnectionTarget,
+  SsmManagedInstanceSummary,
+  SsmSendCommandRequest,
+  SsmSessionLaunchSpec,
+  SsmSessionSummary,
+  SsmStartSessionRequest,
   SnapshotLaunchConfig
 } from '@shared/types'
 import { trackedAwsBridge } from './api'
@@ -146,6 +153,26 @@ export async function sendSshPublicKey(
 
 export async function getEc2Recommendations(c: AwsConnection): Promise<Ec2Recommendation[]> {
   return unwrap((await bridge().getEc2Recommendations(c)) as Wrapped<Ec2Recommendation[]>)
+}
+
+export async function listSsmManagedInstances(c: AwsConnection): Promise<SsmManagedInstanceSummary[]> {
+  return unwrap((await bridge().listSsmManagedInstances(c)) as Wrapped<SsmManagedInstanceSummary[]>)
+}
+
+export async function getSsmConnectionTarget(c: AwsConnection, instanceId: string): Promise<SsmConnectionTarget> {
+  return unwrap((await bridge().getSsmConnectionTarget(c, instanceId)) as Wrapped<SsmConnectionTarget>)
+}
+
+export async function listSsmSessions(c: AwsConnection, targetInstanceId?: string): Promise<SsmSessionSummary[]> {
+  return unwrap((await bridge().listSsmSessions(c, targetInstanceId)) as Wrapped<SsmSessionSummary[]>)
+}
+
+export async function startSsmSession(c: AwsConnection, request: SsmStartSessionRequest): Promise<SsmSessionLaunchSpec> {
+  return unwrap((await bridge().startSsmSession(c, request)) as Wrapped<SsmSessionLaunchSpec>)
+}
+
+export async function sendSsmCommand(c: AwsConnection, request: SsmSendCommandRequest): Promise<SsmCommandExecutionResult> {
+  return unwrap((await bridge().sendSsmCommand(c, request)) as Wrapped<SsmCommandExecutionResult>)
 }
 
 export function subscribeToTempVolumeProgress(listener: (event: EbsTempInspectionProgress) => void): () => void {

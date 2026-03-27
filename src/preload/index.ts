@@ -9,6 +9,8 @@ import type {
   EbsTempInspectionProgress,
   EcsFargateServiceConfig,
   LambdaCreateConfig,
+  SsmSendCommandRequest,
+  SsmStartSessionRequest,
   SnapshotLaunchConfig,
   TerraformCommandRequest
 } from '@shared/types'
@@ -84,6 +86,16 @@ const awsLensApi = {
     ipcRenderer.invoke('ec2:send-ssh-public-key', connection, instanceId, osUser, publicKey, az),
   getEc2Recommendations: (connection: AwsConnection) =>
     ipcRenderer.invoke('ec2:recommendations', connection),
+  listSsmManagedInstances: (connection: AwsConnection) =>
+    ipcRenderer.invoke('ec2:ssm:list-managed', connection),
+  getSsmConnectionTarget: (connection: AwsConnection, instanceId: string) =>
+    ipcRenderer.invoke('ec2:ssm:target', connection, instanceId),
+  listSsmSessions: (connection: AwsConnection, targetInstanceId?: string) =>
+    ipcRenderer.invoke('ec2:ssm:list-sessions', connection, targetInstanceId),
+  startSsmSession: (connection: AwsConnection, request: SsmStartSessionRequest) =>
+    ipcRenderer.invoke('ec2:ssm:start-session', connection, request),
+  sendSsmCommand: (connection: AwsConnection, request: SsmSendCommandRequest) =>
+    ipcRenderer.invoke('ec2:ssm:send-command', connection, request),
   listLoadBalancerWorkspaces: (connection: AwsConnection) => ipcRenderer.invoke('elbv2:list-workspaces', connection),
   deleteLoadBalancer: (connection: AwsConnection, loadBalancerArn: string) =>
     ipcRenderer.invoke('elbv2:delete-load-balancer', connection, loadBalancerArn),

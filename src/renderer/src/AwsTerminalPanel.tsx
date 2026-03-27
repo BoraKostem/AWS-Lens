@@ -75,6 +75,13 @@ export function AwsTerminalPanel({
     }
 
     const unsubscribe = subscribeToAwsTerminal(writeEvent)
+    term.attachCustomKeyEventHandler((event) => {
+      if (event.type === 'keydown' && event.key === 'Backspace') {
+        void resizeAndSendInput('\x7f')
+        return false
+      }
+      return true
+    })
     const disposable = term.onData((data) => {
       void resizeAndSendInput(data)
     })

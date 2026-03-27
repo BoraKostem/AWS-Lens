@@ -96,6 +96,103 @@ export type CallerIdentity = {
   userId: string
 }
 
+export type Ec2SsmStatus = 'managed-online' | 'managed-offline' | 'not-managed'
+
+export type SsmManagedInstanceSummary = {
+  instanceId: string
+  managedInstanceId: string
+  name: string
+  computerName: string
+  pingStatus: string
+  lastPingAt: string
+  agentVersion: string
+  isLatestVersion: boolean
+  platformType: string
+  platformName: string
+  platformVersion: string
+  resourceType: string
+  ipAddress: string
+  source: 'ec2' | 'temp-inspection'
+  sourceVolumeId: string
+}
+
+export type SsmSessionSummary = {
+  sessionId: string
+  target: string
+  status: string
+  documentName: string
+  reason: string
+  owner: string
+  startedAt: string
+  endedAt: string
+  accessType: 'shell' | 'port-forward'
+}
+
+export type SsmCommandExecutionResult = {
+  commandId: string
+  instanceId: string
+  documentName: string
+  status: string
+  statusDetails: string
+  requestedAt: string
+  completedAt: string
+  responseCode: number | null
+  executionType: 'document' | 'shell-command'
+  commandLabel: string
+  commandText: string
+  standardOutput: string
+  standardError: string
+}
+
+export type SsmPortForwardPreset = {
+  id: string
+  label: string
+  description: string
+  documentName: 'AWS-StartPortForwardingSession' | 'AWS-StartPortForwardingSessionToRemoteHost'
+  localPort: number
+  remotePort: number
+  remoteHost: string
+}
+
+export type SsmConnectionDiagnostic = {
+  severity: 'info' | 'warning' | 'error'
+  code: string
+  summary: string
+  detail: string
+}
+
+export type SsmConnectionTarget = {
+  instanceId: string
+  instanceName: string
+  status: Ec2SsmStatus
+  managedInstance: SsmManagedInstanceSummary | null
+  diagnostics: SsmConnectionDiagnostic[]
+  canStartSession: boolean
+  shellDocumentName: string
+  portForwardPresets: SsmPortForwardPreset[]
+}
+
+export type SsmSessionLaunchSpec = {
+  summary: SsmSessionSummary
+  launchCommand: string
+}
+
+export type SsmStartSessionRequest = {
+  targetInstanceId: string
+  documentName?: string
+  reason?: string
+  parameters?: Record<string, string[]>
+  accessType?: 'shell' | 'port-forward'
+}
+
+export type SsmSendCommandRequest = {
+  instanceId: string
+  documentName: string
+  commands?: string[]
+  comment?: string
+  timeoutSeconds?: number
+}
+
 export type Ec2InstanceSummary = {
   name: string
   instanceId: string
@@ -110,6 +207,11 @@ export type Ec2InstanceSummary = {
   privateIp: string
   iamProfile: string
   launchTime: string
+  ssmStatus: Ec2SsmStatus
+  ssmPingStatus: string
+  ssmLastPingAt: string
+  isTempInspectionInstance: boolean
+  tempInspectionSourceVolumeId: string
 }
 
 export type Ec2InstanceDetail = {
@@ -136,6 +238,13 @@ export type Ec2InstanceDetail = {
   volumes: Array<{ volumeId: string; device: string; deleteOnTermination: boolean }>
   stateReason: string
   stateTransitionReason: string
+  ssmStatus: Ec2SsmStatus
+  ssmPingStatus: string
+  ssmLastPingAt: string
+  ssmManagedInstance: SsmManagedInstanceSummary | null
+  ssmDiagnostics: SsmConnectionDiagnostic[]
+  isTempInspectionInstance: boolean
+  tempInspectionSourceVolumeId: string
 }
 
 export type Ec2InstanceAction = 'start' | 'stop' | 'reboot'

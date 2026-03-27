@@ -59,7 +59,8 @@ import {
 } from '@aws-sdk/client-iam'
 import {
   DescribeInstanceInformationCommand,
-  SSMClient
+  SSMClient,
+  type InstanceInformation
 } from '@aws-sdk/client-ssm'
 
 import { awsClientConfig, readTags } from './client'
@@ -82,8 +83,11 @@ import type {
   EbsVolumeDetail,
   EbsVolumeStatus,
   EbsVolumeSummary,
+  SsmConnectionDiagnostic,
+  SsmManagedInstanceSummary,
   SnapshotLaunchConfig
 } from '@shared/types'
+import { getSsmConnectionTarget } from './ssm'
 
 function createClient(connection: AwsConnection): EC2Client {
   return new EC2Client(awsClientConfig(connection))
@@ -788,6 +792,23 @@ async function waitForSsmReadiness(ssmClient: SSMClient, instanceId: string, tim
   throw new Error(`Timed out waiting for SSM readiness on ${instanceId}`)
 }
 
+async function loadManagedInstanceMap(ssmClient: SSMClient): Promise<Map<string, InstanceInformation>> {
+  const rows = new Map<string, InstanceInformation>()
+  let nextToken: string | undefined
+
+  do {
+    const output = await ssmClient.send(new DescribeInstanceInformationCommand({ NextToken: nextToken }))
+    for (const info of output.InstanceInformationList ?? []) {
+      if (info.InstanceId) {
+        rows.set(info.InstanceId, info)
+      }
+    }
+    nextToken = output.NextToken
+  } while (nextToken)
+
+  return rows
+}
+
 async function waitForVolumeAttachment(
   client: EC2Client,
   volumeId: string,
@@ -851,7 +872,7 @@ async function listTaggedInstanceProfiles(iamClient: IAMClient, uuid: string): P
 
 /* ── Instance list ─────────────────────────────────────────── */
 
-function toInstanceSummary(instance: Instance): Ec2InstanceSummary {
+function toInstanceSummary(instance: Instance, managedInfo?: { PingStatus?: string; LastPingDateTime?: Date }): Ec2InstanceSummary {
   const tags = readTags(instance.Tags)
 
   return {
@@ -867,12 +888,19 @@ function toInstanceSummary(instance: Instance): Ec2InstanceSummary {
     publicIp: instance.PublicIpAddress ?? '-',
     privateIp: instance.PrivateIpAddress ?? '-',
     iamProfile: instance.IamInstanceProfile?.Arn ?? '-',
-    launchTime: instance.LaunchTime?.toISOString() ?? '-'
+    launchTime: instance.LaunchTime?.toISOString() ?? '-',
+    ssmStatus: managedInfo ? (managedInfo.PingStatus === 'Online' ? 'managed-online' : 'managed-offline') : 'not-managed',
+    ssmPingStatus: managedInfo?.PingStatus ?? '-',
+    ssmLastPingAt: managedInfo?.LastPingDateTime?.toISOString() ?? '-',
+    isTempInspectionInstance: tags[TEMP_PURPOSE_TAG] === TEMP_PURPOSE_EBS_INSPECTION,
+    tempInspectionSourceVolumeId: tags[TEMP_SOURCE_VOLUME_TAG] ?? '-'
   }
 }
 
 export async function listEc2Instances(connection: AwsConnection): Promise<Ec2InstanceSummary[]> {
   const client = createClient(connection)
+  const ssmClient = createSsmClient(connection)
+  const managedInstanceMap = await loadManagedInstanceMap(ssmClient)
   const instances: Ec2InstanceSummary[] = []
   let nextToken: string | undefined
 
@@ -880,7 +908,7 @@ export async function listEc2Instances(connection: AwsConnection): Promise<Ec2In
     const output = await client.send(new DescribeInstancesCommand({ NextToken: nextToken }))
     for (const reservation of output.Reservations ?? []) {
       for (const instance of reservation.Instances ?? []) {
-        instances.push(toInstanceSummary(instance))
+        instances.push(toInstanceSummary(instance, managedInstanceMap.get(instance.InstanceId ?? '')))
       }
     }
     nextToken = output.NextToken
@@ -911,7 +939,12 @@ export async function describeEbsVolume(connection: AwsConnection, volumeId: str
 
 /* ── Instance detail ───────────────────────────────────────── */
 
-function toInstanceDetail(instance: Instance, iamAssociationId: string): Ec2InstanceDetail {
+function toInstanceDetail(
+  instance: Instance,
+  iamAssociationId: string,
+  ssmManagedInstance: SsmManagedInstanceSummary | null,
+  ssmDiagnostics: SsmConnectionDiagnostic[]
+): Ec2InstanceDetail {
   const tags = readTags(instance.Tags)
 
   return {
@@ -944,7 +977,14 @@ function toInstanceDetail(instance: Instance, iamAssociationId: string): Ec2Inst
       deleteOnTermination: bdm.Ebs?.DeleteOnTermination ?? false
     })),
     stateReason: instance.StateReason?.Message ?? '-',
-    stateTransitionReason: instance.StateTransitionReason ?? '-'
+    stateTransitionReason: instance.StateTransitionReason ?? '-',
+    ssmStatus: ssmManagedInstance ? (ssmManagedInstance.pingStatus === 'Online' ? 'managed-online' : 'managed-offline') : 'not-managed',
+    ssmPingStatus: ssmManagedInstance?.pingStatus ?? '-',
+    ssmLastPingAt: ssmManagedInstance?.lastPingAt ?? '-',
+    ssmManagedInstance,
+    ssmDiagnostics,
+    isTempInspectionInstance: tags[TEMP_PURPOSE_TAG] === TEMP_PURPOSE_EBS_INSPECTION,
+    tempInspectionSourceVolumeId: tags[TEMP_SOURCE_VOLUME_TAG] ?? '-'
   }
 }
 
@@ -973,7 +1013,9 @@ export async function describeEc2Instance(connection: AwsConnection, instanceId:
     /* no association */
   }
 
-  return toInstanceDetail(instance, iamAssociationId)
+  const ssmTarget = await getSsmConnectionTarget(connection, instanceId).catch(() => null)
+
+  return toInstanceDetail(instance, iamAssociationId, ssmTarget?.managedInstance ?? null, ssmTarget?.diagnostics ?? [])
 }
 
 /* ── Instance lifecycle ────────────────────────────────────── */

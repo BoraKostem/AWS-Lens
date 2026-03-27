@@ -1,6 +1,12 @@
 import { ipcMain } from 'electron'
 
-import type { AwsConnection, BastionLaunchConfig, SnapshotLaunchConfig } from '@shared/types'
+import type {
+  AwsConnection,
+  BastionLaunchConfig,
+  SnapshotLaunchConfig,
+  SsmSendCommandRequest,
+  SsmStartSessionRequest
+} from '@shared/types'
 import {
   attachIamProfile,
   createEc2Snapshot,
@@ -30,6 +36,13 @@ import {
   tagEc2Snapshot,
   terminateEc2Instance
 } from './aws/ec2'
+import {
+  getSsmConnectionTarget,
+  listSsmManagedInstances,
+  listSsmSessions,
+  sendSsmCommand,
+  startSsmSession
+} from './aws/ssm'
 
 type HandlerResult<T> = { ok: true; data: T } | { ok: false; error: string }
 
@@ -150,5 +163,20 @@ export function registerEc2IpcHandlers(): void {
   )
   ipcMain.handle('ec2:recommendations', async (_event, connection: AwsConnection) =>
     wrap(() => getEc2Recommendations(connection))
+  )
+  ipcMain.handle('ec2:ssm:list-managed', async (_event, connection: AwsConnection) =>
+    wrap(() => listSsmManagedInstances(connection))
+  )
+  ipcMain.handle('ec2:ssm:target', async (_event, connection: AwsConnection, instanceId: string) =>
+    wrap(() => getSsmConnectionTarget(connection, instanceId))
+  )
+  ipcMain.handle('ec2:ssm:list-sessions', async (_event, connection: AwsConnection, targetInstanceId?: string) =>
+    wrap(() => listSsmSessions(connection, targetInstanceId))
+  )
+  ipcMain.handle('ec2:ssm:start-session', async (_event, connection: AwsConnection, request: SsmStartSessionRequest) =>
+    wrap(() => startSsmSession(connection, request))
+  )
+  ipcMain.handle('ec2:ssm:send-command', async (_event, connection: AwsConnection, request: SsmSendCommandRequest) =>
+    wrap(() => sendSsmCommand(connection, request))
   )
 }

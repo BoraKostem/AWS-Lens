@@ -19,6 +19,10 @@ function quotePosix(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
 
+export function quoteShellValue(value: string): string {
+  return getShellConfig().kind === 'powershell' ? quotePowerShell(value) : quotePosix(value)
+}
+
 function quoteForAppleScript(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
@@ -106,6 +110,10 @@ export function buildAwsContextCommand(connection: AwsConnection): string {
       ? 'printf "AWS context: profile=%s region=%s\\n" "$AWS_PROFILE" "$AWS_REGION"'
       : `printf "AWS context: session=%s region=%s account=%s\\n" ${quotePosix(connection.label)} "$AWS_REGION" ${quotePosix(connection.accountId)}`
   ].join('; ')
+}
+
+export function buildAwsCliCommand(args: string[]): string {
+  return ['aws', ...args.map((value) => quoteShellValue(value))].join(' ')
 }
 
 function buildKubectlStartupCommand(connection: AwsConnection, clusterName: string): string {

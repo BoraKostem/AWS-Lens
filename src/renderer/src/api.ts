@@ -13,6 +13,13 @@ import type {
   AwsRegionOption,
   SessionHubState,
   CallerIdentity,
+  SsmCommandExecutionResult,
+  SsmConnectionTarget,
+  SsmManagedInstanceSummary,
+  SsmSendCommandRequest,
+  SsmSessionLaunchSpec,
+  SsmSessionSummary,
+  SsmStartSessionRequest,
   ComplianceReport,
   ServiceDescriptor,
   CloudWatchLogEventSummary,
@@ -199,6 +206,9 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   getCostBreakdown: 'overview',
   searchByTag: 'overview',
   listEc2Instances: 'ec2',
+  listSsmManagedInstances: 'ec2',
+  getSsmConnectionTarget: 'ec2',
+  listSsmSessions: 'ec2',
   listCloudWatchMetrics: 'cloudwatch',
   getEc2MetricSeries: 'cloudwatch',
   listCloudWatchLogGroups: 'cloudwatch',
@@ -426,7 +436,9 @@ const MUTATING_METHODS = new Set<keyof AwsLensBridge>([
   'deleteIamPolicyVersion',
   'createIamPolicy',
   'deleteIamPolicy',
-  'generateIamCredentialReport'
+  'generateIamCredentialReport',
+  'startSsmSession',
+  'sendSsmCommand'
 ])
 
 const BACKGROUND_METHODS = new Set<keyof AwsLensBridge>([
@@ -678,6 +690,26 @@ export async function getCallerIdentity(connection: AwsConnection): Promise<Call
 
 export async function listEc2Instances(connection: AwsConnection): Promise<Ec2InstanceSummary[]> {
   return unwrap((await awsBridge().listEc2Instances(connection)) as Wrapped<Ec2InstanceSummary[]>)
+}
+
+export async function listSsmManagedInstances(connection: AwsConnection): Promise<SsmManagedInstanceSummary[]> {
+  return unwrap((await awsBridge().listSsmManagedInstances(connection)) as Wrapped<SsmManagedInstanceSummary[]>)
+}
+
+export async function getSsmConnectionTarget(connection: AwsConnection, instanceId: string): Promise<SsmConnectionTarget> {
+  return unwrap((await awsBridge().getSsmConnectionTarget(connection, instanceId)) as Wrapped<SsmConnectionTarget>)
+}
+
+export async function listSsmSessions(connection: AwsConnection, targetInstanceId?: string): Promise<SsmSessionSummary[]> {
+  return unwrap((await awsBridge().listSsmSessions(connection, targetInstanceId)) as Wrapped<SsmSessionSummary[]>)
+}
+
+export async function startSsmSession(connection: AwsConnection, request: SsmStartSessionRequest): Promise<SsmSessionLaunchSpec> {
+  return unwrap((await awsBridge().startSsmSession(connection, request)) as Wrapped<SsmSessionLaunchSpec>)
+}
+
+export async function sendSsmCommand(connection: AwsConnection, request: SsmSendCommandRequest): Promise<SsmCommandExecutionResult> {
+  return unwrap((await awsBridge().sendSsmCommand(connection, request)) as Wrapped<SsmCommandExecutionResult>)
 }
 
 export async function listEcrRepositories(connection: AwsConnection): Promise<EcrRepositorySummary[]> {

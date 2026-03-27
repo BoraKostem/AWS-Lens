@@ -9,6 +9,8 @@ import type {
   EbsTempInspectionProgress,
   EcsFargateServiceConfig,
   LambdaCreateConfig,
+  SsmSendCommandRequest,
+  SsmStartSessionRequest,
   SnapshotLaunchConfig,
   TerraformCommandRequest
 } from '@shared/types'
@@ -56,6 +58,11 @@ declare global {
       launchFromSnapshot: (connection: AwsConnection, config: SnapshotLaunchConfig) => Promise<unknown>
       sendSshPublicKey: (connection: AwsConnection, instanceId: string, osUser: string, publicKey: string, az: string) => Promise<unknown>
       getEc2Recommendations: (connection: AwsConnection) => Promise<unknown>
+      listSsmManagedInstances: (connection: AwsConnection) => Promise<unknown>
+      getSsmConnectionTarget: (connection: AwsConnection, instanceId: string) => Promise<unknown>
+      listSsmSessions: (connection: AwsConnection, targetInstanceId?: string) => Promise<unknown>
+      startSsmSession: (connection: AwsConnection, request: SsmStartSessionRequest) => Promise<unknown>
+      sendSsmCommand: (connection: AwsConnection, request: SsmSendCommandRequest) => Promise<unknown>
       listLoadBalancerWorkspaces: (connection: AwsConnection) => Promise<unknown>
       deleteLoadBalancer: (connection: AwsConnection, loadBalancerArn: string) => Promise<unknown>
       listCloudWatchMetrics: (connection: AwsConnection) => Promise<unknown>
