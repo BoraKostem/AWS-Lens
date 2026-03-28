@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   createReachabilityPath,
@@ -525,8 +525,23 @@ export function VpcWorkspace({ connection, onNavigate }: { connection: AwsConnec
   const [reachDest, setReachDest] = useState('')
   const [reachProto, setReachProto] = useState('tcp')
   const [reachResults, setReachResults] = useState<ReachabilityPathResult[]>([])
+  const [loadingVpcId, setLoadingVpcId] = useState('')
+  const vpcLoadRequestRef = useRef(0)
 
   const selectedVpc = useMemo(() => vpcs.find(v => v.vpcId === selectedVpcId) ?? null, [vpcs, selectedVpcId])
+  const isSwitchingVpc = Boolean(loadingVpcId && loadingVpcId === selectedVpcId)
+
+  function clearVpcData() {
+    setTopology(null)
+    setSubnets([])
+    setRouteTables([])
+    setIgws([])
+    setNats([])
+    setTgws([])
+    setEnis([])
+    setEc2Instances([])
+    setLoadBalancers([])
+  }
 
   async function loadVpcs() {
     setLoading(true); setError('')
@@ -534,7 +549,9 @@ export function VpcWorkspace({ connection, onNavigate }: { connection: AwsConnec
     catch (e) { setError(e instanceof Error ? e.message : String(e)) } finally { setLoading(false) }
   }
   async function loadVpcData(vpcId: string) {
-    if (!vpcId) return; setLoading(true); setError('')
+    if (!vpcId) return
+    const requestId = ++vpcLoadRequestRef.current
+    setLoading(true); setLoadingVpcId(vpcId); setError(''); clearVpcData()
     try {
       const [topo, sl, rl, il, nl, tl, el, allInstances, allLbs] = await Promise.all([
         getVpcTopology(connection, vpcId),
@@ -547,10 +564,18 @@ export function VpcWorkspace({ connection, onNavigate }: { connection: AwsConnec
         listEc2Instances(connection),
         listLoadBalancerWorkspaces(connection)
       ])
+      if (requestId !== vpcLoadRequestRef.current) return
       setTopology(topo); setSubnets(sl); setRouteTables(rl); setIgws(il); setNats(nl); setTgws(tl); setEnis(el)
       setEc2Instances(allInstances.filter(i => i.vpcId === vpcId))
       setLoadBalancers(allLbs.filter(lb => lb.summary.vpcId === vpcId))
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)) } finally { setLoading(false) }
+    } catch (e) {
+      if (requestId !== vpcLoadRequestRef.current) return
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      if (requestId !== vpcLoadRequestRef.current) return
+      setLoading(false)
+      setLoadingVpcId('')
+    }
   }
   useEffect(() => { void loadVpcs() }, [])
   useEffect(() => { if (selectedVpcId) void loadVpcData(selectedVpcId) }, [selectedVpcId])
@@ -576,10 +601,11 @@ export function VpcWorkspace({ connection, onNavigate }: { connection: AwsConnec
       {error && <div className="svc-error">{error}</div>}
       <div className="svc-filter-bar">
         <span className="svc-filter-label">VPC</span>
-        <select className="svc-select" value={selectedVpcId} onChange={e => setSelectedVpcId(e.target.value)}>
+        <select className="svc-select" value={selectedVpcId} onChange={e => setSelectedVpcId(e.target.value)} disabled={loading && !selectedVpcId}>
           {vpcs.map(v => <option key={v.vpcId} value={v.vpcId}>{v.name !== '-' ? v.name : v.vpcId} ({v.cidrBlock}){v.isDefault ? ' [default]' : ''}</option>)}
         </select>
         {selectedVpc && <span style={{ fontSize: 11, color: '#9ca7b7', fontFamily: 'monospace' }}>{selectedVpc.vpcId} | {selectedVpc.state}</span>}
+        {isSwitchingVpc && <span style={{ fontSize: 11, color: '#9ca7b7' }}>Loading selected VPC...</span>}
       </div>
 
       {tab === 'topology' && topology && (<>
@@ -651,7 +677,7 @@ export function VpcWorkspace({ connection, onNavigate }: { connection: AwsConnec
         {!enis.length && <div className="svc-empty">No ENIs found.</div>}
       </div>}
 
-      {loading && !topology && <div className="svc-empty">Loading VPC data...</div>}
+      {loading && !topology && <div className="svc-empty">{isSwitchingVpc ? 'Switching VPC...' : 'Loading VPC data...'}</div>}
     </div>
   )
 }

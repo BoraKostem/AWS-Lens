@@ -47,8 +47,10 @@ export function registerEksIpcHandlers(): void {
   ipcMain.handle('eks:delete-cluster', async (_event, connection: AwsConnection, clusterName: string) =>
     wrap(() => deleteEksCluster(connection, clusterName))
   )
-  ipcMain.handle('eks:add-kubeconfig', async (_event, connection: AwsConnection, clusterName: string) =>
-    wrap(() => addEksToKubeconfig(connection, clusterName))
+  ipcMain.handle(
+    'eks:add-kubeconfig',
+    async (_event, connection: AwsConnection, clusterName: string, contextName: string, kubeconfigPath: string) =>
+      wrap(() => addEksToKubeconfig(connection, clusterName, contextName, kubeconfigPath))
   )
   ipcMain.handle('eks:launch-kubectl', async (_event, connection: AwsConnection, clusterName: string) =>
     wrap(() => launchKubectlTerminal(connection, clusterName))

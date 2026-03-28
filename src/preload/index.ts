@@ -156,8 +156,8 @@ const awsLensApi = {
     ipcRenderer.invoke('eks:list-updates', connection, clusterName),
   deleteEksCluster: (connection: AwsConnection, clusterName: string) =>
     ipcRenderer.invoke('eks:delete-cluster', connection, clusterName),
-  addEksToKubeconfig: (connection: AwsConnection, clusterName: string) =>
-    ipcRenderer.invoke('eks:add-kubeconfig', connection, clusterName),
+  addEksToKubeconfig: (connection: AwsConnection, clusterName: string, contextName: string, kubeconfigPath: string) =>
+    ipcRenderer.invoke('eks:add-kubeconfig', connection, clusterName, contextName, kubeconfigPath),
   launchKubectlTerminal: (connection: AwsConnection, clusterName: string) =>
     ipcRenderer.invoke('eks:launch-kubectl', connection, clusterName),
   prepareEksKubectlSession: (connection: AwsConnection, clusterName: string) =>

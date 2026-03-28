@@ -787,8 +787,13 @@ export async function deleteEksCluster(connection: AwsConnection, clusterName: s
   return unwrap((await awsBridge().deleteEksCluster(connection, clusterName)) as Wrapped<void>)
 }
 
-export async function addEksToKubeconfig(connection: AwsConnection, clusterName: string): Promise<string> {
-  return unwrap((await awsBridge().addEksToKubeconfig(connection, clusterName)) as Wrapped<string>)
+export async function addEksToKubeconfig(
+  connection: AwsConnection,
+  clusterName: string,
+  contextName: string,
+  kubeconfigPath: string
+): Promise<string> {
+  return unwrap((await awsBridge().addEksToKubeconfig(connection, clusterName, contextName, kubeconfigPath)) as Wrapped<string>)
 }
 
 export async function launchKubectlTerminal(connection: AwsConnection, clusterName: string): Promise<void> {

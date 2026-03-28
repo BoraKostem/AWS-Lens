@@ -100,7 +100,7 @@ declare global {
       ) => Promise<unknown>
       listEksUpdates: (connection: AwsConnection, clusterName: string) => Promise<unknown>
       deleteEksCluster: (connection: AwsConnection, clusterName: string) => Promise<unknown>
-      addEksToKubeconfig: (connection: AwsConnection, clusterName: string) => Promise<unknown>
+      addEksToKubeconfig: (connection: AwsConnection, clusterName: string, contextName: string, kubeconfigPath: string) => Promise<unknown>
       launchKubectlTerminal: (connection: AwsConnection, clusterName: string) => Promise<unknown>
       prepareEksKubectlSession: (connection: AwsConnection, clusterName: string) => Promise<unknown>
       runEksCommand: (connection: AwsConnection, clusterName: string, kubeconfigPath: string, command: string) => Promise<unknown>

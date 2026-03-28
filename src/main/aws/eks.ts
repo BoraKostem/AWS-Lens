@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { mkdir, mkdtemp } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 
 import {
@@ -192,12 +192,20 @@ export async function deleteEksCluster(connection: AwsConnection, clusterName: s
 
 export async function addEksToKubeconfig(
   connection: AwsConnection,
-  clusterName: string
+  clusterName: string,
+  contextName: string,
+  kubeconfigPath: string
 ): Promise<string> {
+  const normalizedContextName = contextName.trim()
+  const targetKubeconfigPath = resolveKubeconfigPath(kubeconfigPath)
+  await mkdir(dirname(targetKubeconfigPath), { recursive: true })
+
   const args = [
     'eks', 'update-kubeconfig',
     '--name', clusterName,
-    '--region', connection.region
+    '--region', connection.region,
+    '--alias', normalizedContextName,
+    '--kubeconfig', targetKubeconfigPath
   ]
   if (connection.kind === 'profile') {
     args.push('--profile', connection.profile)
@@ -213,6 +221,28 @@ export async function addEksToKubeconfig(
 
 function sanitizeClusterName(clusterName: string): string {
   return clusterName.replace(/[^a-zA-Z0-9._-]/g, '_')
+}
+
+function resolveKubeconfigPath(kubeconfigPath: string): string {
+  const trimmed = kubeconfigPath.trim()
+
+  if (!trimmed) {
+    return join(homedir(), '.kube', 'config')
+  }
+
+  if (trimmed === '.kube/config' || trimmed === '.kube\\config') {
+    return join(homedir(), '.kube', 'config')
+  }
+
+  if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
+    return resolve(homedir(), trimmed.slice(2))
+  }
+
+  if (isAbsolute(trimmed)) {
+    return trimmed
+  }
+
+  return resolve(homedir(), trimmed)
 }
 
 export async function createTempEksKubeconfig(

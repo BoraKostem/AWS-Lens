@@ -110,6 +110,11 @@ export function EksConsole({
   const [scaleMax, setScaleMax] = useState('')
   const [scaleBusy, setScaleBusy] = useState(false)
   const [scaleErr, setScaleErr] = useState('')
+  const [showKubeconfigForm, setShowKubeconfigForm] = useState(false)
+  const [kubeconfigContextName, setKubeconfigContextName] = useState('')
+  const [kubeconfigLocation, setKubeconfigLocation] = useState('.kube/config')
+  const [kubeconfigBusy, setKubeconfigBusy] = useState(false)
+  const [kubeconfigErr, setKubeconfigErr] = useState('')
 
   // Timeline
   const [timelineEvents, setTimelineEvents] = useState<CloudTrailEventSummary[]>([])
@@ -194,6 +199,10 @@ useEffect(() => { void reload() }, [connection.sessionId, connection.region])
     setTerminalKubeconfigPath('')
     setShowDescribe(false)
     setShowScale(false)
+    setShowKubeconfigForm(false)
+    setKubeconfigContextName(name)
+    setKubeconfigLocation('.kube/config')
+    setKubeconfigErr('')
     try {
       const [d, ngs] = await Promise.all([
         describeEksCluster(connection, name),
@@ -232,15 +241,41 @@ useEffect(() => { void reload() }, [connection.sessionId, connection.region])
   }, [sideTab, selectedCluster, timelineStart, timelineEnd])
 
   /* ── Actions ────────────────────────────────────────── */
+  function openKubeconfigForm() {
+    if (!selectedCluster) return
+    setShowKubeconfigForm(true)
+    setKubeconfigContextName(selectedCluster)
+    setKubeconfigLocation('.kube/config')
+    setKubeconfigErr('')
+  }
+
   async function handleKubeconfig() {
     if (!selectedCluster) return
+    const contextName = kubeconfigContextName.trim()
+    const kubeconfigPath = kubeconfigLocation.trim()
+
+    if (!contextName) {
+      setKubeconfigErr('Context name is required')
+      return
+    }
+
+    if (!kubeconfigPath) {
+      setKubeconfigErr('Config location is required')
+      return
+    }
+
     setMsg('')
     setError('')
+    setKubeconfigErr('')
+    setKubeconfigBusy(true)
     try {
-      const result = await addEksToKubeconfig(connection, selectedCluster)
+      const result = await addEksToKubeconfig(connection, selectedCluster, contextName, kubeconfigPath)
       setMsg(result)
+      setShowKubeconfigForm(false)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setKubeconfigBusy(false)
     }
   }
 
@@ -443,10 +478,44 @@ useEffect(() => { void reload() }, [connection.sessionId, connection.region])
             <button type="button" onClick={() => setShowDescribe(!showDescribe)} disabled={!selectedCluster}>
               Describe
             </button>
-            <button type="button" className="accent" onClick={() => void handleKubeconfig()} disabled={!selectedCluster}>
+            <button type="button" className="accent" onClick={openKubeconfigForm} disabled={!selectedCluster}>
               Add to kubeconfig
             </button>
           </div>
+
+          {showKubeconfigForm && (
+            <div className="eks-kubeconfig-modal">
+              <h4>Add Cluster To kubeconfig</h4>
+              <div className="eks-kubeconfig-form">
+                <label>
+                  Context name
+                  <input
+                    value={kubeconfigContextName}
+                    onChange={(event) => setKubeconfigContextName(event.target.value)}
+                    placeholder="my-eks-context"
+                    autoFocus
+                  />
+                </label>
+                <label>
+                  Config location
+                  <input
+                    value={kubeconfigLocation}
+                    onChange={(event) => setKubeconfigLocation(event.target.value)}
+                    placeholder=".kube/config"
+                  />
+                </label>
+              </div>
+              <div className="eks-kubeconfig-actions">
+                <button type="button" onClick={() => setShowKubeconfigForm(false)} disabled={kubeconfigBusy}>
+                  Cancel
+                </button>
+                <button type="button" className="accent" onClick={() => void handleKubeconfig()} disabled={kubeconfigBusy}>
+                  {kubeconfigBusy ? 'Adding...' : 'Add'}
+                </button>
+              </div>
+              {kubeconfigErr && <div className="eks-scale-err">{kubeconfigErr}</div>}
+            </div>
+          )}
         </div>
 
         {/* ── Right: detail panel ─────────────────────── */}

@@ -133,6 +133,65 @@
   background: #2d72bf;
 }
 
+.eks-kubeconfig-modal {
+  padding: 12px;
+  border-top: 1px solid #3b4350;
+  background: #252b33;
+}
+
+.eks-kubeconfig-modal h4 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #d0d8e2;
+}
+
+.eks-kubeconfig-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.eks-kubeconfig-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: #9ca7b7;
+}
+
+.eks-kubeconfig-form input {
+  background: #1a2030;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  color: #edf1f6;
+  padding: 7px 9px;
+  font-size: 12px;
+}
+
+.eks-kubeconfig-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.eks-kubeconfig-actions button {
+  padding: 7px 14px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #2a3039;
+  color: #d0d8e2;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.eks-kubeconfig-actions button.accent {
+  background: #2563a8;
+  border-color: #2563a8;
+  color: #fff;
+}
+
 /* ── Right panel: detail ─────────────────────────────────── */
 
 .eks-detail-panel {

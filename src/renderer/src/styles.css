@@ -3228,6 +3228,13 @@ button.overview-tile.clickable.active strong {
   margin: 0;
 }
 
+.service-nav-divider {
+  height: 1px;
+  margin: 0.7rem 1rem 0.9rem;
+  background: linear-gradient(90deg, rgba(203, 121, 65, 0), rgba(203, 121, 65, 0.45), rgba(203, 121, 65, 0));
+  opacity: 0.8;
+}
+
 .service-group-title {
   padding: 1rem 1.5rem 0.55rem;
   font-weight: 700;
@@ -3245,20 +3252,30 @@ button.overview-tile.clickable.active strong {
   gap: 0;
 }
 
+.service-link-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40px;
+  align-items: stretch;
+}
+
 .service-link {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
   padding: 0.65rem 1rem;
   border-radius: 0;
   border: 1px solid rgba(200, 200, 215, 0.09);
   border-left: 0;
-  border-right: 0;
+  border-right: 1px solid rgba(200, 200, 215, 0.09);
   background: #161d27;
   color: #aab7cb;
   font-size: 0.88rem;
   font-weight: 500;
 }
 
-.service-link + .service-link {
+.service-link-row + .service-link-row .service-link,
+.service-link-row + .service-link-row .pin-toggle {
   border-top: 0;
 }
 
@@ -3268,10 +3285,53 @@ button.overview-tile.clickable.active strong {
   background: #1b2430;
 }
 
+.service-link span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.service-link-badge {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #cb7941;
+}
+
 .overview-link {
   margin-top: 0;
   color: #f3f7fc;
   background: #181f29;
+}
+
+.pin-toggle {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 0;
+  border: 1px solid rgba(200, 200, 215, 0.09);
+  border-left: 0;
+  background: #161d27;
+  color: #718197;
+  font-size: 1rem;
+}
+
+.pin-toggle:hover {
+  transform: none;
+  border-color: rgba(200, 200, 215, 0.12);
+  background: #1b2430;
+  color: #cb7941;
+}
+
+.pin-toggle.active {
+  color: #cb7941;
+}
+
+.service-link-row.active .pin-toggle {
+  background: #191f29;
+  border-color: rgba(136, 157, 189, 0.35);
 }
 
 .service-nav-scroll {
