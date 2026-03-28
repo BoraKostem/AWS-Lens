@@ -5,6 +5,7 @@ import type {
   AcmCertificateDetail,
   AcmCertificateSummary,
   AcmRequestCertificateInput,
+  AppReleaseInfo,
   AssumeRoleResult,
   AssumeRoleRequest,
   AwsAssumeRoleTarget,
@@ -682,6 +683,10 @@ export async function assumeSavedRoleTarget(targetId: string): Promise<AssumeRol
 
 export async function listServices(): Promise<ServiceDescriptor[]> {
   return unwrap((await awsBridge().listServices()) as Wrapped<ServiceDescriptor[]>)
+}
+
+export async function getAppReleaseInfo(): Promise<AppReleaseInfo> {
+  return unwrap((await rawAwsBridge().getReleaseInfo()) as Wrapped<AppReleaseInfo>)
 }
 
 export async function getCallerIdentity(connection: AwsConnection): Promise<CallerIdentity> {

@@ -3132,6 +3132,14 @@ button.overview-tile.clickable.active strong {
   gap: 8px;
 }
 
+.service-nav-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
 /* ── Nav collapsed state ── */
 
 .service-nav.collapsed .service-nav-controls,
@@ -3153,6 +3161,10 @@ button.overview-tile.clickable.active strong {
   display: none;
 }
 
+.service-nav.collapsed .service-nav-title {
+  display: none;
+}
+
 .nav-hamburger {
   flex-shrink: 0;
 }
@@ -3162,6 +3174,46 @@ button.overview-tile.clickable.active strong {
   font-size: 1.05rem;
   color: #f3f7fc;
   font-family: "Space Grotesk", "Segoe UI", sans-serif;
+}
+
+.app-version-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.app-version-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 0.05rem 0.38rem;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 137, 160, 0.34);
+  background: rgba(16, 23, 33, 0.92);
+  color: #9fb0c6;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.app-update-indicator {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(223, 105, 42, 0.34);
+  background: rgba(223, 105, 42, 0.14);
+  color: #ffb16e;
+  display: inline-grid;
+  place-items: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.app-update-indicator:hover {
+  background: rgba(223, 105, 42, 0.22);
 }
 
 .service-nav-controls {

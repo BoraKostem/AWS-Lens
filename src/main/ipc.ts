@@ -8,6 +8,7 @@ import { dialog, ipcMain, shell, app, type BrowserWindow, type OpenDialogOptions
 import type { AwsConnection, TerraformCommandRequest } from '@shared/types'
 import { importAwsConfigFile } from './aws/profiles'
 import { SERVICE_CATALOG } from './catalog'
+import { getReleaseInfo } from './releaseCheck'
 import { getSelectedProjectId, setSelectedProjectId } from './store'
 import {
   addProject,
@@ -153,6 +154,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('terraform:plan:clear', async (_event, projectId: string) => wrap(() => clearSavedPlan(projectId)))
   ipcMain.handle('terraform:detect-missing-vars', async (_event, output: string) => wrap(() => detectMissingVars(output)))
   ipcMain.handle('shell:open-external', async (_event, url: string) => wrap(() => shell.openExternal(url)))
+  ipcMain.handle('app:release-info', async () => wrap(() => getReleaseInfo()))
 
   /* ── AWS profile import ─────────────────────────────────── */
   ipcMain.handle('profiles:choose-and-import', async () =>

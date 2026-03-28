@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import appLogoUrl from '../../../assets/aws-lens-logo.png'
-import type { ServiceDescriptor, ServiceId } from '@shared/types'
-import { chooseAndImportConfig, closeAwsTerminal, deleteProfile, invalidateAllPageCaches, invalidatePageCache, listServices, saveCredentials, useAwsActivity, type CacheTag } from './api'
+import type { AppReleaseInfo, ServiceDescriptor, ServiceId } from '@shared/types'
+import { chooseAndImportConfig, closeAwsTerminal, deleteProfile, getAppReleaseInfo, invalidateAllPageCaches, invalidatePageCache, listServices, openExternalUrl, saveCredentials, useAwsActivity, type CacheTag } from './api'
 import { AcmConsole } from './AcmConsole'
 import { AutoScalingConsole } from './AutoScalingConsole'
 import { AwsTerminalPanel } from './AwsTerminalPanel'
@@ -313,6 +313,7 @@ function refreshTagsForScreen(screen: Screen): CacheTag[] {
 }
 
 export function App() {
+  const [releaseInfo, setReleaseInfo] = useState<AppReleaseInfo | null>(null)
   const [screen, setScreen] = useState<Screen>('profiles')
   const [navOpen, setNavOpen] = useState(true)
   const [visitedScreens, setVisitedScreens] = useState<Screen[]>(['profiles'])
@@ -346,6 +347,12 @@ export function App() {
       setServices(loadedServices)
     }).catch((error) => {
       setCatalogError(error instanceof Error ? error.message : String(error))
+    })
+  }, [])
+
+  useEffect(() => {
+    void getAppReleaseInfo().then(setReleaseInfo).catch(() => {
+      // Ignore release check failures in the UI.
     })
   }, [])
 
@@ -436,6 +443,7 @@ export function App() {
   const connectionScopeKey = connectionState.connection
     ? `${connectionState.connection.sessionId}:${connectionState.connection.region}`
     : 'disconnected'
+  const versionLabel = releaseInfo?.currentVersion ?? ''
 
   function togglePinnedService(serviceId: ServiceId) {
     setPinnedServiceIds((current) =>
@@ -855,7 +863,23 @@ export function App() {
                 <span /><span /><span />
               </span>
             </button>
-            <h1>AWS Lens</h1>
+            <div className="service-nav-title">
+              <h1>AWS Lens</h1>
+              <div className="app-version-row">
+                {versionLabel && <span className="app-version-badge">v{versionLabel}</span>}
+                {releaseInfo?.updateAvailable && (
+                  <button
+                    type="button"
+                    className="app-update-indicator"
+                    aria-label={`Update available. Latest version is ${releaseInfo.latestVersion}. Open releases page.`}
+                    title={`Update available: v${releaseInfo.latestVersion}`}
+                    onClick={() => void openExternalUrl(releaseInfo.releaseUrl)}
+                  >
+                    ↑
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
           <div className="service-nav-controls">
             <div className="field">

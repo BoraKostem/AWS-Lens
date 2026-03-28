@@ -96,6 +96,15 @@ export type CallerIdentity = {
   userId: string
 }
 
+export type AppReleaseInfo = {
+  currentVersion: string
+  latestVersion: string | null
+  updateAvailable: boolean
+  releaseUrl: string
+  checkedAt: string | null
+  error: string | null
+}
+
 export type Ec2SsmStatus = 'managed-online' | 'managed-offline' | 'not-managed'
 
 export type SsmManagedInstanceSummary = {

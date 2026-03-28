@@ -35,6 +35,7 @@ const awsLensApi = {
   assumeRoleSession: (request: AssumeRoleRequest) => ipcRenderer.invoke('session-hub:assume', request),
   assumeSavedRoleTarget: (targetId: string) => ipcRenderer.invoke('session-hub:assume-target', targetId),
   listServices: () => ipcRenderer.invoke('services:list'),
+  getReleaseInfo: () => ipcRenderer.invoke('app:release-info'),
   getCallerIdentity: (connection: AwsConnection) => ipcRenderer.invoke('sts:get-caller-identity', connection),
   listEc2Instances: (connection: AwsConnection) => ipcRenderer.invoke('ec2:list', connection),
   listEbsVolumes: (connection: AwsConnection) => ipcRenderer.invoke('ec2:list-volumes', connection),

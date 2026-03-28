@@ -17,6 +17,7 @@ import { registerServiceIpcHandlers } from './serviceIpc'
 import { registerSgIpcHandlers } from './sgIpc'
 import { registerTerminalIpcHandlers } from './terminalIpc'
 import { registerVpcIpcHandlers } from './vpcIpc'
+import { startReleaseCheck } from './releaseCheck'
 import { hasActiveTerraformApplyOrDestroy } from './terraform'
 
 let mainWindow: BrowserWindow | null = null
@@ -156,6 +157,7 @@ app.whenReady().then(() => {
   registerSgIpcHandlers()
   registerTerminalIpcHandlers()
   registerVpcIpcHandlers()
+  startReleaseCheck()
   createWindow()
 
   app.on('activate', () => {

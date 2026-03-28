@@ -30,6 +30,7 @@ declare global {
       assumeRoleSession: (request: AssumeRoleRequest) => Promise<unknown>
       assumeSavedRoleTarget: (targetId: string) => Promise<unknown>
       listServices: () => Promise<unknown>
+      getReleaseInfo: () => Promise<unknown>
       getCallerIdentity: (connection: AwsConnection) => Promise<unknown>
       listEc2Instances: (connection: AwsConnection) => Promise<unknown>
       listEbsVolumes: (connection: AwsConnection) => Promise<unknown>
