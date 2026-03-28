@@ -72,6 +72,18 @@ type EksFocus = {
   clusterName: string
 }
 
+const SERVICE_CATEGORY_ORDER = [
+  'Infrastructure',
+  'Compute',
+  'Storage',
+  'Database',
+  'Containers',
+  'Networking',
+  'Security',
+  'Management',
+  'Messaging'
+] as const
+
 const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   terraform: 'Terraform project browser and command execution workspace.',
   overview: 'Regional summary landing page across AWS services.',
@@ -343,12 +355,20 @@ export function App() {
       list.push(service)
       grouped.set(category, list)
     }
-    return [...grouped.entries()].map(([category, items]) => [
-      category,
-      items
-        .filter((service) => service.id !== 'overview' && service.id !== 'session-hub')
-        .sort((a, b) => a.label.localeCompare(b.label))
-    ] as const)
+    const order = new Map<string, number>(SERVICE_CATEGORY_ORDER.map((category, index) => [category, index]))
+
+    return [...grouped.entries()]
+      .map(([category, items]) => [
+        category,
+        items
+          .filter((service) => service.id !== 'overview' && service.id !== 'session-hub')
+          .sort((a, b) => a.label.localeCompare(b.label))
+      ] as const)
+      .sort(([left], [right]) => {
+        const leftIndex = order.get(left) ?? Number.MAX_SAFE_INTEGER
+        const rightIndex = order.get(right) ?? Number.MAX_SAFE_INTEGER
+        return leftIndex - rightIndex || left.localeCompare(right)
+      })
   }, [services])
 
   const filteredProfiles = useMemo(() => {
