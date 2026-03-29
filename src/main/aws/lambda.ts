@@ -5,6 +5,7 @@ import {
   InvokeCommand,
   LambdaClient,
   ListFunctionsCommand,
+  ListTagsCommand,
   type Runtime
 } from '@aws-sdk/client-lambda'
 import AdmZip from 'adm-zip'
@@ -31,12 +32,22 @@ export async function listLambdaFunctions(connection: AwsConnection): Promise<La
   do {
     const output = await client.send(new ListFunctionsCommand({ Marker: marker }))
     for (const fn of output.Functions ?? []) {
+      let tags: Record<string, string> = {}
+      if (fn.FunctionArn) {
+        try {
+          const tagOutput = await client.send(new ListTagsCommand({ Resource: fn.FunctionArn }))
+          tags = tagOutput.Tags ?? {}
+        } catch {
+          tags = {}
+        }
+      }
       functions.push({
         functionName: fn.FunctionName ?? '-',
         handler: fn.Handler ?? '-',
         runtime: fn.Runtime ?? '-',
         memory: fn.MemorySize ?? '-',
-        lastModified: fn.LastModified ?? '-'
+        lastModified: fn.LastModified ?? '-',
+        tags
       })
     }
     marker = output.NextMarker

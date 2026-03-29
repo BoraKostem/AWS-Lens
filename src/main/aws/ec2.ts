@@ -893,7 +893,8 @@ function toInstanceSummary(instance: Instance, managedInfo?: { PingStatus?: stri
     ssmPingStatus: managedInfo?.PingStatus ?? '-',
     ssmLastPingAt: managedInfo?.LastPingDateTime?.toISOString() ?? '-',
     isTempInspectionInstance: tags[TEMP_PURPOSE_TAG] === TEMP_PURPOSE_EBS_INSPECTION,
-    tempInspectionSourceVolumeId: tags[TEMP_SOURCE_VOLUME_TAG] ?? '-'
+    tempInspectionSourceVolumeId: tags[TEMP_SOURCE_VOLUME_TAG] ?? '-',
+    tags
   }
 }
 

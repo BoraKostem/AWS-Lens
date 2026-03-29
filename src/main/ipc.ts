@@ -194,8 +194,8 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('terraform:workspace:delete', async (_event, profileName: string, projectId: string, workspaceName: string, connection?: AwsConnection) =>
     wrap(() => deleteProjectWorkspace(profileName, projectId, workspaceName, connection))
   )
-  ipcMain.handle('terraform:drift:get', async (_event, profileName: string, projectId: string, connection: AwsConnection) =>
-    wrap(() => getTerraformDriftReport(profileName, projectId, connection))
+  ipcMain.handle('terraform:drift:get', async (_event, profileName: string, projectId: string, connection: AwsConnection, options?: { forceRefresh?: boolean }) =>
+    wrap(() => getTerraformDriftReport(profileName, projectId, connection, options))
   )
   ipcMain.handle('terraform:observability-report:get', async (_event, profileName: string, projectId: string, connection: AwsConnection) =>
     wrap(() => generateTerraformObservabilityReport(profileName, projectId, connection))

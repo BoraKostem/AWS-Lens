@@ -42,8 +42,13 @@ export async function getProject(profileName: string, projectId: string, connect
   return unwrap(await bridge().getProject(profileName, projectId, connection) as Wrapped<TerraformProject>)
 }
 
-export async function getDrift(profileName: string, projectId: string, connection: { profile: string; region: string }): Promise<TerraformDriftReport> {
-  return unwrap(await bridge().getDrift(profileName, projectId, connection) as Wrapped<TerraformDriftReport>)
+export async function getDrift(
+  profileName: string,
+  projectId: string,
+  connection: { profile: string; region: string },
+  options?: { forceRefresh?: boolean }
+): Promise<TerraformDriftReport> {
+  return unwrap(await bridge().getDrift(profileName, projectId, connection, options) as Wrapped<TerraformDriftReport>)
 }
 
 export async function getObservabilityReport(profileName: string, projectId: string, connection: { profile: string; region: string }): Promise<ObservabilityPostureReport> {

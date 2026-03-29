@@ -1520,12 +1520,26 @@ function ResourcesTab({ project }: { project: TerraformProject }) {
 
 /* ── Main Terraform Console ───────────────────────────────── */
 
-const DRIFT_STATUS_LABELS: Record<Exclude<TerraformDriftStatus, 'unsupported'>, string> = {
+const DRIFT_STATUS_LABELS: Record<TerraformDriftStatus, string> = {
   in_sync: 'In Sync',
   drifted: 'Drifted',
   missing_in_aws: 'Missing In AWS',
-  unmanaged_in_aws: 'Unmanaged In AWS'
+  unmanaged_in_aws: 'Unmanaged In AWS',
+  unsupported: 'Unsupported'
 }
+
+const DRIFT_TREND_LABELS: Record<TerraformDriftReport['history']['trend'], string> = {
+  improving: 'Improving',
+  worsening: 'Worsening',
+  unchanged: 'Unchanged',
+  insufficient_history: 'Need More History'
+}
+
+const DRIFT_ASSESSMENT_LABELS = {
+  verified: 'Verified',
+  inferred: 'Inferred',
+  unsupported: 'Unsupported'
+} as const
 
 function driftItemKey(item: TerraformDriftItem): string {
   return `${item.terraformAddress}|${item.resourceType}|${item.cloudIdentifier}|${item.logicalName}|${item.status}`
@@ -1548,10 +1562,10 @@ function DriftTab({
   report: TerraformDriftReport | null
   loading: boolean
   error: string
-  statusFilter: 'all' | Exclude<TerraformDriftStatus, 'unsupported'>
+  statusFilter: 'all' | TerraformDriftStatus
   typeFilter: string
   selectedKey: string
-  onStatusFilterChange: (value: 'all' | Exclude<TerraformDriftStatus, 'unsupported'>) => void
+  onStatusFilterChange: (value: 'all' | TerraformDriftStatus) => void
   onTypeFilterChange: (value: string) => void
   onSelectItem: (key: string) => void
   onRefresh: () => void
@@ -1582,27 +1596,36 @@ function DriftTab({
           <div>
             <h3>Drift Summary</h3>
             <div className="tf-section-hint">
-              Terraform state vs live AWS inventory for region {report?.region ?? '-'}.
+              Terraform state vs live AWS inventory for region {report?.region ?? '-'} with persisted reconciliation snapshots.
             </div>
           </div>
           <button type="button" className="tf-toolbar-btn" onClick={onRefresh} disabled={loading}>
-            {loading ? 'Scanning...' : 'Refresh Drift'}
+            {loading ? 'Scanning...' : 'Manual Re-scan'}
           </button>
         </div>
         {report && (
-          <div className="tf-summary">
-            <span className="tf-summary-item"><span className="tf-summary-count">{report.summary.total}</span> total</span>
-            <span className="tf-summary-item"><span className="tf-summary-count drifted">{report.summary.statusCounts.drifted}</span> drifted</span>
-            <span className="tf-summary-item"><span className="tf-summary-count missing_in_aws">{report.summary.statusCounts.missing_in_aws}</span> missing</span>
-            <span className="tf-summary-item"><span className="tf-summary-count unmanaged_in_aws">{report.summary.statusCounts.unmanaged_in_aws}</span> unmanaged</span>
-            <span className="tf-summary-item"><span className="tf-summary-count in_sync">{report.summary.statusCounts.in_sync}</span> in sync</span>
-            <span className="tf-summary-item">scanned: {report.summary.scannedAt ? new Date(report.summary.scannedAt).toLocaleString() : '-'}</span>
-          </div>
+          <>
+            <div className="tf-summary">
+              <span className="tf-summary-item"><span className="tf-summary-count">{report.summary.total}</span> total</span>
+              <span className="tf-summary-item"><span className="tf-summary-count drifted">{report.summary.statusCounts.drifted}</span> drifted</span>
+              <span className="tf-summary-item"><span className="tf-summary-count missing_in_aws">{report.summary.statusCounts.missing_in_aws}</span> missing</span>
+              <span className="tf-summary-item"><span className="tf-summary-count unmanaged_in_aws">{report.summary.statusCounts.unmanaged_in_aws}</span> unmanaged</span>
+              <span className="tf-summary-item"><span className="tf-summary-count unsupported">{report.summary.statusCounts.unsupported}</span> unsupported</span>
+              <span className="tf-summary-item"><span className="tf-summary-count in_sync">{report.summary.statusCounts.in_sync}</span> in sync</span>
+            </div>
+            <div className="tf-kv" style={{ marginTop: 12 }}>
+              <div className="tf-kv-row"><div className="tf-kv-label">Last Drift Scan</div><div className="tf-kv-value">{formatIsoDate(report.history.latestScanAt || report.summary.scannedAt)}</div></div>
+              <div className="tf-kv-row"><div className="tf-kv-label">Scan Source</div><div className="tf-kv-value">{report.fromCache ? 'Loaded from local snapshot history' : 'Fresh live AWS scan'}</div></div>
+              <div className="tf-kv-row"><div className="tf-kv-label">Trend</div><div className="tf-kv-value">{DRIFT_TREND_LABELS[report.history.trend]}</div></div>
+              <div className="tf-kv-row"><div className="tf-kv-label">Verified Findings</div><div className="tf-kv-value">{report.summary.verifiedCount}</div></div>
+              <div className="tf-kv-row"><div className="tf-kv-label">Items With Inferred Signals</div><div className="tf-kv-value">{report.summary.inferredCount}</div></div>
+            </div>
+          </>
         )}
         <div className="tf-drift-filters">
           <div className="tf-drift-status-row">
             <button type="button" className={statusFilter === 'all' ? 'active' : ''} onClick={() => onStatusFilterChange('all')}>All</button>
-            {(Object.keys(DRIFT_STATUS_LABELS) as Array<Exclude<TerraformDriftStatus, 'unsupported'>>).map((status) => (
+            {(Object.keys(DRIFT_STATUS_LABELS) as TerraformDriftStatus[]).map((status) => (
               <button key={status} type="button" className={statusFilter === status ? 'active' : ''} onClick={() => onStatusFilterChange(status)}>
                 {DRIFT_STATUS_LABELS[status]}
               </button>
@@ -1644,7 +1667,7 @@ function DriftTab({
                     const key = driftItemKey(item)
                     return (
                       <tr key={key} className={selectedItem && driftItemKey(selectedItem) === key ? 'active' : ''} onClick={() => onSelectItem(key)}>
-                        <td><span className={`tf-drift-badge ${item.status}`}>{DRIFT_STATUS_LABELS[item.status as Exclude<TerraformDriftStatus, 'unsupported'>]}</span></td>
+                        <td><span className={`tf-drift-badge ${item.status}`}>{DRIFT_STATUS_LABELS[item.status]}</span></td>
                         <td>{item.resourceType}</td>
                         <td>{item.logicalName || '-'}</td>
                         <td title={item.terraformAddress}>{item.terraformAddress || '-'}</td>
@@ -1668,7 +1691,8 @@ function DriftTab({
                 </div>
               </div>
               <div className="tf-kv">
-                <div className="tf-kv-row"><div className="tf-kv-label">Status</div><div className="tf-kv-value">{DRIFT_STATUS_LABELS[selectedItem.status as Exclude<TerraformDriftStatus, 'unsupported'>]}</div></div>
+                <div className="tf-kv-row"><div className="tf-kv-label">Status</div><div className="tf-kv-value">{DRIFT_STATUS_LABELS[selectedItem.status]}</div></div>
+                <div className="tf-kv-row"><div className="tf-kv-label">Assessment</div><div className="tf-kv-value">{DRIFT_ASSESSMENT_LABELS[selectedItem.assessment]}</div></div>
                 <div className="tf-kv-row"><div className="tf-kv-label">Resource Type</div><div className="tf-kv-value">{selectedItem.resourceType}</div></div>
                 <div className="tf-kv-row"><div className="tf-kv-label">Logical Name</div><div className="tf-kv-value">{selectedItem.logicalName || '-'}</div></div>
                 <div className="tf-kv-row"><div className="tf-kv-label">Terraform Address</div><div className="tf-kv-value">{selectedItem.terraformAddress || '-'}</div></div>
@@ -1676,10 +1700,91 @@ function DriftTab({
                 <div className="tf-kv-row"><div className="tf-kv-label">Region</div><div className="tf-kv-value">{selectedItem.region || '-'}</div></div>
                 <div className="tf-kv-row"><div className="tf-kv-label">Explanation</div><div className="tf-kv-value">{selectedItem.explanation}</div></div>
                 <div className="tf-kv-row"><div className="tf-kv-label">Suggested Next Step</div><div className="tf-kv-value">{selectedItem.suggestedNextStep}</div></div>
+                <div className="tf-kv-row"><div className="tf-kv-label">Evidence</div><div className="tf-kv-value">{selectedItem.evidence.length > 0 ? selectedItem.evidence.join(' | ') : '-'}</div></div>
+                <div className="tf-kv-row"><div className="tf-kv-label">Related Terraform Addresses</div><div className="tf-kv-value">{selectedItem.relatedTerraformAddresses.length > 0 ? selectedItem.relatedTerraformAddresses.join(', ') : '-'}</div></div>
+                <div className="tf-kv-row"><div className="tf-kv-label">Differences</div><div className="tf-kv-value">{selectedItem.differences.length > 0 ? selectedItem.differences.map((difference) => `${difference.label}: ${difference.terraformValue || '-'} -> ${difference.liveValue || '-'} (${difference.assessment})`).join(' | ') : '-'}</div></div>
               </div>
             </div>
           )}
         </>
+      )}
+      {report && report.history.snapshots.length > 0 && (
+        <div className="tf-section">
+          <div className="tf-section-head">
+            <div>
+              <h3>Snapshot History</h3>
+              <div className="tf-section-hint">
+                Manual re-scans store timestamped snapshots locally under the app user data directory.
+              </div>
+            </div>
+          </div>
+          <div className="tf-resource-table-wrap">
+            <table className="tf-data-table">
+              <thead>
+                <tr>
+                  <th>Scanned</th>
+                  <th>Trigger</th>
+                  <th>Trend Context</th>
+                  <th>Drifted</th>
+                  <th>Missing</th>
+                  <th>Unmanaged</th>
+                  <th>Unsupported</th>
+                  <th>In Sync</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.history.snapshots.slice(0, 8).map((snapshot, index) => (
+                  <tr key={snapshot.id}>
+                    <td>{formatIsoDate(snapshot.scannedAt)}</td>
+                    <td>{snapshot.trigger === 'manual' ? 'Manual re-scan' : 'Initial scan'}</td>
+                    <td>{index === 0 ? DRIFT_TREND_LABELS[report.history.trend] : '-'}</td>
+                    <td>{snapshot.summary.statusCounts.drifted}</td>
+                    <td>{snapshot.summary.statusCounts.missing_in_aws}</td>
+                    <td>{snapshot.summary.statusCounts.unmanaged_in_aws}</td>
+                    <td>{snapshot.summary.statusCounts.unsupported}</td>
+                    <td>{snapshot.summary.statusCounts.in_sync}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      {report && report.summary.supportedResourceTypes.length > 0 && (
+        <div className="tf-section">
+          <div className="tf-section-head">
+            <div>
+              <h3>Supported Resource Coverage</h3>
+              <div className="tf-section-hint">
+                Verified checks are direct comparisons. Inferred checks are heuristics, mainly for likely Terraform relationships around unmanaged live resources.
+              </div>
+            </div>
+          </div>
+          <div className="tf-resource-table-wrap">
+            <table className="tf-data-table">
+              <thead>
+                <tr>
+                  <th>Resource Type</th>
+                  <th>Coverage</th>
+                  <th>Verified Checks</th>
+                  <th>Inferred Checks</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.summary.supportedResourceTypes.map((item) => (
+                  <tr key={item.resourceType}>
+                    <td>{item.resourceType}</td>
+                    <td>{item.coverage}</td>
+                    <td>{item.verifiedChecks.join(', ') || '-'}</td>
+                    <td>{item.inferredChecks.join(', ') || '-'}</td>
+                    <td>{item.notes.join(' | ') || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
     </>
   )
@@ -1899,7 +2004,7 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
   const [driftReport, setDriftReport] = useState<TerraformDriftReport | null>(null)
   const [driftLoading, setDriftLoading] = useState(false)
   const [driftError, setDriftError] = useState('')
-  const [driftStatusFilter, setDriftStatusFilter] = useState<'all' | Exclude<TerraformDriftStatus, 'unsupported'>>('all')
+  const [driftStatusFilter, setDriftStatusFilter] = useState<'all' | TerraformDriftStatus>('all')
   const [driftTypeFilter, setDriftTypeFilter] = useState('all')
   const [selectedDriftKey, setSelectedDriftKey] = useState('')
   const [labReport, setLabReport] = useState<ObservabilityPostureReport | null>(null)
@@ -1979,12 +2084,12 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
     }).catch(() => setDetail(null))
   }, [connection, contextKey, selectedId])
 
-  const loadDrift = useCallback(async () => {
+  const loadDrift = useCallback(async (options?: { forceRefresh?: boolean }) => {
     if (!detail) return
     setDriftLoading(true)
     setDriftError('')
     try {
-      const report = await getDrift(contextKey, detail.id, connection)
+      const report = await getDrift(contextKey, detail.id, connection, options)
       setDriftReport(report)
       setSelectedDriftKey((current) => current || (report.items[0] ? driftItemKey(report.items[0]) : ''))
     } catch (err) {
@@ -2585,7 +2690,7 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
                   onStatusFilterChange={setDriftStatusFilter}
                   onTypeFilterChange={setDriftTypeFilter}
                   onSelectItem={setSelectedDriftKey}
-                  onRefresh={() => void loadDrift()}
+                  onRefresh={() => void loadDrift({ forceRefresh: true })}
                   onOpenConsole={handleOpenDriftConsole}
                   onRunStateShow={handleRunDriftStateShow}
                 />

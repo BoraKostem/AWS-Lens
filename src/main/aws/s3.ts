@@ -567,6 +567,7 @@ export async function listBuckets(connection: AwsConnection): Promise<S3BucketSu
   const buckets = await Promise.all((output.Buckets ?? []).map(async (bucket) => {
     const name = bucket.Name ?? '-'
     let region = connection.region
+    let tags: Record<string, string> = {}
 
     if (name !== '-') {
       try {
@@ -574,12 +575,20 @@ export async function listBuckets(connection: AwsConnection): Promise<S3BucketSu
       } catch {
         region = connection.region
       }
+
+      try {
+        const tagOutput = await client.send(new GetBucketTaggingCommand({ Bucket: name }))
+        tags = Object.fromEntries((tagOutput.TagSet ?? []).flatMap((tag) => tag.Key ? [[tag.Key, tag.Value ?? '']] : []))
+      } catch {
+        tags = {}
+      }
     }
 
     return {
       name,
       creationDate: bucket.CreationDate?.toISOString() ?? '-',
-      region
+      region,
+      tags
     }
   }))
 

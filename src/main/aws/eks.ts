@@ -74,7 +74,12 @@ export async function listEksClusters(connection: AwsConnection): Promise<EksClu
         status: detail?.status ?? '-',
         version: detail?.version ?? '-',
         endpoint: detail?.endpoint ?? '-',
-        roleArn: detail?.roleArn ?? '-'
+        roleArn: detail?.roleArn ?? '-',
+        tags: readTags(
+          detail?.tags
+            ? Object.entries(detail.tags).map(([Key, Value]) => ({ Key, Value }))
+            : []
+        )
       })
     }
     nextToken = output.nextToken

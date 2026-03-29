@@ -356,6 +356,7 @@ export type Ec2InstanceSummary = {
   ssmLastPingAt: string
   isTempInspectionInstance: boolean
   tempInspectionSourceVolumeId: string
+  tags?: Record<string, string>
 }
 
 export type Ec2InstanceDetail = {
@@ -560,6 +561,7 @@ export type LambdaFunctionSummary = {
   runtime: string
   memory: number | string
   lastModified: string
+  tags?: Record<string, string>
 }
 
 export type LambdaInvokeResult = {
@@ -607,6 +609,7 @@ export type EksClusterSummary = {
   version: string
   endpoint: string
   roleArn: string
+  tags?: Record<string, string>
 }
 
 export type EksClusterDetail = {
@@ -1224,6 +1227,7 @@ export type EcrRepositorySummary = {
   createdAt: string
   imageTagMutability: string
   scanOnPush: boolean
+  tags?: Record<string, string>
 }
 
 export type EcrImageSummary = {
@@ -1290,6 +1294,7 @@ export type S3BucketSummary = {
   name: string
   creationDate: string
   region: string
+  tags?: Record<string, string>
 }
 
 export type S3GovernanceSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info'
@@ -1406,6 +1411,7 @@ export type RdsInstanceSummary = {
   availabilityZone: string
   dbClusterIdentifier: string
   isAurora: boolean
+  tags?: Record<string, string>
 }
 
 export type RdsClusterNodeSummary = {
@@ -1432,6 +1438,7 @@ export type RdsClusterSummary = {
   storageEncrypted: boolean
   writerNodes: RdsClusterNodeSummary[]
   readerNodes: RdsClusterNodeSummary[]
+  tags?: Record<string, string>
 }
 
 export type RdsOperationalStatusTone = 'good' | 'neutral' | 'warning' | 'risk'
@@ -2508,6 +2515,46 @@ export type TerraformDriftStatus =
   | 'unmanaged_in_aws'
   | 'unsupported'
 
+export type TerraformDriftAssessment = 'verified' | 'inferred' | 'unsupported'
+
+export type TerraformDriftDifferenceKind = 'attribute' | 'tag' | 'heuristic'
+
+export type TerraformDriftDifference = {
+  key: string
+  label: string
+  kind: TerraformDriftDifferenceKind
+  assessment: Exclude<TerraformDriftAssessment, 'unsupported'>
+  terraformValue: string
+  liveValue: string
+}
+
+export type TerraformDriftCoverageLevel = 'verified' | 'partial'
+
+export type TerraformDriftCoverageItem = {
+  resourceType: string
+  coverage: TerraformDriftCoverageLevel
+  verifiedChecks: string[]
+  inferredChecks: string[]
+  notes: string[]
+}
+
+export type TerraformDriftTrend = 'improving' | 'worsening' | 'unchanged' | 'insufficient_history'
+
+export type TerraformDriftSnapshot = {
+  id: string
+  scannedAt: string
+  trigger: 'manual' | 'initial'
+  summary: TerraformDriftSummary
+  items: TerraformDriftItem[]
+}
+
+export type TerraformDriftHistory = {
+  snapshots: TerraformDriftSnapshot[]
+  trend: TerraformDriftTrend
+  latestScanAt: string
+  previousScanAt: string
+}
+
 export type TerraformDriftItem = {
   terraformAddress: string
   resourceType: string
@@ -2515,10 +2562,14 @@ export type TerraformDriftItem = {
   cloudIdentifier: string
   region: string
   status: TerraformDriftStatus
+  assessment: TerraformDriftAssessment
   explanation: string
   suggestedNextStep: string
   consoleUrl: string
   terminalCommand: string
+  differences: TerraformDriftDifference[]
+  evidence: string[]
+  relatedTerraformAddresses: string[]
 }
 
 export type TerraformDriftSummary = {
@@ -2526,6 +2577,10 @@ export type TerraformDriftSummary = {
   statusCounts: Record<TerraformDriftStatus, number>
   resourceTypeCounts: Array<{ resourceType: string; count: number }>
   scannedAt: string
+  verifiedCount: number
+  inferredCount: number
+  unsupportedResourceTypes: string[]
+  supportedResourceTypes: TerraformDriftCoverageItem[]
 }
 
 export type TerraformDriftReport = {
@@ -2535,6 +2590,8 @@ export type TerraformDriftReport = {
   region: string
   summary: TerraformDriftSummary
   items: TerraformDriftItem[]
+  history: TerraformDriftHistory
+  fromCache: boolean
 }
 
 export type TerraformProject = {

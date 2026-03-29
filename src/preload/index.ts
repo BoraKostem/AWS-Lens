@@ -586,8 +586,8 @@ const api = {
   getCliInfo: () => ipcRenderer.invoke('terraform:cli:info'),
   listProjects: (profileName: string, connection?: AwsConnection) => ipcRenderer.invoke('terraform:projects:list', profileName, connection),
   getProject: (profileName: string, projectId: string, connection?: AwsConnection) => ipcRenderer.invoke('terraform:projects:get', profileName, projectId, connection),
-  getDrift: (profileName: string, projectId: string, connection: AwsConnection) =>
-    ipcRenderer.invoke('terraform:drift:get', profileName, projectId, connection),
+  getDrift: (profileName: string, projectId: string, connection: AwsConnection, options?: { forceRefresh?: boolean }) =>
+    ipcRenderer.invoke('terraform:drift:get', profileName, projectId, connection, options),
   getObservabilityReport: (profileName: string, projectId: string, connection: AwsConnection) =>
     ipcRenderer.invoke('terraform:observability-report:get', profileName, projectId, connection),
   chooseProjectDirectory: () => ipcRenderer.invoke('terraform:projects:choose-directory'),

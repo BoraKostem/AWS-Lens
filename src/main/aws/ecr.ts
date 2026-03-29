@@ -10,6 +10,7 @@ import {
   DescribeRepositoriesCommand,
   ECRClient,
   GetAuthorizationTokenCommand,
+  ListTagsForResourceCommand,
   StartImageScanCommand
 } from '@aws-sdk/client-ecr'
 
@@ -36,6 +37,15 @@ export async function listEcrRepositories(connection: AwsConnection): Promise<Ec
   do {
     const output = await client.send(new DescribeRepositoriesCommand({ nextToken }))
     for (const repo of output.repositories ?? []) {
+      let tags: Record<string, string> = {}
+      if (repo.repositoryArn) {
+        try {
+          const tagOutput = await client.send(new ListTagsForResourceCommand({ resourceArn: repo.repositoryArn }))
+          tags = Object.fromEntries((tagOutput.tags ?? []).flatMap((tag) => tag.Key ? [[tag.Key, tag.Value ?? '']] : []))
+        } catch {
+          tags = {}
+        }
+      }
       repos.push({
         repositoryName: repo.repositoryName ?? '-',
         repositoryUri: repo.repositoryUri ?? '-',
@@ -43,7 +53,8 @@ export async function listEcrRepositories(connection: AwsConnection): Promise<Ec
         imageCount: 0,
         createdAt: repo.createdAt?.toISOString() ?? '-',
         imageTagMutability: repo.imageTagMutability ?? 'MUTABLE',
-        scanOnPush: repo.imageScanningConfiguration?.scanOnPush ?? false
+        scanOnPush: repo.imageScanningConfiguration?.scanOnPush ?? false,
+        tags
       })
     }
     nextToken = output.nextToken

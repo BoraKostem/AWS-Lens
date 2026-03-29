@@ -342,7 +342,7 @@ declare global {
     terraformWorkspace: {
       listProjects: (profileName: string, connection?: AwsConnection) => Promise<unknown>
       getProject: (profileName: string, projectId: string, connection?: AwsConnection) => Promise<unknown>
-      getDrift: (profileName: string, projectId: string, connection: AwsConnection) => Promise<unknown>
+      getDrift: (profileName: string, projectId: string, connection: AwsConnection, options?: { forceRefresh?: boolean }) => Promise<unknown>
       getObservabilityReport: (profileName: string, projectId: string, connection: AwsConnection) => Promise<unknown>
       chooseProjectDirectory: () => Promise<unknown>
       addProject: (profileName: string, rootPath: string, connection?: AwsConnection) => Promise<unknown>
