@@ -2231,3 +2231,17 @@ export function hasSavedPlan(projectId: string): boolean {
 export function clearSavedPlan(projectId: string): void {
   savedPlanPaths.delete(projectId)
 }
+
+export function getProjectContext(profileName: string, projectId: string, connection?: AwsConnection): {
+  rootPath: string
+  env: Record<string, string>
+  tfCliPath: string
+} {
+  const project = getStoredProjects(profileName).find((p) => p.id === projectId)
+  if (!project) throw new Error('Project not found.')
+  return {
+    rootPath: project.rootPath,
+    env: buildEnvWithVars(project, connection),
+    tfCliPath: terraformCommand()
+  }
+}

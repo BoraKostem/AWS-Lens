@@ -1388,6 +1388,272 @@
   justify-content: flex-end;
 }
 
+/* ── Governance / Safety Panel ───────────────────────────── */
+
+.tf-governance-panel {
+  background: rgba(30, 35, 43, 0.6);
+}
+
+.tf-governance-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.tf-governance-tools {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.tf-governance-tool-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tf-governance-tool-badge.available {
+  background: rgba(46, 204, 113, 0.12);
+  color: #7ee2a5;
+}
+
+.tf-governance-tool-badge.missing {
+  background: rgba(90, 106, 122, 0.12);
+  color: #6b7688;
+}
+
+.tf-governance-optional {
+  font-weight: 400;
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.tf-governance-rescan {
+  padding: 2px 8px;
+  border: 1px solid #3b4350;
+  border-radius: 3px;
+  background: transparent;
+  color: #6b7688;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.tf-governance-rescan:hover {
+  color: #9ca7b7;
+  border-color: #4a8fe7;
+}
+
+.tf-governance-results {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tf-governance-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  margin-bottom: 4px;
+}
+
+.tf-governance-verdict {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tf-governance-verdict.pass { color: #2ecc71; }
+.tf-governance-verdict.fail { color: #e74c3c; }
+
+.tf-governance-timestamp {
+  font-size: 10px;
+  color: #6b7688;
+}
+
+.tf-governance-check {
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.tf-governance-check.passed { border-left: 3px solid #2ecc71; }
+.tf-governance-check.failed { border-left: 3px solid #e74c3c; }
+.tf-governance-check.skipped { border-left: 3px solid #6b7688; }
+.tf-governance-check.error { border-left: 3px solid #f39c12; }
+
+.tf-governance-check-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  background: rgba(37, 43, 51, 0.6);
+  transition: background 0.1s;
+}
+
+.tf-governance-check-header:hover {
+  background: rgba(50, 57, 71, 0.6);
+}
+
+.tf-governance-check-icon {
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.tf-governance-check-icon.passed { color: #2ecc71; }
+.tf-governance-check-icon.failed { color: #e74c3c; }
+.tf-governance-check-icon.skipped { color: #6b7688; }
+.tf-governance-check-icon.error { color: #f39c12; }
+
+.tf-governance-check-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #d0d8e2;
+}
+
+.tf-governance-blocking-badge {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(231, 76, 60, 0.2);
+  color: #ff9e92;
+}
+
+.tf-governance-check-summary {
+  font-size: 11px;
+  color: #9ca7b7;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tf-governance-check-duration {
+  font-size: 10px;
+  color: #5a6a7a;
+  flex-shrink: 0;
+}
+
+.tf-governance-check-expand {
+  font-size: 10px;
+  color: #6b7688;
+  flex-shrink: 0;
+}
+
+.tf-governance-check-detail {
+  padding: 8px 10px;
+  border-top: 1px solid #3b4350;
+  background: rgba(17, 24, 32, 0.5);
+}
+
+.tf-governance-findings {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.tf-governance-finding {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 3px 4px;
+  font-size: 11px;
+  border-radius: 2px;
+}
+
+.tf-governance-finding:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tf-governance-severity {
+  flex-shrink: 0;
+  width: 36px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 1px 4px;
+  border-radius: 2px;
+  text-align: center;
+}
+
+.tf-governance-severity.critical { background: rgba(192, 57, 43, 0.25); color: #ff7b6e; }
+.tf-governance-severity.high { background: rgba(231, 76, 60, 0.2); color: #ff9e92; }
+.tf-governance-severity.medium { background: rgba(243, 156, 18, 0.2); color: #ffd082; }
+.tf-governance-severity.low { background: rgba(74, 143, 231, 0.15); color: #9ec7ff; }
+.tf-governance-severity.info { background: rgba(90, 106, 122, 0.15); color: #9ca7b7; }
+
+.tf-governance-finding-msg {
+  color: #c0c8d2;
+  word-break: break-word;
+  flex: 1;
+  min-width: 0;
+}
+
+.tf-governance-finding-loc {
+  flex-shrink: 0;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  font-size: 10px;
+  color: #6b7688;
+}
+
+.tf-governance-finding-overflow {
+  padding: 4px;
+  font-size: 11px;
+  color: #6b7688;
+  font-style: italic;
+}
+
+.tf-governance-raw-output {
+  margin-top: 8px;
+}
+
+.tf-governance-raw-output summary {
+  font-size: 11px;
+  color: #6b7688;
+  cursor: pointer;
+}
+
+.tf-governance-raw-output summary:hover {
+  color: #9ca7b7;
+}
+
+.tf-governance-raw-output pre {
+  margin: 6px 0 0;
+  padding: 8px;
+  background: #111820;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  font-size: 10px;
+  color: #c0c8d2;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 300px;
+  overflow: auto;
+  line-height: 1.5;
+}
+
+.tf-action-btn.governance-blocked {
+  opacity: 0.35;
+  position: relative;
+}
+
 /* ── History Tab ─────────────────────────────────────────── */
 
 .tf-history-filters {

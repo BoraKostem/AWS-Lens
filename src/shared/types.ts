@@ -2506,6 +2506,55 @@ export type TerraformRunHistoryFilter = {
   success?: boolean
 }
 
+/* ── Governance & Safety Checks ────────────────────────────── */
+
+export type TerraformGovernanceToolId = 'fmt' | 'validate' | 'tflint' | 'tfsec' | 'checkov'
+
+export type TerraformGovernanceToolInfo = {
+  id: TerraformGovernanceToolId
+  label: string
+  available: boolean
+  path: string
+  version: string
+  required: boolean
+}
+
+export type TerraformGovernanceCheckStatus = 'passed' | 'failed' | 'skipped' | 'error'
+
+export type TerraformGovernanceCheckResult = {
+  toolId: TerraformGovernanceToolId
+  label: string
+  status: TerraformGovernanceCheckStatus
+  blocking: boolean
+  summary: string
+  findings: TerraformGovernanceFinding[]
+  output: string
+  durationMs: number
+  ranAt: string
+}
+
+export type TerraformGovernanceFinding = {
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info'
+  ruleId: string
+  message: string
+  file: string
+  line: number
+}
+
+export type TerraformGovernanceSeverity = TerraformGovernanceFinding['severity']
+
+export type TerraformGovernanceReport = {
+  projectId: string
+  checks: TerraformGovernanceCheckResult[]
+  ranAt: string
+  allBlockingPassed: boolean
+}
+
+export type TerraformGovernanceToolkit = {
+  tools: TerraformGovernanceToolInfo[]
+  detectedAt: string
+}
+
 export type TerraformProjectStatus = 'Ready' | 'Missing'
 
 export type TerraformDriftStatus =

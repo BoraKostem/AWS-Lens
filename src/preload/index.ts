@@ -617,6 +617,11 @@ const api = {
   listRunHistory: (filter?: TerraformRunHistoryFilter) => ipcRenderer.invoke('terraform:history:list', filter),
   getRunOutput: (runId: string) => ipcRenderer.invoke('terraform:history:get-output', runId),
   deleteRunRecord: (runId: string) => ipcRenderer.invoke('terraform:history:delete', runId),
+  detectGovernanceTools: (tfCliPath?: string) => ipcRenderer.invoke('terraform:governance:detect-tools', tfCliPath),
+  getGovernanceToolkit: () => ipcRenderer.invoke('terraform:governance:toolkit'),
+  runGovernanceChecks: (profileName: string, projectId: string, connection?: AwsConnection) =>
+    ipcRenderer.invoke('terraform:governance:run-checks', profileName, projectId, connection),
+  getGovernanceReport: (projectId: string) => ipcRenderer.invoke('terraform:governance:get-report', projectId),
   subscribe: (listener: (event: unknown) => void) => {
     const wrapped = (_event: unknown, payload: unknown) => listener(payload)
     listenerMap.set(listener, wrapped)

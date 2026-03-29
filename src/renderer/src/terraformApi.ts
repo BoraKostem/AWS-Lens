@@ -5,6 +5,8 @@ import type {
   TerraformCommandLog,
   TerraformCommandRequest,
   TerraformDriftReport,
+  TerraformGovernanceReport,
+  TerraformGovernanceToolkit,
   TerraformMissingVarsResult,
   TerraformProject,
   TerraformProjectListItem,
@@ -141,6 +143,22 @@ export async function getRunOutput(runId: string): Promise<string> {
 
 export async function deleteRunRecord(runId: string): Promise<void> {
   return unwrap(await bridge().deleteRunRecord(runId) as Wrapped<void>)
+}
+
+export async function detectGovernanceTools(tfCliPath?: string): Promise<TerraformGovernanceToolkit> {
+  return unwrap(await bridge().detectGovernanceTools(tfCliPath) as Wrapped<TerraformGovernanceToolkit>)
+}
+
+export async function getGovernanceToolkit(): Promise<TerraformGovernanceToolkit> {
+  return unwrap(await bridge().getGovernanceToolkit() as Wrapped<TerraformGovernanceToolkit>)
+}
+
+export async function runGovernanceChecks(profileName: string, projectId: string, connection?: AwsConnection): Promise<TerraformGovernanceReport> {
+  return unwrap(await bridge().runGovernanceChecks(profileName, projectId, connection) as Wrapped<TerraformGovernanceReport>)
+}
+
+export async function getGovernanceReport(projectId: string): Promise<TerraformGovernanceReport | null> {
+  return unwrap(await bridge().getGovernanceReport(projectId) as Wrapped<TerraformGovernanceReport | null>)
 }
 
 export function subscribe(listener: (event: unknown) => void): void {

@@ -16,6 +16,9 @@ import type {
   TerraformDiagram,
   TerraformGraphEdge,
   TerraformGraphNode,
+  TerraformGovernanceCheckResult,
+  TerraformGovernanceReport,
+  TerraformGovernanceToolkit,
   TerraformPlanAction,
   TerraformPlanChange,
   TerraformPlanGroup,
@@ -35,9 +38,11 @@ import {
   createWorkspace,
   deleteRunRecord,
   detectCli,
+  detectGovernanceTools,
   detectMissingVars,
   deleteWorkspace,
   getDrift,
+  getGovernanceReport,
   getObservabilityReport,
   getProject,
   getMissingRequiredInputs,
@@ -49,6 +54,7 @@ import {
   removeProject,
   renameProject,
   runCommand,
+  runGovernanceChecks,
   selectWorkspace,
   setSelectedProjectId,
   subscribe,
@@ -883,6 +889,156 @@ function PlanGroupList({
   )
 }
 
+/* ── Governance / Safety Panel ────────────────────────────── */
+
+const CHECK_STATUS_ICON: Record<string, string> = {
+  passed: '\u2713',
+  failed: '\u2717',
+  skipped: '\u2014',
+  error: '!'
+}
+
+const SEVERITY_LABELS: Record<string, string> = {
+  critical: 'CRIT',
+  high: 'HIGH',
+  medium: 'MED',
+  low: 'LOW',
+  info: 'INFO'
+}
+
+function GovernancePanel({
+  toolkit,
+  report,
+  running,
+  onRunChecks,
+  onDetectTools
+}: {
+  toolkit: TerraformGovernanceToolkit | null
+  report: TerraformGovernanceReport | null
+  running: boolean
+  onRunChecks: () => void
+  onDetectTools: () => void
+}) {
+  const [expandedCheck, setExpandedCheck] = useState<string | null>(null)
+
+  const hasAnyTool = toolkit?.tools.some((t) => t.available) ?? false
+
+  return (
+    <div className="tf-section tf-governance-panel">
+      <div className="tf-section-head">
+        <div>
+          <h3>Safety Checks</h3>
+          {!toolkit?.detectedAt && (
+            <div className="tf-section-hint">Detect available tools to enable governance checks.</div>
+          )}
+        </div>
+        <div className="tf-governance-actions">
+          {toolkit?.detectedAt ? (
+            <button className="tf-toolbar-btn accent" disabled={running || !hasAnyTool} onClick={onRunChecks}>
+              {running ? 'Running...' : 'Run Checks'}
+            </button>
+          ) : (
+            <button className="tf-toolbar-btn" onClick={onDetectTools}>Detect Tools</button>
+          )}
+        </div>
+      </div>
+
+      {/* Tool availability */}
+      {toolkit?.detectedAt && (
+        <div className="tf-governance-tools">
+          {toolkit.tools.map((tool) => (
+            <span
+              key={tool.id}
+              className={`tf-governance-tool-badge ${tool.available ? 'available' : 'missing'}`}
+              title={tool.available ? `${tool.label} v${tool.version}` : `${tool.label} not found`}
+            >
+              {tool.available ? '\u2713' : '\u2014'} {tool.label}
+              {!tool.available && !tool.required && <span className="tf-governance-optional"> (optional)</span>}
+            </span>
+          ))}
+          <button
+            className="tf-governance-rescan"
+            onClick={onDetectTools}
+            title="Re-detect tools"
+          >
+            Rescan
+          </button>
+        </div>
+      )}
+
+      {/* Check results */}
+      {report && (
+        <div className="tf-governance-results">
+          <div className="tf-governance-summary-row">
+            <span className={`tf-governance-verdict ${report.allBlockingPassed ? 'pass' : 'fail'}`}>
+              {report.allBlockingPassed ? '\u2713 All blocking checks passed' : '\u2717 Blocking check(s) failed'}
+            </span>
+            <span className="tf-governance-timestamp">
+              {new Date(report.ranAt).toLocaleTimeString()}
+            </span>
+          </div>
+
+          {report.checks.map((check) => (
+            <div
+              key={check.toolId}
+              className={`tf-governance-check ${check.status}`}
+            >
+              <div
+                className="tf-governance-check-header"
+                onClick={() => setExpandedCheck(expandedCheck === check.toolId ? null : check.toolId)}
+              >
+                <span className={`tf-governance-check-icon ${check.status}`}>
+                  {CHECK_STATUS_ICON[check.status] ?? '?'}
+                </span>
+                <span className="tf-governance-check-label">{check.label}</span>
+                {check.blocking && <span className="tf-governance-blocking-badge">blocking</span>}
+                <span className="tf-governance-check-summary">{check.summary}</span>
+                <span className="tf-governance-check-duration">{check.durationMs}ms</span>
+                <span className="tf-governance-check-expand">
+                  {expandedCheck === check.toolId ? '\u25BC' : '\u25B6'}
+                </span>
+              </div>
+
+              {expandedCheck === check.toolId && (
+                <div className="tf-governance-check-detail">
+                  {check.findings.length > 0 && (
+                    <div className="tf-governance-findings">
+                      {check.findings.slice(0, 50).map((f, i) => (
+                        <div key={i} className={`tf-governance-finding ${f.severity}`}>
+                          <span className={`tf-governance-severity ${f.severity}`}>
+                            {SEVERITY_LABELS[f.severity] ?? f.severity}
+                          </span>
+                          <span className="tf-governance-finding-msg">{f.message}</span>
+                          {f.file && (
+                            <span className="tf-governance-finding-loc">
+                              {f.file}{f.line > 0 ? `:${f.line}` : ''}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                      {check.findings.length > 50 && (
+                        <div className="tf-governance-finding-overflow">
+                          ...and {check.findings.length - 50} more
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {check.output && (
+                    <details className="tf-governance-raw-output">
+                      <summary>Raw output</summary>
+                      <pre>{check.output}</pre>
+                    </details>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ActionsTab({
   project,
   cliOk,
@@ -891,7 +1047,12 @@ function ActionsTab({
   onInit,
   onPlan,
   onApply,
-  onDestroy
+  onDestroy,
+  governanceToolkit,
+  governanceReport,
+  governanceRunning,
+  onRunGovernanceChecks,
+  onDetectGovernanceTools
 }: {
   project: TerraformProject
   cliOk: boolean
@@ -901,6 +1062,11 @@ function ActionsTab({
   onPlan: (options?: TerraformPlanOptions) => void
   onApply: () => void
   onDestroy: () => void
+  governanceToolkit: TerraformGovernanceToolkit | null
+  governanceReport: TerraformGovernanceReport | null
+  governanceRunning: boolean
+  onRunGovernanceChecks: () => void
+  onDetectGovernanceTools: () => void
 }) {
   const [outputOpen, setOutputOpen] = useState(false)
   const [showPlanControls, setShowPlanControls] = useState(false)
@@ -914,6 +1080,7 @@ function ActionsTab({
 
   const s = project.lastPlanSummary
   const hasSavedPlan = project.hasSavedPlan
+  const governanceBlocked = governanceReport ? !governanceReport.allBlockingPassed : false
   const moduleOptions = useMemo(() => ['all', ...project.lastPlanSummary.affectedModules], [project.lastPlanSummary.affectedModules])
   const typeOptions = useMemo(
     () => ['all', ...[...new Set(project.planChanges.filter((change) => change.actionLabel !== 'no-op').map((change) => change.type))].sort()],
@@ -954,18 +1121,18 @@ function ActionsTab({
           <button className="tf-action-btn init" disabled={!cliOk || running} onClick={onInit}>Init</button>
           <button className="tf-action-btn plan" disabled={!cliOk || running} onClick={() => onPlan()}>Plan</button>
           <button
-            className="tf-action-btn apply"
-            disabled={!cliOk || running || !hasSavedPlan}
+            className={`tf-action-btn apply${governanceBlocked ? ' governance-blocked' : ''}`}
+            disabled={!cliOk || running || !hasSavedPlan || governanceBlocked}
             onClick={onApply}
-            title={!hasSavedPlan ? 'Run Plan first to enable Apply.' : undefined}
+            title={!hasSavedPlan ? 'Run Plan first to enable Apply.' : governanceBlocked ? 'Blocked: governance checks failed.' : undefined}
           >
             Apply
           </button>
           <button
-            className="tf-action-btn destroy"
-            disabled={!cliOk || running || !hasSavedPlan}
+            className={`tf-action-btn destroy${governanceBlocked ? ' governance-blocked' : ''}`}
+            disabled={!cliOk || running || !hasSavedPlan || governanceBlocked}
             onClick={onDestroy}
-            title={!hasSavedPlan ? 'Run Plan first to enable Destroy.' : undefined}
+            title={!hasSavedPlan ? 'Run Plan first to enable Destroy.' : governanceBlocked ? 'Blocked: governance checks failed.' : undefined}
           >
             Destroy
           </button>
@@ -976,6 +1143,9 @@ function ActionsTab({
           </button>
           {!hasSavedPlan && (
             <div className="tf-section-hint">Run Plan first. Apply and Destroy stay disabled until a saved plan exists.</div>
+          )}
+          {governanceBlocked && (
+            <div className="tf-section-hint" style={{ color: '#e74c3c' }}>Apply/Destroy blocked: required governance check(s) failed. Fix issues and re-run Safety Checks.</div>
           )}
         </div>
         {showPlanControls && (
@@ -1030,6 +1200,14 @@ function ActionsTab({
           </div>
         )}
       </div>
+
+      <GovernancePanel
+        toolkit={governanceToolkit}
+        report={governanceReport}
+        running={governanceRunning}
+        onRunChecks={onRunGovernanceChecks}
+        onDetectTools={onDetectGovernanceTools}
+      />
 
       <div className={`tf-section ${s.isDeleteHeavy ? 'tf-plan-section-danger' : s.hasReplacementChanges ? 'tf-plan-section-warning' : ''}`}>
         <div className="tf-section-head">
@@ -2011,6 +2189,11 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
   const [labLoading, setLabLoading] = useState(false)
   const [labError, setLabError] = useState('')
 
+  // Governance
+  const [governanceToolkit, setGovernanceToolkit] = useState<TerraformGovernanceToolkit | null>(null)
+  const [governanceReport, setGovernanceReport] = useState<TerraformGovernanceReport | null>(null)
+  const [governanceRunning, setGovernanceRunning] = useState(false)
+
   // Dialogs
   const [showInputs, setShowInputs] = useState(false)
   const [showRenameDialog, setShowRenameDialog] = useState(false)
@@ -2124,6 +2307,38 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
     if (labReport?.scope.kind === 'terraform' && labReport.scope.projectId === detail.id) return
     void loadLab()
   }, [detail, detailTab, labReport, loadLab])
+
+  // Governance: detect tools once on CLI detect
+  useEffect(() => {
+    if (cliOk && !governanceToolkit?.detectedAt) {
+      void detectGovernanceTools(cliInfo?.path).then(setGovernanceToolkit).catch(() => {})
+    }
+  }, [cliOk, cliInfo?.path, governanceToolkit?.detectedAt])
+
+  // Governance: clear report when switching projects
+  useEffect(() => {
+    setGovernanceReport(null)
+  }, [selectedId])
+
+  const handleDetectGovernanceTools = useCallback(async () => {
+    try {
+      const tk = await detectGovernanceTools(cliInfo?.path)
+      setGovernanceToolkit(tk)
+    } catch { /* ignore */ }
+  }, [cliInfo?.path])
+
+  const handleRunGovernanceChecks = useCallback(async () => {
+    if (!detail) return
+    setGovernanceRunning(true)
+    try {
+      const report = await runGovernanceChecks(contextKey, detail.id, connection)
+      setGovernanceReport(report)
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : String(err))
+    } finally {
+      setGovernanceRunning(false)
+    }
+  }, [connection, contextKey, detail])
 
   // Subscribe to terraform events
   useEffect(() => {
@@ -2371,6 +2586,11 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
       setMsg('Run Plan first to create a saved plan before applying.')
       return
     }
+    // Block apply when governance blocking checks have failed
+    if (governanceReport && !governanceReport.allBlockingPassed) {
+      setMsg('Apply is blocked: one or more required governance checks failed. Fix the issues and re-run Safety Checks.')
+      return
+    }
     // Has saved plan - go directly to summary with resource list
     setSummaryDialog({
       title: 'Apply Changes — Review',
@@ -2395,6 +2615,11 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
     if (!detail) return
     if (!detail.hasSavedPlan) {
       setMsg('Run Plan first to create a saved plan before destroying.')
+      return
+    }
+    // Block destroy when governance blocking checks have failed
+    if (governanceReport && !governanceReport.allBlockingPassed) {
+      setMsg('Destroy is blocked: one or more required governance checks failed. Fix the issues and re-run Safety Checks.')
       return
     }
     // First confirmation: show what will be destroyed
@@ -2659,11 +2884,16 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
                   project={detail}
                   cliOk={cliOk}
                   running={running}
-                lastLog={lastLog}
-                onInit={handleInit}
-                onPlan={handlePlan}
-                onApply={handleApply}
-                onDestroy={handleDestroy}
+                  lastLog={lastLog}
+                  onInit={handleInit}
+                  onPlan={handlePlan}
+                  onApply={handleApply}
+                  onDestroy={handleDestroy}
+                  governanceToolkit={governanceToolkit}
+                  governanceReport={governanceReport}
+                  governanceRunning={governanceRunning}
+                  onRunGovernanceChecks={handleRunGovernanceChecks}
+                  onDetectGovernanceTools={handleDetectGovernanceTools}
               />
               )}
               {detailTab === 'state' && (

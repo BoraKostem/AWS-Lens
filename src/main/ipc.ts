@@ -27,10 +27,12 @@ import {
   renameProject,
   runProjectCommand,
   selectProjectWorkspace,
-  updateProjectInputs
+  updateProjectInputs,
+  getProjectContext
 } from './terraform'
 import { getTerraformDriftReport } from './terraformDrift'
 import { listRunRecords, getRunOutput, deleteRunRecord } from './terraformHistoryStore'
+import { detectGovernanceTools, getCachedGovernanceToolkit, runGovernanceChecks, getGovernanceReport } from './terraformGovernance'
 import {
   addUserToGroup, attachGroupPolicy, attachRolePolicy, attachUserPolicy,
   createAccessKey, createGroup, createLoginProfile, createPolicy,
@@ -216,6 +218,15 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('terraform:history:list', async (_event, filter?: TerraformRunHistoryFilter) => wrap(() => listRunRecords(filter)))
   ipcMain.handle('terraform:history:get-output', async (_event, runId: string) => wrap(() => getRunOutput(runId)))
   ipcMain.handle('terraform:history:delete', async (_event, runId: string) => wrap(() => deleteRunRecord(runId)))
+  ipcMain.handle('terraform:governance:detect-tools', async (_event, tfCliPath?: string) => wrap(() => detectGovernanceTools(tfCliPath)))
+  ipcMain.handle('terraform:governance:toolkit', async () => wrap(() => getCachedGovernanceToolkit()))
+  ipcMain.handle('terraform:governance:run-checks', async (_event, profileName: string, projectId: string, connection?: AwsConnection) =>
+    wrap(() => {
+      const ctx = getProjectContext(profileName, projectId, connection)
+      return runGovernanceChecks(projectId, ctx.rootPath, ctx.env)
+    })
+  )
+  ipcMain.handle('terraform:governance:get-report', async (_event, projectId: string) => wrap(() => getGovernanceReport(projectId)))
   ipcMain.handle('shell:open-external', async (_event, url: string) => wrap(() => shell.openExternal(url)))
   ipcMain.handle('app:release-info', async () => wrap(() => getReleaseInfo()))
 
