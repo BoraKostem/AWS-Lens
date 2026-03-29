@@ -2,7 +2,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import { app } from 'electron'
-import type { TerraformProjectEnvironmentMetadata } from '@shared/types'
+import type {
+  TerraformInputConfiguration,
+  TerraformProjectEnvironmentMetadata,
+  TerraformSecretReference,
+  TerraformVariableLayer,
+  TerraformVariableSet
+} from '@shared/types'
 
 type StoredProject = {
   id: string
@@ -10,6 +16,7 @@ type StoredProject = {
   rootPath: string
   varFile?: string
   variables?: Record<string, unknown>
+  inputConfig?: TerraformInputConfiguration
   environment?: TerraformProjectEnvironmentMetadata
 }
 
@@ -48,11 +55,84 @@ function sanitizeProjects(projects: unknown[]): StoredProject[] {
         p.variables && typeof p.variables === 'object' && !Array.isArray(p.variables)
           ? (p.variables as Record<string, unknown>)
           : {},
+      inputConfig:
+        p.inputConfig && typeof p.inputConfig === 'object' && !Array.isArray(p.inputConfig)
+          ? sanitizeInputConfig(p.inputConfig as Record<string, unknown>)
+          : undefined,
       environment:
         p.environment && typeof p.environment === 'object' && !Array.isArray(p.environment)
           ? sanitizeEnvironment(p.environment as Record<string, unknown>)
           : undefined
     }))
+}
+
+function sanitizeSecretReference(raw: Record<string, unknown>): TerraformSecretReference {
+  return {
+    source: raw.source === 'ssm-parameter' ? 'ssm-parameter' : 'secrets-manager',
+    target: typeof raw.target === 'string' ? raw.target : '',
+    versionId: typeof raw.versionId === 'string' ? raw.versionId : '',
+    jsonKey: typeof raw.jsonKey === 'string' ? raw.jsonKey : '',
+    label: typeof raw.label === 'string' ? raw.label : ''
+  }
+}
+
+function sanitizeVariableLayer(raw: Record<string, unknown>): TerraformVariableLayer {
+  const variables =
+    raw.variables && typeof raw.variables === 'object' && !Array.isArray(raw.variables)
+      ? raw.variables as Record<string, unknown>
+      : {}
+  const secretRefsRaw =
+    raw.secretRefs && typeof raw.secretRefs === 'object' && !Array.isArray(raw.secretRefs)
+      ? raw.secretRefs as Record<string, unknown>
+      : {}
+  const secretRefs = Object.fromEntries(
+    Object.entries(secretRefsRaw)
+      .filter(([, value]) => value && typeof value === 'object' && !Array.isArray(value))
+      .map(([key, value]) => [key, sanitizeSecretReference(value as Record<string, unknown>)])
+  )
+
+  return {
+    varFile: typeof raw.varFile === 'string' ? raw.varFile : '',
+    variables,
+    secretRefs
+  }
+}
+
+function sanitizeVariableSet(raw: Record<string, unknown>): TerraformVariableSet {
+  const overlaysRaw =
+    raw.overlays && typeof raw.overlays === 'object' && !Array.isArray(raw.overlays)
+      ? raw.overlays as Record<string, unknown>
+      : {}
+  const overlays = Object.fromEntries(
+    Object.entries(overlaysRaw)
+      .filter(([, value]) => value && typeof value === 'object' && !Array.isArray(value))
+      .map(([key, value]) => [key, sanitizeVariableLayer(value as Record<string, unknown>)])
+  )
+
+  return {
+    id: typeof raw.id === 'string' ? raw.id : '',
+    name: typeof raw.name === 'string' ? raw.name : 'Default',
+    description: typeof raw.description === 'string' ? raw.description : '',
+    base: sanitizeVariableLayer(raw.base && typeof raw.base === 'object' && !Array.isArray(raw.base) ? raw.base as Record<string, unknown> : {}),
+    overlays,
+    createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
+    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : ''
+  }
+}
+
+function sanitizeInputConfig(raw: Record<string, unknown>): TerraformInputConfiguration {
+  const setsRaw = Array.isArray(raw.variableSets) ? raw.variableSets : []
+  const variableSets = setsRaw
+    .filter((set): set is Record<string, unknown> => !!set && typeof set === 'object' && !Array.isArray(set))
+    .map((set) => sanitizeVariableSet(set))
+    .filter((set) => Boolean(set.id))
+
+  return {
+    selectedVariableSetId: typeof raw.selectedVariableSetId === 'string' ? raw.selectedVariableSetId : '',
+    selectedOverlay: typeof raw.selectedOverlay === 'string' ? raw.selectedOverlay : '',
+    variableSets,
+    migratedFromLegacy: raw.migratedFromLegacy !== false
+  }
 }
 
 function sanitizeEnvironment(raw: Record<string, unknown>): TerraformProjectEnvironmentMetadata {

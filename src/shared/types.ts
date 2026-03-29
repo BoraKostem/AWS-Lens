@@ -2336,6 +2336,98 @@ export type TerraformProjectEnvironmentMetadata = {
   varSetLabel: string
 }
 
+export type TerraformSecretSource = 'ssm-parameter' | 'secrets-manager'
+
+export type TerraformSecretReference = {
+  source: TerraformSecretSource
+  target: string
+  versionId: string
+  jsonKey: string
+  label: string
+}
+
+export type TerraformVariableLayer = {
+  varFile: string
+  variables: Record<string, unknown>
+  secretRefs: Record<string, TerraformSecretReference>
+}
+
+export type TerraformVariableSet = {
+  id: string
+  name: string
+  description: string
+  base: TerraformVariableLayer
+  overlays: Record<string, TerraformVariableLayer>
+  createdAt: string
+  updatedAt: string
+}
+
+export type TerraformInputConfiguration = {
+  selectedVariableSetId: string
+  selectedOverlay: string
+  variableSets: TerraformVariableSet[]
+  migratedFromLegacy: boolean
+}
+
+export type TerraformRuntimeInputSource =
+  | 'var-file'
+  | 'variable-set'
+  | 'environment-overlay'
+  | 'runtime-secret'
+  | 'default'
+  | 'unset'
+
+export type TerraformRuntimeInputStatus = 'ready' | 'missing' | 'unresolved-secret'
+
+export type TerraformUnresolvedSecret = {
+  name: string
+  reason: string
+}
+
+export type TerraformResolvedRuntimeInputs = {
+  values: Record<string, unknown>
+  sources: Record<string, TerraformRuntimeInputSource>
+  secretNames: string[]
+  missingRequired: string[]
+  unresolvedSecrets: TerraformUnresolvedSecret[]
+}
+
+export type TerraformInputValidationResult = {
+  valid: boolean
+  missing: string[]
+  unresolvedSecrets: TerraformUnresolvedSecret[]
+}
+
+export type TerraformProjectInputRow = {
+  name: string
+  description: string
+  required: boolean
+  hasDefault: boolean
+  effectiveSource: TerraformRuntimeInputSource
+  effectiveSourceLabel: string
+  effectiveValueSummary: string
+  localValueSummary: string
+  overlayValueSummary: string
+  inheritedFrom: string
+  secretRef: TerraformSecretReference | null
+  secretSourceLabel: string
+  status: TerraformRuntimeInputStatus
+  isSecret: boolean
+  isSensitive: boolean
+  isMissing: boolean
+}
+
+export type TerraformProjectInputsView = {
+  selectedVariableSetId: string
+  selectedVariableSetName: string
+  selectedOverlay: string
+  availableOverlays: string[]
+  rows: TerraformProjectInputRow[]
+  missingRequired: string[]
+  unresolvedSecrets: TerraformUnresolvedSecret[]
+  migratedFromLegacy: boolean
+}
+
 export type TerraformResourceInventoryItem = {
   address: string
   type: string
@@ -2649,6 +2741,9 @@ export type TerraformProject = {
   rootPath: string
   varFile: string
   variables: Record<string, unknown>
+  inputConfig: TerraformInputConfiguration
+  inputView: TerraformProjectInputsView
+  inputValidation: TerraformInputValidationResult
   environment: TerraformProjectEnvironmentMetadata
   status: TerraformProjectStatus
   inputsFilePath: string

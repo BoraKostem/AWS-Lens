@@ -13,6 +13,8 @@ import type {
   SsmSendCommandRequest,
   SsmStartSessionRequest,
   SnapshotLaunchConfig,
+  TerraformInputConfiguration,
+  TerraformInputValidationResult,
   TerraformCommandRequest
 } from '@shared/types'
 
@@ -354,7 +356,8 @@ declare global {
       deleteWorkspace: (profileName: string, projectId: string, workspaceName: string, connection?: AwsConnection) => Promise<unknown>
       getSelectedProjectId: (profileName: string) => Promise<unknown>
       setSelectedProjectId: (profileName: string, projectId: string) => Promise<unknown>
-      updateInputs: (profileName: string, projectId: string, inputs: Record<string, unknown>, varFile?: string, connection?: AwsConnection) => Promise<unknown>
+      updateInputs: (profileName: string, projectId: string, inputConfig: TerraformInputConfiguration, connection?: AwsConnection) => Promise<unknown>
+      validateProjectInputs: (profileName: string, projectId: string, connection?: AwsConnection) => Promise<TerraformInputValidationResult>
       listCommandLogs: (projectId: string) => Promise<unknown>
       runCommand: (request: TerraformCommandRequest) => Promise<unknown>
       subscribe: (listener: (event: unknown) => void) => void

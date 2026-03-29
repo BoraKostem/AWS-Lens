@@ -7,6 +7,8 @@ import type {
   TerraformDriftReport,
   TerraformGovernanceReport,
   TerraformGovernanceToolkit,
+  TerraformInputConfiguration,
+  TerraformInputValidationResult,
   TerraformMissingVarsResult,
   TerraformProject,
   TerraformProjectListItem,
@@ -105,12 +107,16 @@ export async function setSelectedProjectId(profileName: string, projectId: strin
   return unwrap(await bridge().setSelectedProjectId(profileName, projectId) as Wrapped<void>)
 }
 
-export async function updateInputs(profileName: string, projectId: string, inputs: Record<string, unknown>, varFile?: string, connection?: AwsConnection): Promise<TerraformProject> {
-  return unwrap(await bridge().updateInputs(profileName, projectId, inputs, varFile, connection) as Wrapped<TerraformProject>)
+export async function updateInputs(profileName: string, projectId: string, inputConfig: TerraformInputConfiguration, connection?: AwsConnection): Promise<TerraformProject> {
+  return unwrap(await bridge().updateInputs(profileName, projectId, inputConfig, connection) as Wrapped<TerraformProject>)
 }
 
 export async function getMissingRequiredInputs(profileName: string, projectId: string): Promise<string[]> {
   return unwrap(await bridge().getMissingRequiredInputs(profileName, projectId) as Wrapped<string[]>)
+}
+
+export async function validateProjectInputs(profileName: string, projectId: string, connection?: AwsConnection): Promise<TerraformInputValidationResult> {
+  return unwrap(await bridge().validateProjectInputs(profileName, projectId, connection) as Wrapped<TerraformInputValidationResult>)
 }
 
 export async function listCommandLogs(projectId: string): Promise<TerraformCommandLog[]> {

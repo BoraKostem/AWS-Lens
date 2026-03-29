@@ -103,6 +103,7 @@ import type {
   TerraformCommandLog,
   TerraformCommandRequest,
   TerraformDriftReport,
+  TerraformInputConfiguration,
   TerraformProject,
   TerraformProjectListItem,
   TransitGatewaySummary,
@@ -1294,8 +1295,8 @@ export async function setSelectedProjectId(profileName: string, projectId: strin
   return unwrap((await terraformBridge().setSelectedProjectId(profileName, projectId)) as Wrapped<void>)
 }
 
-export async function updateInputs(profileName: string, projectId: string, inputs: Record<string, unknown>): Promise<TerraformProject> {
-  return unwrap((await terraformBridge().updateInputs(profileName, projectId, inputs)) as Wrapped<TerraformProject>)
+export async function updateInputs(profileName: string, projectId: string, inputConfig: TerraformInputConfiguration): Promise<TerraformProject> {
+  return unwrap((await terraformBridge().updateInputs(profileName, projectId, inputConfig)) as Wrapped<TerraformProject>)
 }
 
 export async function listCommandLogs(projectId: string): Promise<TerraformCommandLog[]> {

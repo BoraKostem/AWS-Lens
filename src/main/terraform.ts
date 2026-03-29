@@ -11,6 +11,8 @@ import type {
   TerraformCliInfo,
   TerraformCommandLog,
   TerraformCommandRequest,
+  TerraformInputConfiguration,
+  TerraformInputValidationResult,
   TerraformPlanAction,
   TerraformPlanAttributeChange,
   TerraformDiagram,
@@ -25,19 +27,27 @@ import type {
   TerraformPlanSummary,
   TerraformProject,
   TerraformProjectEnvironmentMetadata,
+  TerraformProjectInputRow,
+  TerraformProjectInputsView,
   TerraformProjectListItem,
   TerraformProjectMetadata,
   TerraformProjectStatus,
+  TerraformResolvedRuntimeInputs,
   TerraformResourceInventoryItem,
   TerraformResourceRow,
+  TerraformSecretReference,
   TerraformStateBackupSummary,
   TerraformStateLockInfo,
   TerraformS3BackendConfig,
+  TerraformUnresolvedSecret,
+  TerraformVariableLayer,
+  TerraformVariableSet,
   TerraformWorkspaceSummary,
   TerraformVariableDefinition,
   AwsConnection
 } from '@shared/types'
 import { getProjects, setProjects } from './store'
+import { resolveTerraformSecretReference } from './aws/terraformInputs'
 import { getConnectionEnv } from './sessionHub'
 import { saveRunRecord, updateRunRecord, redactArgs } from './terraformHistoryStore'
 import type { TerraformRunRecord } from '@shared/types'
@@ -50,6 +60,7 @@ type StoredProject = {
   rootPath: string
   varFile: string
   variables: Record<string, unknown>
+  inputConfig?: TerraformInputConfiguration
   environment?: TerraformProjectEnvironmentMetadata
 }
 
@@ -137,11 +148,9 @@ function displayConnectionLabel(profileName: string, connection?: AwsConnection)
 }
 
 function inferVarSetLabel(project: StoredProject): string {
-  const hasInlineVars = Object.keys(project.variables ?? {}).length > 0
-  if (project.varFile) {
-    return hasInlineVars ? `${path.basename(project.varFile)} + inline inputs` : path.basename(project.varFile)
-  }
-  return hasInlineVars ? 'Inline inputs' : ''
+  const config = normalizeInputConfig(project)
+  const selected = getSelectedVariableSet(config)
+  return selected?.name ?? ''
 }
 
 function inferEnvironmentLabel(workspaceName: string): string {
@@ -1432,7 +1441,378 @@ function readVarFileValues(varFilePath: string): Record<string, unknown> {
   return result
 }
 
-function buildEnvWithVars(project: StoredProject, connection?: AwsConnection): Record<string, string> {
+const DEFAULT_VARIABLE_SET_ID = 'default'
+const DEFAULT_VARIABLE_SET_NAME = 'Default'
+const COMMON_ENVIRONMENT_OVERLAYS = ['dev', 'stage', 'prod']
+
+function emptyVariableLayer(): TerraformVariableLayer {
+  return { varFile: '', variables: {}, secretRefs: {} }
+}
+
+function normalizeSecretReference(raw: unknown): TerraformSecretReference | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const item = raw as Record<string, unknown>
+  return {
+    source: item.source === 'ssm-parameter' ? 'ssm-parameter' : 'secrets-manager',
+    target: typeof item.target === 'string' ? item.target : '',
+    versionId: typeof item.versionId === 'string' ? item.versionId : '',
+    jsonKey: typeof item.jsonKey === 'string' ? item.jsonKey : '',
+    label: typeof item.label === 'string' ? item.label : ''
+  }
+}
+
+function normalizeVariableLayer(raw: unknown): TerraformVariableLayer {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return emptyVariableLayer()
+  const item = raw as Record<string, unknown>
+  const secretRefsRaw = item.secretRefs && typeof item.secretRefs === 'object' && !Array.isArray(item.secretRefs)
+    ? item.secretRefs as Record<string, unknown>
+    : {}
+  const secretRefs = Object.fromEntries(
+    Object.entries(secretRefsRaw)
+      .map(([key, value]) => [key, normalizeSecretReference(value)])
+      .filter((entry): entry is [string, TerraformSecretReference] => Boolean(entry[1]))
+  )
+
+  return {
+    varFile: typeof item.varFile === 'string' ? item.varFile : '',
+    variables: item.variables && typeof item.variables === 'object' && !Array.isArray(item.variables)
+      ? item.variables as Record<string, unknown>
+      : {},
+    secretRefs
+  }
+}
+
+function createLegacyInputConfig(project: StoredProject): TerraformInputConfiguration {
+  const now = new Date().toISOString()
+  return {
+    selectedVariableSetId: DEFAULT_VARIABLE_SET_ID,
+    selectedOverlay: '',
+    migratedFromLegacy: true,
+    variableSets: [{
+      id: DEFAULT_VARIABLE_SET_ID,
+      name: DEFAULT_VARIABLE_SET_NAME,
+      description: 'Migrated from legacy Terraform input settings.',
+      base: {
+        varFile: project.varFile ?? '',
+        variables: project.variables ?? {},
+        secretRefs: {}
+      },
+      overlays: {},
+      createdAt: now,
+      updatedAt: now
+    }]
+  }
+}
+
+function normalizeVariableSet(raw: unknown, fallbackIndex = 0): TerraformVariableSet | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const item = raw as Record<string, unknown>
+  const overlaysRaw = item.overlays && typeof item.overlays === 'object' && !Array.isArray(item.overlays)
+    ? item.overlays as Record<string, unknown>
+    : {}
+  const overlays = Object.fromEntries(
+    Object.entries(overlaysRaw).map(([key, value]) => [key, normalizeVariableLayer(value)])
+  )
+  const id = typeof item.id === 'string' && item.id.trim() ? item.id : `${DEFAULT_VARIABLE_SET_ID}-${fallbackIndex + 1}`
+  return {
+    id,
+    name: typeof item.name === 'string' && item.name.trim() ? item.name : `${DEFAULT_VARIABLE_SET_NAME} ${fallbackIndex + 1}`,
+    description: typeof item.description === 'string' ? item.description : '',
+    base: normalizeVariableLayer(item.base),
+    overlays,
+    createdAt: typeof item.createdAt === 'string' ? item.createdAt : '',
+    updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : ''
+  }
+}
+
+function normalizeInputConfig(project: StoredProject): TerraformInputConfiguration {
+  const raw = project.inputConfig
+  if (!raw || !Array.isArray(raw.variableSets) || raw.variableSets.length === 0) {
+    return createLegacyInputConfig(project)
+  }
+
+  const variableSets = raw.variableSets
+    .map((item, index) => normalizeVariableSet(item, index))
+    .filter((item): item is TerraformVariableSet => Boolean(item))
+
+  if (variableSets.length === 0) {
+    return createLegacyInputConfig(project)
+  }
+
+  const selectedVariableSetId = variableSets.some((item) => item.id === raw.selectedVariableSetId)
+    ? raw.selectedVariableSetId
+    : variableSets[0].id
+
+  return {
+    selectedVariableSetId,
+    selectedOverlay: typeof raw.selectedOverlay === 'string' ? raw.selectedOverlay : '',
+    migratedFromLegacy: raw.migratedFromLegacy !== false,
+    variableSets
+  }
+}
+
+function getSelectedVariableSet(config: TerraformInputConfiguration): TerraformVariableSet {
+  return config.variableSets.find((item) => item.id === config.selectedVariableSetId) ?? config.variableSets[0]
+}
+
+function getSelectedOverlayLayer(config: TerraformInputConfiguration, variableSet: TerraformVariableSet): TerraformVariableLayer {
+  if (!config.selectedOverlay) return emptyVariableLayer()
+  return normalizeVariableLayer(variableSet.overlays[config.selectedOverlay])
+}
+
+function listAvailableOverlays(config: TerraformInputConfiguration, variableSet: TerraformVariableSet): string[] {
+  return uniqueStrings([
+    ...COMMON_ENVIRONMENT_OVERLAYS,
+    ...Object.keys(variableSet.overlays),
+    config.selectedOverlay
+  ]).filter(Boolean)
+}
+
+function collectConfiguredInputs(project: StoredProject): {
+  config: TerraformInputConfiguration
+  variableSet: TerraformVariableSet
+  overlayLayer: TerraformVariableLayer
+  baseVarFileValues: Record<string, unknown>
+  overlayVarFileValues: Record<string, unknown>
+  effectiveLocalValues: Record<string, unknown>
+  effectiveLocalSources: Record<string, 'var-file' | 'variable-set' | 'environment-overlay'>
+  effectiveSecretRefs: Record<string, TerraformSecretReference>
+} {
+  const config = normalizeInputConfig(project)
+  const variableSet = getSelectedVariableSet(config)
+  const overlayLayer = getSelectedOverlayLayer(config, variableSet)
+  const baseVarFileValues = readVarFileValues(resolveVarFilePath(variableSet.base.varFile, project.rootPath))
+  const overlayVarFileValues = readVarFileValues(resolveVarFilePath(overlayLayer.varFile, project.rootPath))
+
+  const effectiveLocalValues: Record<string, unknown> = {}
+  const effectiveLocalSources: Record<string, 'var-file' | 'variable-set' | 'environment-overlay'> = {}
+
+  for (const [key, value] of Object.entries(baseVarFileValues)) {
+    effectiveLocalValues[key] = value
+    effectiveLocalSources[key] = 'var-file'
+  }
+  for (const [key, value] of Object.entries(variableSet.base.variables)) {
+    effectiveLocalValues[key] = value
+    effectiveLocalSources[key] = 'variable-set'
+  }
+  for (const [key, value] of Object.entries(overlayVarFileValues)) {
+    effectiveLocalValues[key] = value
+    effectiveLocalSources[key] = 'environment-overlay'
+  }
+  for (const [key, value] of Object.entries(overlayLayer.variables)) {
+    effectiveLocalValues[key] = value
+    effectiveLocalSources[key] = 'environment-overlay'
+  }
+
+  return {
+    config,
+    variableSet,
+    overlayLayer,
+    baseVarFileValues,
+    overlayVarFileValues,
+    effectiveLocalValues,
+    effectiveLocalSources,
+    effectiveSecretRefs: {
+      ...variableSet.base.secretRefs,
+      ...overlayLayer.secretRefs
+    }
+  }
+}
+
+function summarizeInputValue(value: unknown, sensitive = false): string {
+  if (value === null) return 'null'
+  if (value === undefined) return ''
+  if (sensitive) return 'Resolved at runtime'
+  if (typeof value === 'string') return value.length > 72 ? `${value.slice(0, 69)}...` : value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  try {
+    const json = JSON.stringify(value)
+    return json.length > 72 ? `${json.slice(0, 69)}...` : json
+  } catch {
+    return String(value)
+  }
+}
+
+function buildStoredInputValidation(
+  project: StoredProject,
+  variables: TerraformVariableDefinition[]
+): TerraformInputValidationResult {
+  const { effectiveLocalValues, effectiveSecretRefs } = collectConfiguredInputs(project)
+  const unresolvedSecrets: TerraformUnresolvedSecret[] = Object.entries(effectiveSecretRefs)
+    .filter(([, reference]) => !reference.target.trim())
+    .map(([name]) => ({ name, reason: 'Secret reference target is required.' }))
+
+  const missing = variables
+    .filter((variable) => {
+      if (variable.hasDefault) return false
+      if (effectiveSecretRefs[variable.name]) return !effectiveSecretRefs[variable.name].target.trim()
+      if (!(variable.name in effectiveLocalValues)) return true
+      const value = effectiveLocalValues[variable.name]
+      if (value === null || value === undefined) return true
+      if (typeof value === 'string' && value.trim().length === 0) return true
+      return false
+    })
+    .map((variable) => variable.name)
+
+  return {
+    valid: missing.length === 0 && unresolvedSecrets.length === 0,
+    missing,
+    unresolvedSecrets
+  }
+}
+
+function buildProjectInputsView(
+  project: StoredProject,
+  variables: TerraformVariableDefinition[]
+): TerraformProjectInputsView {
+  const { config, variableSet, overlayLayer, baseVarFileValues, effectiveLocalValues, effectiveLocalSources, effectiveSecretRefs } = collectConfiguredInputs(project)
+  const validation = buildStoredInputValidation(project, variables)
+  const overlayValues = {
+    ...readVarFileValues(resolveVarFilePath(overlayLayer.varFile, project.rootPath)),
+    ...overlayLayer.variables
+  }
+  const allNames = uniqueStrings([
+    ...variables.map((item) => item.name),
+    ...Object.keys(baseVarFileValues),
+    ...Object.keys(variableSet.base.variables),
+    ...Object.keys(overlayValues),
+    ...Object.keys(effectiveSecretRefs)
+  ]).sort((a, b) => a.localeCompare(b))
+
+  const rows = allNames.map((name) => {
+    const definition = variables.find((item) => item.name === name)
+    const secretRef = effectiveSecretRefs[name] ?? null
+    const hasOverlayValue = Object.prototype.hasOwnProperty.call(overlayValues, name)
+    const inheritedFrom = hasOverlayValue
+      ? (config.selectedOverlay || 'overlay')
+      : Object.prototype.hasOwnProperty.call(variableSet.base.variables, name) || Object.prototype.hasOwnProperty.call(baseVarFileValues, name)
+        ? variableSet.name
+        : ''
+    const effectiveSource: TerraformProjectInputRow['effectiveSource'] = secretRef
+      ? 'runtime-secret'
+      : effectiveLocalSources[name] === 'environment-overlay'
+        ? 'environment-overlay'
+        : effectiveLocalSources[name] === 'variable-set'
+          ? 'variable-set'
+          : effectiveLocalSources[name] === 'var-file'
+            ? 'var-file'
+            : definition?.hasDefault
+              ? 'default'
+              : 'unset'
+    const effectiveSourceLabel = 
+        effectiveSource === 'runtime-secret' ? 'AWS runtime secret'
+          : effectiveSource === 'environment-overlay' ? `Overlay: ${config.selectedOverlay || 'selected'}`
+            : effectiveSource === 'variable-set' ? `Variable set: ${variableSet.name}`
+              : effectiveSource === 'var-file' ? 'Var file'
+                : effectiveSource === 'default' ? 'Terraform default'
+                  : 'Missing'
+    const status: TerraformProjectInputRow['status'] = validation.missing.includes(name)
+      ? 'missing'
+      : validation.unresolvedSecrets.some((item) => item.name === name)
+        ? 'unresolved-secret'
+        : 'ready'
+
+    return {
+      name,
+      description: definition?.description ?? '',
+      required: Boolean(definition && !definition.hasDefault),
+      hasDefault: Boolean(definition?.hasDefault),
+      effectiveSource,
+      effectiveSourceLabel,
+      effectiveValueSummary:
+        secretRef
+          ? `${secretRef.source === 'ssm-parameter' ? 'SSM' : 'Secrets Manager'}: ${secretRef.label || secretRef.target}`
+          : summarizeInputValue(effectiveLocalValues[name]),
+      localValueSummary: summarizeInputValue(variableSet.base.variables[name] ?? baseVarFileValues[name]),
+      overlayValueSummary: summarizeInputValue(overlayValues[name]),
+      inheritedFrom,
+      secretRef,
+      secretSourceLabel:
+        secretRef
+          ? `${secretRef.source === 'ssm-parameter' ? 'SSM Parameter' : 'Secrets Manager'}${secretRef.jsonKey ? ` -> ${secretRef.jsonKey}` : ''}`
+          : '',
+      status,
+      isSecret: Boolean(secretRef),
+      isSensitive: Boolean(secretRef),
+      isMissing: status === 'missing'
+    }
+  })
+
+  return {
+    selectedVariableSetId: variableSet.id,
+    selectedVariableSetName: variableSet.name,
+    selectedOverlay: config.selectedOverlay,
+    availableOverlays: listAvailableOverlays(config, variableSet),
+    rows,
+    missingRequired: validation.missing,
+    unresolvedSecrets: validation.unresolvedSecrets,
+    migratedFromLegacy: config.migratedFromLegacy
+  }
+}
+
+async function resolveRuntimeInputs(
+  project: StoredProject,
+  variables: TerraformVariableDefinition[],
+  connection?: AwsConnection
+): Promise<TerraformResolvedRuntimeInputs> {
+  const { effectiveLocalValues, effectiveLocalSources, effectiveSecretRefs } = collectConfiguredInputs(project)
+  const values = { ...effectiveLocalValues }
+  const sources: TerraformResolvedRuntimeInputs['sources'] = Object.fromEntries(
+    Object.entries(effectiveLocalSources).map(([key, source]) => [key, source])
+  )
+  const secretNames: string[] = []
+  const unresolvedSecrets: TerraformUnresolvedSecret[] = []
+
+  for (const [name, reference] of Object.entries(effectiveSecretRefs)) {
+    if (!reference.target.trim()) {
+      unresolvedSecrets.push({ name, reason: 'Secret reference target is required.' })
+      continue
+    }
+    if (!connection) {
+      unresolvedSecrets.push({ name, reason: 'An AWS connection is required to resolve runtime secrets.' })
+      continue
+    }
+
+    try {
+      values[name] = await resolveTerraformSecretReference(connection, reference)
+      sources[name] = 'runtime-secret'
+      secretNames.push(name)
+    } catch (error) {
+      unresolvedSecrets.push({ name, reason: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
+  const missingRequired = variables
+    .filter((variable) => {
+      if (variable.hasDefault) return false
+      if (!(variable.name in values)) return true
+      const value = values[variable.name]
+      if (value === null || value === undefined) return true
+      if (typeof value === 'string' && value.trim().length === 0) return true
+      return false
+    })
+    .map((variable) => variable.name)
+
+  return {
+    values,
+    sources,
+    secretNames,
+    missingRequired,
+    unresolvedSecrets
+  }
+}
+
+async function validateRuntimeInputs(project: StoredProject, connection?: AwsConnection): Promise<TerraformInputValidationResult> {
+  const { variables } = inferMetadata(project.rootPath)
+  const resolved = await resolveRuntimeInputs(project, variables, connection)
+  return {
+    valid: resolved.missingRequired.length === 0 && resolved.unresolvedSecrets.length === 0,
+    missing: resolved.missingRequired,
+    unresolvedSecrets: resolved.unresolvedSecrets
+  }
+}
+
+function buildEnvWithVars(project: StoredProject, connection?: AwsConnection, runtimeInputs?: TerraformResolvedRuntimeInputs): Record<string, string> {
   const env: Record<string, string> = { ...process.env as Record<string, string> }
   env.CHECKPOINT_DISABLE = '1'
   env.TF_IN_AUTOMATION = '1'
@@ -1449,18 +1829,10 @@ function buildEnvWithVars(project: StoredProject, connection?: AwsConnection): R
   } else {
     env.XDG_CONFIG_HOME = tmpDir
   }
-  const resolvedVarFile = resolveVarFilePath(project.varFile, project.rootPath)
-  const varFileValues = readVarFileValues(resolvedVarFile)
-  // Export variables as TF_VAR_*
-  for (const [key, value] of Object.entries(varFileValues)) {
+  const inputs = runtimeInputs?.values ?? readPersistedInputValues(project)
+  for (const [key, value] of Object.entries(inputs)) {
     if (typeof value === 'string') env[`TF_VAR_${key}`] = value
     else env[`TF_VAR_${key}`] = JSON.stringify(value)
-  }
-  if (project.variables && typeof project.variables === 'object') {
-    for (const [key, value] of Object.entries(project.variables)) {
-      if (typeof value === 'string') env[`TF_VAR_${key}`] = value
-      else env[`TF_VAR_${key}`] = JSON.stringify(value)
-    }
   }
 
   if (connection) {
@@ -1475,7 +1847,7 @@ function buildEnvWithVars(project: StoredProject, connection?: AwsConnection): R
 }
 
 function writeAutoTfvars(project: StoredProject): void {
-  const mergedValues = readMergedInputValues(project)
+  const mergedValues = readPersistedInputValues(project)
   const outputPath = managedInputsPath(project.rootPath)
   const legacyOutputPath = path.join(project.rootPath, '.terraform-workspace.auto.tfvars.json')
 
@@ -1499,12 +1871,8 @@ function writeAutoTfvars(project: StoredProject): void {
   }
 }
 
-function readMergedInputValues(project: StoredProject): Record<string, unknown> {
-  const resolvedVarFile = resolveVarFilePath(project.varFile, project.rootPath)
-  return {
-    ...readVarFileValues(resolvedVarFile),
-    ...((project.variables && typeof project.variables === 'object') ? project.variables : {})
-  }
+function readPersistedInputValues(project: StoredProject): Record<string, unknown> {
+  return { ...collectConfiguredInputs(project).effectiveLocalValues }
 }
 
 function buildEnvironmentMetadata(
@@ -1529,22 +1897,36 @@ export function getMissingRequiredInputs(profileName: string, projectId: string)
   if (!project) throw new Error('Project not found.')
 
   const { variables } = inferMetadata(project.rootPath)
-  const mergedInputs = readMergedInputValues(project)
-
-  return variables
-    .filter((variable) => {
-      if (variable.hasDefault) return false
-      if (!(variable.name in mergedInputs)) return true
-      const value = mergedInputs[variable.name]
-      if (value === null || value === undefined) return true
-      if (typeof value === 'string' && value.trim().length === 0) return true
-      return false
-    })
-    .map((variable) => variable.name)
+  return buildStoredInputValidation(project, variables).missing
 }
 
-function prepareStateCommandVarFile(project: StoredProject): (() => void) | null {
-  const mergedValues = readMergedInputValues(project)
+function writeTemporaryVarFile(rootPath: string, values: Record<string, unknown>, suffix: string): { filePath: string; cleanup: () => void } | null {
+  if (Object.keys(values).length === 0) {
+    return null
+  }
+
+  const tempDir = path.join(os.tmpdir(), 'terraform-workspace-runtime-inputs')
+  try {
+    fs.mkdirSync(tempDir, { recursive: true })
+  } catch {
+    /* ok */
+  }
+  const filePath = path.join(tempDir, `${path.basename(rootPath)}.${suffix}.${randomUUID()}.tfvars.json`)
+  fs.writeFileSync(filePath, JSON.stringify(values, null, 2) + '\n', 'utf-8')
+  return {
+    filePath,
+    cleanup: () => {
+      try {
+        fs.unlinkSync(filePath)
+      } catch {
+        /* ok */
+      }
+    }
+  }
+}
+
+function prepareStateCommandVarFile(project: StoredProject, runtimeInputs?: TerraformResolvedRuntimeInputs): (() => void) | null {
+  const mergedValues = runtimeInputs?.values ?? readPersistedInputValues(project)
   if (Object.keys(mergedValues).length === 0) {
     return null
   }
@@ -1616,9 +1998,24 @@ function loadProject(project: StoredProject, profileName = '', connection?: AwsC
       lastScannedAt: '', s3Backend: null
     }
     const currentWorkspace = project.environment?.workspaceName || 'default'
+    const inputConfig = normalizeInputConfig(project)
+    const inputValidation = { valid: true, missing: [], unresolvedSecrets: [] }
     return {
       id: project.id, name: project.name, rootPath: project.rootPath,
-      varFile: project.varFile ?? '', variables: project.variables ?? {},
+      varFile: getSelectedVariableSet(inputConfig).base.varFile ?? '',
+      variables: readPersistedInputValues(project),
+      inputConfig,
+      inputView: {
+        selectedVariableSetId: inputConfig.selectedVariableSetId,
+        selectedVariableSetName: getSelectedVariableSet(inputConfig).name,
+        selectedOverlay: inputConfig.selectedOverlay,
+        availableOverlays: listAvailableOverlays(inputConfig, getSelectedVariableSet(inputConfig)),
+        rows: [],
+        missingRequired: [],
+        unresolvedSecrets: [],
+        migratedFromLegacy: inputConfig.migratedFromLegacy
+      },
+      inputValidation,
       environment: buildEnvironmentMetadata(project, profileName, connection, emptyMeta, currentWorkspace),
       status: 'Missing', inputsFilePath: managedInputsPath(project.rootPath),
       workspaces: [{ name: currentWorkspace, isCurrent: true }],
@@ -1647,10 +2044,17 @@ function loadProject(project: StoredProject, profileName = '', connection?: AwsC
   const environment = buildEnvironmentMetadata(project, profileName, connection, metadata, currentWorkspace)
   const stateBackups = listStateBackups(project.id)
   const stateLockInfo = readStateLockInfo(project.rootPath, metadata.backendType)
+  const inputConfig = normalizeInputConfig(project)
+  const inputView = buildProjectInputsView(project, variables)
+  const inputValidation = buildStoredInputValidation(project, variables)
 
   return {
     id: project.id, name: project.name, rootPath: project.rootPath,
-    varFile: project.varFile ?? '', variables: project.variables ?? {},
+    varFile: getSelectedVariableSet(inputConfig).base.varFile ?? '',
+    variables: readPersistedInputValues(project),
+    inputConfig,
+    inputView,
+    inputValidation,
     environment,
     status, inputsFilePath: managedInputsPath(project.rootPath),
     workspaces,
@@ -1670,16 +2074,21 @@ function loadProject(project: StoredProject, profileName = '', connection?: AwsC
 
 function normalizeStored(raw: Record<string, unknown>): StoredProject | null {
   if (!raw || typeof raw.id !== 'string' || typeof raw.rootPath !== 'string') return null
-  return {
+  const normalized: StoredProject = {
     id: raw.id,
     name: typeof raw.name === 'string' && raw.name ? raw.name : path.basename(raw.rootPath as string),
     rootPath: raw.rootPath as string,
     varFile: typeof raw.varFile === 'string' ? raw.varFile : '',
     variables: (raw.variables && typeof raw.variables === 'object' && !Array.isArray(raw.variables)) ? raw.variables as Record<string, unknown> : {},
+    inputConfig: raw.inputConfig && typeof raw.inputConfig === 'object' && !Array.isArray(raw.inputConfig)
+      ? raw.inputConfig as TerraformInputConfiguration
+      : undefined,
     environment: (raw.environment && typeof raw.environment === 'object' && !Array.isArray(raw.environment))
       ? raw.environment as TerraformProjectEnvironmentMetadata
       : undefined
   }
+  normalized.inputConfig = normalizeInputConfig(normalized)
+  return normalized
 }
 
 function validateWorkspaceName(workspaceName: string): string {
@@ -1771,19 +2180,33 @@ export function renameProject(profileName: string, projectId: string, name: stri
 export function updateProjectInputs(
   profileName: string,
   projectId: string,
-  inputs: Record<string, unknown>,
-  varFile?: string,
+  inputConfig: TerraformInputConfiguration,
   connection?: AwsConnection
 ): TerraformProject {
   const stored = getStoredProjects(profileName)
   const idx = stored.findIndex((p) => p.id === projectId)
   if (idx < 0) throw new Error('Project not found.')
   const project = stored[idx]
-  if (varFile !== undefined) project.varFile = varFile
-  project.variables = inputs
+  project.inputConfig = normalizeInputConfig({
+    ...project,
+    inputConfig
+  })
+  const selectedSet = getSelectedVariableSet(project.inputConfig)
+  project.varFile = selectedSet.base.varFile
+  project.variables = readPersistedInputValues(project)
   writeAutoTfvars(project)
   setStoredProjects(profileName, stored)
   return getProject(profileName, projectId, connection)
+}
+
+export async function validateProjectInputs(
+  profileName: string,
+  projectId: string,
+  connection?: AwsConnection
+): Promise<TerraformInputValidationResult> {
+  const project = getStoredProjects(profileName).find((item) => item.id === projectId)
+  if (!project) throw new Error('Project not found.')
+  return validateRuntimeInputs(project, connection)
 }
 
 export async function selectProjectWorkspace(
@@ -1955,12 +2378,16 @@ async function refreshRemoteStateCache(rootPath: string, env: Record<string, str
   return false
 }
 
-function buildArgs(request: TerraformCommandRequest, project: StoredProject): string[] {
+function buildArgs(request: TerraformCommandRequest, project: StoredProject, runtimeVarFilePath = ''): string[] {
   const varFileArgs: string[] = []
-  const resolved = resolveVarFilePath(project.varFile, project.rootPath)
-  if (resolved) varFileArgs.push('-var-file', resolved)
+  const { variableSet, overlayLayer } = collectConfiguredInputs(project)
+  const resolvedBase = resolveVarFilePath(variableSet.base.varFile, project.rootPath)
+  const resolvedOverlay = resolveVarFilePath(overlayLayer.varFile, project.rootPath)
+  if (resolvedBase) varFileArgs.push('-var-file', resolvedBase)
+  if (resolvedOverlay) varFileArgs.push('-var-file', resolvedOverlay)
   const inputsFile = managedInputsPath(project.rootPath)
   if (fs.existsSync(inputsFile)) varFileArgs.push('-var-file', inputsFile)
+  if (runtimeVarFilePath) varFileArgs.push('-var-file', runtimeVarFilePath)
   const planOptions = normalizePlanOptions(request.planOptions)
 
   switch (request.command) {
@@ -2046,10 +2473,36 @@ export async function runProjectCommand(
     clearSavedPlanArtifacts(project.rootPath)
   }
 
-  const args = buildArgs(request, project)
-  const env = buildEnvWithVars(project, request.connection)
+  const commandsNeedingRuntimeInputs = new Set<TerraformCommandRequest['command']>([
+    'plan',
+    'apply',
+    'destroy',
+    'import',
+    'state-list',
+    'state-pull',
+    'state-show'
+  ])
+  const runtimeInputs = commandsNeedingRuntimeInputs.has(request.command)
+    ? await resolveRuntimeInputs(project, inferMetadata(project.rootPath).variables, request.connection)
+    : undefined
+
+  if (runtimeInputs && (runtimeInputs.missingRequired.length > 0 || runtimeInputs.unresolvedSecrets.length > 0)) {
+    const details = [
+      runtimeInputs.missingRequired.length > 0 ? `Missing required inputs: ${runtimeInputs.missingRequired.join(', ')}` : '',
+      runtimeInputs.unresolvedSecrets.length > 0
+        ? `Unresolved runtime secrets: ${runtimeInputs.unresolvedSecrets.map((item) => `${item.name} (${item.reason})`).join(', ')}`
+        : ''
+    ].filter(Boolean).join('\n')
+    throw new Error(details)
+  }
+
+  const runtimeVarFile = ['plan', 'apply', 'destroy', 'import'].includes(request.command)
+    ? writeTemporaryVarFile(project.rootPath, runtimeInputs?.secretNames.length ? runtimeInputs.values : {}, 'runtime-inputs')
+    : null
+  const args = buildArgs(request, project, runtimeVarFile?.filePath ?? '')
+  const env = buildEnvWithVars(project, request.connection, runtimeInputs)
   const cleanupStateVarFile = ['state-list', 'state-pull', 'state-show', 'state-mv', 'state-rm', 'force-unlock'].includes(request.command)
-    ? prepareStateCommandVarFile(project)
+    ? prepareStateCommandVarFile(project, runtimeInputs)
     : null
   const destructiveStateOperation = request.command === 'state-mv' || request.command === 'state-rm' || request.command === 'force-unlock'
   const stateOperationSummary =
@@ -2213,6 +2666,7 @@ export async function runProjectCommand(
 
     return log
   } finally {
+    runtimeVarFile?.cleanup()
     cleanupStateVarFile?.()
     if (request.command === 'apply' || request.command === 'destroy') {
       activeDestructiveCommands.delete(request.projectId)

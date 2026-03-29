@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './terraform.css'
 
 import type {
@@ -19,6 +19,7 @@ import type {
   TerraformGovernanceCheckResult,
   TerraformGovernanceReport,
   TerraformGovernanceToolkit,
+  TerraformInputConfiguration,
   TerraformPlanAction,
   TerraformPlanChange,
   TerraformPlanGroup,
@@ -27,6 +28,9 @@ import type {
   TerraformProjectListItem,
   TerraformResourceRow,
   TerraformRunRecord,
+  TerraformSecretReference,
+  TerraformVariableLayer,
+  TerraformVariableSet,
   TerraformWorkspaceSummary
 } from '@shared/types'
 import { openExternalUrl } from './api'
@@ -45,7 +49,6 @@ import {
   getGovernanceReport,
   getObservabilityReport,
   getProject,
-  getMissingRequiredInputs,
   getRunOutput,
   listProjects,
   listRunHistory,
@@ -59,7 +62,8 @@ import {
   setSelectedProjectId,
   subscribe,
   unsubscribe,
-  updateInputs
+  updateInputs,
+  validateProjectInputs
 } from './terraformApi'
 import { ObservabilityResilienceLab } from './ObservabilityResilienceLab'
 
@@ -76,19 +80,68 @@ function validateDbPassword(val: unknown): string | null {
   return null
 }
 
-function validateVariablesJson(text: string): { parsed: Record<string, unknown> | null; error: string } {
-  if (!text.trim()) return { parsed: {}, error: '' }
+function parseVariableValue(text: string): { parsed: unknown; error: string } {
+  if (!text.trim()) return { parsed: '', error: '' }
   try {
-    const obj = JSON.parse(text)
-    if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) return { parsed: null, error: 'Root must be a JSON object' }
-    if ('db_password' in obj) {
-      const pwErr = validateDbPassword(obj.db_password)
+    const parsed = JSON.parse(text)
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) && 'db_password' in parsed) {
+      const pwErr = validateDbPassword((parsed as Record<string, unknown>).db_password)
       if (pwErr) return { parsed: null, error: pwErr }
     }
-    return { parsed: obj as Record<string, unknown>, error: '' }
+    return { parsed, error: '' }
   } catch (err) {
-    return { parsed: null, error: err instanceof Error ? err.message : 'Invalid JSON' }
+    const trimmed = text.trim()
+    if (trimmed === 'true') return { parsed: true, error: '' }
+    if (trimmed === 'false') return { parsed: false, error: '' }
+    if (trimmed === 'null') return { parsed: null, error: '' }
+    if (/^-?\d+(\.\d+)?$/.test(trimmed)) return { parsed: Number(trimmed), error: '' }
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      return { parsed: null, error: err instanceof Error ? err.message : 'Invalid JSON' }
+    }
+    if (trimmed === '') return { parsed: '', error: '' }
+    if (trimmed === '""') return { parsed: '', error: '' }
+    if (trimmed === "''") return { parsed: '', error: '' }
+    if (trimmed === 'db_password') {
+      return { parsed: trimmed, error: '' }
+    }
+    return { parsed: text, error: '' }
   }
+}
+
+function formatVariableValue(value: unknown): string {
+  if (value === undefined) return ''
+  if (typeof value === 'string') return value
+  return JSON.stringify(value)
+}
+
+function cloneInputConfig(config: TerraformInputConfiguration): TerraformInputConfiguration {
+  return JSON.parse(JSON.stringify(config)) as TerraformInputConfiguration
+}
+
+function emptyVariableLayer(): TerraformVariableLayer {
+  return { varFile: '', variables: {}, secretRefs: {} }
+}
+
+function ensureVariableSet(config: TerraformInputConfiguration): TerraformVariableSet {
+  return config.variableSets.find((item) => item.id === config.selectedVariableSetId) ?? config.variableSets[0]
+}
+
+function ensureOverlayLayer(config: TerraformInputConfiguration, variableSet: TerraformVariableSet): TerraformVariableLayer {
+  if (!config.selectedOverlay) return emptyVariableLayer()
+  if (!variableSet.overlays[config.selectedOverlay]) {
+    variableSet.overlays[config.selectedOverlay] = emptyVariableLayer()
+  }
+  return variableSet.overlays[config.selectedOverlay]
+}
+
+function variableLayerMode(layer: TerraformVariableLayer, name: string): 'inherit' | 'value' | 'ssm' | 'secret' {
+  if (layer.secretRefs[name]) {
+    return layer.secretRefs[name].source === 'ssm-parameter' ? 'ssm' : 'secret'
+  }
+  if (Object.prototype.hasOwnProperty.call(layer.variables, name)) {
+    return 'value'
+  }
+  return 'inherit'
 }
 
 function uniqueStrings(values: string[]): string[] {
@@ -133,63 +186,315 @@ function InputsDialog({
   prefillMissing
 }: {
   project: TerraformProject
-  onSave: (variables: Record<string, unknown>, varFile: string) => void
+  onSave: (inputConfig: TerraformInputConfiguration) => void
   onClose: () => void
   prefillMissing?: string[]
 }) {
-  const [varFile, setVarFile] = useState(project.varFile ?? '')
-  const [jsonText, setJsonText] = useState(() => {
-    const vars = { ...(project.variables ?? {}) }
-    if (prefillMissing) {
-      for (const name of prefillMissing) {
-        if (!(name in vars)) vars[name] = ''
-      }
-    }
-    return Object.keys(vars).length > 0 ? JSON.stringify(vars, null, 2) : ''
-  })
+  const [config, setConfig] = useState(() => cloneInputConfig(project.inputConfig))
   const [validationError, setValidationError] = useState('')
+  const variableSet = ensureVariableSet(config)
+  const overlayLayer = ensureOverlayLayer(config, variableSet)
+  const overlayOptions = uniqueStrings(['', ...project.inputView.availableOverlays, config.selectedOverlay]).sort((a, b) => a.localeCompare(b))
+  const variableNames = useMemo(() => uniqueStrings([
+    ...project.inputView.rows.map((row) => row.name),
+    ...(prefillMissing ?? [])
+  ]).sort((a, b) => a.localeCompare(b)), [project.inputView.rows, prefillMissing])
 
-  async function handleBrowse() {
+  async function handleBrowse(target: 'base' | 'overlay') {
     const chosen = await chooseVarFile()
-    if (chosen) setVarFile(chosen)
+    if (!chosen) return
+    setConfig((current) => {
+      const next = cloneInputConfig(current)
+      const nextSet = ensureVariableSet(next)
+      const layer = target === 'base' ? nextSet.base : ensureOverlayLayer(next, nextSet)
+      layer.varFile = chosen
+      return next
+    })
   }
 
   function handleSave() {
-    const { parsed, error } = validateVariablesJson(jsonText)
-    if (error) { setValidationError(error); return }
+    const next = cloneInputConfig(config)
+    const selectedSet = ensureVariableSet(next)
+    const selectedOverlayLayer = ensureOverlayLayer(next, selectedSet)
+
+    if (!selectedSet.name.trim()) {
+      setValidationError('Variable set name is required.')
+      return
+    }
+
+    for (const name of variableNames) {
+      for (const [layerLabel, layer] of [['base', selectedSet.base], ['overlay', selectedOverlayLayer]] as const) {
+        if (Object.prototype.hasOwnProperty.call(layer.variables, name) && name === 'db_password') {
+          const pwErr = validateDbPassword(layer.variables[name])
+          if (pwErr) {
+            setValidationError(`${layerLabel} ${name}: ${pwErr}`)
+            return
+          }
+        }
+        if (layer.secretRefs[name] && !layer.secretRefs[name].target.trim()) {
+          setValidationError(`${layerLabel} ${name}: secret target is required.`)
+          return
+        }
+      }
+    }
+
     setValidationError('')
-    onSave(parsed ?? {}, varFile)
+    onSave(next)
+  }
+
+  function updateConfig(mutator: (draft: TerraformInputConfiguration) => void) {
+    setConfig((current) => {
+      const next = cloneInputConfig(current)
+      mutator(next)
+      return next
+    })
+  }
+
+  function updateLayerEntry(
+    target: 'base' | 'overlay',
+    name: string,
+    mode: 'inherit' | 'value' | 'ssm' | 'secret',
+    rawValue = ''
+  ) {
+    updateConfig((next) => {
+      const nextSet = ensureVariableSet(next)
+      const layer = target === 'base' ? nextSet.base : ensureOverlayLayer(next, nextSet)
+      delete layer.variables[name]
+      delete layer.secretRefs[name]
+
+      if (mode === 'value') {
+        const parsed = parseVariableValue(rawValue)
+        if (!parsed.error) {
+          layer.variables[name] = parsed.parsed
+        }
+        return
+      }
+
+      if (mode === 'ssm' || mode === 'secret') {
+        layer.secretRefs[name] = {
+          source: mode === 'ssm' ? 'ssm-parameter' : 'secrets-manager',
+          target: rawValue,
+          versionId: '',
+          jsonKey: '',
+          label: ''
+        }
+      }
+    })
+  }
+
+  function updateSecretReferenceField(target: 'base' | 'overlay', name: string, field: keyof TerraformSecretReference, value: string) {
+    updateConfig((next) => {
+      const nextSet = ensureVariableSet(next)
+      const layer = target === 'base' ? nextSet.base : ensureOverlayLayer(next, nextSet)
+      const current = layer.secretRefs[name]
+      if (!current) return
+      layer.secretRefs[name] = { ...current, [field]: value }
+    })
+  }
+
+  function renderLayerEditor(target: 'base' | 'overlay', name: string) {
+    const layer = target === 'base' ? variableSet.base : overlayLayer
+    const mode = variableLayerMode(layer, name)
+    const localValue = Object.prototype.hasOwnProperty.call(layer.variables, name) ? formatVariableValue(layer.variables[name]) : ''
+    const secretRef = layer.secretRefs[name]
+
+    return (
+      <div className="tf-input-cell">
+        <select
+          value={mode}
+          onChange={(e) => updateLayerEntry(target, name, e.target.value as 'inherit' | 'value' | 'ssm' | 'secret', mode === 'value' ? localValue : secretRef?.target ?? '')}
+        >
+          <option value="inherit">Inherit</option>
+          <option value="value">Local value</option>
+          <option value="ssm">SSM ref</option>
+          <option value="secret">Secret ref</option>
+        </select>
+        {mode === 'value' && (
+          <textarea
+            value={localValue}
+            onChange={(e) => {
+              const parsed = parseVariableValue(e.target.value)
+              if (parsed.error) {
+                setValidationError(`${name}: ${parsed.error}`)
+                return
+              }
+              setValidationError('')
+              updateLayerEntry(target, name, 'value', e.target.value)
+            }}
+            placeholder='string, 123, true, {"json":"object"}'
+          />
+        )}
+        {(mode === 'ssm' || mode === 'secret') && secretRef && (
+          <div className="tf-secret-ref-fields">
+            <input
+              value={secretRef.target}
+              onChange={(e) => updateSecretReferenceField(target, name, 'target', e.target.value)}
+              placeholder={mode === 'ssm' ? '/path/to/parameter' : 'secret-id-or-arn'}
+            />
+            <div className="tf-secret-ref-grid">
+              <input
+                value={secretRef.jsonKey}
+                onChange={(e) => updateSecretReferenceField(target, name, 'jsonKey', e.target.value)}
+                placeholder="JSON key (optional)"
+              />
+              <input
+                value={secretRef.versionId}
+                onChange={(e) => updateSecretReferenceField(target, name, 'versionId', e.target.value)}
+                placeholder={mode === 'secret' ? 'Version ID (optional)' : 'Label (optional)'}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  function draftEffectiveInfo(name: string): { source: string; value: string; note: string } {
+    const overlaySecret = overlayLayer.secretRefs[name]
+    const baseSecret = variableSet.base.secretRefs[name]
+    if (overlaySecret) {
+      return {
+        source: `Overlay secret (${config.selectedOverlay || 'selected'})`,
+        value: overlaySecret.target || 'Secret reference',
+        note: overlaySecret.source === 'ssm-parameter' ? 'Resolved from SSM at runtime' : 'Resolved from Secrets Manager at runtime'
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(overlayLayer.variables, name)) {
+      return {
+        source: `Overlay local (${config.selectedOverlay || 'selected'})`,
+        value: formatVariableValue(overlayLayer.variables[name]),
+        note: ''
+      }
+    }
+    if (baseSecret) {
+      return {
+        source: `Variable set secret (${variableSet.name})`,
+        value: baseSecret.target || 'Secret reference',
+        note: baseSecret.source === 'ssm-parameter' ? 'Resolved from SSM at runtime' : 'Resolved from Secrets Manager at runtime'
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(variableSet.base.variables, name)) {
+      return {
+        source: `Variable set local (${variableSet.name})`,
+        value: formatVariableValue(variableSet.base.variables[name]),
+        note: ''
+      }
+    }
+    const existing = project.inputView.rows.find((item) => item.name === name)
+    return {
+      source: existing?.effectiveSourceLabel ?? 'Missing',
+      value: existing?.effectiveValueSummary ?? '-',
+      note: existing?.secretSourceLabel ?? existing?.inheritedFrom ?? ''
+    }
+  }
+
+  function handleCreateVariableSet() {
+    updateConfig((next) => {
+      const id = `set-${Date.now()}`
+      next.variableSets.push({
+        id,
+        name: `Variable Set ${next.variableSets.length + 1}`,
+        description: '',
+        base: emptyVariableLayer(),
+        overlays: {},
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      })
+      next.selectedVariableSetId = id
+    })
   }
 
   return (
     <div className="tf-inputs-overlay" onClick={onClose}>
-      <div className="tf-inputs-dialog" onClick={(e) => e.stopPropagation()}>
+      <div className="tf-inputs-dialog tf-inputs-dialog-wide" onClick={(e) => e.stopPropagation()}>
         <h3>Inputs for {project.name}</h3>
         <p style={{ margin: 0, fontSize: 12, color: '#9ca7b7' }}>
-          You can provide a .tfvars file, JSON variables, or both. Variables are exported as TF_VAR_* and written to an auto.tfvars.json file.
+          Base values stay local, overlays override by environment, and AWS secret refs resolve only at runtime.
         </p>
+        {project.inputView.migratedFromLegacy && (
+          <p className="tf-inputs-migration-note">
+            Existing var file + JSON inputs were migrated into the selected variable set base layer.
+          </p>
+        )}
         {prefillMissing && prefillMissing.length > 0 && (
-          <p style={{ margin: 0, fontSize: 12, color: '#f39c12' }}>
+          <p className="tf-inputs-warning">
             Required now: {uniqueStrings(prefillMissing).join(', ')}
           </p>
         )}
-        <label>
-          Var File Path
-          <div style={{ display: 'flex', gap: 6 }}>
-            <input value={varFile} onChange={(e) => setVarFile(e.target.value)} placeholder="path/to/terraform.tfvars" style={{ flex: 1 }} />
-            <button type="button" className="tf-toolbar-btn" onClick={handleBrowse}>Browse</button>
-          </div>
-        </label>
-        <label>
-          Variables (JSON)
-          <textarea value={jsonText} onChange={(e) => { setJsonText(e.target.value); setValidationError('') }} placeholder='{"key": "value"}' />
-        </label>
+        <div className="tf-inputs-toolbar">
+          <label>
+            Variable Set
+            <div className="tf-inline-field">
+              <select value={config.selectedVariableSetId} onChange={(e) => updateConfig((next) => { next.selectedVariableSetId = e.target.value })}>
+                {config.variableSets.map((item) => (
+                  <option key={item.id} value={item.id}>{item.name}</option>
+                ))}
+              </select>
+              <button type="button" className="tf-toolbar-btn" onClick={handleCreateVariableSet}>New Set</button>
+            </div>
+          </label>
+          <label>
+            Set Name
+            <input value={variableSet.name} onChange={(e) => updateConfig((next) => { ensureVariableSet(next).name = e.target.value })} />
+          </label>
+          <label>
+            Environment Overlay
+            <div className="tf-inline-field">
+              <select value={config.selectedOverlay} onChange={(e) => updateConfig((next) => { next.selectedOverlay = e.target.value })}>
+                <option value="">None</option>
+                {overlayOptions.filter(Boolean).map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+              <input value={config.selectedOverlay} onChange={(e) => updateConfig((next) => { next.selectedOverlay = e.target.value.trim() })} placeholder="dev / stage / prod" />
+            </div>
+          </label>
+        </div>
+        <div className="tf-inputs-layout">
+          <label>
+            Base Var File
+            <div className="tf-inline-field">
+              <input value={variableSet.base.varFile} onChange={(e) => updateConfig((next) => { ensureVariableSet(next).base.varFile = e.target.value })} placeholder="terraform.tfvars" />
+              <button type="button" className="tf-toolbar-btn" onClick={() => void handleBrowse('base')}>Browse</button>
+            </div>
+          </label>
+          <label>
+            Overlay Var File
+            <div className="tf-inline-field">
+              <input value={overlayLayer.varFile} onChange={(e) => updateConfig((next) => { ensureOverlayLayer(next, ensureVariableSet(next)).varFile = e.target.value })} placeholder="env/dev.tfvars" />
+              <button type="button" className="tf-toolbar-btn" onClick={() => void handleBrowse('overlay')} disabled={!config.selectedOverlay}>Browse</button>
+            </div>
+          </label>
+        </div>
+        <div className="tf-input-grid">
+          <div className="tf-input-grid-head">Variable</div>
+          <div className="tf-input-grid-head">Base</div>
+          <div className="tf-input-grid-head">Overlay</div>
+          <div className="tf-input-grid-head">Effective</div>
+          {variableNames.map((name) => {
+            const row = project.inputView.rows.find((item) => item.name === name)
+            const effective = draftEffectiveInfo(name)
+            return (
+              <Fragment key={name}>
+                <div className="tf-input-name-cell">
+                  <strong>{name}</strong>
+                  <span className={`tf-input-badge ${row?.required ? 'required' : 'optional'}`}>
+                    {row?.required ? 'Required' : 'Optional'}
+                  </span>
+                  {row?.description && <span className="tf-input-description">{row.description}</span>}
+                </div>
+                {renderLayerEditor('base', name)}
+                {renderLayerEditor('overlay', name)}
+                <div className="tf-input-effective-cell">
+                  <div className="tf-input-effective-source">{effective.source}</div>
+                  <div className="tf-input-effective-value">{effective.value || '-'}</div>
+                  {effective.note && <div className="tf-input-effective-note">{effective.note}</div>}
+                </div>
+              </Fragment>
+            )
+          })}
+        </div>
         {validationError && <div className="tf-inputs-error">{validationError}</div>}
-        {project.detectedVariables.length > 0 && (
-          <div style={{ fontSize: 11, color: '#6b7688' }}>
-            Detected variables: {project.detectedVariables.map((v) => v.name).join(', ')}
-          </div>
-        )}
         <div className="tf-inputs-buttons">
           <button type="button" className="tf-toolbar-btn" onClick={onClose}>Cancel</button>
           <button type="button" className="tf-toolbar-btn accent" onClick={handleSave}>Save</button>
@@ -2491,10 +2796,10 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
     setShowInputs(true)
   }
 
-  async function handleSaveInputs(variables: Record<string, unknown>, varFile: string) {
+  async function handleSaveInputs(inputConfig: TerraformInputConfiguration) {
     if (!detail) return
     try {
-      const updated = await updateInputs(contextKey, detail.id, variables, varFile, connection)
+      const updated = await updateInputs(contextKey, detail.id, inputConfig, connection)
       setDetail(updated)
       setShowInputs(false)
       setPrefillMissing([])
@@ -2554,16 +2859,19 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
   function handleInit() { void execCommand('init') }
   function handlePlan(options?: TerraformPlanOptions) {
     if (!detail || running) return
-    void getMissingRequiredInputs(contextKey, detail.id)
-      .then((missing) => {
-        const unresolved = uniqueStrings(missing)
-        if (unresolved.length > 0) {
-          setPrefillMissing(unresolved)
+    void validateProjectInputs(contextKey, detail.id, connection)
+      .then((validation) => {
+        const unresolved = uniqueStrings([
+          ...validation.missing,
+          ...validation.unresolvedSecrets.map((item) => item.name)
+        ])
+        if (!validation.valid && unresolved.length > 0) {
+          setPrefillMissing(validation.missing)
           setResumeCommandAfterInputs({ command: 'plan', planOptions: options })
           setMsg(
             unresolved.length === 1
-              ? `Missing required Terraform variable: ${unresolved[0]}. The Inputs dialog is open so you can provide it.`
-              : `Missing required Terraform variables: ${unresolved.join(', ')}. The Inputs dialog is open so you can provide them.`
+              ? `Terraform input needs attention: ${unresolved[0]}. The Inputs dialog is open so you can fix it.`
+              : `Terraform inputs need attention: ${unresolved.join(', ')}. The Inputs dialog is open so you can fix them.`
           )
           setShowInputs(true)
           return null
@@ -2849,6 +3157,7 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
                   <div className="tf-kv-row"><div className="tf-kv-label">Path</div><div className="tf-kv-value">{detail.rootPath}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Environment</div><div className="tf-kv-value">{detail.environment.environmentLabel}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Workspace</div><div className="tf-kv-value"><span className="tf-workspace-badge">{detail.currentWorkspace}</span></div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">Overlay</div><div className="tf-kv-value">{detail.inputView.selectedOverlay || '-'}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Backend</div><div className="tf-kv-value">{detail.metadata.backendType}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Backend Detail</div><div className="tf-kv-value">{detail.metadata.backend.label}</div></div>
                   {'effectiveStateKey' in detail.metadata.backend && (
@@ -2860,6 +3169,7 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
                   <div className="tf-kv-row"><div className="tf-kv-label">Region</div><div className="tf-kv-value">{detail.environment.region || '-'}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Profile/Session</div><div className="tf-kv-value">{detail.environment.connectionLabel || '-'}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Var Set</div><div className="tf-kv-value">{detail.environment.varSetLabel || '-'}</div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">Input Status</div><div className="tf-kv-value">{detail.inputValidation.valid ? 'Ready' : `Needs attention (${detail.inputValidation.missing.length + detail.inputValidation.unresolvedSecrets.length})`}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Providers</div><div className="tf-kv-value">{detail.metadata.providerNames.join(', ') || '-'}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">TF Files</div><div className="tf-kv-value">{detail.metadata.tfFileCount}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Resources</div><div className="tf-kv-value">{detail.metadata.resourceCount}</div></div>

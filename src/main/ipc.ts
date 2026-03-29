@@ -5,7 +5,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { dialog, ipcMain, shell, app, type BrowserWindow, type OpenDialogOptions } from 'electron'
 
-import type { AwsConnection, TerraformCommandRequest, TerraformRunHistoryFilter } from '@shared/types'
+import type { AwsConnection, TerraformCommandRequest, TerraformInputConfiguration, TerraformRunHistoryFilter } from '@shared/types'
 import { importAwsConfigFile } from './aws/profiles'
 import { SERVICE_CATALOG } from './catalog'
 import { getReleaseInfo } from './releaseCheck'
@@ -28,6 +28,7 @@ import {
   runProjectCommand,
   selectProjectWorkspace,
   updateProjectInputs,
+  validateProjectInputs,
   getProjectContext
 } from './terraform'
 import { getTerraformDriftReport } from './terraformDrift'
@@ -202,11 +203,14 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('terraform:observability-report:get', async (_event, profileName: string, projectId: string, connection: AwsConnection) =>
     wrap(() => generateTerraformObservabilityReport(profileName, projectId, connection))
   )
-  ipcMain.handle('terraform:inputs:update', async (_event, profileName: string, projectId: string, inputs: Record<string, unknown>, varFile?: string, connection?: AwsConnection) =>
-    wrap(() => updateProjectInputs(profileName, projectId, inputs, varFile, connection))
+  ipcMain.handle('terraform:inputs:update', async (_event, profileName: string, projectId: string, inputConfig: TerraformInputConfiguration, connection?: AwsConnection) =>
+    wrap(() => updateProjectInputs(profileName, projectId, inputConfig, connection))
   )
   ipcMain.handle('terraform:inputs:missing-required', async (_event, profileName: string, projectId: string) =>
     wrap(() => getMissingRequiredInputs(profileName, projectId))
+  )
+  ipcMain.handle('terraform:inputs:validate', async (_event, profileName: string, projectId: string, connection?: AwsConnection) =>
+    wrap(() => validateProjectInputs(profileName, projectId, connection))
   )
   ipcMain.handle('terraform:logs:list', async (_event, projectId: string) => wrap(() => getCommandLogs(projectId)))
   ipcMain.handle('terraform:command:run', async (_event, request: TerraformCommandRequest) =>

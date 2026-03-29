@@ -13,7 +13,9 @@ import type {
   SsmSendCommandRequest,
   SsmStartSessionRequest,
   SnapshotLaunchConfig,
+  TerraformInputConfiguration,
   TerraformCommandRequest,
+  TerraformInputValidationResult,
   TerraformRunHistoryFilter
 } from '@shared/types'
 
@@ -605,10 +607,12 @@ const api = {
     ipcRenderer.invoke('terraform:workspace:delete', profileName, projectId, workspaceName, connection),
   getSelectedProjectId: (profileName: string) => ipcRenderer.invoke('terraform:projects:selected:get', profileName),
   setSelectedProjectId: (profileName: string, projectId: string) => ipcRenderer.invoke('terraform:projects:selected:set', profileName, projectId),
-  updateInputs: (profileName: string, projectId: string, inputs: Record<string, unknown>, varFile?: string, connection?: AwsConnection) =>
-    ipcRenderer.invoke('terraform:inputs:update', profileName, projectId, inputs, varFile, connection),
+  updateInputs: (profileName: string, projectId: string, inputConfig: TerraformInputConfiguration, connection?: AwsConnection) =>
+    ipcRenderer.invoke('terraform:inputs:update', profileName, projectId, inputConfig, connection),
   getMissingRequiredInputs: (profileName: string, projectId: string) =>
     ipcRenderer.invoke('terraform:inputs:missing-required', profileName, projectId),
+  validateProjectInputs: (profileName: string, projectId: string, connection?: AwsConnection): Promise<TerraformInputValidationResult> =>
+    ipcRenderer.invoke('terraform:inputs:validate', profileName, projectId, connection),
   listCommandLogs: (projectId: string) => ipcRenderer.invoke('terraform:logs:list', projectId),
   runCommand: (request: TerraformCommandRequest) => ipcRenderer.invoke('terraform:command:run', request),
   hasSavedPlan: (projectId: string) => ipcRenderer.invoke('terraform:plan:has-saved', projectId),

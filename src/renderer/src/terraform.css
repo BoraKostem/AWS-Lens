@@ -1117,6 +1117,10 @@
   gap: 14px;
 }
 
+.tf-inputs-dialog.tf-inputs-dialog-wide {
+  width: min(1100px, 92vw);
+}
+
 .tf-inputs-dialog h3 {
   margin: 0;
   font-size: 15px;
@@ -1150,6 +1154,133 @@
 .tf-inputs-dialog textarea {
   min-height: 160px;
   resize: vertical;
+}
+
+.tf-inputs-migration-note,
+.tf-inputs-warning {
+  margin: 0;
+  font-size: 12px;
+  color: #f0c674;
+}
+
+.tf-inputs-toolbar,
+.tf-inputs-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.tf-inline-field {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.tf-inline-field input,
+.tf-inline-field select {
+  flex: 1;
+  min-width: 0;
+}
+
+.tf-input-grid {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.8fr) minmax(220px, 1fr) minmax(220px, 1fr) minmax(200px, 0.8fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.tf-input-grid-head {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7688;
+}
+
+.tf-input-name-cell,
+.tf-input-cell,
+.tf-input-effective-cell {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #2c3440;
+  border-radius: 6px;
+  background: #151b22;
+}
+
+.tf-input-name-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tf-input-name-cell strong {
+  color: #edf1f6;
+  font-size: 13px;
+}
+
+.tf-input-description,
+.tf-input-effective-note {
+  color: #8c98a8;
+  font-size: 11px;
+}
+
+.tf-input-badge {
+  display: inline-flex;
+  width: fit-content;
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.tf-input-badge.required {
+  background: rgba(231, 76, 60, 0.16);
+  color: #ffb2a8;
+}
+
+.tf-input-badge.optional {
+  background: rgba(74, 143, 231, 0.16);
+  color: #9ec7ff;
+}
+
+.tf-input-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tf-input-cell textarea {
+  min-height: 78px;
+}
+
+.tf-secret-ref-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tf-secret-ref-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.tf-input-effective-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tf-input-effective-source {
+  color: #9ec7ff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tf-input-effective-value {
+  color: #d0d8e2;
+  font-size: 12px;
+  word-break: break-word;
 }
 
 .tf-inputs-dialog .tf-inputs-buttons {
@@ -1765,6 +1896,13 @@
   }
 
   .tf-plan-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tf-inputs-toolbar,
+  .tf-inputs-layout,
+  .tf-secret-ref-grid,
+  .tf-input-grid {
     grid-template-columns: 1fr;
   }
 
