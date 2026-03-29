@@ -17,6 +17,9 @@
     "dist:mac": "pnpm build && electron-builder --mac dmg zip --publish never",
     "dist:linux": "pnpm build && electron-builder --linux deb AppImage --publish never",
     "preview": "electron-vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -62,10 +65,12 @@
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.4.1",
+    "@vitest/coverage-v8": "^4.1.2",
     "electron": "^41.1.0",
     "electron-builder": "^26.0.12",
     "electron-vite": "^3.1.0",
     "typescript": "^5.8.2",
-    "vite": "^6.2.0"
+    "vite": "^6.2.0",
+    "vitest": "^4.1.2"
   }
 }
