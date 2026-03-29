@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+# Skip Electron binary download — not needed for typecheck/test/server build
+env:
+  ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+
 jobs:
   typecheck:
     name: Type check
