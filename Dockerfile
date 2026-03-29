@@ -31,7 +31,9 @@ RUN apk add --no-cache bash python3 make g++
 COPY package.json pnpm-lock.yaml ./
 
 # Production deps only — skip postinstall (electron-builder not in prod deps)
-RUN pnpm install --frozen-lockfile --prod --ignore-scripts
+RUN pnpm install --frozen-lockfile --prod --ignore-scripts && \
+    NODEPTY=$(ls -d node_modules/.pnpm/node-pty@*/node_modules/node-pty) && \
+    cd "$NODEPTY" && node-gyp rebuild
 
 COPY --from=builder /app/out/server ./out/server
 COPY --from=builder /app/out/renderer/public/renderer ./out/public/renderer
