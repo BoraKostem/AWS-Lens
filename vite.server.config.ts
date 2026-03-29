@@ -24,7 +24,7 @@ export default defineConfig({
       ],
       output: {
         format: 'esm',
-        entryFileNames: 'index.js'
+        entryFileNames: 'index.mjs'
       }
     }
   },

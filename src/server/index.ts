@@ -93,7 +93,8 @@ app.post('/api/rpc', async (req, res) => {
 
 // ── Static SPA ──────────────────────────────────────────────────────────────
 app.use(express.static(PUBLIC_DIR))
-app.get('*', (_req, res) => {
+// Express 5: use wildcard pattern instead of '*'
+app.get('/{*splat}', (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'index.html'))
 })
 

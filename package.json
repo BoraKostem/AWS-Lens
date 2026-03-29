@@ -12,7 +12,7 @@
     "dev": "ELECTRON_RUN_AS_NODE= electron-vite dev",
     "build": "electron-vite build",
     "build:web": "electron-vite build --outDir out/renderer/public && vite build --config vite.server.config.ts",
-    "start:web": "node out/server/index.js",
+    "start:web": "node out/server/index.mjs",
     "postinstall": "electron-builder install-app-deps",
     "dist": "pnpm build && electron-builder --publish never",
     "dist:win": "pnpm build && electron-builder --win nsis --publish never",
