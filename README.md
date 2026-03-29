@@ -92,11 +92,29 @@ Visual graph of Terraform-managed resources and their dependency relationships, 
 
 Beyond Terraform, AWS Lens provides a full operator workspace for common AWS services. It reads local AWS profiles, lets you activate a profile and region, and keeps that context synchronized across the UI and the embedded terminal.
 
+![AWS Lens Overview](images/overview.png)
+
 ### Profile and Region Context
 
 - Reads AWS profiles from `~/.aws/config` and `~/.aws/credentials`
 - Searchable profile catalog with import and creation support
+- Create app-managed credential profiles directly from the desktop UI
+- Pin frequently used services in the sidebar for faster switching
 - Region-aware service navigation with context kept in sync across all screens
+- Refresh the active screen without losing the selected account or region context
+
+### Overview Dashboard
+
+The Overview screen is the landing surface for day-to-day AWS navigation. It gives operators a regional snapshot first, then lets them fan out into deeper service consoles and relationship views.
+
+- Regional overview tiles for EC2, Lambda, EKS, Auto Scaling, S3, RDS, CloudFormation, ECR, ECS, VPC, Load Balancers, Route 53, Security Groups, SNS, SQS, ACM, KMS, WAF, Secrets Manager, Key Pairs, CloudWatch, CloudTrail, and IAM
+- Optional global overview across multiple regions with service totals and region breakdowns
+- Cost visibility using Cost Explorer when available, with heuristic fallback when it is not
+- Relationship mapping between resources with filterable edge lists and drill-down navigation
+- Statistics and insight panels grouped by compute, storage, networking, security, management, and messaging
+- Search-by-tag workflow that returns matching resources and a cost-oriented rollup
+
+Overview doubles as a routing surface: clicking most tiles opens the corresponding service workspace with the current AWS context already applied.
 
 ### Session Hub
 
@@ -107,9 +125,33 @@ Cross-account session management for assume-role workflows:
 - Activate assumed sessions as the active app context
 - Temporary credentials held in memory only, never written to AWS config files
 
+![AWS Lens Session Hub](images/session-hub.png)
+
+The Session Hub is more than a credential switcher. It keeps a local catalog of role targets, tracks active and expired sessions, shows expiration countdowns, and lets you jump into the embedded terminal or diff mode using the assumed-role context. This makes cross-account workflows practical without rewriting local AWS config files or copying short-lived credentials around by hand.
+
+### Compare Workspace
+
+AWS Lens includes a dedicated compare mode for side-by-side inspection of two AWS contexts. Each side can be a base profile or an active assumed-role session, and each side can target a different region.
+
+- Compare inventory, posture, ownership tags, cost signals, and operational risk
+- Filter results by focus area: security, compute, networking, storage, drift/compliance, and cost
+- Switch between grouped and flat diff tables
+- Open the relevant service console directly from a selected diff row
+- Use Session Hub as a launch point for cross-account comparisons
+
 ### Compliance Center
 
 Aggregates security findings for the active profile and region, grouped by severity and category with guided remediation paths.
+
+![AWS Lens Compliance Center](images/complience-center.png)
+
+In practice, the Compliance Center acts as an operations queue:
+
+- Summarizes total findings and the current high/medium/low distribution
+- Organizes findings by category: security, compliance, operations, and cost
+- Supports filtering by severity, category, service, and free-text search
+- Surfaces collection warnings when AWS APIs do not return complete data
+- Provides guided remediation actions, including navigation into the relevant service workspace, terminal-driven fixes, and Secrets Manager rotation actions
 
 ### Service Consoles
 
@@ -126,6 +168,23 @@ Dedicated consoles for 25+ AWS services with inventory views and targeted operat
 | Messaging | SNS, SQS |
 | Other | Secrets Manager, Key Pairs, STS |
 
+The service catalog is implemented as focused workspaces rather than generic wrappers around AWS APIs. Examples include:
+
+- `EC2`: instance inventory, snapshots, IAM instance profiles, bastion-oriented actions, and links into CloudWatch
+- `VPC` and `Security Groups`: network topology, gateways, interfaces, reachability context, and rule management
+- `EKS` and `ECS`: cluster and service views with helper actions that connect into the embedded terminal
+- `S3`, `ECR`, `Lambda`, and `RDS`: service-native detail views for common operator inspection flows
+- `IAM`, `Identity Center`, `STS`, `KMS`, `WAF`, `ACM`, and `Secrets Manager`: identity, crypto, perimeter, certificate, and secret-management tasks in the same desktop shell
+- `CloudFormation`, `CloudTrail`, `CloudWatch`, `Route 53`, `SNS`, and `SQS`: deployment, audit, telemetry, DNS, and messaging workflows without leaving the active AWS context
+
+### Direct Resource Access
+
+AWS Lens also includes a direct-access screen for situations where list permissions are restricted but targeted read access is still allowed.
+
+- Open S3 buckets, Lambda functions, RDS instances or clusters, ECR repositories, ECS services, EKS clusters, CloudFormation stacks, Route 53 hosted zones, Secrets Manager secrets, SNS topics, SQS queues, KMS keys, WAF web ACLs, and ACM certificates directly by known identifier
+- Return raw detail payloads in-place so operators can inspect a resource even when the account cannot enumerate the full service
+- Useful for break-glass support flows and tightly scoped IAM policies
+
 ### Observability and Resilience Lab (Beta)
 
 Operator-assistant surface for EKS clusters, ECS services, and Terraform workspaces. Provides posture analysis, telemetry gap detection, and resilience recommendations. Generates copyable artifacts: OTel YAML, awslogs snippets, Terraform snippets, and FIS template JSON.
@@ -136,6 +195,8 @@ Operator-assistant surface for EKS clusters, ECS services, and Terraform workspa
 - Shares active AWS context with the rest of the application
 - Supports follow-up commands triggered from service screens
 - Toggled from the footer as a persistent bottom panel
+
+The terminal updates automatically when you change profiles, regions, or assumed-role sessions. Service workspaces can push follow-up commands into it, which makes the terminal a continuation of the GUI instead of a separate tool.
 
 ---
 
