@@ -25,8 +25,8 @@ WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
-# bash for node-pty shell sessions
-RUN apk add --no-cache bash python3 make g++
+# bash + build tools for node-pty native compilation
+RUN apk add --no-cache bash python3 make g++ && npm install -g node-gyp
 
 COPY package.json pnpm-lock.yaml ./
 
