@@ -14,6 +14,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      electron: path.resolve(__dirname, 'src/server/electronShim.ts'),
       '@main': path.resolve(__dirname, 'src/main'),
       '@shared': path.resolve(__dirname, 'src/shared')
     }
