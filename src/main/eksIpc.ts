@@ -107,8 +107,10 @@ export function registerEksIpcHandlers(getWindow: () => BrowserWindow | null): v
           KUBECONFIG: activeKubeconfigPath
         }
 
-        const child = spawn(command, {
-          shell: true,
+        // Split command into argv to avoid shell injection — no shell: true
+        const [cmd, ...args] = command.trim().split(/\s+/)
+        const child = spawn(cmd, args, {
+          shell: false,
           env,
           cwd: process.env.USERPROFILE || process.env.HOME || '.'
         })
