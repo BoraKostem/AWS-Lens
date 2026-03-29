@@ -2,8 +2,8 @@ import { app } from 'electron'
 
 import type { AppReleaseInfo } from '@shared/types'
 
-const RELEASES_URL = 'https://github.com/BoraKostem/AWS-Lens/releases/'
-const LATEST_RELEASE_API_URL = 'https://api.github.com/repos/BoraKostem/AWS-Lens/releases/latest'
+const RELEASES_URL = 'https://github.com/zolty-mat/aws-lens/releases/'
+const LATEST_RELEASE_API_URL = 'https://api.github.com/repos/zolty-mat/aws-lens/releases/latest'
 
 function makeInitialReleaseInfo(): AppReleaseInfo {
   return {
