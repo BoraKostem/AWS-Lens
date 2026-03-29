@@ -9,7 +9,6 @@ import './console-shared.css'
 // In web mode (no Electron preload), inject the fetch-based bridge
 if (!window.awsLens) {
   const { webBridge } = await import('./webBridge')
-  // @ts-expect-error — assigning to readonly window property in web mode
   window.awsLens = webBridge
 }
 if (!window.terraformWorkspace) {
