@@ -307,6 +307,69 @@
   background: #8e44ad;
 }
 
+.tf-plan-controls-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.tf-plan-controls {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid #3b4350;
+  border-radius: 6px;
+  background: #20252d;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tf-plan-mode-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tf-plan-mode-row button {
+  padding: 7px 10px;
+  border: 1px solid #3b4350;
+  border-radius: 999px;
+  background: #252b33;
+  color: #9ca7b7;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.tf-plan-mode-row button.active,
+.tf-plan-mode-row button:hover {
+  color: #edf1f6;
+  border-color: #4a8fe7;
+}
+
+.tf-plan-address-input {
+  min-height: 92px;
+  padding: 10px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #111820;
+  color: #edf1f6;
+  font-size: 12px;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  resize: vertical;
+}
+
+.tf-plan-controls-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 /* ── Summary Label ───────────────────────────────────────── */
 
 .tf-summary {
@@ -338,6 +401,292 @@
 .tf-summary-count.missing_in_aws { color: #e74c3c; }
 .tf-summary-count.unmanaged_in_aws { color: #4a8fe7; }
 .tf-summary-count.unsupported { color: #9b59b6; }
+
+.tf-plan-section-warning {
+  background: linear-gradient(180deg, rgba(155, 89, 182, 0.1), transparent);
+}
+
+.tf-plan-section-danger {
+  background: linear-gradient(180deg, rgba(231, 76, 60, 0.12), transparent);
+}
+
+.tf-plan-risk-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tf-plan-risk-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(74, 143, 231, 0.14);
+  color: #9ec7ff;
+}
+
+.tf-plan-risk-badge.replace {
+  background: rgba(155, 89, 182, 0.18);
+  color: #deb2f6;
+}
+
+.tf-plan-risk-badge.destructive {
+  background: rgba(231, 76, 60, 0.18);
+  color: #ffb2a8;
+}
+
+.tf-plan-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.tf-plan-summary-card {
+  border: 1px solid #3b4350;
+  border-radius: 6px;
+  background: #20252d;
+  padding: 12px;
+}
+
+.tf-plan-summary-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #9ca7b7;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+
+.tf-plan-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tf-plan-stat-grid div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tf-plan-stat-grid strong {
+  color: #edf1f6;
+  font-size: 20px;
+}
+
+.tf-plan-stat-grid span {
+  color: #9ca7b7;
+  font-size: 11px;
+}
+
+.tf-plan-chip-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.tf-plan-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(74, 143, 231, 0.16);
+  color: #9ec7ff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tf-plan-chip.subtle {
+  background: rgba(255, 255, 255, 0.06);
+  color: #c0c8d2;
+}
+
+.tf-plan-filters {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tf-plan-group-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.tf-plan-group-card {
+  border: 1px solid #3b4350;
+  border-radius: 6px;
+  background: #20252d;
+  padding: 12px;
+}
+
+.tf-plan-group-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.tf-plan-group-label {
+  color: #edf1f6;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.tf-plan-group-resources {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tf-plan-change-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.tf-plan-change-card {
+  border: 1px solid #3b4350;
+  border-radius: 6px;
+  background: #20252d;
+  padding: 12px;
+}
+
+.tf-plan-change-card.compact {
+  padding: 8px 10px;
+}
+
+.tf-plan-change-card.replace {
+  border-color: rgba(155, 89, 182, 0.7);
+  background: linear-gradient(180deg, rgba(155, 89, 182, 0.14), rgba(32, 37, 45, 1));
+}
+
+.tf-plan-change-card.destructive {
+  border-color: rgba(231, 76, 60, 0.7);
+  background: linear-gradient(180deg, rgba(231, 76, 60, 0.12), rgba(32, 37, 45, 1));
+}
+
+.tf-plan-change-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.tf-plan-change-title {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.tf-plan-action-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.tf-plan-action-badge.create { background: rgba(46, 204, 113, 0.16); color: #7ee2a5; }
+.tf-plan-action-badge.update { background: rgba(243, 156, 18, 0.16); color: #ffd082; }
+.tf-plan-action-badge.delete { background: rgba(231, 76, 60, 0.16); color: #ff9e92; }
+.tf-plan-action-badge.replace { background: rgba(155, 89, 182, 0.18); color: #deb2f6; }
+
+.tf-plan-change-address {
+  color: #edf1f6;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tf-plan-change-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  color: #9ca7b7;
+  font-size: 11px;
+}
+
+.tf-plan-change-meta span {
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.tf-plan-change-flags {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.tf-plan-flag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #c0c8d2;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.tf-plan-flag.replace {
+  color: #deb2f6;
+  background: rgba(155, 89, 182, 0.16);
+}
+
+.tf-plan-attribute-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.tf-plan-attribute-row {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: #111820;
+}
+
+.tf-plan-attribute-row.replace {
+  border-left: 3px solid #9b59b6;
+}
+
+.tf-plan-attribute-path {
+  color: #9ec7ff;
+  font-size: 11px;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+}
+
+.tf-plan-attribute-values {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: #d0d8e2;
+  font-size: 11px;
+  min-width: 0;
+}
 
 /* ── Diagram Container ───────────────────────────────────── */
 
@@ -1034,5 +1383,19 @@
   .tf-inputs-dialog select {
     width: 100%;
     min-width: 0;
+  }
+
+  .tf-plan-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tf-plan-change-head,
+  .tf-plan-group-head,
+  .tf-plan-controls-footer {
+    flex-direction: column;
+  }
+
+  .tf-plan-attribute-row {
+    grid-template-columns: 1fr;
   }
 }

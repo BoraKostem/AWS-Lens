@@ -2315,19 +2315,93 @@ export type TerraformResourceInventoryItem = {
   values: Record<string, unknown>
 }
 
+export type TerraformPlanAction = 'create' | 'update' | 'delete' | 'replace' | 'no-op'
+
+export type TerraformPlanGroupKind = 'module' | 'action' | 'resource-type'
+
+export type TerraformPlanCounts = {
+  create: number
+  update: number
+  delete: number
+  replace: number
+  noop: number
+}
+
+export type TerraformPlanExecutionMode = 'standard' | 'refresh-only' | 'targeted' | 'replace'
+
+export type TerraformPlanOptions = {
+  mode?: TerraformPlanExecutionMode
+  targets?: string[]
+  replaceAddresses?: string[]
+}
+
+export type TerraformPlanOptionsSummary = {
+  mode: TerraformPlanExecutionMode
+  targets: string[]
+  replaceAddresses: string[]
+}
+
+export type TerraformPlanAttributeChange = {
+  path: string
+  changeType: 'add' | 'remove' | 'update' | 'unknown' | 'replace'
+  before: string
+  after: string
+  requiresReplacement: boolean
+  sensitive: boolean
+  heuristic: boolean
+}
+
 export type TerraformPlanChange = {
   address: string
   type: string
   name: string
   modulePath: string
   provider: string
+  providerDisplayName: string
+  service: string
   actions: string[]
-  actionLabel: string
+  actionLabel: TerraformPlanAction
+  mode: 'managed' | 'data'
+  actionReason: string
+  replacePaths: string[]
+  changedAttributes: TerraformPlanAttributeChange[]
+  beforeIdentity: string
+  afterIdentity: string
+  isDestructive: boolean
+  isReplacement: boolean
+}
+
+export type TerraformPlanGroup = {
+  key: string
+  label: string
+  kind: TerraformPlanGroupKind
+  count: number
+  summary: TerraformPlanCounts
+  resources: string[]
+}
+
+export type TerraformPlanSummary = TerraformPlanCounts & {
+  hasChanges: boolean
+  affectedResources: number
+  affectedModules: string[]
+  affectedProviders: string[]
+  affectedServices: string[]
+  groups: {
+    byModule: TerraformPlanGroup[]
+    byAction: TerraformPlanGroup[]
+    byResourceType: TerraformPlanGroup[]
+  }
+  jsonFieldsUsed: string[]
+  heuristicNotes: string[]
+  hasDestructiveChanges: boolean
+  hasReplacementChanges: boolean
+  isDeleteHeavy: boolean
+  request: TerraformPlanOptionsSummary
 }
 
 export type TerraformActionRow = {
   order: number
-  action: string
+  action: TerraformPlanAction
   address: string
   resourceType: string
   physicalResourceId: string
@@ -2387,7 +2461,7 @@ export type TerraformRunRecord = {
   finishedAt: string | null
   exitCode: number | null
   success: boolean | null
-  planSummary: { create: number; update: number; delete: number; replace: number; noop: number } | null
+  planSummary: TerraformPlanSummary | null
   planJsonPath: string
 }
 
@@ -2454,13 +2528,7 @@ export type TerraformProject = {
   actionRows: TerraformActionRow[]
   resourceRows: TerraformResourceRow[]
   diagram: TerraformDiagram
-  lastPlanSummary: {
-    create: number
-    update: number
-    delete: number
-    replace: number
-    noop: number
-  }
+  lastPlanSummary: TerraformPlanSummary
   lastCommandAt: string
   stateAddresses: string[]
   rawStateJson: string
@@ -2474,6 +2542,7 @@ export type TerraformCommandRequest = {
   projectId: string
   command: TerraformCommandName
   stateAddress?: string
+  planOptions?: TerraformPlanOptions
 }
 
 export type TerraformProjectListItem = Pick<

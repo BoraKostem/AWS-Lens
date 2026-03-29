@@ -16,7 +16,10 @@ import type {
   TerraformDiagram,
   TerraformGraphEdge,
   TerraformGraphNode,
+  TerraformPlanAction,
   TerraformPlanChange,
+  TerraformPlanGroup,
+  TerraformPlanOptions,
   TerraformProject,
   TerraformProjectListItem,
   TerraformResourceRow,
@@ -90,18 +93,6 @@ function terraformContextKey(connection: AwsConnection): string {
   return connection.kind === 'profile'
     ? `profile:${connection.profile}`
     : `assumed-role:${connection.sessionId}`
-}
-
-function parsePlanSummaryFromOutput(output: string): TerraformProject['lastPlanSummary'] | null {
-  const match = output.match(/Plan:\s*(\d+)\s+to add,\s*(\d+)\s+to change,\s*(\d+)\s+to destroy\./i)
-  if (!match) return null
-  return {
-    create: Number(match[1] ?? 0),
-    update: Number(match[2] ?? 0),
-    delete: Number(match[3] ?? 0),
-    replace: 0,
-    noop: 0
-  }
 }
 
 /* ── Inputs Dialog ────────────────────────────────────────── */
@@ -343,6 +334,58 @@ function TypedConfirmDialog({
 
 const ACTION_COLORS: Record<string, string> = {
   create: '#2ecc71', update: '#f39c12', delete: '#e74c3c', replace: '#9b59b6', 'no-op': '#5a6a7a'
+}
+
+const PLAN_MODE_LABELS: Record<Exclude<TerraformPlanOptions['mode'], undefined>, string> = {
+  standard: 'Standard saved plan',
+  'refresh-only': 'Refresh-only plan',
+  targeted: 'Targeted plan',
+  replace: 'Replace plan'
+}
+
+function actionSymbol(action: TerraformPlanAction): string {
+  if (action === 'create') return '+'
+  if (action === 'delete') return '-'
+  if (action === 'update') return '~'
+  if (action === 'replace') return '±'
+  return '·'
+}
+
+function parsePlanAddressList(text: string): string[] {
+  return [...new Set(
+    text
+      .split(/\r?\n|,/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+  )]
+}
+
+function groupLabel(groupBy: 'module' | 'action' | 'resource-type'): string {
+  if (groupBy === 'module') return 'Module'
+  if (groupBy === 'action') return 'Action'
+  return 'Resource type'
+}
+
+function emptyPlanSummary(mode: NonNullable<TerraformPlanOptions['mode']> = 'standard'): TerraformProject['lastPlanSummary'] {
+  return {
+    create: 0,
+    update: 0,
+    delete: 0,
+    replace: 0,
+    noop: 0,
+    hasChanges: false,
+    affectedResources: 0,
+    affectedModules: [],
+    affectedProviders: [],
+    affectedServices: [],
+    groups: { byModule: [], byAction: [], byResourceType: [] },
+    jsonFieldsUsed: [],
+    heuristicNotes: [],
+    hasDestructiveChanges: false,
+    hasReplacementChanges: false,
+    isDeleteHeavy: false,
+    request: { mode, targets: [], replaceAddresses: [] }
+  }
 }
 
 function SummaryConfirmDialog({
@@ -771,6 +814,52 @@ function DiagramView({ diagram }: { diagram: TerraformDiagram }) {
 
 /* ── Actions Tab ──────────────────────────────────────────── */
 
+function PlanGroupList({
+  groups,
+  changesByAddress
+}: {
+  groups: TerraformPlanGroup[]
+  changesByAddress: Map<string, TerraformPlanChange>
+}) {
+  return (
+    <div className="tf-plan-group-list">
+      {groups.map((group) => (
+        <div key={`${group.kind}:${group.key}`} className="tf-plan-group-card">
+          <div className="tf-plan-group-head">
+            <div>
+              <div className="tf-plan-group-label">{group.label}</div>
+              <div className="tf-section-hint">{group.count} affected resource{group.count === 1 ? '' : 's'}</div>
+            </div>
+            <div className="tf-summary">
+              <span className="tf-summary-item"><span className="tf-summary-count create">{group.summary.create}</span>create</span>
+              <span className="tf-summary-item"><span className="tf-summary-count update">{group.summary.update}</span>update</span>
+              <span className="tf-summary-item"><span className="tf-summary-count delete">{group.summary.delete}</span>delete</span>
+              <span className="tf-summary-item"><span className="tf-summary-count replace">{group.summary.replace}</span>replace</span>
+            </div>
+          </div>
+          <div className="tf-plan-group-resources">
+            {group.resources.slice(0, 8).map((address) => {
+              const change = changesByAddress.get(address)
+              if (!change) return null
+              return (
+                <div key={address} className={`tf-plan-change-card compact ${change.isReplacement ? 'replace' : change.isDestructive ? 'destructive' : ''}`}>
+                  <div className="tf-plan-change-title">
+                    <span className={`tf-plan-action-badge ${change.actionLabel}`}>{actionSymbol(change.actionLabel)} {change.actionLabel}</span>
+                    <span className="tf-plan-change-address">{change.address}</span>
+                  </div>
+                </div>
+              )
+            })}
+            {group.resources.length > 8 && (
+              <div className="tf-section-hint">+{group.resources.length - 8} more resources in this group</div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function ActionsTab({
   project,
   cliOk,
@@ -786,13 +875,53 @@ function ActionsTab({
   running: boolean
   lastLog: TerraformCommandLog | null
   onInit: () => void
-  onPlan: () => void
+  onPlan: (options?: TerraformPlanOptions) => void
   onApply: () => void
   onDestroy: () => void
 }) {
   const [outputOpen, setOutputOpen] = useState(false)
+  const [showPlanControls, setShowPlanControls] = useState(false)
+  const [advancedMode, setAdvancedMode] = useState<'refresh-only' | 'targeted' | 'replace'>('refresh-only')
+  const [targetText, setTargetText] = useState('')
+  const [replaceText, setReplaceText] = useState('')
+  const [actionFilter, setActionFilter] = useState<'all' | TerraformPlanAction>('all')
+  const [moduleFilter, setModuleFilter] = useState('all')
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [groupBy, setGroupBy] = useState<'module' | 'action' | 'resource-type'>('module')
+
   const s = project.lastPlanSummary
   const hasSavedPlan = project.hasSavedPlan
+  const moduleOptions = useMemo(() => ['all', ...project.lastPlanSummary.affectedModules], [project.lastPlanSummary.affectedModules])
+  const typeOptions = useMemo(
+    () => ['all', ...[...new Set(project.planChanges.filter((change) => change.actionLabel !== 'no-op').map((change) => change.type))].sort()],
+    [project.planChanges]
+  )
+  const filteredChanges = useMemo(
+    () => project.planChanges.filter((change) =>
+      change.actionLabel !== 'no-op'
+      && (actionFilter === 'all' || change.actionLabel === actionFilter)
+      && (moduleFilter === 'all' || change.modulePath === moduleFilter)
+      && (typeFilter === 'all' || change.type === typeFilter)
+    ),
+    [project.planChanges, actionFilter, moduleFilter, typeFilter]
+  )
+  const changesByAddress = useMemo(() => new Map(project.planChanges.map((change) => [change.address, change])), [project.planChanges])
+  const groupedChanges = useMemo(() => {
+    const source = groupBy === 'module'
+      ? s.groups.byModule
+      : groupBy === 'action'
+        ? s.groups.byAction
+        : s.groups.byResourceType
+    const filteredAddresses = new Set(filteredChanges.map((change) => change.address))
+    return source
+      .map((group) => ({ ...group, resources: group.resources.filter((address) => filteredAddresses.has(address)) }))
+      .filter((group) => group.resources.length > 0)
+  }, [filteredChanges, groupBy, s.groups])
+
+  const advancedAddresses = advancedMode === 'targeted'
+    ? parsePlanAddressList(targetText)
+    : parsePlanAddressList(replaceText)
+  const canRunAdvancedPlan = advancedMode === 'refresh-only' || advancedAddresses.length > 0
 
   return (
     <>
@@ -800,7 +929,7 @@ function ActionsTab({
         <h3>Actions</h3>
         <div className="tf-actions-grid">
           <button className="tf-action-btn init" disabled={!cliOk || running} onClick={onInit}>Init</button>
-          <button className="tf-action-btn plan" disabled={!cliOk || running} onClick={onPlan}>Plan</button>
+          <button className="tf-action-btn plan" disabled={!cliOk || running} onClick={() => onPlan()}>Plan</button>
           <button
             className="tf-action-btn apply"
             disabled={!cliOk || running || !hasSavedPlan}
@@ -818,25 +947,209 @@ function ActionsTab({
             Destroy
           </button>
         </div>
-        {!hasSavedPlan && (
-          <div className="tf-section-hint">Run Plan first. Apply and Destroy stay disabled until a saved plan exists.</div>
+        <div className="tf-plan-controls-toggle-row">
+          <button type="button" className="tf-toolbar-btn" onClick={() => setShowPlanControls((value) => !value)} disabled={!cliOk || running}>
+            {showPlanControls ? 'Hide plan controls' : 'Show plan controls'}
+          </button>
+          {!hasSavedPlan && (
+            <div className="tf-section-hint">Run Plan first. Apply and Destroy stay disabled until a saved plan exists.</div>
+          )}
+        </div>
+        {showPlanControls && (
+          <div className="tf-plan-controls">
+            <div className="tf-plan-mode-row">
+              <button type="button" className={advancedMode === 'refresh-only' ? 'active' : ''} onClick={() => setAdvancedMode('refresh-only')}>Refresh-only</button>
+              <button type="button" className={advancedMode === 'targeted' ? 'active' : ''} onClick={() => setAdvancedMode('targeted')}>Targeted</button>
+              <button type="button" className={advancedMode === 'replace' ? 'active' : ''} onClick={() => setAdvancedMode('replace')}>Replace</button>
+            </div>
+            <div className="tf-section-hint">
+              {advancedMode === 'refresh-only' && 'Refresh-only reads remote objects and updates state without proposing infrastructure mutations.'}
+              {advancedMode === 'targeted' && 'Targeted plans should be used sparingly. Enter one resource address per line or comma-separated.'}
+              {advancedMode === 'replace' && 'Replace plans force selected resources through destroy/create or create/delete replacement logic.'}
+            </div>
+            {advancedMode === 'targeted' && (
+              <textarea
+                className="tf-plan-address-input"
+                value={targetText}
+                onChange={(event) => setTargetText(event.target.value)}
+                placeholder={'module.network.aws_subnet.private[0]\naws_instance.web'}
+              />
+            )}
+            {advancedMode === 'replace' && (
+              <textarea
+                className="tf-plan-address-input"
+                value={replaceText}
+                onChange={(event) => setReplaceText(event.target.value)}
+                placeholder={'module.app.aws_instance.web\naws_db_instance.main'}
+              />
+            )}
+            <div className="tf-plan-controls-footer">
+              <div className="tf-section-hint">
+                {advancedMode === 'refresh-only'
+                  ? 'This still produces a saved plan file.'
+                  : `${advancedAddresses.length} explicit resource address${advancedAddresses.length === 1 ? '' : 'es'} selected.`}
+              </div>
+              <button
+                type="button"
+                className="tf-toolbar-btn accent"
+                disabled={!cliOk || running || !canRunAdvancedPlan}
+                onClick={() => onPlan(
+                  advancedMode === 'refresh-only'
+                    ? { mode: 'refresh-only' }
+                    : advancedMode === 'targeted'
+                      ? { mode: 'targeted', targets: advancedAddresses }
+                      : { mode: 'replace', replaceAddresses: advancedAddresses }
+                )}
+              >
+                Run {advancedMode === 'refresh-only' ? 'refresh-only' : advancedMode} plan
+              </button>
+            </div>
+          </div>
         )}
       </div>
-      {(s.create > 0 || s.update > 0 || s.delete > 0 || s.replace > 0) && (
+
+      <div className={`tf-section ${s.isDeleteHeavy ? 'tf-plan-section-danger' : s.hasReplacementChanges ? 'tf-plan-section-warning' : ''}`}>
+        <div className="tf-section-head">
+          <div>
+            <h3>Plan Summary</h3>
+            <div className="tf-section-hint">
+              {PLAN_MODE_LABELS[s.request.mode]}{s.request.targets.length > 0 ? ` • ${s.request.targets.length} target${s.request.targets.length === 1 ? '' : 's'}` : ''}{s.request.replaceAddresses.length > 0 ? ` • ${s.request.replaceAddresses.length} replace address${s.request.replaceAddresses.length === 1 ? '' : 'es'}` : ''}
+            </div>
+          </div>
+          <div className="tf-plan-risk-row">
+            {s.hasReplacementChanges && <span className="tf-plan-risk-badge replace">Replacement changes</span>}
+            {s.isDeleteHeavy && <span className="tf-plan-risk-badge destructive">Delete-heavy blast radius</span>}
+          </div>
+        </div>
+        <div className="tf-plan-summary-grid">
+          <div className="tf-plan-summary-card">
+            <div className="tf-plan-summary-label">Action totals</div>
+            <div className="tf-summary">
+              <span className="tf-summary-item"><span className="tf-summary-count create">{s.create}</span> create</span>
+              <span className="tf-summary-item"><span className="tf-summary-count update">{s.update}</span> update</span>
+              <span className="tf-summary-item"><span className="tf-summary-count delete">{s.delete}</span> delete</span>
+              <span className="tf-summary-item"><span className="tf-summary-count replace">{s.replace}</span> replace</span>
+              <span className="tf-summary-item"><span className="tf-summary-count" style={{ color: '#5a6a7a' }}>{s.noop}</span> no-op</span>
+            </div>
+          </div>
+          <div className="tf-plan-summary-card">
+            <div className="tf-plan-summary-label">Blast radius</div>
+            <div className="tf-plan-stat-grid">
+              <div><strong>{s.affectedResources}</strong><span>resources</span></div>
+              <div><strong>{s.affectedModules.length}</strong><span>modules</span></div>
+              <div><strong>{s.affectedProviders.length}</strong><span>providers</span></div>
+              <div><strong>{s.affectedServices.length}</strong><span>services</span></div>
+            </div>
+          </div>
+        </div>
+        {s.hasChanges ? (
+          <>
+            <div className="tf-plan-chip-row">
+              {s.affectedModules.map((modulePath) => <span key={modulePath} className="tf-plan-chip">{modulePath}</span>)}
+            </div>
+            <div className="tf-plan-chip-row">
+              {s.affectedServices.map((service) => <span key={service} className="tf-plan-chip subtle">{service}</span>)}
+            </div>
+          </>
+        ) : (
+          <div className="tf-empty" style={{ padding: 0 }}>No actionable changes in the saved plan.</div>
+        )}
+        <div className="tf-section-hint">
+          JSON fields used: {s.jsonFieldsUsed.join(', ')}
+        </div>
+        <div className="tf-section-hint">
+          Heuristic areas: {s.heuristicNotes.join(' ')}
+        </div>
+      </div>
+
+      {filteredChanges.length > 0 && (
         <div className="tf-section">
-          <div className="tf-summary">
-            <span className="tf-summary-item"><span className="tf-summary-count create">{s.create}</span> create</span>
-            <span className="tf-summary-item"><span className="tf-summary-count update">{s.update}</span> update</span>
-            <span className="tf-summary-item"><span className="tf-summary-count delete">{s.delete}</span> delete</span>
-            <span className="tf-summary-item"><span className="tf-summary-count replace">{s.replace}</span> replace</span>
-            <span className="tf-summary-item"><span className="tf-summary-count" style={{ color: '#5a6a7a' }}>{s.noop}</span> no-op</span>
+          <div className="tf-section-head">
+            <div>
+              <h3>Change Explorer</h3>
+              <div className="tf-section-hint">Filter by action, module, or type, then regroup the remaining resources.</div>
+            </div>
+            <div className="tf-plan-filters">
+              <label className="tf-drift-filter-select">
+                Action
+                <select value={actionFilter} onChange={(event) => setActionFilter(event.target.value as 'all' | TerraformPlanAction)}>
+                  <option value="all">All</option>
+                  <option value="create">Create</option>
+                  <option value="update">Update</option>
+                  <option value="delete">Delete</option>
+                  <option value="replace">Replace</option>
+                </select>
+              </label>
+              <label className="tf-drift-filter-select">
+                Module
+                <select value={moduleFilter} onChange={(event) => setModuleFilter(event.target.value)}>
+                  {moduleOptions.map((value) => <option key={value} value={value}>{value}</option>)}
+                </select>
+              </label>
+              <label className="tf-drift-filter-select">
+                Type
+                <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
+                  {typeOptions.map((value) => <option key={value} value={value}>{value}</option>)}
+                </select>
+              </label>
+              <label className="tf-drift-filter-select">
+                Group
+                <select value={groupBy} onChange={(event) => setGroupBy(event.target.value as 'module' | 'action' | 'resource-type')}>
+                  <option value="module">Module</option>
+                  <option value="action">Action</option>
+                  <option value="resource-type">Resource type</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <div className="tf-section-hint">{filteredChanges.length} change{filteredChanges.length === 1 ? '' : 's'} match the current filters. Grouped by {groupLabel(groupBy).toLowerCase()}.</div>
+          <PlanGroupList groups={groupedChanges} changesByAddress={changesByAddress} />
+          <div className="tf-plan-change-list">
+            {filteredChanges.map((change) => (
+              <div key={change.address} className={`tf-plan-change-card ${change.isReplacement ? 'replace' : change.isDestructive ? 'destructive' : ''}`}>
+                <div className="tf-plan-change-head">
+                  <div className="tf-plan-change-title">
+                    <span className={`tf-plan-action-badge ${change.actionLabel}`}>{actionSymbol(change.actionLabel)} {change.actionLabel}</span>
+                    <span className="tf-plan-change-address">{change.address}</span>
+                  </div>
+                  <div className="tf-plan-change-meta">
+                    <span>{change.type}</span>
+                    <span>{change.modulePath}</span>
+                    <span>{change.providerDisplayName || change.provider}</span>
+                    <span>{change.service}</span>
+                  </div>
+                </div>
+                {(change.replacePaths.length > 0 || change.actionReason) && (
+                  <div className="tf-plan-change-flags">
+                    {change.replacePaths.map((path) => <span key={path} className="tf-plan-flag replace">replace: {path}</span>)}
+                    {change.actionReason && <span className="tf-plan-flag">{change.actionReason}</span>}
+                  </div>
+                )}
+                {change.changedAttributes.length > 0 && (
+                  <div className="tf-plan-attribute-list">
+                    {change.changedAttributes.slice(0, 8).map((attribute) => (
+                      <div key={`${change.address}:${attribute.path}`} className={`tf-plan-attribute-row ${attribute.requiresReplacement ? 'replace' : ''}`}>
+                        <div className="tf-plan-attribute-path">{attribute.path}</div>
+                        <div className="tf-plan-attribute-values">
+                          <span>{attribute.before}</span>
+                          <span>→</span>
+                          <span>{attribute.after}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}
+
       <div className="tf-section">
         <h3>Infrastructure Diagram</h3>
         <DiagramView diagram={project.diagram} />
       </div>
+
       {project.actionRows.length > 0 && (
         <div className="tf-section">
           <h3>Action Table</h3>
@@ -855,9 +1168,7 @@ function ActionsTab({
                 {project.actionRows.map((row) => (
                   <tr key={row.order}>
                     <td>{row.order}</td>
-                    <td>
-                      <span className={`tf-summary-count ${row.action}`}>{row.action}</span>
-                    </td>
+                    <td><span className={`tf-summary-count ${row.action}`}>{row.action}</span></td>
                     <td title={row.address}>{row.address}</td>
                     <td>{row.resourceType}</td>
                     <td title={row.physicalResourceId}>{row.physicalResourceId}</td>
@@ -868,6 +1179,7 @@ function ActionsTab({
           </div>
         </div>
       )}
+
       <div className="tf-section">
         <button className="tf-output-toggle" onClick={() => setOutputOpen(!outputOpen)}>
           {outputOpen ? '▼' : '▶'} Command Output
@@ -1366,7 +1678,10 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
   const [showCreateWorkspaceDialog, setShowCreateWorkspaceDialog] = useState(false)
   const [showDeleteWorkspaceDialog, setShowDeleteWorkspaceDialog] = useState(false)
   const [prefillMissing, setPrefillMissing] = useState<string[]>([])
-  const [resumeCommandAfterInputs, setResumeCommandAfterInputs] = useState<null | 'plan' | 'apply' | 'destroy'>(null)
+  const [resumeCommandAfterInputs, setResumeCommandAfterInputs] = useState<null | {
+    command: 'plan' | 'apply' | 'destroy'
+    planOptions?: TerraformPlanOptions
+  }>(null)
   const [confirmDialog, setConfirmDialog] = useState<{
     title: string; description: string; confirmWord: string; onConfirm: () => void
   } | null>(null)
@@ -1631,12 +1946,18 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
       setResumeCommandAfterInputs(null)
       await reload()
       if (commandToResume) {
-        const log = await runCommand({ profileName: contextKey, connection, projectId: updated.id, command: commandToResume })
+        const log = await runCommand({
+          profileName: contextKey,
+          connection,
+          projectId: updated.id,
+          command: commandToResume.command,
+          ...(commandToResume.command === 'plan' ? { planOptions: commandToResume.planOptions } : {})
+        })
         setLastLog(log)
         const refreshed = await reloadProject(contextKey, updated.id, connection)
         setDetail(refreshed)
         await reload()
-        if (log.success && commandToResume === 'plan') {
+        if (log.success && commandToResume.command === 'plan') {
           setMsg('')
           setDetailTab('actions')
         }
@@ -1646,11 +1967,11 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
     }
   }
 
-  async function execCommand(command: 'init' | 'plan' | 'apply' | 'destroy'): Promise<TerraformCommandLog | null> {
+  async function execCommand(command: 'init' | 'plan' | 'apply' | 'destroy', planOptions?: TerraformPlanOptions): Promise<TerraformCommandLog | null> {
     if (!detail || running) return null
     setMsg('')
     try {
-      const log = await runCommand({ profileName: contextKey, connection, projectId: detail.id, command })
+      const log = await runCommand({ profileName: contextKey, connection, projectId: detail.id, command, ...(command === 'plan' ? { planOptions } : {}) })
       // Handle missing vars
       if (!log.success && log.output) {
         const { missing, invalid } = await detectMissingVars(log.output)
@@ -1674,14 +1995,14 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
   }
 
   function handleInit() { void execCommand('init') }
-  function handlePlan() {
+  function handlePlan(options?: TerraformPlanOptions) {
     if (!detail || running) return
     void getMissingRequiredInputs(contextKey, detail.id)
       .then((missing) => {
         const unresolved = uniqueStrings(missing)
         if (unresolved.length > 0) {
           setPrefillMissing(unresolved)
-          setResumeCommandAfterInputs('plan')
+          setResumeCommandAfterInputs({ command: 'plan', planOptions: options })
           setMsg(
             unresolved.length === 1
               ? `Missing required Terraform variable: ${unresolved[0]}. The Inputs dialog is open so you can provide it.`
@@ -1690,7 +2011,7 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
           setShowInputs(true)
           return null
         }
-        return execCommand('plan')
+        return execCommand('plan', options)
       })
       .then((log) => {
         if (log) {
@@ -1735,10 +2056,37 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
       return
     }
     // First confirmation: show what will be destroyed
-    const destroySummary = { create: 0, update: 0, delete: detail.stateAddresses.length, replace: 0, noop: 0 }
+    const destroySummary = {
+      ...emptyPlanSummary('standard'),
+      delete: detail.stateAddresses.length,
+      hasChanges: detail.stateAddresses.length > 0,
+      affectedResources: detail.stateAddresses.length,
+      affectedModules: ['root'],
+      hasDestructiveChanges: detail.stateAddresses.length > 0,
+      isDeleteHeavy: detail.stateAddresses.length > 0
+    }
     const destroyChanges: TerraformPlanChange[] = detail.stateAddresses.map(addr => {
       const parts = addr.split('.')
-      return { address: addr, type: parts[0] ?? addr, name: parts.slice(1).join('.'), modulePath: '', provider: '', actions: ['delete'], actionLabel: 'delete' }
+      const type = parts[0] ?? addr
+      return {
+        address: addr,
+        type,
+        name: parts.slice(1).join('.'),
+        modulePath: 'root',
+        provider: '',
+        providerDisplayName: '',
+        service: type.startsWith('aws_') ? type.replace(/^aws_/, '').split('_')[0] : 'unknown',
+        actions: ['delete'],
+        actionLabel: 'delete',
+        mode: 'managed',
+        actionReason: 'destroy',
+        replacePaths: [],
+        changedAttributes: [],
+        beforeIdentity: addr,
+        afterIdentity: 'destroyed',
+        isDestructive: true,
+        isReplacement: false
+      }
     })
     setSummaryDialog({
       title: 'Destroy Infrastructure — Review',

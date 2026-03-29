@@ -11,11 +11,18 @@ import type {
   TerraformCliInfo,
   TerraformCommandLog,
   TerraformCommandRequest,
+  TerraformPlanAction,
+  TerraformPlanAttributeChange,
   TerraformDiagram,
   TerraformGraphEdge,
   TerraformGraphNode,
   TerraformMissingVarsResult,
   TerraformPlanChange,
+  TerraformPlanCounts,
+  TerraformPlanGroup,
+  TerraformPlanOptions,
+  TerraformPlanOptionsSummary,
+  TerraformPlanSummary,
   TerraformProject,
   TerraformProjectEnvironmentMetadata,
   TerraformProjectListItem,
@@ -52,6 +59,7 @@ type ProjectEvent =
 
 const INPUTS_FILE = 'terraform-workspace.auto.tfvars.json'
 const PLAN_FILE = '.terraform-workspace.tfplan'
+const PLAN_METADATA_FILE = '.terraform-workspace.tfplan.meta.json'
 const STATE_CACHE_FILE = '.terraform-workspace.state.json'
 
 const commandLogs = new Map<string, TerraformCommandLog[]>()
@@ -99,6 +107,14 @@ function planJsonPath(rootPath: string): string {
   return `${planPath(rootPath)}.json`
 }
 
+function planMetadataPath(rootPath: string): string {
+  return path.join(rootPath, PLAN_METADATA_FILE)
+}
+
+function hasSavedPlanArtifacts(rootPath: string): boolean {
+  return fs.existsSync(planPath(rootPath)) && fs.existsSync(planJsonPath(rootPath))
+}
+
 function stripAnsi(text: string): string {
   return text.replace(/\x1b\[[0-9;]*m/g, '')
 }
@@ -124,6 +140,30 @@ function inferVarSetLabel(project: StoredProject): string {
 function inferEnvironmentLabel(workspaceName: string): string {
   if (!workspaceName || workspaceName === 'default') return 'Default'
   return workspaceName
+}
+
+function normalizePlanOptions(options?: TerraformPlanOptions): TerraformPlanOptionsSummary {
+  const mode = options?.mode ?? 'standard'
+  const targets = uniqueStrings((options?.targets ?? []).map((item) => item.trim()))
+  const replaceAddresses = uniqueStrings((options?.replaceAddresses ?? []).map((item) => item.trim()))
+  if (mode === 'refresh-only') {
+    return { mode, targets: [], replaceAddresses: [] }
+  }
+  if (mode === 'targeted') {
+    return { mode, targets, replaceAddresses: [] }
+  }
+  if (mode === 'replace') {
+    return { mode, targets: [], replaceAddresses }
+  }
+  return { mode: 'standard', targets: [], replaceAddresses: [] }
+}
+
+function readPlanOptions(rootPath: string): TerraformPlanOptionsSummary {
+  return normalizePlanOptions(parseJsonFile<TerraformPlanOptions | null>(planMetadataPath(rootPath), null) ?? undefined)
+}
+
+function writePlanOptions(rootPath: string, options?: TerraformPlanOptions): void {
+  fs.writeFileSync(planMetadataPath(rootPath), JSON.stringify(normalizePlanOptions(options), null, 2), 'utf-8')
 }
 
 /* ── CLI Detection ────────────────────────────────────────── */
@@ -742,7 +782,31 @@ function readStateSnapshot(rootPath: string): {
 
 /* ── Plan Reading ─────────────────────────────────────────── */
 
-function classifyAction(actions: string[]): string {
+const EMPTY_PLAN_COUNTS: TerraformPlanCounts = { create: 0, update: 0, delete: 0, replace: 0, noop: 0 }
+const PLAN_JSON_FIELDS_USED = [
+  'resource_changes[].address',
+  'resource_changes[].type',
+  'resource_changes[].name',
+  'resource_changes[].mode',
+  'resource_changes[].module_address',
+  'resource_changes[].provider_name',
+  'resource_changes[].action_reason',
+  'resource_changes[].change.actions',
+  'resource_changes[].change.before',
+  'resource_changes[].change.after',
+  'resource_changes[].change.after_unknown',
+  'resource_changes[].change.before_sensitive',
+  'resource_changes[].change.after_sensitive',
+  'resource_changes[].change.replace_paths'
+]
+const PLAN_HEURISTIC_NOTES = [
+  'Affected services are inferred from Terraform resource types and provider names.',
+  'Delete-heavy highlighting is based on action totals, not cloud-provider impact.',
+  'Attribute summaries collapse nested structures and unknown values for readability.',
+  'Physical identity previews are inferred from common fields such as arn, id, and name.'
+]
+
+function classifyAction(actions: string[]): TerraformPlanAction {
   const sorted = [...actions].sort()
   const key = sorted.join(',')
   if (key === 'create') return 'create'
@@ -752,37 +816,271 @@ function classifyAction(actions: string[]): string {
   return 'no-op'
 }
 
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))]
+}
+
+function shortProviderName(providerName: string): string {
+  if (!providerName) return ''
+  const parts = providerName.split('/')
+  return parts.length >= 2 ? `${parts[parts.length - 2]}/${parts[parts.length - 1]}` : providerName
+}
+
+function inferServiceName(type: string, providerName: string): string {
+  if (type.startsWith('aws_')) return cloudTrailServiceForType(type) || 'aws'
+  const short = shortProviderName(providerName)
+  return short.split('/').pop() ?? short ?? 'unknown'
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function valueAtPath(value: unknown, path: string): unknown {
+  if (!path) return value
+  let current: unknown = value
+  for (const segment of path.split('.')) {
+    if (Array.isArray(current)) {
+      const index = Number(segment)
+      if (!Number.isInteger(index)) return undefined
+      current = current[index]
+      continue
+    }
+    if (!isRecord(current)) return undefined
+    current = current[segment]
+  }
+  return current
+}
+
+function valuesEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return left.length === right.length && left.every((item, index) => valuesEqual(item, right[index]))
+  }
+  if (isRecord(left) && isRecord(right)) {
+    const leftKeys = Object.keys(left)
+    const rightKeys = Object.keys(right)
+    return leftKeys.length === rightKeys.length
+      && leftKeys.every((key) => rightKeys.includes(key) && valuesEqual(left[key], right[key]))
+  }
+  return false
+}
+
+function summarizeValue(value: unknown, sensitive = false): string {
+  if (sensitive && value !== undefined) return '(sensitive)'
+  if (value === undefined) return '—'
+  if (value === null) return 'null'
+  if (typeof value === 'string') return value.length > 80 ? `${value.slice(0, 77)}...` : value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '[]'
+    if (value.length <= 4 && value.every((item) => ['string', 'number', 'boolean'].includes(typeof item) || item === null)) {
+      return `[${value.map((item) => summarizeValue(item)).join(', ')}]`
+    }
+    return `[${value.length} items]`
+  }
+  if (isRecord(value)) {
+    const keys = Object.keys(value)
+    if (keys.length === 0) return '{}'
+    const identity = physicalId(value)
+    if (identity !== '-') return identity
+    return `{${keys.slice(0, 4).join(', ')}${keys.length > 4 ? ', ...' : ''}}`
+  }
+  return String(value)
+}
+
+function collectChangedPaths(before: unknown, after: unknown, prefix = '', depth = 0, limit = 14, acc = new Set<string>()): Set<string> {
+  if (acc.size >= limit || valuesEqual(before, after)) return acc
+  if (depth < 3 && isRecord(before) && isRecord(after)) {
+    const keys = Array.from(new Set([...Object.keys(before), ...Object.keys(after)])).sort()
+    for (const key of keys) {
+      const nextPath = prefix ? `${prefix}.${key}` : key
+      collectChangedPaths(before[key], after[key], nextPath, depth + 1, limit, acc)
+      if (acc.size >= limit) break
+    }
+    if (!prefix && acc.size === 0) acc.add('(root)')
+    return acc
+  }
+  acc.add(prefix || '(root)')
+  return acc
+}
+
+function collectMarkedPaths(value: unknown, prefix = '', acc = new Set<string>()): Set<string> {
+  if (value === true) {
+    acc.add(prefix || '(root)')
+    return acc
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => collectMarkedPaths(item, prefix ? `${prefix}.${index}` : String(index), acc))
+    return acc
+  }
+  if (isRecord(value)) {
+    Object.entries(value).forEach(([key, child]) => collectMarkedPaths(child, prefix ? `${prefix}.${key}` : key, acc))
+  }
+  return acc
+}
+
+function normalizeReplacePaths(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => Array.isArray(item)
+      ? item.map((segment) => String(segment)).join('.')
+      : typeof item === 'string' ? item : '')
+    .filter(Boolean)
+}
+
+function buildAttributeChanges(change: Record<string, unknown>): TerraformPlanAttributeChange[] {
+  const before = change.before
+  const after = change.after
+  const unknownPaths = collectMarkedPaths(change.after_unknown)
+  const sensitivePaths = collectMarkedPaths(change.before_sensitive)
+  collectMarkedPaths(change.after_sensitive, '', sensitivePaths)
+  const replacePaths = new Set(normalizeReplacePaths(change.replace_paths))
+  const changedPaths = collectChangedPaths(before, after)
+  const merged = Array.from(new Set([...changedPaths, ...unknownPaths, ...replacePaths]))
+    .filter((path) => path !== '(root)')
+    .slice(0, 12)
+
+  return merged.map((path) => {
+    const sensitive = sensitivePaths.has(path)
+    const unknown = unknownPaths.has(path)
+    const requiresReplacement = replacePaths.has(path)
+    const beforeValue = valueAtPath(before, path)
+    const afterValue = valueAtPath(after, path)
+    let changeType: TerraformPlanAttributeChange['changeType'] = 'update'
+    if (requiresReplacement) changeType = 'replace'
+    else if (unknown) changeType = 'unknown'
+    else if (beforeValue === undefined && afterValue !== undefined) changeType = 'add'
+    else if (beforeValue !== undefined && afterValue === undefined) changeType = 'remove'
+
+    return {
+      path,
+      changeType,
+      before: summarizeValue(beforeValue, sensitive),
+      after: unknown ? '(known after apply)' : summarizeValue(afterValue, sensitive),
+      requiresReplacement,
+      sensitive,
+      heuristic: unknown || Array.isArray(beforeValue) || Array.isArray(afterValue) || isRecord(beforeValue) || isRecord(afterValue)
+    }
+  })
+}
+
+function incrementPlanCounts(summary: TerraformPlanCounts, action: TerraformPlanAction): void {
+  if (action === 'create') summary.create++
+  else if (action === 'update') summary.update++
+  else if (action === 'delete') summary.delete++
+  else if (action === 'replace') summary.replace++
+  else summary.noop++
+}
+
+function summarizePlanGroup(kind: 'module' | 'action' | 'resource-type', entries: Array<{ label: string; key: string; change: TerraformPlanChange }>): TerraformPlanGroup[] {
+  const grouped = new Map<string, TerraformPlanGroup>()
+  for (const entry of entries) {
+    const existing = grouped.get(entry.key) ?? {
+      key: entry.key,
+      label: entry.label,
+      kind,
+      count: 0,
+      summary: { ...EMPTY_PLAN_COUNTS },
+      resources: []
+    }
+    existing.count++
+    incrementPlanCounts(existing.summary, entry.change.actionLabel)
+    existing.resources.push(entry.change.address)
+    grouped.set(entry.key, existing)
+  }
+  return [...grouped.values()]
+    .map((group) => ({ ...group, resources: group.resources.sort() }))
+    .sort((a, b) =>
+      b.count - a.count
+      || b.summary.replace - a.summary.replace
+      || b.summary.delete - a.summary.delete
+      || a.label.localeCompare(b.label))
+}
+
+function emptyPlanSummary(request: TerraformPlanOptionsSummary): TerraformPlanSummary {
+  return {
+    ...EMPTY_PLAN_COUNTS,
+    hasChanges: false,
+    affectedResources: 0,
+    affectedModules: [],
+    affectedProviders: [],
+    affectedServices: [],
+    groups: { byModule: [], byAction: [], byResourceType: [] },
+    jsonFieldsUsed: [...PLAN_JSON_FIELDS_USED],
+    heuristicNotes: [...PLAN_HEURISTIC_NOTES],
+    hasDestructiveChanges: false,
+    hasReplacementChanges: false,
+    isDeleteHeavy: false,
+    request
+  }
+}
+
 function readPlanSnapshot(rootPath: string): {
   planChanges: TerraformPlanChange[]
-  lastPlanSummary: { create: number; update: number; delete: number; replace: number; noop: number }
+  lastPlanSummary: TerraformPlanSummary
 } {
+  const request = readPlanOptions(rootPath)
   const plan = parseJsonFile<Record<string, unknown> | null>(planJsonPath(rootPath), null)
   if (!plan || !Array.isArray(plan.resource_changes)) {
-    return { planChanges: [], lastPlanSummary: { create: 0, update: 0, delete: 0, replace: 0, noop: 0 } }
+    return { planChanges: [], lastPlanSummary: emptyPlanSummary(request) }
   }
-  const summary = { create: 0, update: 0, delete: 0, replace: 0, noop: 0 }
+  const summary = { ...EMPTY_PLAN_COUNTS }
   const planChanges = plan.resource_changes.flatMap((cr) => {
     if (!cr || typeof cr !== 'object') return []
     const rec = cr as Record<string, unknown>
     const change = rec.change as Record<string, unknown> | undefined
     const actions = Array.isArray(change?.actions) ? change.actions.filter((v): v is string => typeof v === 'string') : []
     const label = classifyAction(actions)
-    if (label === 'create') summary.create++
-    else if (label === 'update') summary.update++
-    else if (label === 'delete') summary.delete++
-    else if (label === 'replace') summary.replace++
-    else summary.noop++
+    incrementPlanCounts(summary, label)
+    const provider = typeof rec.provider_name === 'string' ? rec.provider_name : ''
+    const type = typeof rec.type === 'string' ? rec.type : ''
+    const modulePath = typeof rec.module_address === 'string' && rec.module_address ? rec.module_address : 'root'
+    const replacePaths = normalizeReplacePaths(change?.replace_paths)
+    const mode: 'managed' | 'data' = rec.mode === 'data' ? 'data' : 'managed'
     return [{
       address: typeof rec.address === 'string' ? rec.address : '',
-      type: typeof rec.type === 'string' ? rec.type : '',
+      type,
       name: typeof rec.name === 'string' ? rec.name : '',
-      modulePath: typeof rec.module_address === 'string' ? rec.module_address : 'root',
-      provider: typeof rec.provider_name === 'string' ? rec.provider_name : '',
+      modulePath,
+      provider,
+      providerDisplayName: shortProviderName(provider),
+      service: inferServiceName(type, provider),
       actions,
-      actionLabel: label
+      actionLabel: label,
+      mode,
+      actionReason: typeof rec.action_reason === 'string' ? rec.action_reason : '',
+      replacePaths,
+      changedAttributes: change ? buildAttributeChanges(change) : [],
+      beforeIdentity: summarizeValue(change?.before),
+      afterIdentity: summarizeValue(change?.after),
+      isDestructive: label === 'delete' || label === 'replace',
+      isReplacement: label === 'replace' || replacePaths.length > 0
     }].filter((item) => item.address)
   })
-  return { planChanges, lastPlanSummary: summary }
+  const affectedChanges = planChanges.filter((item) => item.actionLabel !== 'no-op')
+  return {
+    planChanges,
+    lastPlanSummary: {
+      ...summary,
+      hasChanges: affectedChanges.length > 0,
+      affectedResources: affectedChanges.length,
+      affectedModules: uniqueStrings(affectedChanges.map((item) => item.modulePath)).sort(),
+      affectedProviders: uniqueStrings(affectedChanges.map((item) => item.providerDisplayName || item.provider)).sort(),
+      affectedServices: uniqueStrings(affectedChanges.map((item) => item.service)).sort(),
+      groups: {
+        byModule: summarizePlanGroup('module', affectedChanges.map((change) => ({ key: change.modulePath, label: change.modulePath, change }))),
+        byAction: summarizePlanGroup('action', affectedChanges.map((change) => ({ key: change.actionLabel, label: change.actionLabel, change }))),
+        byResourceType: summarizePlanGroup('resource-type', affectedChanges.map((change) => ({ key: change.type, label: change.type, change })))
+      },
+      jsonFieldsUsed: [...PLAN_JSON_FIELDS_USED],
+      heuristicNotes: [...PLAN_HEURISTIC_NOTES],
+      hasDestructiveChanges: affectedChanges.some((item) => item.isDestructive),
+      hasReplacementChanges: affectedChanges.some((item) => item.isReplacement),
+      isDeleteHeavy: summary.delete + summary.replace >= Math.max(1, Math.ceil(affectedChanges.length / 2)),
+      request
+    }
+  }
 }
 
 /* ── Physical Resource Identity ───────────────────────────── */
@@ -1184,10 +1482,10 @@ function loadProject(project: StoredProject, profileName = '', connection?: AwsC
       detectedVariables: [], inputs: {}, metadata: emptyMeta,
       inventory: [], planChanges: [], actionRows: [], resourceRows: [],
       diagram: { nodes: [], edges: [] },
-      lastPlanSummary: { create: 0, update: 0, delete: 0, replace: 0, noop: 0 },
+      lastPlanSummary: emptyPlanSummary(readPlanOptions(project.rootPath)),
       lastCommandAt: commandLogs.get(project.id)?.[0]?.startedAt ?? '',
       stateAddresses: [], rawStateJson: '', stateSource: 'none',
-      hasSavedPlan: savedPlanPaths.has(project.id)
+      hasSavedPlan: savedPlanPaths.has(project.id) || hasSavedPlanArtifacts(project.rootPath)
     }
   }
 
@@ -1212,7 +1510,7 @@ function loadProject(project: StoredProject, profileName = '', connection?: AwsC
     inventory, planChanges, actionRows, resourceRows, diagram,
     lastPlanSummary, lastCommandAt: commandLogs.get(project.id)?.[0]?.startedAt ?? '',
     stateAddresses, rawStateJson, stateSource,
-    hasSavedPlan: savedPlanPaths.has(project.id)
+    hasSavedPlan: savedPlanPaths.has(project.id) || hasSavedPlanArtifacts(project.rootPath)
   }
 }
 
@@ -1475,7 +1773,7 @@ async function runTerraformShowJson(rootPath: string, planPath: string, env: Rec
 }
 
 function clearSavedPlanArtifacts(rootPath: string): void {
-  for (const filePath of [planPath(rootPath), planJsonPath(rootPath)]) {
+  for (const filePath of [planPath(rootPath), planJsonPath(rootPath), planMetadataPath(rootPath)]) {
     try {
       fs.unlinkSync(filePath)
     } catch {
@@ -1511,6 +1809,7 @@ function buildArgs(request: TerraformCommandRequest, project: StoredProject): st
   if (resolved) varFileArgs.push('-var-file', resolved)
   const inputsFile = managedInputsPath(project.rootPath)
   if (fs.existsSync(inputsFile)) varFileArgs.push('-var-file', inputsFile)
+  const planOptions = normalizePlanOptions(request.planOptions)
 
   switch (request.command) {
     case 'version':
@@ -1518,7 +1817,24 @@ function buildArgs(request: TerraformCommandRequest, project: StoredProject): st
     case 'init':
       return ['init', '-input=false', '-no-color']
     case 'plan':
-      return ['plan', '-input=false', '-no-color', '-detailed-exitcode', '-out', PLAN_FILE, ...varFileArgs]
+      if (planOptions.mode === 'targeted' && planOptions.targets.length === 0) {
+        throw new Error('Targeted plan requires at least one resource address.')
+      }
+      if (planOptions.mode === 'replace' && planOptions.replaceAddresses.length === 0) {
+        throw new Error('Replace plan requires at least one resource address.')
+      }
+      return [
+        'plan',
+        '-input=false',
+        '-no-color',
+        '-detailed-exitcode',
+        '-out',
+        PLAN_FILE,
+        ...(planOptions.mode === 'refresh-only' ? ['-refresh-only'] : []),
+        ...planOptions.targets.flatMap((target) => ['-target', target]),
+        ...planOptions.replaceAddresses.flatMap((address) => ['-replace', address]),
+        ...varFileArgs
+      ]
     case 'apply': {
       const planPath = path.join(project.rootPath, PLAN_FILE)
       if (fs.existsSync(planPath)) {
@@ -1558,6 +1874,10 @@ export async function runProjectCommand(
   // Ensure auto.tfvars is written before commands that need it
   if (['init', 'plan', 'apply', 'destroy', 'state-list', 'state-pull', 'state-show'].includes(request.command)) {
     writeAutoTfvars(project)
+  }
+  if (request.command === 'plan') {
+    savedPlanPaths.delete(project.id)
+    clearSavedPlanArtifacts(project.rootPath)
   }
 
   const args = buildArgs(request, project)
@@ -1637,6 +1957,7 @@ export async function runProjectCommand(
 
     // Post-command actions
     if (request.command === 'plan' && log.success) {
+      writePlanOptions(project.rootPath, request.planOptions)
       await runTerraformShowJson(project.rootPath, planPath(project.rootPath), env)
       savedPlanPaths.set(project.id, planPath(project.rootPath))
     }
