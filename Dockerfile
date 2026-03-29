@@ -30,8 +30,8 @@ RUN apk add --no-cache bash python3 make g++
 
 COPY package.json pnpm-lock.yaml ./
 
-# Production deps only
-RUN pnpm install --frozen-lockfile --prod
+# Production deps only — skip postinstall (electron-builder not in prod deps)
+RUN pnpm install --frozen-lockfile --prod --ignore-scripts
 
 COPY --from=builder /app/out/server ./out/server
 COPY --from=builder /app/out/renderer/public/renderer ./out/public/renderer
