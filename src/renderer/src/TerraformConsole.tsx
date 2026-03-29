@@ -217,10 +217,19 @@ function InputsDialog({
   const variableSet = ensureVariableSet(config)
   const overlayLayer = ensureOverlayLayer(config, variableSet)
   const overlayOptions = uniqueStrings(['', ...project.inputView.availableOverlays, config.selectedOverlay]).sort((a, b) => a.localeCompare(b))
+  const missingNames = useMemo(() => new Set(uniqueStrings([
+    ...project.inputView.missingRequired,
+    ...(prefillMissing ?? [])
+  ])), [project.inputView.missingRequired, prefillMissing])
   const variableNames = useMemo(() => uniqueStrings([
     ...project.inputView.rows.map((row) => row.name),
     ...(prefillMissing ?? [])
-  ]).sort((a, b) => a.localeCompare(b)), [project.inputView.rows, prefillMissing])
+  ]).sort((a, b) => {
+    const aMissing = missingNames.has(a)
+    const bMissing = missingNames.has(b)
+    if (aMissing !== bMissing) return aMissing ? -1 : 1
+    return a.localeCompare(b)
+  }), [missingNames, project.inputView.rows, prefillMissing])
 
   async function handleBrowse(target: 'base' | 'overlay') {
     const chosen = await chooseVarFile()
@@ -371,6 +380,66 @@ function InputsDialog({
     )
   }
 
+  function renderQuickMissingEntry(name: string) {
+    const writeTarget: 'base' | 'overlay' = config.selectedOverlay ? 'overlay' : 'base'
+    const layer = writeTarget === 'base' ? variableSet.base : overlayLayer
+    const mode = variableLayerMode(layer, name)
+    const localValue = Object.prototype.hasOwnProperty.call(layer.variables, name) ? formatVariableValue(layer.variables[name]) : ''
+    const secretRef = layer.secretRefs[name]
+
+    return (
+      <div key={name} className="tf-missing-entry-card">
+        <div className="tf-missing-entry-head">
+          <div>
+            <strong>{name}</strong>
+            <div className="tf-input-effective-note">
+              Writing to {writeTarget === 'overlay' ? `overlay (${config.selectedOverlay})` : `base (${variableSet.name})`}
+            </div>
+          </div>
+          <span className="tf-input-badge required">Missing</span>
+        </div>
+        <div className="tf-missing-entry-controls">
+          <select
+            value={mode === 'inherit' ? 'value' : mode}
+            onChange={(e) => updateLayerEntry(writeTarget, name, e.target.value as 'value' | 'ssm' | 'secret', mode === 'value' ? localValue : secretRef?.target ?? '')}
+          >
+            <option value="value">Local value</option>
+            <option value="ssm">SSM ref</option>
+            <option value="secret">Secret ref</option>
+          </select>
+          {mode === 'ssm' || mode === 'secret' ? (
+            <input
+              value={secretRef?.target ?? ''}
+              onChange={(e) => {
+                if (mode !== 'ssm' && mode !== 'secret') return
+                if (!secretRef) {
+                  updateLayerEntry(writeTarget, name, mode, e.target.value)
+                  return
+                }
+                updateSecretReferenceField(writeTarget, name, 'target', e.target.value)
+              }}
+              placeholder={mode === 'ssm' ? '/path/to/parameter' : 'secret-id-or-arn'}
+            />
+          ) : (
+            <input
+              value={localValue}
+              onChange={(e) => {
+                const parsed = parseVariableValue(e.target.value)
+                if (parsed.error) {
+                  setValidationError(`${name}: ${parsed.error}`)
+                  return
+                }
+                setValidationError('')
+                updateLayerEntry(writeTarget, name, 'value', e.target.value)
+              }}
+              placeholder="Enter required value"
+            />
+          )}
+        </div>
+      </div>
+    )
+  }
+
   function draftEffectiveInfo(name: string): { source: string; value: string; note: string } {
     const overlaySecret = overlayLayer.secretRefs[name]
     const baseSecret = variableSet.base.secretRefs[name]
@@ -442,6 +511,14 @@ function InputsDialog({
           <p className="tf-inputs-warning">
             Required now: {uniqueStrings(prefillMissing).join(', ')}
           </p>
+        )}
+        {missingNames.size > 0 && (
+          <div className="tf-missing-entry-panel">
+            <div className="tf-missing-entry-title">Missing Required Inputs</div>
+            <div className="tf-missing-entry-list">
+              {[...missingNames].sort((a, b) => a.localeCompare(b)).map((name) => renderQuickMissingEntry(name))}
+            </div>
+          </div>
         )}
         <div className="tf-inputs-toolbar">
           <label>
@@ -3186,8 +3263,10 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
 
               {/* Project info */}
               <div className="tf-section">
-                <div className="tf-kv">
-                  <div className="tf-kv-row"><div className="tf-kv-label">Name</div><div className="tf-kv-value">{detail.name}</div></div>
+                <details className="tf-collapsible">
+                  <summary className="tf-collapsible-summary">Project Info</summary>
+                  <div className="tf-kv tf-collapsible-body">
+                    <div className="tf-kv-row"><div className="tf-kv-label">Name</div><div className="tf-kv-value">{detail.name}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Path</div><div className="tf-kv-value">{detail.rootPath}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Environment</div><div className="tf-kv-value">{detail.environment.environmentLabel}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Workspace</div><div className="tf-kv-value"><span className="tf-workspace-badge">{detail.currentWorkspace}</span></div></div>
@@ -3222,20 +3301,21 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
                   <div className="tf-kv-row"><div className="tf-kv-label">State Source</div><div className="tf-kv-value">{detail.stateSource || 'none'}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Latest Backup</div><div className="tf-kv-value">{detail.latestStateBackup ? formatIsoDate(detail.latestStateBackup.createdAt) : 'none yet'}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Backup Folder</div><div className="tf-kv-value">{detail.latestStateBackup?.path || 'created on first destructive state operation'}</div></div>
-                </div>
-                {detail.metadata.git?.status === 'ready' && detail.metadata.git.changedTerraformFiles.length > 0 && (
-                  <div style={{ marginTop: 12 }}>
-                    <div className="tf-section-hint">Changed Terraform files in this project checkout</div>
-                    <div className="tf-kv" style={{ marginTop: 8 }}>
-                      {detail.metadata.git.changedTerraformFiles.map((file) => (
-                        <div key={`${file.status}:${file.path}`} className="tf-kv-row">
-                          <div className="tf-kv-label">{file.status}</div>
-                          <div className="tf-kv-value">{file.path}</div>
-                        </div>
-                      ))}
+                  {detail.metadata.git?.status === 'ready' && detail.metadata.git.changedTerraformFiles.length > 0 && (
+                    <div style={{ marginTop: 12 }}>
+                      <div className="tf-section-hint">Changed Terraform files in this project checkout</div>
+                      <div className="tf-kv" style={{ marginTop: 8 }}>
+                        {detail.metadata.git.changedTerraformFiles.map((file) => (
+                          <div key={`${file.status}:${file.path}`} className="tf-kv-row">
+                            <div className="tf-kv-label">{file.status}</div>
+                            <div className="tf-kv-value">{file.path}</div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
+                  )}
                   </div>
-                )}
+                </details>
               </div>
 
               <WorkspaceControls

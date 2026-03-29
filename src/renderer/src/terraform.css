@@ -256,6 +256,42 @@
   margin-bottom: 8px;
 }
 
+.tf-collapsible {
+  border: 1px solid #3b4350;
+  border-radius: 6px;
+  background: #20252d;
+  overflow: hidden;
+}
+
+.tf-collapsible-summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 12px 14px;
+  color: #d0d8e2;
+  font-size: 13px;
+  font-weight: 700;
+  user-select: none;
+}
+
+.tf-collapsible-summary::-webkit-details-marker {
+  display: none;
+}
+
+.tf-collapsible-summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 8px;
+  color: #9ca7b7;
+}
+
+.tf-collapsible[open] .tf-collapsible-summary::before {
+  content: '▾';
+}
+
+.tf-collapsible-body {
+  padding: 0 14px 14px;
+}
+
 /* ── Action Buttons ──────────────────────────────────────── */
 
 .tf-actions-grid {
@@ -1161,6 +1197,58 @@
   margin: 0;
   font-size: 12px;
   color: #f0c674;
+}
+
+.tf-missing-entry-panel {
+  border: 1px solid rgba(231, 76, 60, 0.28);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(231, 76, 60, 0.08), rgba(21, 27, 34, 0.96));
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tf-missing-entry-title {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #ffb2a8;
+}
+
+.tf-missing-entry-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 10px;
+}
+
+.tf-missing-entry-card {
+  border: 1px solid #3b4350;
+  border-radius: 6px;
+  background: #151b22;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tf-missing-entry-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.tf-missing-entry-head strong {
+  color: #edf1f6;
+  font-size: 13px;
+}
+
+.tf-missing-entry-controls {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 8px;
 }
 
 .tf-inputs-toolbar,
