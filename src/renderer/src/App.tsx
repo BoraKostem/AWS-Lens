@@ -680,6 +680,123 @@ export function App() {
               </div>
             ))}
           </div>
+
+          <div className="permissions-reference">
+            <div className="eyebrow">IAM Permissions Reference</div>
+            <p className="hero-path">Attach one of these policies to the IAM user or role backing your profile. Features will be unavailable if the key lacks the required permissions.</p>
+            <div className="permissions-tier-grid">
+              <div className="permissions-tier-card">
+                <div className="permissions-tier-header">
+                  <span className="permissions-tier-badge minimal">Minimal</span>
+                  <div className="permissions-tier-title">Cost &amp; Identity only</div>
+                  <div className="permissions-tier-desc">Overview cost breakdown and caller identity. No resource access.</div>
+                </div>
+                <pre className="permissions-policy">{`{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CostExplorer",
+      "Effect": "Allow",
+      "Action": [
+        "ce:GetCostAndUsage",
+        "ce:GetCostForecast",
+        "ce:GetUsageForecast",
+        "ce:GetDimensionValues",
+        "ce:GetTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "Identity",
+      "Effect": "Allow",
+      "Action": ["sts:GetCallerIdentity"],
+      "Resource": "*"
+    }
+  ]
+}`}</pre>
+              </div>
+
+              <div className="permissions-tier-card">
+                <div className="permissions-tier-header">
+                  <span className="permissions-tier-badge full">Full Read-Only</span>
+                  <div className="permissions-tier-title">All features, no writes</div>
+                  <div className="permissions-tier-desc">Unlocks every panel. No resources will be created, modified, or deleted.</div>
+                </div>
+                <pre className="permissions-policy">{`{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "FullReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "acm:Describe*", "acm:List*",
+        "autoscaling:Describe*",
+        "cloudformation:Describe*",
+        "cloudformation:List*",
+        "cloudtrail:Describe*",
+        "cloudtrail:Get*",
+        "cloudtrail:LookupEvents",
+        "cloudwatch:Get*",
+        "cloudwatch:List*",
+        "logs:Describe*",
+        "logs:Filter*",
+        "logs:Get*",
+        "ce:Get*",
+        "ce:List*",
+        "ce:Describe*",
+        "ec2:Describe*",
+        "ecr:Describe*",
+        "ecr:Get*",
+        "ecr:List*",
+        "ecr:BatchGet*",
+        "ecs:Describe*",
+        "ecs:List*",
+        "eks:Describe*",
+        "eks:List*",
+        "elasticloadbalancing:Describe*",
+        "iam:Generate*",
+        "iam:Get*",
+        "iam:List*",
+        "iam:Simulate*",
+        "kms:Describe*",
+        "kms:Get*",
+        "kms:List*",
+        "lambda:Get*",
+        "lambda:List*",
+        "rds:Describe*",
+        "rds:List*",
+        "route53:Get*",
+        "route53:List*",
+        "s3:Get*",
+        "s3:List*",
+        "secretsmanager:Describe*",
+        "secretsmanager:Get*",
+        "secretsmanager:List*",
+        "sns:Get*",
+        "sns:List*",
+        "sqs:Get*",
+        "sqs:List*",
+        "ssm:Describe*",
+        "ssm:Get*",
+        "ssm:List*",
+        "sso:Describe*",
+        "sso:Get*",
+        "sso:List*",
+        "identitystore:Describe*",
+        "identitystore:Get*",
+        "identitystore:List*",
+        "sts:GetCallerIdentity",
+        "wafv2:Describe*",
+        "wafv2:Get*",
+        "wafv2:List*"
+      ],
+      "Resource": "*"
+    }
+  ]
+}`}</pre>
+              </div>
+            </div>
+          </div>
         </section>
       )
     }

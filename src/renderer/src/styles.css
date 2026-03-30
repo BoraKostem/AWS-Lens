@@ -3730,6 +3730,89 @@ button.overview-tile.clickable.active strong {
   overflow: auto;
 }
 
+/* ── IAM Permissions Reference ─────────────────────────────────────────── */
+.permissions-reference {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.permissions-reference > .hero-path {
+  margin: 0.4rem 0 1rem;
+}
+
+.permissions-tier-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 1rem;
+}
+
+.permissions-tier-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(9, 14, 17, 0.54);
+}
+
+.permissions-tier-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.permissions-tier-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.permissions-tier-desc {
+  font-size: 0.78rem;
+  color: var(--fg-muted, rgba(200,200,215,0.55));
+}
+
+.permissions-tier-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  width: fit-content;
+}
+
+.permissions-tier-badge.minimal {
+  background: rgba(99, 130, 255, 0.15);
+  color: #7b9cff;
+  border: 1px solid rgba(99, 130, 255, 0.3);
+}
+
+.permissions-tier-badge.full {
+  background: rgba(52, 199, 89, 0.12);
+  color: #4cd964;
+  border: 1px solid rgba(52, 199, 89, 0.3);
+}
+
+.permissions-policy {
+  margin: 0;
+  padding: 0.75rem;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(200, 200, 215, 0.08);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: rgba(200, 215, 200, 0.85);
+  overflow-x: auto;
+  white-space: pre;
+  max-height: 380px;
+  overflow-y: auto;
+}
+
 .profile-catalog-item {
   align-items: center;
   padding: 0.25rem;
