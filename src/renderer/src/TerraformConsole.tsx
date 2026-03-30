@@ -197,6 +197,55 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function summarizeProjectStatus(project: TerraformProjectListItem): {
+  tone: 'success' | 'warning' | 'danger' | 'info'
+  label: string
+} {
+  if (project.status === 'Missing') {
+    return { tone: 'danger', label: 'Missing files' }
+  }
+  if (project.lastPlanSummary?.hasDestructiveChanges || project.lastPlanSummary?.isDeleteHeavy) {
+    return { tone: 'warning', label: 'Destructive plan' }
+  }
+  if (project.lastPlanSummary?.hasChanges) {
+    return { tone: 'info', label: 'Pending changes' }
+  }
+  return { tone: 'success', label: 'Ready' }
+}
+
+function formatProjectPath(path: string): string {
+  if (path.length <= 56) return path
+  return `...${path.slice(-53)}`
+}
+
+function truncateMiddle(value: string, options?: { start?: number; end?: number }): string {
+  const start = options?.start ?? 20
+  const end = options?.end ?? 14
+  if (value.length <= start + end + 3) return value
+  return `${value.slice(0, start)}...${value.slice(-end)}`
+}
+
+function formatResourceTagsSummary(tags: string): string {
+  if (!tags) return '-'
+
+  try {
+    const parsed = JSON.parse(tags) as Record<string, unknown>
+    const entries = Object.entries(parsed).filter(([, value]) => value !== undefined && value !== null)
+    if (entries.length === 0) return '-'
+
+    const [firstKey, firstValue] = entries[0]
+    const firstPair = `${firstKey}=${String(firstValue)}`
+    if (entries.length === 1) return firstPair
+    if (entries.length === 2) {
+      const [secondKey, secondValue] = entries[1]
+      return `${firstPair} • ${secondKey}=${String(secondValue)}`
+    }
+    return `${firstPair} +${entries.length - 1} more`
+  } catch {
+    return truncateMiddle(tags, { start: 24, end: 16 })
+  }
+}
+
 const TF_UI_STORAGE_KEY = 'aws-lens:terraform-ui-state'
 
 type TerraformUiState = {
@@ -2341,20 +2390,80 @@ function WorkspaceControls({
 
 function ResourcesTab({ project }: { project: TerraformProject }) {
   const rows = project.resourceRows
+  const [categoryFilter, setCategoryFilter] = useState('all')
+  const [query, setQuery] = useState('')
+  const categories = useMemo(
+    () => [...new Set(rows.map((row) => row.category).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [rows]
+  )
+  const normalizedQuery = query.trim().toLowerCase()
+  const filteredRows = useMemo(() => rows.filter((row) => {
+    if (categoryFilter !== 'all' && row.category !== categoryFilter) return false
+    if (!normalizedQuery) return true
+
+    const haystack = [
+      row.category,
+      row.address,
+      row.type,
+      row.arn,
+      row.region,
+      row.changedBy,
+      row.tags
+    ].join(' ').toLowerCase()
+
+    return haystack.includes(normalizedQuery)
+  }), [categoryFilter, normalizedQuery, rows])
+
   return (
     <>
       <div className="tf-section">
         <div className="tf-summary">
-          <span className="tf-summary-item"><span className="tf-summary-count" style={{ color: '#4a8fe7' }}>{rows.length}</span> resources</span>
+          <span className="tf-summary-item"><span className="tf-summary-count" style={{ color: '#4a8fe7' }}>{filteredRows.length}</span> resources</span>
+          {filteredRows.length !== rows.length && (
+            <span className="tf-summary-item">filtered from {rows.length}</span>
+          )}
           <span className="tf-summary-item">source: {project.stateSource || 'none'}</span>
         </div>
+        {rows.length > 0 && (
+          <div className="tf-history-filters tf-resource-filters">
+            <div className="tf-history-filter-group">
+              <label>Category</label>
+              <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+                <option value="all">All categories</option>
+                {categories.map((category) => (
+                  <option key={category} value={category}>{category}</option>
+                ))}
+              </select>
+            </div>
+            <div className="tf-history-filter-group tf-resource-search">
+              <label>Search</label>
+              <input
+                type="text"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Address, type, ARN, region, tags"
+              />
+            </div>
+          </div>
+        )}
       </div>
       {rows.length === 0 ? (
         <div className="tf-section"><SvcState variant="empty" message="No deployed resources found. Run Init + Apply or load state." /></div>
+      ) : filteredRows.length === 0 ? (
+        <div className="tf-section"><SvcState variant="no-filter-matches" resourceName="resources" /></div>
       ) : (
         <div className="tf-section">
           <div className="tf-resource-table-wrap">
-            <table className="tf-data-table">
+            <table className="tf-data-table tf-resource-table">
+              <colgroup>
+                <col className="tf-resource-table__category" />
+                <col className="tf-resource-table__address" />
+                <col className="tf-resource-table__type" />
+                <col className="tf-resource-table__arn" />
+                <col className="tf-resource-table__region" />
+                <col className="tf-resource-table__changed-by" />
+                <col className="tf-resource-table__tags" />
+              </colgroup>
               <thead>
                 <tr>
                   <th>Category</th>
@@ -2367,15 +2476,27 @@ function ResourcesTab({ project }: { project: TerraformProject }) {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
+                {filteredRows.map((row) => (
                   <tr key={row.address}>
-                    <td>{row.category}</td>
-                    <td title={row.address}>{row.address}</td>
-                    <td>{row.type}</td>
-                    <td title={row.arn}>{row.arn ? (row.arn.length > 40 ? '...' + row.arn.slice(-38) : row.arn) : '-'}</td>
+                    <td>
+                      <span className="tf-resource-badge">{row.category}</span>
+                    </td>
+                    <td title={row.address}>
+                      <code className="tf-table-code tf-table-code--strong">{truncateMiddle(row.address, { start: 26, end: 18 })}</code>
+                    </td>
+                    <td title={row.type}>
+                      <code className="tf-table-code">{row.type}</code>
+                    </td>
+                    <td title={row.arn || '-'}>
+                      {row.arn ? <code className="tf-table-code">{truncateMiddle(row.arn, { start: 18, end: 22 })}</code> : '-'}
+                    </td>
                     <td>{row.region || '-'}</td>
-                    <td>{row.changedBy || '-'}</td>
-                    <td title={row.tags}>{row.tags ? (row.tags.length > 40 ? row.tags.slice(0, 38) + '...' : row.tags) : '-'}</td>
+                    <td title={row.changedBy || '-'}>
+                      <span className="tf-table-text">{row.changedBy || '-'}</span>
+                    </td>
+                    <td title={row.tags || '-'}>
+                      <span className="tf-table-text">{formatResourceTagsSummary(row.tags)}</span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -2560,7 +2681,16 @@ function DriftTab({
         <>
           <div className="tf-section">
             <div className="tf-resource-table-wrap">
-              <table className="tf-data-table">
+              <table className="tf-data-table tf-drift-table">
+                <colgroup>
+                  <col className="tf-drift-table__status" />
+                  <col className="tf-drift-table__type" />
+                  <col className="tf-drift-table__logical-name" />
+                  <col className="tf-drift-table__terraform-address" />
+                  <col className="tf-drift-table__cloud-identifier" />
+                  <col className="tf-drift-table__region" />
+                  <col className="tf-drift-table__explanation" />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>Status</th>
@@ -2578,12 +2708,22 @@ function DriftTab({
                     return (
                       <tr key={key} className={selectedItem && driftItemKey(selectedItem) === key ? 'active' : ''} onClick={() => onSelectItem(key)}>
                         <td><span className={`tf-drift-badge ${item.status}`}>{DRIFT_STATUS_LABELS[item.status]}</span></td>
-                        <td>{item.resourceType}</td>
-                        <td>{item.logicalName || '-'}</td>
-                        <td title={item.terraformAddress}>{item.terraformAddress || '-'}</td>
-                        <td title={item.cloudIdentifier}>{item.cloudIdentifier || '-'}</td>
+                        <td title={item.resourceType}>
+                          <code className="tf-table-code">{item.resourceType}</code>
+                        </td>
+                        <td title={item.logicalName || '-'}>
+                          <span className="tf-table-text">{item.logicalName || '-'}</span>
+                        </td>
+                        <td title={item.terraformAddress}>
+                          <code className="tf-table-code">{item.terraformAddress ? truncateMiddle(item.terraformAddress, { start: 24, end: 18 }) : '-'}</code>
+                        </td>
+                        <td title={item.cloudIdentifier}>
+                          <code className="tf-table-code">{item.cloudIdentifier ? truncateMiddle(item.cloudIdentifier, { start: 18, end: 18 }) : '-'}</code>
+                        </td>
                         <td>{item.region || '-'}</td>
-                        <td title={item.explanation}>{item.explanation}</td>
+                        <td title={item.explanation}>
+                          <span className="tf-table-text">{item.explanation}</span>
+                        </td>
                       </tr>
                     )
                   })}
@@ -2840,7 +2980,15 @@ function HistoryTab({
       ) : (
         <div className="tf-history-layout">
           <div className="tf-history-list">
-            <table className="tf-data-table">
+            <table className="tf-data-table tf-history-table">
+              <colgroup>
+                <col className="tf-history-table__time" />
+                {projectFilter === 'all' && <col className="tf-history-table__project" />}
+                <col className="tf-history-table__command" />
+                <col className="tf-history-table__workspace" />
+                <col className="tf-history-table__result" />
+                <col className="tf-history-table__duration" />
+              </colgroup>
               <thead>
                 <tr>
                   <th>Time</th>
@@ -2854,10 +3002,18 @@ function HistoryTab({
               <tbody>
                 {records.map((r) => (
                   <tr key={r.id} className={r.id === selectedRunId ? 'active' : ''} onClick={() => setSelectedRunId(r.id)}>
-                    <td title={r.startedAt}>{formatIsoDate(r.startedAt)}</td>
-                    {projectFilter === 'all' && <td title={r.projectName}>{r.projectName}</td>}
+                    <td title={r.startedAt}>
+                      <span className="tf-table-text">{formatIsoDate(r.startedAt)}</span>
+                    </td>
+                    {projectFilter === 'all' && (
+                      <td title={r.projectName}>
+                        <span className="tf-table-text">{r.projectName}</span>
+                      </td>
+                    )}
                     <td><span className={`tf-history-cmd ${r.command}`}>{r.command}</span></td>
-                    <td>{r.workspace}</td>
+                    <td title={r.workspace}>
+                      <span className="tf-table-text">{r.workspace}</span>
+                    </td>
                     <td>
                       {r.success === null
                         ? <span className="tf-history-result running">running</span>
@@ -2866,7 +3022,9 @@ function HistoryTab({
                           : <span className="tf-history-result failure">failed</span>
                       }
                     </td>
-                    <td>{formatDuration(r.startedAt, r.finishedAt)}</td>
+                    <td>
+                      <span className="tf-table-text">{formatDuration(r.startedAt, r.finishedAt)}</span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -3703,74 +3861,214 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
     }
   }
 
+  const readyProjectCount = projects.filter((project) => project.status !== 'Missing').length
+  const totalManagedResources = projects.reduce((sum, project) => sum + (project.metadata?.resourceCount ?? project.inventory?.length ?? 0), 0)
+  const workspaceCount = new Set(projects.map((project) => project.currentWorkspace).filter(Boolean)).size
+  const selectedPlanSummary = detail?.lastPlanSummary
+  const selectedInputIssues = detail ? detail.inputValidation.missing.length + detail.inputValidation.unresolvedSecrets.length : 0
+  const selectedProjectStatus = detail
+    ? summarizeProjectStatus({
+        id: detail.id,
+        name: detail.name,
+        rootPath: detail.rootPath,
+        status: detail.status,
+        stateSource: detail.stateSource,
+        metadata: detail.metadata,
+        lastPlanSummary: detail.lastPlanSummary,
+        lastCommandAt: detail.lastCommandAt,
+        inventory: detail.inventory,
+        environment: detail.environment,
+        currentWorkspace: detail.currentWorkspace
+      })
+    : null
+
   return (
     <div className="tf-console">
-      {/* CLI Banner */}
-      {cliInfo && !cliInfo.found && (
-        <div className="tf-cli-banner">{cliInfo.error || 'Terraform CLI not found. Please install Terraform.'}</div>
-      )}
-      {cliInfo?.found && (
-        <div className="tf-cli-banner success">Terraform {cliInfo.version} ({cliInfo.path})</div>
-      )}
+      <section className="tf-shell-hero">
+        <div className="tf-shell-hero-copy">
+          <div className="eyebrow">Terraform service</div>
+          <h2>{detail ? detail.name : 'Infrastructure command center'}</h2>
+          <p>
+            {detail
+              ? `Plan, apply, drift review, state operations, and governance checks for ${detail.environment.environmentLabel}.`
+              : 'Select a Terraform project to review readiness, manage state, inspect drift, and track command history.'}
+          </p>
+          <div className="tf-shell-meta-strip">
+            <div className="tf-shell-meta-pill">
+              <span>CLI</span>
+              <strong>{cliInfo?.found ? `Terraform ${cliInfo.version}` : 'Unavailable'}</strong>
+            </div>
+            <div className="tf-shell-meta-pill">
+              <span>Workspace</span>
+              <strong>{detail?.currentWorkspace || `${workspaceCount || 0} active`}</strong>
+            </div>
+            <div className="tf-shell-meta-pill">
+              <span>Backend</span>
+              <strong>{detail?.metadata.backendType || 'Project inventory'}</strong>
+            </div>
+            <div className="tf-shell-meta-pill">
+              <span>Context</span>
+              <strong>{detail?.environment.connectionLabel || connection?.profile || 'Local shell'}</strong>
+            </div>
+          </div>
+        </div>
+        <div className="tf-shell-hero-stats">
+          <div className="tf-shell-stat-card tf-shell-stat-card-accent">
+            <span>Projects</span>
+            <strong>{projects.length}</strong>
+            <small>{readyProjectCount} ready for review</small>
+          </div>
+          <div className="tf-shell-stat-card">
+            <span>Managed resources</span>
+            <strong>{detail?.metadata.resourceCount ?? totalManagedResources}</strong>
+            <small>{detail ? 'Selected project inventory' : 'Across tracked projects'}</small>
+          </div>
+          <div className="tf-shell-stat-card">
+            <span>Plan posture</span>
+            <strong>{selectedPlanSummary?.affectedResources ?? 0}</strong>
+            <small>{detail ? 'Resources touched in last saved plan' : 'Select a project to inspect changes'}</small>
+          </div>
+          <div className="tf-shell-stat-card">
+            <span>Input posture</span>
+            <strong>{detail ? (selectedInputIssues === 0 ? 'Ready' : selectedInputIssues) : 'Standby'}</strong>
+            <small>{detail ? (selectedInputIssues === 0 ? 'No missing inputs' : 'Variables need attention') : 'Project-specific checks appear here'}</small>
+          </div>
+        </div>
+      </section>
 
-      {/* Toolbar */}
-      <div className="tf-toolbar">
-        <button className="tf-toolbar-btn accent" onClick={handleAddProject} disabled={!cliOk}>Add Project</button>
-        <button className="tf-toolbar-btn" onClick={() => setShowRenameDialog(true)} disabled={!detail}>Rename</button>
-        <button className="tf-toolbar-btn" onClick={() => void handleOpenInVsCode()} disabled={!detail}>Open in VS Code</button>
-        <button className="tf-toolbar-btn danger" onClick={handleRemoveProject} disabled={!selectedId}>Remove Project</button>
-        <button className="tf-toolbar-btn" onClick={handleReload} disabled={loading}>Reload</button>
-        <button className="tf-toolbar-btn" onClick={handleShowInputs} disabled={!detail}>Inputs</button>
+      <div className="tf-shell-toolbar">
+        <div className="tf-toolbar">
+          <button className="tf-toolbar-btn accent" onClick={handleAddProject} disabled={!cliOk}>Add Project</button>
+          <button className="tf-toolbar-btn" onClick={() => setShowRenameDialog(true)} disabled={!detail}>Rename</button>
+          <button className="tf-toolbar-btn" onClick={() => void handleOpenInVsCode()} disabled={!detail}>Open in VS Code</button>
+          <button className="tf-toolbar-btn danger" onClick={handleRemoveProject} disabled={!selectedId}>Remove Project</button>
+          <button className="tf-toolbar-btn" onClick={handleReload} disabled={loading}>Reload</button>
+          <button className="tf-toolbar-btn" onClick={handleShowInputs} disabled={!detail}>Inputs</button>
+        </div>
+        <div className="tf-shell-status">
+          {cliInfo && !cliInfo.found && (
+            <div className="tf-cli-banner">{cliInfo.error || 'Terraform CLI not found. Please install Terraform.'}</div>
+          )}
+          {cliInfo?.found && (
+            <div className="tf-cli-banner success">{cliInfo.path}</div>
+          )}
+          <FreshnessIndicator freshness={workspaceFreshness} label="Workspace inventory last updated" />
+          {detailTab === 'drift' && <FreshnessIndicator freshness={driftFreshness} label="Drift last updated" staleLabel="Re-scan drift" />}
+        </div>
       </div>
-
-      <FreshnessIndicator freshness={workspaceFreshness} label="Workspace inventory last updated" />
-      {detailTab === 'drift' && <FreshnessIndicator freshness={driftFreshness} label="Drift last updated" staleLabel="Re-scan drift" />}
 
       {msg && <div className={`tf-msg ${msg.toLowerCase().includes('error') || msg.toLowerCase().includes('not found') ? 'error' : ''}`}>{msg}</div>}
 
-      {/* Main Layout */}
       <div className="tf-main-layout">
-        {/* Left: Project Table */}
         <div className="tf-project-table-area">
           {projects.length === 0 ? (
             <SvcState variant="empty" message="No projects added. Click Add Project to get started." />
           ) : (
-            <table className="tf-data-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Path</th>
-                  <th>Status</th>
-                  <th>State</th>
-                  <th>Resources</th>
-                </tr>
-              </thead>
-              <tbody>
-                {projects.map((p) => (
-                  <tr
-                    key={p.id}
-                    className={p.id === selectedId ? 'active' : ''}
-                    onClick={() => setSelectedId(p.id)}
-                  >
-                    <td>{p.name}</td>
-                    <td title={p.rootPath}>{p.rootPath.length > 30 ? '...' + p.rootPath.slice(-28) : p.rootPath}</td>
-                    <td><span className={`tf-status-badge ${p.status?.toLowerCase() ?? 'ready'}`}>{p.status ?? 'Ready'}</span></td>
-                    <td>{(p as unknown as TerraformProject).stateSource ?? '-'}</td>
-                    <td>{p.inventory?.length ?? p.metadata?.resourceCount ?? 0}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <>
+              <div className="tf-pane-head">
+                <div>
+                  <span className="tf-pane-kicker">Tracked projects</span>
+                  <h3>Workspace inventory</h3>
+                </div>
+                <span className="tf-pane-summary">{projects.length} total</span>
+              </div>
+              <div className="tf-project-list">
+                {projects.map((project) => {
+                  const status = summarizeProjectStatus(project)
+                  return (
+                    <button
+                      key={project.id}
+                      type="button"
+                      className={`tf-project-row ${project.id === selectedId ? 'active' : ''}`}
+                      onClick={() => setSelectedId(project.id)}
+                    >
+                      <div className="tf-project-row-top">
+                        <div className="tf-project-row-copy">
+                          <strong>{project.name}</strong>
+                          <span title={project.rootPath}>{formatProjectPath(project.rootPath)}</span>
+                        </div>
+                        <span className={`tf-status-badge ${status.tone}`}>{status.label}</span>
+                      </div>
+                      <div className="tf-project-row-meta">
+                        <span>{project.currentWorkspace}</span>
+                        <span>{project.metadata.backendType}</span>
+                        <span>{project.environment.region || 'global'}</span>
+                      </div>
+                      <div className="tf-project-row-metrics">
+                        <div>
+                          <span>Resources</span>
+                          <strong>{project.inventory?.length ?? project.metadata?.resourceCount ?? 0}</strong>
+                        </div>
+                        <div>
+                          <span>State</span>
+                          <strong>{project.stateSource || '-'}</strong>
+                        </div>
+                        <div>
+                          <span>Last run</span>
+                          <strong>{project.lastCommandAt ? formatIsoDate(project.lastCommandAt) : 'Not run yet'}</strong>
+                        </div>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </>
           )}
         </div>
 
-        {/* Right: Detail Pane */}
         <div className="tf-detail-pane">
           {!detail ? (
             <SvcState variant="no-selection" resourceName="project" message="Select a project to view details." />
           ) : (
             <>
-              {/* Detail tabs */}
+              <section className="tf-detail-hero">
+                <div className="tf-detail-hero-copy">
+                  <div className="eyebrow">Project posture</div>
+                  <h3>{detail.name}</h3>
+                  <p>{detail.rootPath}</p>
+                  <div className="tf-detail-meta-strip">
+                    <div className="tf-detail-meta-pill">
+                      <span>Workspace</span>
+                      <strong>{detail.currentWorkspace}</strong>
+                    </div>
+                    <div className="tf-detail-meta-pill">
+                      <span>Environment</span>
+                      <strong>{detail.environment.environmentLabel}</strong>
+                    </div>
+                    <div className="tf-detail-meta-pill">
+                      <span>Backend</span>
+                      <strong>{detail.metadata.backend.label}</strong>
+                    </div>
+                    <div className="tf-detail-meta-pill">
+                      <span>Git</span>
+                      <strong>{gitStatusSummary(detail)}</strong>
+                    </div>
+                  </div>
+                </div>
+                <div className="tf-detail-hero-stats">
+                  <div className={`tf-detail-stat-card ${selectedProjectStatus?.tone ?? 'info'}`}>
+                    <span>Project state</span>
+                    <strong>{selectedProjectStatus?.label ?? 'Selected'}</strong>
+                    <small>{detail.status ?? 'Ready'}</small>
+                  </div>
+                  <div className="tf-detail-stat-card">
+                    <span>Resources</span>
+                    <strong>{detail.metadata.resourceCount}</strong>
+                    <small>{detail.stateAddresses.length} tracked in state</small>
+                  </div>
+                  <div className="tf-detail-stat-card">
+                    <span>Modules</span>
+                    <strong>{detail.metadata.moduleCount}</strong>
+                    <small>{detail.metadata.providerNames.length} providers</small>
+                  </div>
+                  <div className="tf-detail-stat-card">
+                    <span>Plan blast radius</span>
+                    <strong>{detail.lastPlanSummary.affectedResources}</strong>
+                    <small>{detail.lastPlanSummary.hasChanges ? 'Affected resources in saved plan' : 'No saved changes yet'}</small>
+                  </div>
+                </div>
+              </section>
+
               <div className="tf-detail-tabs">
                 <button className={detailTab === 'actions' ? 'active' : ''} onClick={() => setDetailTab('actions')}>Actions</button>
                 <button className={detailTab === 'state' ? 'active' : ''} onClick={() => setDetailTab('state')}>State</button>
@@ -3780,8 +4078,7 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
                 <button className={detailTab === 'history' ? 'active' : ''} onClick={() => setDetailTab('history')}>History</button>
               </div>
 
-              {/* Project info */}
-              <div className="tf-section">
+              <div className="tf-section tf-project-info-shell">
                 <details className="tf-collapsible">
                   <summary className="tf-collapsible-summary">Project Info</summary>
                   <div className="tf-kv tf-collapsible-body">

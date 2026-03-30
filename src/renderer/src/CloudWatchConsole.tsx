@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 
 import type {
   AwsConnection,
@@ -56,6 +57,13 @@ function formatMetricValue(value: number | null, unit: string): string {
 
 function formatTooltipTime(value: string): string {
   return new Date(value).toLocaleString()
+}
+
+function formatCompactNumber(value: number): string {
+  if (!Number.isFinite(value)) return '0'
+  if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
+  if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(1)}K`
+  return value.toLocaleString()
 }
 
 function matchesEc2LogGroup(logGroup: CloudWatchLogGroupSummary, instanceId: string): boolean {
@@ -181,7 +189,7 @@ function FilterableTable<T extends Record<string, unknown>>({
   onDoubleClick,
   hint
 }: {
-  columns: { key: string; label: string; render?: (row: T) => string }[]
+  columns: { key: string; label: string; render?: (row: T) => string; renderNode?: (row: T) => ReactNode }[]
   data: T[]
   onDoubleClick?: (row: T) => void
   hint?: string
@@ -233,7 +241,13 @@ function FilterableTable<T extends Record<string, unknown>>({
                   className={onDoubleClick ? 'cw-clickable' : ''}
                 >
                   {columns.map((col) => (
-                    <td key={col.key}>{col.render ? col.render(row) : String(row[col.key] ?? '-')}</td>
+                    <td key={col.key}>
+                      {col.renderNode
+                        ? col.renderNode(row)
+                        : col.render
+                          ? col.render(row)
+                          : String(row[col.key] ?? '-')}
+                    </td>
                   ))}
                 </tr>
               ))
@@ -402,7 +416,12 @@ export function CloudWatchConsole({
   const [appliedFocusToken, setAppliedFocusToken] = useState(0)
   const [ec2InstanceId, setEc2InstanceId] = useState<string | undefined>(focusEc2Instance?.ec2InstanceId)
   useEffect(() => {
-    if (!focusEc2Instance || focusEc2Instance.token === appliedFocusToken) return
+    if (!focusEc2Instance) {
+      setAppliedFocusToken(0)
+      setEc2InstanceId(undefined)
+      return
+    }
+    if (focusEc2Instance.token === appliedFocusToken) return
     setAppliedFocusToken(focusEc2Instance.token)
     setEc2InstanceId(focusEc2Instance.ec2InstanceId)
   }, [appliedFocusToken, focusEc2Instance])
@@ -479,6 +498,25 @@ export function CloudWatchConsole({
     return metricStats.filter((s) => s.namespace === namespaceFilter)
   }, [metricStats, namespaceFilter])
 
+  const totalStoredBytes = useMemo(
+    () => logGroups.reduce((sum, group) => sum + group.storedBytes, 0),
+    [logGroups]
+  )
+
+  const activeNamespaceCount = namespaceFilter === 'all'
+    ? namespaces.length
+    : (filteredStats.length > 0 ? 1 : 0)
+
+  const latestMetricTimestamp = useMemo(() => {
+    const timestamps = ec2Series
+      .flatMap((series) => series.points.map((point) => point.timestamp))
+      .filter((value): value is string => Boolean(value))
+      .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())
+    return timestamps[0] ?? ''
+  }, [ec2Series])
+
+  const tabsOpenCount = tabs.filter((tab) => tab.type === 'log-group').length
+
   // Top log groups by storage
   const topLogGroupsByStorage = useMemo(
     () => [...logGroups].sort((a, b) => b.storedBytes - a.storedBytes).slice(0, 8),
@@ -525,9 +563,60 @@ export function CloudWatchConsole({
     <div className="cw-console">
       {error && <div className="error-banner">{error}</div>}
 
-      {/* Tab bar */}
-      <div className="cw-tab-bar">
-        <div className="cw-tabs">
+      <div className="cw-shell-hero">
+        <div className="cw-shell-hero-copy">
+          <div className="cw-shell-kicker">CloudWatch</div>
+          <h2>{isEc2Mode ? 'Instance telemetry in one operating surface' : 'Metrics, logs, and capacity signals in one view'}</h2>
+          <p>
+            {isEc2Mode
+              ? 'Stay on the focused EC2 instance while scanning metric movement, namespace coverage, and matching log activity without changing workflows.'
+              : 'Scan namespace coverage, metric behavior, and log storage from the same surface, with faster orientation and less panel noise.'}
+          </p>
+          <div className="cw-shell-meta-strip">
+            <div className="cw-shell-meta-pill">
+              <span>Scope</span>
+              <strong>{isEc2Mode ? `EC2 ${ec2InstanceId}` : `Region ${connection.region}`}</strong>
+            </div>
+            <div className="cw-shell-meta-pill">
+              <span>Window</span>
+              <strong>{TIME_RANGE_OPTIONS.find((item) => item.value === timeRange)?.label ?? `${timeRange}h`}</strong>
+            </div>
+            <div className="cw-shell-meta-pill">
+              <span>Namespace Filter</span>
+              <strong>{namespaceFilter === 'all' ? 'All namespaces' : namespaceFilter}</strong>
+            </div>
+            <div className="cw-shell-meta-pill">
+              <span>Last datapoint</span>
+              <strong>{latestMetricTimestamp ? formatDateTime(latestMetricTimestamp) : 'No datapoints yet'}</strong>
+            </div>
+          </div>
+        </div>
+        <div className="cw-shell-hero-stats">
+          <div className="cw-shell-stat-card cw-shell-stat-card-accent">
+            <span>Tracked Metrics</span>
+            <strong>{formatCompactNumber(filteredStats.length)}</strong>
+            <small>Metrics with computed statistics in the current scope.</small>
+          </div>
+          <div className="cw-shell-stat-card">
+            <span>Namespaces</span>
+            <strong>{formatCompactNumber(activeNamespaceCount)}</strong>
+            <small>Discovered metric families available for drilldown.</small>
+          </div>
+          <div className="cw-shell-stat-card">
+            <span>Log Groups</span>
+            <strong>{formatCompactNumber(logGroups.length)}</strong>
+            <small>Visible groups matching the selected connection context.</small>
+          </div>
+          <div className="cw-shell-stat-card">
+            <span>Stored Bytes</span>
+            <strong>{formatBytes(totalStoredBytes)}</strong>
+            <small>Total retained log storage across the current result set.</small>
+          </div>
+        </div>
+      </div>
+
+      <div className="cw-shell-toolbar">
+        <div className="cw-tabs" role="tablist" aria-label="CloudWatch tabs">
           {tabs.map((tab, i) => (
             <button
               key={i}
@@ -548,43 +637,54 @@ export function CloudWatchConsole({
           ))}
         </div>
         <div className="cw-toolbar">
-          <select
-            className="cw-time-select"
-            value={timeRange}
-            onChange={(e) => setTimeRange(Number(e.target.value) as TimeRange)}
-          >
-            {TIME_RANGE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-          {!isEc2Mode && (
+          <div className="cw-toolbar-group">
+            <span className="cw-toolbar-label">Range</span>
             <select
-              className="cw-ns-select"
-              value={namespaceFilter}
-              onChange={(e) => setNamespaceFilter(e.target.value)}
+              className="cw-time-select"
+              value={timeRange}
+              onChange={(e) => setTimeRange(Number(e.target.value) as TimeRange)}
             >
-              <option value="all">All Namespaces</option>
-              {namespaces.map((ns) => (
-                <option key={ns.namespace} value={ns.namespace}>{ns.namespace}</option>
+              {TIME_RANGE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
+          </div>
+          {!isEc2Mode && (
+            <div className="cw-toolbar-group">
+              <span className="cw-toolbar-label">Namespace</span>
+              <select
+                className="cw-ns-select"
+                value={namespaceFilter}
+                onChange={(e) => setNamespaceFilter(e.target.value)}
+              >
+                <option value="all">All Namespaces</option>
+                {namespaces.map((ns) => (
+                  <option key={ns.namespace} value={ns.namespace}>{ns.namespace}</option>
+                ))}
+              </select>
+            </div>
           )}
           {isEc2Mode && (
             <span className="cw-ec2-badge">{ec2InstanceId}</span>
           )}
+          <div className="cw-toolbar-status">
+            <span className="cw-toolbar-pill">{tabsOpenCount} log tabs</span>
+            <button type="button" className="cw-refresh-btn" onClick={() => void load()} disabled={loading}>
+              {loading ? 'Refreshing...' : 'Refresh'}
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Overview tab */}
       {activeTab?.type === 'overview' && (
         <>
-          {/* Charts row */}
           <div className="cw-charts-row">
             <div className="cw-chart-panel">
               <div className="cw-panel-head">
                 <div>
                   <h3>Metric Namespaces</h3>
-                  <p className="cw-chart-subtitle">Discovered metric families by namespace.</p>
+                  <p className="cw-chart-subtitle">Discovered metric families ordered by observed volume.</p>
                 </div>
                 <button type="button" className="cw-expand-btn" onClick={() => setExpandedChart({ type: 'namespaces' })}>Expand</button>
               </div>
@@ -602,7 +702,7 @@ export function CloudWatchConsole({
               <div className="cw-panel-head">
                 <div>
                   <h3>Top Log Group Storage</h3>
-                  <p className="cw-chart-subtitle">Largest matching log groups by stored bytes.</p>
+                  <p className="cw-chart-subtitle">Largest retained groups so storage hotspots are visible early.</p>
                 </div>
                 <button type="button" className="cw-expand-btn" onClick={() => setExpandedChart({ type: 'storage' })}>Expand</button>
               </div>
@@ -621,7 +721,12 @@ export function CloudWatchConsole({
           {/* EC2 Series Charts (only in EC2 mode) */}
           {isEc2Mode && ec2Series.length > 0 && (
             <div className="cw-series-section">
-              <h3>EC2 Metric Series</h3>
+              <div className="cw-section-head">
+                <div>
+                  <h3>EC2 Metric Series</h3>
+                  <p className="cw-section-subtitle">Focused charts for the selected instance, kept compact until you need a larger trace.</p>
+                </div>
+              </div>
               <div className="cw-series-grid">
                 {ec2Series.map((series) => (
                   <div key={series.metricName} className="cw-series-card">
@@ -648,7 +753,12 @@ export function CloudWatchConsole({
 
           {/* Metric Summary */}
           <div className="cw-section">
-            <h3>Metric Summary</h3>
+            <div className="cw-section-head">
+              <div>
+                <h3>Metric Summary</h3>
+                <p className="cw-section-subtitle">Search and compare aggregate values across the current telemetry window.</p>
+              </div>
+            </div>
             <FilterableTable
               columns={[
                 { key: 'metric', label: 'Metric', render: (row: CloudWatchMetricStatistic) => `${row.namespace} / ${row.metricName}` },
@@ -663,7 +773,14 @@ export function CloudWatchConsole({
                       label: 'Trend',
                       render: (row: CloudWatchMetricStatistic) => {
                         const pts = seriesMap.get(row.metricName)
-                        return pts ? '__sparkline__' : ''
+                        return pts ? `Series ${pts.length}` : ''
+                      },
+                      renderNode: (row: CloudWatchMetricStatistic) => {
+                        const series = ec2Series.find((item) => item.metricName === row.metricName)
+                        if (!series || series.points.length < 2) {
+                          return <span className="cw-no-data">No data</span>
+                        }
+                        return <Sparkline points={series.points} unit={series.unit} width={150} height={36} />
                       }
                     }]
                   : [])
@@ -674,7 +791,12 @@ export function CloudWatchConsole({
 
           {/* Log Groups */}
           <div className="cw-section">
-            <h3>Log Groups</h3>
+            <div className="cw-section-head">
+              <div>
+                <h3>Log Groups</h3>
+                <p className="cw-section-subtitle">Open recent events in-place and keep operational context anchored to the same console.</p>
+              </div>
+            </div>
             <FilterableTable
               columns={[
                 { key: 'name', label: 'Name' },

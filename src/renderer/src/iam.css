@@ -1,169 +1,395 @@
-/* ── IAM Console ──────────────────────────────────────────── */
+.iam-console {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
 
-/* ── Layout (wider sidebar than EC2) ─────────────────────── */
-
-.iam-layout {
+.iam-shell-hero {
   display: grid;
-  grid-template-columns: minmax(280px, 38%) minmax(0, 1fr);
-  border: 1px solid #3b4350;
-  border-radius: 6px;
-  overflow: hidden;
-  min-height: 0;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.95fr);
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid rgba(145, 176, 207, 0.14);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at top left, rgba(245, 154, 61, 0.14), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(74, 143, 231, 0.12), transparent 30%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(11, 17, 25, 0.98));
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
 }
 
-.iam-table-area {
-  min-width: 0;
-  overflow: auto;
-  background: #1e232b;
-  max-height: calc(100vh - 360px);
-  display: flex;
-  flex-direction: column;
-}
-
-.iam-table-area .svc-table {
-  flex: none;
-}
-
-.iam-sidebar {
-  background: #2a3039;
-  border-left: 1px solid #3b4350;
-  overflow-y: auto;
-  max-height: calc(100vh - 360px);
-  display: flex;
-  flex-direction: column;
-}
-
-/* ── Collapsible section header ──────────────────────────── */
-
-.iam-section-header {
-  padding: 10px 16px;
-  background: #252b33;
-  border-bottom: 1px solid #3b4350;
-  color: #9ca7b7;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  user-select: none;
-  transition: background 0.15s, color 0.15s;
-}
-
-.iam-section-header:hover {
-  background: #2d333d;
-  color: #d0d8e2;
-}
-
-/* ── Section content ─────────────────────────────────────── */
-
-.iam-section-content {
-  padding: 12px 16px;
-  border-bottom: 1px solid #3b4350;
+.iam-shell-hero-copy {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.iam-section-content:last-child {
-  border-bottom: 0;
-}
-
-/* ── Bottom actions row ──────────────────────────────────── */
-
-.iam-bottom-actions {
-  padding: 10px 14px;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  border-top: 1px solid #3b4350;
-  background: #1e232b;
-  flex-shrink: 0;
-}
-
-.iam-bottom-actions input {
-  height: 32px;
-  padding: 4px 10px;
-  border: 1px solid #3b4350;
-  border-radius: 4px;
-  background: #0f1318;
-  color: #edf1f6;
-  font-size: 12px;
-  flex: 1;
   min-width: 0;
 }
 
-/* ── Console/MFA inline bar ──────────────────────────────── */
+.iam-shell-hero-copy h2 {
+  margin: 0;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  font-size: clamp(1.5rem, 2vw, 2.2rem);
+  letter-spacing: -0.04em;
+  color: #edf4fb;
+}
 
-.iam-console-mfa {
-  padding: 12px 16px;
+.iam-shell-hero-copy p {
+  margin: 0;
+  max-width: 62ch;
+  color: #a6bbcf;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.iam-shell-meta-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.iam-shell-meta-pill,
+.iam-shell-stat-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(9, 14, 22, 0.52);
+  backdrop-filter: blur(12px);
+}
+
+.iam-shell-meta-pill {
+  min-width: 132px;
+  padding: 8px 10px;
+  border-radius: 12px;
+}
+
+.iam-shell-meta-pill span,
+.iam-shell-stat-card span,
+.iam-pane-kicker {
+  display: block;
+  color: #8fa3ba;
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.iam-shell-meta-pill strong,
+.iam-shell-stat-card strong,
+.iam-filter-shell h3 {
+  color: #edf4fb;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  letter-spacing: -0.03em;
+}
+
+.iam-shell-meta-pill strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.8rem;
+  word-break: break-word;
+}
+
+.iam-shell-hero-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.iam-shell-stat-card {
+  min-height: 84px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 6px;
+  background: linear-gradient(180deg, rgba(21, 28, 37, 0.96), rgba(13, 19, 27, 0.96));
+}
+
+.iam-shell-stat-card strong {
+  font-size: 1.06rem;
+  line-height: 1;
+}
+
+.iam-shell-stat-card small {
+  color: rgba(238, 240, 244, 0.7);
+  font-size: 0.69rem;
+  line-height: 1.28;
+}
+
+.iam-shell-stat-card-accent {
+  border-color: rgba(245, 154, 61, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(245, 154, 61, 0.16), transparent 42%),
+    linear-gradient(180deg, rgba(39, 47, 37, 0.96), rgba(20, 27, 24, 0.96));
+}
+
+.iam-shell-toolbar,
+.iam-surface,
+.iam-layout,
+.sim-layout {
+  border: 1px solid rgba(145, 176, 207, 0.12);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(12, 18, 27, 0.94), rgba(8, 13, 20, 0.98));
+}
+
+.iam-shell-toolbar {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
-  font-size: 12px;
-  font-weight: 600;
-  color: #d0d8e2;
-  border-bottom: 1px solid #3b4350;
+  padding: 8px;
 }
 
-/* ── Mini table for sidebar sections ─────────────────────── */
+.iam-tab-bar {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 
+.iam-shell-toolbar .svc-tab-hamburger,
+.iam-refresh-btn,
+.iam-tab-bar .svc-tab {
+  border-radius: 12px;
+}
+
+.iam-tab-bar .svc-tab {
+  padding: 10px 14px;
+  border: 1px solid transparent;
+  background: transparent;
+}
+
+.iam-tab-bar .svc-tab:hover {
+  color: #edf1f6;
+  border-color: rgba(245, 154, 61, 0.2);
+  background: rgba(245, 154, 61, 0.08);
+}
+
+.iam-tab-bar .svc-tab.active {
+  color: #edf1f6;
+  border-bottom-color: transparent;
+  border-color: rgba(245, 154, 61, 0.28);
+  background: linear-gradient(180deg, rgba(245, 154, 61, 0.16), rgba(245, 154, 61, 0.08));
+}
+
+.iam-refresh-btn {
+  padding: 10px 16px;
+  border: 1px solid rgba(145, 176, 207, 0.12);
+  background: linear-gradient(180deg, rgba(30, 40, 53, 0.98), rgba(18, 27, 40, 0.98));
+  color: #edf1f6;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.iam-surface {
+  padding: 14px;
+}
+
+.iam-filter-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 220px) minmax(0, 1fr);
+  align-items: end;
+  gap: 12px;
+}
+
+.iam-filter-shell-policy {
+  grid-template-columns: minmax(0, 200px) auto minmax(0, 1fr);
+}
+
+.iam-filter-shell h3 {
+  margin: 4px 0 0;
+  font-size: 1rem;
+}
+
+.iam-search {
+  min-width: 0;
+}
+
+.iam-chip-row {
+  margin-top: 10px;
+}
+
+.iam-scope-switch {
+  align-items: center;
+}
+
+.iam-simulator-summary {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: #a6bbcf;
+  font-size: 0.75rem;
+}
+
+.iam-layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.88fr) minmax(560px, 1.12fr);
+  overflow: auto;
+}
+
+.iam-table-area,
+.iam-sidebar,
+.sim-panel {
+  min-width: 0;
+  background: transparent;
+}
+
+.iam-table-area {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 360px);
+  overflow: auto;
+}
+
+.iam-sidebar {
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid rgba(145, 176, 207, 0.1);
+  max-height: calc(100vh - 360px);
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+.iam-table-area .svc-table,
+.sim-panel .iam-mini-table,
+.sim-panel .svc-table,
 .iam-mini-table {
   width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
 }
 
+.iam-table-area .svc-table {
+  table-layout: fixed;
+}
+
+.iam-mini-table {
+  table-layout: auto;
+}
+
+.iam-table-area .svc-table th,
 .iam-mini-table th {
-  background: #20252d;
-  color: #9ca7b7;
-  font-weight: 600;
-  padding: 8px 10px;
-  text-align: left;
-  border-bottom: 1px solid #3b4350;
-  white-space: nowrap;
+  background: linear-gradient(180deg, rgba(26, 35, 47, 0.98), rgba(19, 27, 38, 0.98));
+  color: #a6bbcf;
+  border-bottom: 1px solid rgba(145, 176, 207, 0.12);
+}
+
+.iam-table-area .svc-table td,
+.iam-mini-table td {
+  border-bottom: 1px solid rgba(145, 176, 207, 0.08);
+  color: #dce8f5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.iam-table-area .svc-table td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .iam-mini-table td {
-  padding: 8px 10px;
-  color: #d0d8e2;
-  border-bottom: 1px solid #262c35;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 180px;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
+.iam-table-area .svc-table tbody tr:hover,
 .iam-mini-table tbody tr:hover {
-  background: #262c35;
+  background: rgba(31, 43, 59, 0.88);
 }
 
-/* ── Caret separator ─────────────────────────────────────── */
-
-.iam-caret {
-  text-align: center;
-  color: #4a5361;
-  font-size: 10px;
-  padding: 2px 0;
+.iam-table-area .svc-table tbody tr.active,
+.sim-row-selected {
+  background:
+    radial-gradient(circle at top right, rgba(245, 154, 61, 0.1), transparent 38%),
+    linear-gradient(180deg, rgba(40, 54, 71, 0.98), rgba(24, 36, 48, 0.98)) !important;
 }
 
-/* ── Section search (compact) ────────────────────────────── */
+.iam-bottom-actions,
+.sim-panel-footer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-top: 1px solid rgba(145, 176, 207, 0.1);
+  background: linear-gradient(180deg, rgba(10, 16, 24, 0.96), rgba(8, 13, 21, 0.96));
+}
+
+.iam-bottom-actions input,
+.iam-inline-input input,
+.iam-inline-input textarea,
+.iam-sidebar-form input,
+.iam-sidebar-form textarea,
+.iam-section-search,
+.iam-field > input,
+.iam-policy-editor,
+.iam-output-panel {
+  border-radius: 11px;
+  border: 1px solid rgba(145, 176, 207, 0.16);
+  background: rgba(7, 14, 24, 0.92);
+  color: #edf4fb;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.iam-bottom-actions input {
+  flex: 1;
+  min-width: 180px;
+}
+
+.iam-sidebar-placeholder {
+  display: grid;
+  place-items: center;
+  min-height: 240px;
+  padding: 24px;
+  color: #6f839b;
+  font-size: 0.85rem;
+}
+
+.iam-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(145, 176, 207, 0.08);
+  background: linear-gradient(180deg, rgba(19, 28, 40, 0.96), rgba(12, 19, 29, 0.96));
+  color: #dce8f5;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.iam-section-header:hover {
+  background: linear-gradient(180deg, rgba(24, 34, 48, 0.98), rgba(15, 24, 35, 0.98));
+}
+
+.iam-section-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px 16px;
+  border-bottom: 1px solid rgba(145, 176, 207, 0.08);
+  background: rgba(10, 16, 24, 0.54);
+  min-width: 0;
+  overflow-x: visible;
+}
+
+.iam-console-mfa {
+  padding: 12px 16px 0;
+  color: #dce8f5;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
 
 .iam-section-search {
-  height: 30px;
-  padding: 4px 10px;
-  border: 1px solid #3b4350;
-  border-radius: 4px;
-  background: #1e232b;
-  color: #edf1f6;
-  font-size: 11px;
   width: 100%;
-  box-sizing: border-box;
+  height: 32px;
+  padding: 6px 10px;
+  font-size: 11px;
 }
 
 .iam-section-search::placeholder {
-  color: #6b7688;
+  color: #6f839b;
 }
-
-/* ── Sidebar section chips (compact) ─────────────────────── */
 
 .iam-section-chips {
   display: flex;
@@ -176,108 +402,54 @@
   font-size: 11px;
 }
 
-/* ── Policy editor textarea ──────────────────────────────── */
-
-.iam-policy-editor {
-  width: 100%;
-  min-height: 80px;
-  padding: 8px 10px;
-  border: 1px solid #3b4350;
-  border-radius: 4px;
-  background: #0f1318;
-  color: #edf1f6;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 12px;
-  resize: vertical;
-  box-sizing: border-box;
+.iam-caret {
+  text-align: center;
+  color: #4f657f;
+  font-size: 10px;
+  padding: 2px 0;
 }
-
-/* ── Sidebar placeholder ─────────────────────────────────── */
-
-.iam-sidebar-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  min-height: 200px;
-  color: #6b7688;
-  font-size: 13px;
-}
-
-/* ── New key secret banner ───────────────────────────────── */
 
 .iam-key-banner {
-  padding: 10px 12px;
-  background: #1d3a2a;
-  border: 1px solid #2d5a3a;
-  border-radius: 4px;
+  padding: 12px;
+  border: 1px solid rgba(74, 143, 231, 0.24);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at top right, rgba(74, 143, 231, 0.12), transparent 40%),
+    linear-gradient(180deg, rgba(20, 32, 46, 0.94), rgba(13, 21, 32, 0.94));
+  color: #c3ddff;
   font-size: 12px;
-  color: #b8e0b8;
 }
 
 .iam-key-banner strong {
   display: block;
   margin-bottom: 6px;
-  font-size: 11px;
-  color: #6fcf97;
+  color: #edf4fb;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
-.iam-key-banner .mono {
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  word-break: break-all;
-}
-
-/* ── Inline input row ────────────────────────────────────── */
-
-.iam-inline-input {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.iam-inline-input input,
-.iam-inline-input textarea {
-  flex: 1;
-  min-width: 0;
-  height: 30px;
-  padding: 4px 10px;
-  border: 1px solid #3b4350;
-  border-radius: 4px;
-  background: #0f1318;
-  color: #edf1f6;
-  font-size: 12px;
-}
-
-.iam-inline-input textarea {
-  height: auto;
-  min-height: 60px;
-  resize: vertical;
-}
-
-/* ── Sidebar form columns ────────────────────────────────── */
-
+.iam-inline-input,
 .iam-sidebar-form {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
+.iam-inline-input input,
+.iam-inline-input textarea,
 .iam-sidebar-form input,
-.iam-sidebar-form textarea {
-  height: 30px;
-  padding: 4px 10px;
-  border: 1px solid #3b4350;
-  border-radius: 4px;
-  background: #0f1318;
-  color: #edf1f6;
-  font-size: 12px;
+.iam-sidebar-form textarea,
+.iam-policy-editor,
+.iam-field > input {
   width: 100%;
-  box-sizing: border-box;
+  padding: 8px 10px;
+  font-size: 12px;
 }
 
-.iam-sidebar-form textarea {
-  height: auto;
-  min-height: 60px;
+.iam-policy-editor {
+  min-height: 88px;
+  font-family: "IBM Plex Mono", "Consolas", monospace;
   resize: vertical;
 }
 
@@ -285,39 +457,41 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  color: #a6bbcf;
   font-size: 12px;
-  color: #9ca7b7;
 }
 
-/* ── Account summary metadata grid ───────────────────────── */
+.iam-sidebar-form label input[type='checkbox'] {
+  width: auto;
+}
 
 .iam-metadata-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
 }
 
 .iam-metadata-grid > div {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 8px 12px;
-  background: #252b33;
-  border-radius: 4px;
-  border: 1px solid #3b4350;
+  padding: 12px;
+  border: 1px solid rgba(145, 176, 207, 0.1);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(18, 25, 35, 0.96), rgba(11, 17, 25, 0.96));
 }
 
 .iam-metadata-grid > div > span {
-  font-size: 11px;
-  color: #9ca7b7;
+  display: block;
+  color: #8fa3ba;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .iam-metadata-grid > div > strong {
-  font-size: 14px;
-  color: #edf1f6;
+  display: block;
+  margin-top: 4px;
+  color: #edf4fb;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
 }
-
-/* ── Simulator field labels ──────────────────────────────── */
 
 .iam-field {
   display: flex;
@@ -326,152 +500,205 @@
 }
 
 .iam-field > span {
+  color: #8fa3ba;
   font-size: 11px;
-  color: #9ca7b7;
   font-weight: 600;
 }
 
-.iam-field > input {
-  height: 32px;
-  padding: 4px 10px;
-  border: 1px solid #3b4350;
-  border-radius: 4px;
-  background: #0f1318;
-  color: #edf1f6;
-  font-size: 12px;
-}
-
-/* ── Output panel (version document viewer) ──────────────── */
-
 .iam-output-panel {
-  background: #0f1318;
-  border: 1px solid #3b4350;
-  border-radius: 4px;
   padding: 10px 12px;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-family: "IBM Plex Mono", "Consolas", monospace;
   font-size: 12px;
-  color: #d0d8e2;
   overflow-x: auto;
+  max-width: 100%;
   white-space: pre-wrap;
   word-break: break-all;
   max-height: 300px;
   overflow-y: auto;
 }
 
-/* ── Simulator two-panel layout ─────────────────────────── */
+.iam-section-content .iam-mini-table,
+.iam-section-content .svc-table {
+  max-width: 100%;
+}
+
+.iam-section-content .iam-mini-table {
+  min-width: 760px;
+}
+
+.iam-section-content .iam-mini-table td:first-child {
+  min-width: 220px;
+}
+
+.iam-section-content .iam-mini-table td:nth-child(2) {
+  min-width: 360px;
+}
+
+.iam-section-content .iam-mini-table th:last-child,
+.iam-section-content .iam-mini-table td:last-child {
+  min-width: 120px;
+}
+
+.iam-section-content .svc-btn-row {
+  min-width: 0;
+}
+
+.iam-section-content .svc-btn-row .svc-btn {
+  min-width: 0;
+  max-width: 100%;
+}
 
 .sim-layout {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr;
   gap: 0;
-  border: 1px solid #3b4350;
-  border-radius: 6px;
   overflow: hidden;
-  height: calc(100vh - 300px);
+  height: calc(100vh - 340px);
+}
+
+.sim-panel + .sim-panel {
+  border-left: 1px solid rgba(145, 176, 207, 0.1);
 }
 
 .sim-panel {
   display: flex;
   flex-direction: column;
-  min-width: 0;
+  min-height: 0;
   overflow: hidden;
-  background: #1e232b;
-}
-
-.sim-panel + .sim-panel {
-  border-left: 1px solid #3b4350;
 }
 
 .sim-panel-body {
   flex: 1;
-  min-height: 0;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
-  padding: 10px 12px;
-  gap: 6px;
+  gap: 8px;
+  padding: 12px 14px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .sim-table-scroll {
   flex: 1;
-  overflow-y: auto;
   min-height: 0;
+  overflow-y: auto;
 }
 
 .sim-panel-footer {
-  padding: 10px 12px;
-  border-top: 1px solid #3b4350;
-  background: #1e232b;
-  flex-shrink: 0;
-}
-
-/* ── Simulator row selection ── */
-
-.sim-row-selected {
-  background: #1d3557 !important;
-}
-
-.sim-row-selected:hover {
-  background: #1d3557 !important;
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
 }
 
 .sim-name-selected {
-  color: #60a5fa;
+  color: #9ec7ff;
   font-weight: 600;
 }
 
-/* ── Type badge ── */
-
 .sim-type-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .sim-type-badge.user {
-  background: #1d3557;
-  color: #60a5fa;
+  background: rgba(74, 143, 231, 0.14);
+  color: #9ec7ff;
 }
 
 .sim-type-badge.role {
-  background: #2d2b1d;
-  color: #fbbf24;
+  background: rgba(245, 154, 61, 0.16);
+  color: #ffd082;
 }
 
-/* ── Service warning icon ── */
-
 .sim-service-icon {
-  color: #f59e0b;
+  color: #ffd082;
   margin-right: 4px;
 }
 
-/* ── Responsive ──────────────────────────────────────────── */
+.iam-console .svc-btn {
+  border-radius: 11px;
+  box-shadow: none;
+}
+
+.iam-console .svc-chip {
+  border-radius: 999px;
+  border-color: rgba(145, 176, 207, 0.1);
+  background: rgba(18, 28, 40, 0.88);
+  color: #9db1c8;
+}
+
+.iam-console .svc-chip.active {
+  color: #fff;
+}
+
+.iam-console .svc-error,
+.iam-console .svc-msg {
+  border-radius: 14px;
+}
 
 @media (max-width: 1100px) {
-  .iam-layout {
+  .iam-shell-hero,
+  .iam-layout,
+  .sim-layout,
+  .iam-filter-shell,
+  .iam-filter-shell-policy {
     grid-template-columns: 1fr;
+  }
+
+  .iam-shell-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .iam-tab-bar {
+    width: 100%;
+  }
+
+  .iam-refresh-btn {
+    width: 100%;
+  }
+
+  .iam-sidebar,
+  .iam-table-area,
+  .sim-layout {
+    max-height: none;
+    height: auto;
   }
 
   .iam-sidebar {
     border-left: 0;
-    border-top: 1px solid #3b4350;
-    max-height: none;
-  }
-
-  .iam-table-area {
-    max-height: 400px;
-  }
-
-  .sim-layout {
-    grid-template-columns: 1fr;
-    max-height: none;
+    border-top: 1px solid rgba(145, 176, 207, 0.1);
   }
 
   .sim-panel + .sim-panel {
     border-left: 0;
-    border-top: 1px solid #3b4350;
+    border-top: 1px solid rgba(145, 176, 207, 0.1);
+  }
+}
+
+@media (max-width: 720px) {
+  .iam-shell-hero,
+  .iam-surface,
+  .iam-shell-toolbar {
+    padding: 12px;
+  }
+
+  .iam-shell-hero-stats,
+  .iam-metadata-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .iam-bottom-actions,
+  .sim-panel-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .iam-bottom-actions input {
+    min-width: 0;
   }
 }

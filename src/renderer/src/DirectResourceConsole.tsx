@@ -1,4 +1,7 @@
 import { useMemo, useState } from 'react'
+import './direct-resource.css'
+import { FreshnessIndicator, useFreshnessState } from './freshness'
+import { SvcState } from './SvcState'
 
 import type { AwsConnection, WafScope } from '@shared/types'
 import {
@@ -221,26 +224,88 @@ function normalizeS3Prefix(prefix: string): string {
   return trimmed.replace(/^\/+/, '')
 }
 
+function fieldValueCount(definition: DirectServiceDefinition, form: Record<string, string>): number {
+  return definition.fields.filter((field) => form[field.key]?.trim()).length
+}
+
+function requiredFieldCount(definition: DirectServiceDefinition): number {
+  return definition.fields.filter((field) => field.required).length
+}
+
+function summarizeSectionData(data: unknown): string {
+  if (Array.isArray(data)) {
+    return `${data.length} item${data.length === 1 ? '' : 's'}`
+  }
+
+  if (data && typeof data === 'object') {
+    return `${Object.keys(data as Record<string, unknown>).length} field${Object.keys(data as Record<string, unknown>).length === 1 ? '' : 's'}`
+  }
+
+  if (typeof data === 'string') {
+    return data.length > 80 ? `${data.length} chars` : data
+  }
+
+  if (data === null || data === undefined) {
+    return 'Empty payload'
+  }
+
+  return typeof data
+}
+
 export function DirectResourceConsole({ connection }: { connection: AwsConnection }) {
   const [selectedService, setSelectedService] = useState<DirectServiceKey>('s3')
   const [form, setForm] = useState<Record<string, string>>(INITIAL_FORM)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [sections, setSections] = useState<ResultSection[]>([])
+  const [selectedSectionIndex, setSelectedSectionIndex] = useState(0)
+  const {
+    freshness,
+    beginRefresh,
+    completeRefresh,
+    failRefresh,
+    replaceFetchedAt
+  } = useFreshnessState({ staleAfterMs: 10 * 60 * 1000 })
 
   const definition = useMemo(
     () => SERVICE_DEFINITIONS.find((entry) => entry.key === selectedService) ?? SERVICE_DEFINITIONS[0],
     [selectedService]
   )
+  const selectedSection = sections[selectedSectionIndex] ?? null
+  const populatedFieldCount = fieldValueCount(definition, form)
+  const requiredCount = requiredFieldCount(definition)
+  const connectionLabel = connection.kind === 'profile' ? connection.profile : connection.label
+  const connectionMode = connection.kind === 'profile' ? 'Profile' : 'Assumed role'
 
   function updateField(key: string, value: string): void {
     setForm((current) => ({ ...current, [key]: value }))
   }
 
+  function handleSelectService(key: DirectServiceKey): void {
+    setSelectedService(key)
+    setError('')
+    setSections([])
+    setSelectedSectionIndex(0)
+    replaceFetchedAt(null)
+  }
+
+  function handleResetInputs(): void {
+    setForm(INITIAL_FORM)
+  }
+
+  function handleClearResults(): void {
+    setError('')
+    setSections([])
+    setSelectedSectionIndex(0)
+    replaceFetchedAt(null)
+  }
+
   async function handleOpen(): Promise<void> {
+    beginRefresh('manual')
     setLoading(true)
     setError('')
     setSections([])
+    setSelectedSectionIndex(0)
 
     try {
       let nextSections: ResultSection[] = []
@@ -406,8 +471,10 @@ export function DirectResourceConsole({ connection }: { connection: AwsConnectio
       }
 
       setSections(nextSections)
+      completeRefresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
+      failRefresh()
     } finally {
       setLoading(false)
     }
@@ -416,54 +483,233 @@ export function DirectResourceConsole({ connection }: { connection: AwsConnectio
   const openDisabled = definition.fields.some((field) => field.required && !form[field.key]?.trim())
 
   return (
-    <div className="svc-console">
-      <div className="svc-tab-bar">
-        <button className="svc-tab active" type="button">Direct Access</button>
+    <div className="svc-console direct-console">
+      <section className="direct-shell-hero">
+        <div className="direct-shell-copy">
+          <div className="eyebrow">Direct resource access</div>
+          <h2>{definition.label}</h2>
+          <p>Open a known AWS resource by identifier when list-level permissions are blocked or too broad for the task.</p>
+          <div className="direct-shell-meta-strip">
+            <div className="direct-shell-meta-pill">
+              <span>Connection</span>
+              <strong>{connectionLabel}</strong>
+            </div>
+            <div className="direct-shell-meta-pill">
+              <span>Mode</span>
+              <strong>{connectionMode}</strong>
+            </div>
+            <div className="direct-shell-meta-pill">
+              <span>Region</span>
+              <strong>{connection.region}</strong>
+            </div>
+            <div className="direct-shell-meta-pill">
+              <span>Lookup</span>
+              <strong>{requiredCount} required fields</strong>
+            </div>
+          </div>
+        </div>
+        <div className="direct-shell-stats">
+          <div className="direct-shell-stat-card direct-shell-stat-card-accent">
+            <span>Services</span>
+            <strong>{SERVICE_DEFINITIONS.length}</strong>
+            <small>Direct lookups available in this console</small>
+          </div>
+          <div className="direct-shell-stat-card">
+            <span>Inputs ready</span>
+            <strong>{populatedFieldCount}/{definition.fields.length}</strong>
+            <small>{openDisabled ? 'Complete the required identifiers' : 'Current request is ready to open'}</small>
+          </div>
+          <div className="direct-shell-stat-card">
+            <span>Result sections</span>
+            <strong>{sections.length}</strong>
+            <small>{sections.length ? 'Structured payloads returned from AWS' : 'No payload loaded yet'}</small>
+          </div>
+          <div className="direct-shell-stat-card">
+            <span>Selected view</span>
+            <strong>{selectedSection?.title || 'Standby'}</strong>
+            <small>{selectedSection ? summarizeSectionData(selectedSection.data) : 'Open a resource to inspect details'}</small>
+          </div>
+        </div>
+      </section>
+
+      <div className="direct-shell-toolbar">
+        <div className="direct-toolbar">
+          <button className="direct-toolbar-btn accent" type="button" onClick={() => void handleOpen()} disabled={loading || openDisabled}>
+            {loading ? 'Opening...' : 'Open Resource'}
+          </button>
+          <button className="direct-toolbar-btn" type="button" onClick={handleResetInputs} disabled={loading}>
+            Reset Inputs
+          </button>
+          <button className="direct-toolbar-btn" type="button" onClick={handleClearResults} disabled={loading || (!sections.length && !error)}>
+            Clear Results
+          </button>
+        </div>
+        <div className="direct-shell-status">
+          <FreshnessIndicator freshness={freshness} label="Lookup freshness" staleLabel="Open again to refresh" />
+        </div>
       </div>
 
-      {error && <div className="svc-error">{error}</div>}
+      {error && <SvcState variant="error" error={error} />}
 
-      <div className="svc-panel" style={{ marginBottom: 16 }}>
-        <h3>Open Resource Without Listing</h3>
-        <p style={{ marginTop: 0, color: '#9ca7b7' }}>
-          Use this when the profile can access a specific resource but cannot call the service-wide list API.
-        </p>
-        <div className="svc-form">
-          <label>
-            <span>Service</span>
-            <select value={selectedService} onChange={(e) => setSelectedService(e.target.value as DirectServiceKey)}>
-              {SERVICE_DEFINITIONS.map((entry) => (
-                <option key={entry.key} value={entry.key}>{entry.label}</option>
+      <div className="direct-main-layout">
+        <div className="direct-service-pane">
+          <div className="direct-pane-head">
+            <div>
+              <span className="direct-pane-kicker">Service inventory</span>
+              <h3>Lookup targets</h3>
+            </div>
+            <span className="direct-pane-summary">{SERVICE_DEFINITIONS.length} total</span>
+          </div>
+          <div className="direct-service-list">
+            {SERVICE_DEFINITIONS.map((entry) => {
+              const isActive = entry.key === selectedService
+              const entryRequired = requiredFieldCount(entry)
+              const entryFilled = fieldValueCount(entry, form)
+              return (
+                <button
+                  key={entry.key}
+                  type="button"
+                  className={`direct-service-row ${isActive ? 'active' : ''}`}
+                  onClick={() => handleSelectService(entry.key)}
+                >
+                  <div className="direct-service-row-top">
+                    <div className="direct-service-row-copy">
+                      <strong>{entry.label}</strong>
+                      <span>{entry.description}</span>
+                    </div>
+                    <span className={`tf-status-badge ${isActive ? 'info' : 'success'}`}>{entryRequired} required</span>
+                  </div>
+                  <div className="direct-service-row-meta">
+                    <span>{entry.key}</span>
+                    <span>{entry.fields.length} field{entry.fields.length === 1 ? '' : 's'}</span>
+                    <span>{entryFilled}/{entry.fields.length} filled</span>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="direct-detail-pane">
+          <section className="direct-detail-hero">
+            <div className="direct-detail-copy">
+              <div className="eyebrow">Lookup configuration</div>
+              <h3>{definition.label}</h3>
+              <p>{definition.description}</p>
+              <div className="direct-detail-meta-strip">
+                <div className="direct-detail-meta-pill">
+                  <span>Required</span>
+                  <strong>{requiredCount}</strong>
+                </div>
+                <div className="direct-detail-meta-pill">
+                  <span>Total fields</span>
+                  <strong>{definition.fields.length}</strong>
+                </div>
+                <div className="direct-detail-meta-pill">
+                  <span>Ready state</span>
+                  <strong>{openDisabled ? 'Needs identifiers' : 'Ready to open'}</strong>
+                </div>
+                <div className="direct-detail-meta-pill">
+                  <span>Payloads</span>
+                  <strong>{sections.length || 'None yet'}</strong>
+                </div>
+              </div>
+            </div>
+            <div className="direct-detail-stats">
+              <div className={`direct-detail-stat-card ${openDisabled ? 'warning' : 'success'}`}>
+                <span>Request posture</span>
+                <strong>{openDisabled ? 'Incomplete' : 'Ready'}</strong>
+                <small>{openDisabled ? 'At least one required identifier is missing.' : 'All required identifiers are present.'}</small>
+              </div>
+              <div className="direct-detail-stat-card">
+                <span>Primary key</span>
+                <strong>{definition.fields[0]?.label || 'N/A'}</strong>
+                <small>{definition.fields[0]?.placeholder || 'No placeholder available'}</small>
+              </div>
+            </div>
+          </section>
+
+          <section className="direct-section">
+            <div className="direct-section-head">
+              <div>
+                <span className="direct-pane-kicker">Parameters</span>
+                <h3>Known identifiers</h3>
+              </div>
+            </div>
+            <div className="direct-form-grid">
+              <label className="direct-field direct-field-wide">
+                <span>Service</span>
+                <select value={selectedService} onChange={(e) => handleSelectService(e.target.value as DirectServiceKey)}>
+                  {SERVICE_DEFINITIONS.map((entry) => (
+                    <option key={entry.key} value={entry.key}>{entry.label}</option>
+                  ))}
+                </select>
+              </label>
+              {definition.fields.map((field) => (
+                <label key={field.key} className="direct-field">
+                  <span>
+                    {field.label}
+                    {field.required ? <em>Required</em> : <em>Optional</em>}
+                  </span>
+                  <input
+                    value={form[field.key] ?? ''}
+                    onChange={(e) => updateField(field.key, e.target.value)}
+                    placeholder={field.placeholder}
+                  />
+                </label>
               ))}
-            </select>
-          </label>
-          {definition.fields.map((field) => (
-            <label key={field.key}>
-              <span>{field.label}</span>
-              <input
-                value={form[field.key] ?? ''}
-                onChange={(e) => updateField(field.key, e.target.value)}
-                placeholder={field.placeholder}
-              />
-            </label>
-          ))}
+            </div>
+          </section>
+
+          <section className="direct-section">
+            <div className="direct-section-head">
+              <div>
+                <span className="direct-pane-kicker">Response</span>
+                <h3>Lookup output</h3>
+              </div>
+            </div>
+            {!sections.length ? (
+              loading ? (
+                <SvcState variant="loading" resourceName="resource data" message="Opening resource and gathering payloads..." />
+              ) : (
+                <SvcState variant="empty" message="Enter a known identifier and open the resource directly." />
+              )
+            ) : (
+              <div className="direct-result-layout">
+                <div className="direct-result-list">
+                  {sections.map((section, index) => (
+                    <button
+                      key={`${section.title}:${index}`}
+                      type="button"
+                      className={`direct-result-row ${index === selectedSectionIndex ? 'active' : ''}`}
+                      onClick={() => setSelectedSectionIndex(index)}
+                    >
+                      <strong>{section.title}</strong>
+                      <span>{summarizeSectionData(section.data)}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="direct-result-viewer">
+                  {selectedSection ? (
+                    <>
+                      <div className="direct-result-viewer-head">
+                        <div>
+                          <span className="direct-pane-kicker">Selected payload</span>
+                          <h3>{selectedSection.title}</h3>
+                        </div>
+                        <span className="direct-result-summary">{summarizeSectionData(selectedSection.data)}</span>
+                      </div>
+                      <pre className="svc-code direct-result-code">{pretty(selectedSection.data)}</pre>
+                    </>
+                  ) : (
+                    <SvcState variant="no-selection" resourceName="result section" />
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
         </div>
-        <div className="svc-sidebar-hint" style={{ marginBottom: 10 }}>{definition.description}</div>
-        <button className="svc-btn success" type="button" onClick={() => void handleOpen()} disabled={loading || openDisabled}>
-          {loading ? 'Opening...' : 'Open Resource'}
-        </button>
       </div>
-
-      {!sections.length && !loading && !error && (
-        <div className="svc-empty">Enter a known identifier and open the resource directly.</div>
-      )}
-
-      {sections.map((section) => (
-        <div key={section.title} className="svc-section">
-          <h3>{section.title}</h3>
-          <pre className="svc-code" style={{ maxHeight: 'calc(100vh - 380px)', overflow: 'auto' }}>{pretty(section.data)}</pre>
-        </div>
-      ))}
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { SvcState } from './SvcState'
+import './vpc.css'
 
 import {
   createReachabilityPath,
@@ -40,6 +41,22 @@ const TABS: Array<{ id: VpcTab; label: string }> = [
   { id: 'gateways', label: 'Gateways' },
   { id: 'interfaces', label: 'Interfaces' },
 ]
+
+function formatVpcName(vpc: VpcSummary): string {
+  return vpc.name && vpc.name !== '-' ? vpc.name : vpc.vpcId
+}
+
+function summarizeVpcStatus(vpc: VpcSummary | null): { tone: 'success' | 'warning' | 'info'; label: string } {
+  if (!vpc) {
+    return { tone: 'info', label: 'No selection' }
+  }
+
+  if (vpc.state === 'available') {
+    return { tone: 'success', label: vpc.isDefault ? 'Default VPC' : 'Available' }
+  }
+
+  return { tone: 'warning', label: vpc.state || 'Pending' }
+}
 
 /* ── VPC Architecture Diagram ─────────────────────────────── */
 
@@ -533,8 +550,14 @@ export function VpcWorkspace({ connection, focusVpcId, onNavigate }: {
   const [loadingVpcId, setLoadingVpcId] = useState('')
   const vpcLoadRequestRef = useRef(0)
 
-  const selectedVpc = useMemo(() => vpcs.find(v => v.vpcId === selectedVpcId) ?? null, [vpcs, selectedVpcId])
+  const selectedVpc = useMemo(() => vpcs.find((vpc) => vpc.vpcId === selectedVpcId) ?? null, [vpcs, selectedVpcId])
   const isSwitchingVpc = Boolean(loadingVpcId && loadingVpcId === selectedVpcId)
+  const selectedVpcStatus = useMemo(() => summarizeVpcStatus(selectedVpc), [selectedVpc])
+  const publicSubnetCount = useMemo(() => subnets.filter((subnet) => subnet.mapPublicIpOnLaunch).length, [subnets])
+  const privateSubnetCount = subnets.length - publicSubnetCount
+  const availabilityZoneCount = useMemo(() => new Set(subnets.map((subnet) => subnet.availabilityZone)).size, [subnets])
+  const reachableCount = useMemo(() => reachResults.filter((result) => result.reachable).length, [reachResults])
+  const latestReachability = reachResults[0] ?? null
 
   function clearVpcData() {
     setTopology(null)
@@ -606,92 +629,546 @@ export function VpcWorkspace({ connection, focusVpcId, onNavigate }: {
   }
 
   return (
-    <div className="svc-console">
-      <div className="svc-tab-bar">
-        {TABS.map(t => <button key={t.id} className={`svc-tab ${t.id === tab ? 'active' : ''}`} type="button" onClick={() => setTab(t.id)}>{t.label}</button>)}
-        <button className="svc-tab right" type="button" onClick={() => selectedVpcId && void loadVpcData(selectedVpcId)} disabled={loading}>{loading ? 'Loading...' : 'Refresh'}</button>
-      </div>
-      {msg && <div className="svc-msg">{msg}</div>}
-      {error && <SvcState variant="error" error={error} />}
-      <div className="svc-filter-bar">
-        <span className="svc-filter-label">VPC</span>
-        <select className="svc-select" value={selectedVpcId} onChange={e => setSelectedVpcId(e.target.value)} disabled={loading && !selectedVpcId}>
-          {vpcs.map(v => <option key={v.vpcId} value={v.vpcId}>{v.name !== '-' ? v.name : v.vpcId} ({v.cidrBlock}){v.isDefault ? ' [default]' : ''}</option>)}
-        </select>
-        {selectedVpc && <span style={{ fontSize: 11, color: '#9ca7b7', fontFamily: 'monospace' }}>{selectedVpc.vpcId} | {selectedVpc.state}</span>}
-        {isSwitchingVpc && <span style={{ fontSize: 11, color: '#9ca7b7' }}>Loading selected VPC...</span>}
-      </div>
-
-      {tab === 'topology' && topology && (<>
-        <div className="svc-stat-strip">
-          <div className="svc-stat-card"><span>Subnets</span><strong>{topology.subnets.length}</strong></div>
-          <div className="svc-stat-card"><span>Route Tables</span><strong>{topology.routeTables.length}</strong></div>
-          <div className="svc-stat-card"><span>IGWs</span><strong>{topology.internetGateways.length}</strong></div>
-          <div className="svc-stat-card"><span>NAT GWs</span><strong>{topology.natGateways.length}</strong></div>
-          <div className="svc-stat-card"><span>EC2</span><strong>{ec2Instances.length}</strong></div>
-          <div className="svc-stat-card"><span>LBs</span><strong>{loadBalancers.length}</strong></div>
-        </div>
-        <div className="svc-panel"><h3>Subnets</h3>
-          <table className="svc-table"><thead><tr><th>Name</th><th>Subnet ID</th><th>CIDR</th><th>AZ</th><th>Avail IPs</th><th>Public IP</th><th>Action</th></tr></thead>
-            <tbody>{subnets.map(s => <tr key={s.subnetId}><td>{s.name}</td><td style={{ fontFamily: 'monospace' }}>{s.subnetId}</td><td style={{ fontFamily: 'monospace' }}>{s.cidrBlock}</td><td>{s.availabilityZone}</td><td>{s.availableIpAddressCount}</td><td><span className={`svc-badge ${s.mapPublicIpOnLaunch ? 'ok' : 'muted'}`}>{s.mapPublicIpOnLaunch ? 'Yes' : 'No'}</span></td><td><button type="button" className={`svc-btn ${s.mapPublicIpOnLaunch ? 'danger' : 'success'}`} style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => void handleSubnetTogglePublicIp(s.subnetId, s.mapPublicIpOnLaunch)}>{s.mapPublicIpOnLaunch ? 'Disable' : 'Enable'}</button></td></tr>)}</tbody></table>
-        </div>
-        <div className="svc-panel"><h3>Route Tables</h3>
-          <table className="svc-table"><thead><tr><th>Name</th><th>RT ID</th><th>Main</th><th>Subnets</th><th>Routes</th></tr></thead>
-            <tbody>{routeTables.map(rt => <tr key={rt.routeTableId}><td>{rt.name}</td><td style={{ fontFamily: 'monospace' }}>{rt.routeTableId}</td><td><span className={`svc-badge ${rt.isMain ? 'ok' : 'muted'}`}>{rt.isMain ? 'Yes' : 'No'}</span></td><td>{rt.associatedSubnets.length ? rt.associatedSubnets.join(', ') : '-'}</td><td style={{ fontSize: 11, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis' }}>{rt.routes.map(r => `${r.destination} \u2192 ${r.target}`).join('; ')}</td></tr>)}</tbody></table>
-        </div>
-      </>)}
-
-      {tab === 'flow' && (
-        <div className="svc-panel">
-          <h3>VPC Architecture</h3>
-          <p style={{ fontSize: 11, color: '#9ca7b7', margin: '0 0 12px' }}>
-            {subnets.length} subnets · {igws.length} IGWs · {nats.length} NATs · {routeTables.length} route tables
-            · {ec2Instances.length} EC2 instances · {loadBalancers.length} load balancers
-            {' · '}Click any resource to navigate.
-          </p>
-          <VpcArchitectureDiagram
-            vpc={selectedVpc}
-            subnets={subnets}
-            igws={igws}
-            nats={nats}
-            routeTables={routeTables}
-            enis={enis}
-            ec2Instances={ec2Instances}
-            loadBalancers={loadBalancers}
-            onNavigate={onNavigate}
-            onSwitchTab={setTab}
-          />
-        </div>
-      )}
-
-      {tab === 'reachability' && (<>
-        <div className="svc-panel"><h3>Create Reachability Path</h3>
-          <div className="svc-form">
-            <label><span>Source</span><input value={reachSrc} onChange={e => setReachSrc(e.target.value)} placeholder="eni-... or i-..." /></label>
-            <label><span>Destination</span><input value={reachDest} onChange={e => setReachDest(e.target.value)} placeholder="eni-... or i-..." /></label>
-            <label><span>Protocol</span><select value={reachProto} onChange={e => setReachProto(e.target.value)}><option value="tcp">TCP</option><option value="udp">UDP</option></select></label>
+    <div className="vpc-console">
+      <section className="vpc-shell-hero">
+        <div className="vpc-shell-hero-copy">
+          <div className="eyebrow">Networking</div>
+          <h2>VPC workspace</h2>
+          <p>Terraform’s split-shell layout becomes the model here: an inventory rail on the left, a posture-driven detail pane on the right, and denser operational signals at the top.</p>
+          <div className="vpc-shell-meta-strip">
+            <div className="vpc-shell-meta-pill">
+              <span>Connection</span>
+              <strong>{connection.kind === 'profile' ? connection.profile : connection.label}</strong>
+            </div>
+            <div className="vpc-shell-meta-pill">
+              <span>Region</span>
+              <strong>{connection.region}</strong>
+            </div>
+            <div className="vpc-shell-meta-pill">
+              <span>Selected VPC</span>
+              <strong>{selectedVpc ? formatVpcName(selectedVpc) : 'Choose a VPC'}</strong>
+            </div>
+            <div className="vpc-shell-meta-pill">
+              <span>Current view</span>
+              <strong>{TABS.find((item) => item.id === tab)?.label ?? 'Topology'}</strong>
+            </div>
           </div>
-          <button type="button" className="svc-btn primary" disabled={loading || !reachSrc || !reachDest} onClick={() => void handleReachRun()}>{loading ? 'Running...' : 'Analyze'}</button>
         </div>
-        {reachResults.length > 0 && <div className="svc-panel"><h3>Results</h3>
-          <table className="svc-table"><thead><tr><th>ID</th><th>Status</th><th>Reachable</th><th>Source</th><th>Dest</th><th>Explanations</th><th></th></tr></thead>
-            <tbody>{reachResults.map(r => <tr key={r.analysisId}><td style={{ fontFamily: 'monospace', fontSize: 11 }}>{r.analysisId.slice(0, 18)}..</td><td><span className={`svc-badge ${r.status === 'succeeded' ? 'ok' : r.status === 'failed' ? 'danger' : 'warn'}`}>{r.status}</span></td><td>{r.reachable === null ? '-' : r.reachable ? <span className="svc-badge ok">Yes</span> : <span className="svc-badge danger">No</span>}</td><td style={{ fontFamily: 'monospace', fontSize: 11 }}>{r.source.slice(0, 20)}</td><td style={{ fontFamily: 'monospace', fontSize: 11 }}>{r.destination.slice(0, 20)}</td><td style={{ fontSize: 11 }}>{r.explanations.length ? r.explanations.join('; ') : '-'}</td><td><button type="button" className="svc-btn muted" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => void handleReachRefresh(r.analysisId)}>Refresh</button></td></tr>)}</tbody></table>
-        </div>}
-      </>)}
+        <div className="vpc-shell-hero-stats">
+          <div className={`vpc-shell-stat-card ${selectedVpcStatus.tone}`}>
+            <span>Network posture</span>
+            <strong>{selectedVpcStatus.label}</strong>
+            <small>{selectedVpc ? selectedVpc.state : 'Waiting for selection'}</small>
+          </div>
+          <div className="vpc-shell-stat-card">
+            <span>Tracked VPCs</span>
+            <strong>{vpcs.length}</strong>
+            <small>{vpcs.filter((vpc) => vpc.isDefault).length} default environments</small>
+          </div>
+          <div className="vpc-shell-stat-card">
+            <span>Reachability runs</span>
+            <strong>{reachResults.length}</strong>
+            <small>{reachableCount} reachable paths confirmed</small>
+          </div>
+          <div className="vpc-shell-stat-card">
+            <span>Inventory load</span>
+            <strong>{loading ? 'Syncing' : 'Ready'}</strong>
+            <small>{isSwitchingVpc ? 'Refreshing selected network' : 'Live AWS inventory'}</small>
+          </div>
+        </div>
+      </section>
 
-      {tab === 'gateways' && (<>
-        <div className="svc-panel"><h3>Internet Gateways ({igws.length})</h3><table className="svc-table"><thead><tr><th>Name</th><th>IGW ID</th><th>State</th><th>VPC</th></tr></thead><tbody>{igws.map(g => <tr key={g.igwId} style={{ cursor: 'pointer' }} onClick={() => onNavigate('vpc', g.attachedVpcId)}><td>{g.name}</td><td style={{ fontFamily: 'monospace' }}>{g.igwId}</td><td><span className={`svc-badge ${g.state === 'attached' ? 'ok' : 'muted'}`}>{g.state}</span></td><td style={{ fontFamily: 'monospace' }}>{g.attachedVpcId}</td></tr>)}</tbody></table>{!igws.length && <SvcState variant="empty" resourceName="internet gateways" compact />}</div>
-        <div className="svc-panel"><h3>NAT Gateways ({nats.length})</h3><table className="svc-table"><thead><tr><th>Name</th><th>NAT ID</th><th>State</th><th>Subnet</th><th>Public IP</th><th>Type</th></tr></thead><tbody>{nats.map(n => <tr key={n.natGatewayId}><td>{n.name}</td><td style={{ fontFamily: 'monospace' }}>{n.natGatewayId}</td><td><span className={`svc-badge ${n.state === 'available' ? 'ok' : n.state === 'pending' ? 'warn' : 'muted'}`}>{n.state}</span></td><td style={{ fontFamily: 'monospace' }}>{n.subnetId}</td><td>{n.publicIp}</td><td>{n.connectivityType}</td></tr>)}</tbody></table>{!nats.length && <SvcState variant="empty" resourceName="NAT gateways" compact />}</div>
-        <div className="svc-panel"><h3>Transit Gateways ({tgws.length})</h3><table className="svc-table"><thead><tr><th>Name</th><th>TGW ID</th><th>State</th><th>Owner</th><th>ASN</th><th>Desc</th></tr></thead><tbody>{tgws.map(t => <tr key={t.tgwId}><td>{t.name}</td><td style={{ fontFamily: 'monospace' }}>{t.tgwId}</td><td><span className={`svc-badge ${t.state === 'available' ? 'ok' : 'warn'}`}>{t.state}</span></td><td>{t.ownerId}</td><td>{t.amazonSideAsn}</td><td>{t.description}</td></tr>)}</tbody></table>{!tgws.length && <SvcState variant="empty" resourceName="transit gateways" compact />}</div>
-      </>)}
+      <div className="vpc-shell-toolbar">
+        <div className="vpc-toolbar">
+          {TABS.map((item) => (
+            <button
+              key={item.id}
+              className={`vpc-toolbar-tab ${item.id === tab ? 'active' : ''}`}
+              type="button"
+              onClick={() => setTab(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <div className="vpc-shell-status">
+          <div className="vpc-shell-status-card">
+            <span>Selection</span>
+            <strong>{selectedVpc ? selectedVpc.vpcId : 'No VPC selected'}</strong>
+          </div>
+          <div className="vpc-shell-status-card">
+            <span>State</span>
+            <strong>{isSwitchingVpc ? 'Loading selected VPC...' : loading ? 'Loading inventory...' : 'Synchronized'}</strong>
+          </div>
+          <button
+            className="vpc-toolbar-btn accent"
+            type="button"
+            onClick={() => selectedVpcId && void loadVpcData(selectedVpcId)}
+            disabled={loading || !selectedVpcId}
+          >
+            {loading ? 'Loading...' : 'Refresh'}
+          </button>
+        </div>
+      </div>
 
-      {tab === 'interfaces' && <div className="svc-panel"><h3>Network Interfaces ({enis.length})</h3>
-        <table className="svc-table"><thead><tr><th>ENI ID</th><th>Type</th><th>Status</th><th>Subnet</th><th>Private IP</th><th>Public IP</th><th>Instance</th><th>SGs</th></tr></thead>
-          <tbody>{enis.map(e => <tr key={e.networkInterfaceId}><td style={{ fontFamily: 'monospace' }}>{e.networkInterfaceId}</td><td>{e.interfaceType}</td><td><span className={`svc-badge ${e.status === 'in-use' ? 'ok' : e.status === 'available' ? 'warn' : 'muted'}`}>{e.status}</span></td><td style={{ fontFamily: 'monospace', cursor: 'pointer', color: '#60a5fa' }} onClick={() => onNavigate('vpc', e.subnetId)}>{e.subnetId}</td><td>{e.privateIp}</td><td>{e.publicIp}</td><td style={{ fontFamily: 'monospace', cursor: e.attachedInstanceId !== '-' ? 'pointer' : 'default', color: e.attachedInstanceId !== '-' ? '#60a5fa' : undefined }} onClick={() => e.attachedInstanceId !== '-' && onNavigate('ec2', e.attachedInstanceId)}>{e.attachedInstanceId}</td><td style={{ fontSize: 11 }}>{e.securityGroups.map(sg => sg.name).join(', ') || '-'}</td></tr>)}</tbody></table>
-        {!enis.length && <SvcState variant="empty" resourceName="ENIs" compact />}
-      </div>}
+      {msg && <div className="vpc-msg">{msg}</div>}
+      {error && <SvcState variant="error" error={error} />}
+      <div className="vpc-main-layout">
+        <aside className="vpc-inventory-pane">
+          <div className="vpc-pane-head">
+            <div>
+              <span className="vpc-pane-kicker">Tracked networks</span>
+              <h3>VPC inventory</h3>
+            </div>
+            <span className="vpc-pane-summary">{vpcs.length} total</span>
+          </div>
+          <label className="vpc-select-field">
+            <span>Quick select</span>
+            <select value={selectedVpcId} onChange={(event) => setSelectedVpcId(event.target.value)} disabled={loading && !selectedVpcId}>
+              {vpcs.map((vpc) => (
+                <option key={vpc.vpcId} value={vpc.vpcId}>
+                  {formatVpcName(vpc)} ({vpc.cidrBlock}){vpc.isDefault ? ' [default]' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          {vpcs.length === 0 ? (
+            <SvcState variant="empty" message="No VPCs returned for this connection." />
+          ) : (
+            <div className="vpc-inventory-list">
+              {vpcs.map((vpc) => {
+                const status = summarizeVpcStatus(vpc)
+                return (
+                  <button
+                    key={vpc.vpcId}
+                    type="button"
+                    className={`vpc-inventory-card ${vpc.vpcId === selectedVpcId ? 'active' : ''}`}
+                    onClick={() => setSelectedVpcId(vpc.vpcId)}
+                  >
+                    <div className="vpc-inventory-card-top">
+                      <div className="vpc-inventory-card-copy">
+                        <strong>{formatVpcName(vpc)}</strong>
+                        <span className="vpc-mono">{vpc.vpcId}</span>
+                      </div>
+                      <span className={`vpc-status-badge ${status.tone}`}>{status.label}</span>
+                    </div>
+                    <div className="vpc-inventory-card-meta">
+                      <span>{vpc.cidrBlock}</span>
+                      <span>{vpc.state}</span>
+                      {vpc.isDefault && <span>default</span>}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </aside>
 
-      {loading && !topology && <SvcState variant="loading" message={isSwitchingVpc ? 'Switching VPC…' : undefined} resourceName="VPC data" />}
+        <section className="vpc-detail-pane">
+          {!selectedVpc ? (
+            <SvcState variant="no-selection" resourceName="VPC" message="Select a VPC to inspect topology, gateways, interfaces, and reachability." />
+          ) : (
+            <>
+              <section className="vpc-detail-hero">
+                <div className="vpc-detail-hero-copy">
+                  <div className="eyebrow">Network posture</div>
+                  <h3>{formatVpcName(selectedVpc)}</h3>
+                  <p>{selectedVpc.cidrBlock} · {selectedVpc.vpcId}</p>
+                  <div className="vpc-detail-meta-strip">
+                    <div className="vpc-detail-meta-pill">
+                      <span>State</span>
+                      <strong>{selectedVpc.state}</strong>
+                    </div>
+                    <div className="vpc-detail-meta-pill">
+                      <span>Scope</span>
+                      <strong>{selectedVpc.isDefault ? 'Default VPC' : 'Custom VPC'}</strong>
+                    </div>
+                    <div className="vpc-detail-meta-pill">
+                      <span>Availability zones</span>
+                      <strong>{availabilityZoneCount || '-'}</strong>
+                    </div>
+                    <div className="vpc-detail-meta-pill">
+                      <span>Reachability</span>
+                      <strong>{latestReachability ? latestReachability.status : 'No analyses yet'}</strong>
+                    </div>
+                  </div>
+                </div>
+                <div className="vpc-detail-hero-stats">
+                  <div className={`vpc-detail-stat-card ${selectedVpcStatus.tone}`}>
+                    <span>Subnet split</span>
+                    <strong>{subnets.length}</strong>
+                    <small>{publicSubnetCount} public · {privateSubnetCount} private</small>
+                  </div>
+                  <div className="vpc-detail-stat-card">
+                    <span>Routing</span>
+                    <strong>{routeTables.length}</strong>
+                    <small>{igws.length} IGWs · {nats.length} NAT gateways</small>
+                  </div>
+                  <div className="vpc-detail-stat-card">
+                    <span>Workloads</span>
+                    <strong>{ec2Instances.length}</strong>
+                    <small>{loadBalancers.length} load balancers</small>
+                  </div>
+                  <div className="vpc-detail-stat-card">
+                    <span>Interfaces</span>
+                    <strong>{enis.length}</strong>
+                    <small>{tgws.length} transit gateways visible</small>
+                  </div>
+                </div>
+              </section>
+
+              <div className="vpc-detail-tabs">
+                {TABS.map((item) => (
+                  <button key={item.id} className={tab === item.id ? 'active' : ''} type="button" onClick={() => setTab(item.id)}>
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+
+              {tab === 'topology' && topology && (
+                <>
+                  <div className="vpc-summary-grid">
+                    <div className="vpc-summary-card"><span>Subnets</span><strong>{topology.subnets.length}</strong></div>
+                    <div className="vpc-summary-card"><span>Route tables</span><strong>{topology.routeTables.length}</strong></div>
+                    <div className="vpc-summary-card"><span>Internet gateways</span><strong>{topology.internetGateways.length}</strong></div>
+                    <div className="vpc-summary-card"><span>NAT gateways</span><strong>{topology.natGateways.length}</strong></div>
+                    <div className="vpc-summary-card"><span>Compute</span><strong>{ec2Instances.length}</strong></div>
+                    <div className="vpc-summary-card"><span>Load balancers</span><strong>{loadBalancers.length}</strong></div>
+                  </div>
+
+                  <section className="vpc-section">
+                    <div className="vpc-section-head">
+                      <div>
+                        <span className="vpc-section-kicker">Subnet inventory</span>
+                        <h4>Subnets</h4>
+                      </div>
+                    </div>
+                    <div className="vpc-table-wrap">
+                      <table className="vpc-table">
+                        <thead>
+                          <tr>
+                            <th>Name</th>
+                            <th>Subnet ID</th>
+                            <th>CIDR</th>
+                            <th>AZ</th>
+                            <th>Avail IPs</th>
+                            <th>Public IP</th>
+                            <th>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {subnets.map((subnet) => (
+                            <tr key={subnet.subnetId}>
+                              <td>{subnet.name}</td>
+                              <td className="vpc-mono">{subnet.subnetId}</td>
+                              <td className="vpc-mono">{subnet.cidrBlock}</td>
+                              <td>{subnet.availabilityZone}</td>
+                              <td>{subnet.availableIpAddressCount}</td>
+                              <td><span className={`vpc-status-badge ${subnet.mapPublicIpOnLaunch ? 'success' : 'info'}`}>{subnet.mapPublicIpOnLaunch ? 'Yes' : 'No'}</span></td>
+                              <td>
+                                <button
+                                  type="button"
+                                  className={`vpc-table-btn ${subnet.mapPublicIpOnLaunch ? 'danger' : 'success'}`}
+                                  onClick={() => void handleSubnetTogglePublicIp(subnet.subnetId, subnet.mapPublicIpOnLaunch)}
+                                >
+                                  {subnet.mapPublicIpOnLaunch ? 'Disable' : 'Enable'}
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+
+                  <section className="vpc-section">
+                    <div className="vpc-section-head">
+                      <div>
+                        <span className="vpc-section-kicker">Routing surface</span>
+                        <h4>Route tables</h4>
+                      </div>
+                    </div>
+                    <div className="vpc-table-wrap">
+                      <table className="vpc-table">
+                        <thead>
+                          <tr>
+                            <th>Name</th>
+                            <th>RT ID</th>
+                            <th>Main</th>
+                            <th>Subnets</th>
+                            <th>Routes</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {routeTables.map((routeTable) => (
+                            <tr key={routeTable.routeTableId}>
+                              <td>{routeTable.name}</td>
+                              <td className="vpc-mono">{routeTable.routeTableId}</td>
+                              <td><span className={`vpc-status-badge ${routeTable.isMain ? 'success' : 'info'}`}>{routeTable.isMain ? 'Yes' : 'No'}</span></td>
+                              <td>{routeTable.associatedSubnets.length ? routeTable.associatedSubnets.join(', ') : '-'}</td>
+                              <td className="vpc-table-detail">{routeTable.routes.map((route) => `${route.destination} -> ${route.target}`).join('; ')}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                </>
+              )}
+
+              {tab === 'flow' && (
+                <section className="vpc-section">
+                  <div className="vpc-section-head">
+                    <div>
+                      <span className="vpc-section-kicker">Diagram</span>
+                      <h4>VPC architecture</h4>
+                    </div>
+                    <p>{subnets.length} subnets | {igws.length} IGWs | {nats.length} NATs | {routeTables.length} route tables | {ec2Instances.length} EC2 instances | {loadBalancers.length} load balancers | Click any resource to navigate.</p>
+                  </div>
+                  <VpcArchitectureDiagram
+                    vpc={selectedVpc}
+                    subnets={subnets}
+                    igws={igws}
+                    nats={nats}
+                    routeTables={routeTables}
+                    enis={enis}
+                    ec2Instances={ec2Instances}
+                    loadBalancers={loadBalancers}
+                    onNavigate={onNavigate}
+                    onSwitchTab={setTab}
+                  />
+                </section>
+              )}
+
+              {tab === 'reachability' && (
+                <>
+                  <section className="vpc-section">
+                    <div className="vpc-section-head">
+                      <div>
+                        <span className="vpc-section-kicker">Path analysis</span>
+                        <h4>Create reachability path</h4>
+                      </div>
+                    </div>
+                    <div className="vpc-form-grid">
+                      <label className="vpc-field">
+                        <span>Source</span>
+                        <input value={reachSrc} onChange={(event) => setReachSrc(event.target.value)} placeholder="eni-... or i-..." />
+                      </label>
+                      <label className="vpc-field">
+                        <span>Destination</span>
+                        <input value={reachDest} onChange={(event) => setReachDest(event.target.value)} placeholder="eni-... or i-..." />
+                      </label>
+                      <label className="vpc-field">
+                        <span>Protocol</span>
+                        <select value={reachProto} onChange={(event) => setReachProto(event.target.value)}>
+                          <option value="tcp">TCP</option>
+                          <option value="udp">UDP</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div className="vpc-action-row">
+                      <button type="button" className="vpc-toolbar-btn accent" disabled={loading || !reachSrc || !reachDest} onClick={() => void handleReachRun()}>
+                        {loading ? 'Running...' : 'Analyze'}
+                      </button>
+                    </div>
+                  </section>
+
+                  {reachResults.length > 0 && (
+                    <section className="vpc-section">
+                      <div className="vpc-section-head">
+                        <div>
+                          <span className="vpc-section-kicker">Analysis history</span>
+                          <h4>Results</h4>
+                        </div>
+                      </div>
+                      <div className="vpc-table-wrap">
+                        <table className="vpc-table">
+                          <thead>
+                            <tr>
+                              <th>ID</th>
+                              <th>Status</th>
+                              <th>Reachable</th>
+                              <th>Source</th>
+                              <th>Dest</th>
+                              <th>Explanations</th>
+                              <th></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {reachResults.map((result) => (
+                              <tr key={result.analysisId}>
+                                <td className="vpc-mono">{result.analysisId.slice(0, 18)}..</td>
+                                <td><span className={`vpc-status-badge ${result.status === 'succeeded' ? 'success' : result.status === 'failed' ? 'danger' : 'warning'}`}>{result.status}</span></td>
+                                <td>{result.reachable === null ? '-' : <span className={`vpc-status-badge ${result.reachable ? 'success' : 'danger'}`}>{result.reachable ? 'Yes' : 'No'}</span>}</td>
+                                <td className="vpc-mono">{result.source.slice(0, 20)}</td>
+                                <td className="vpc-mono">{result.destination.slice(0, 20)}</td>
+                                <td className="vpc-table-detail">{result.explanations.length ? result.explanations.join('; ') : '-'}</td>
+                                <td><button type="button" className="vpc-table-btn muted" onClick={() => void handleReachRefresh(result.analysisId)}>Refresh</button></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
+                  )}
+                </>
+              )}
+
+              {tab === 'gateways' && (
+                <div className="vpc-section-stack">
+                  <section className="vpc-section">
+                    <div className="vpc-section-head">
+                      <div>
+                        <span className="vpc-section-kicker">Ingress edge</span>
+                        <h4>Internet gateways ({igws.length})</h4>
+                      </div>
+                    </div>
+                    <div className="vpc-table-wrap">
+                      <table className="vpc-table">
+                        <thead>
+                          <tr>
+                            <th>Name</th>
+                            <th>IGW ID</th>
+                            <th>State</th>
+                            <th>VPC</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {igws.map((gateway) => (
+                            <tr key={gateway.igwId} className="vpc-row-clickable" onClick={() => onNavigate('vpc', gateway.attachedVpcId)}>
+                              <td>{gateway.name}</td>
+                              <td className="vpc-mono">{gateway.igwId}</td>
+                              <td><span className={`vpc-status-badge ${gateway.state === 'attached' ? 'success' : 'info'}`}>{gateway.state}</span></td>
+                              <td className="vpc-mono">{gateway.attachedVpcId}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {!igws.length && <SvcState variant="empty" resourceName="internet gateways" compact />}
+                  </section>
+
+                  <section className="vpc-section">
+                    <div className="vpc-section-head">
+                      <div>
+                        <span className="vpc-section-kicker">Egress edge</span>
+                        <h4>NAT gateways ({nats.length})</h4>
+                      </div>
+                    </div>
+                    <div className="vpc-table-wrap">
+                      <table className="vpc-table">
+                        <thead>
+                          <tr>
+                            <th>Name</th>
+                            <th>NAT ID</th>
+                            <th>State</th>
+                            <th>Subnet</th>
+                            <th>Public IP</th>
+                            <th>Type</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {nats.map((nat) => (
+                            <tr key={nat.natGatewayId}>
+                              <td>{nat.name}</td>
+                              <td className="vpc-mono">{nat.natGatewayId}</td>
+                              <td><span className={`vpc-status-badge ${nat.state === 'available' ? 'success' : nat.state === 'pending' ? 'warning' : 'info'}`}>{nat.state}</span></td>
+                              <td className="vpc-mono">{nat.subnetId}</td>
+                              <td>{nat.publicIp}</td>
+                              <td>{nat.connectivityType}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {!nats.length && <SvcState variant="empty" resourceName="NAT gateways" compact />}
+                  </section>
+
+                  <section className="vpc-section">
+                    <div className="vpc-section-head">
+                      <div>
+                        <span className="vpc-section-kicker">Transit fabric</span>
+                        <h4>Transit gateways ({tgws.length})</h4>
+                      </div>
+                    </div>
+                    <div className="vpc-table-wrap">
+                      <table className="vpc-table">
+                        <thead>
+                          <tr>
+                            <th>Name</th>
+                            <th>TGW ID</th>
+                            <th>State</th>
+                            <th>Owner</th>
+                            <th>ASN</th>
+                            <th>Description</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tgws.map((gateway) => (
+                            <tr key={gateway.tgwId}>
+                              <td>{gateway.name}</td>
+                              <td className="vpc-mono">{gateway.tgwId}</td>
+                              <td><span className={`vpc-status-badge ${gateway.state === 'available' ? 'success' : 'warning'}`}>{gateway.state}</span></td>
+                              <td>{gateway.ownerId}</td>
+                              <td>{gateway.amazonSideAsn}</td>
+                              <td>{gateway.description}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {!tgws.length && <SvcState variant="empty" resourceName="transit gateways" compact />}
+                  </section>
+                </div>
+              )}
+
+              {tab === 'interfaces' && (
+                <section className="vpc-section">
+                  <div className="vpc-section-head">
+                    <div>
+                      <span className="vpc-section-kicker">Network surface</span>
+                      <h4>Network interfaces ({enis.length})</h4>
+                    </div>
+                  </div>
+                  <div className="vpc-table-wrap">
+                    <table className="vpc-table">
+                      <thead>
+                        <tr>
+                          <th>ENI ID</th>
+                          <th>Type</th>
+                          <th>Status</th>
+                          <th>Subnet</th>
+                          <th>Private IP</th>
+                          <th>Public IP</th>
+                          <th>Instance</th>
+                          <th>SGs</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {enis.map((eni) => (
+                          <tr key={eni.networkInterfaceId}>
+                            <td className="vpc-mono">{eni.networkInterfaceId}</td>
+                            <td>{eni.interfaceType}</td>
+                            <td><span className={`vpc-status-badge ${eni.status === 'in-use' ? 'success' : eni.status === 'available' ? 'warning' : 'info'}`}>{eni.status}</span></td>
+                            <td className="vpc-mono vpc-linkish" onClick={() => onNavigate('vpc', eni.subnetId)}>{eni.subnetId}</td>
+                            <td>{eni.privateIp}</td>
+                            <td>{eni.publicIp}</td>
+                            <td className={`vpc-mono ${eni.attachedInstanceId !== '-' ? 'vpc-linkish' : ''}`} onClick={() => eni.attachedInstanceId !== '-' && onNavigate('ec2', eni.attachedInstanceId)}>{eni.attachedInstanceId}</td>
+                            <td className="vpc-table-detail">{eni.securityGroups.map((securityGroup) => securityGroup.name).join(', ') || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {!enis.length && <SvcState variant="empty" resourceName="ENIs" compact />}
+                </section>
+              )}
+            </>
+          )}
+        </section>
+      </div>
+
+      {loading && !topology && <SvcState variant="loading" message={isSwitchingVpc ? 'Switching VPC...' : undefined} resourceName="VPC data" />}
     </div>
   )
 }

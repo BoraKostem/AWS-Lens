@@ -152,7 +152,7 @@ app.whenReady().then(() => {
   registerComplianceIpcHandlers()
   registerEc2IpcHandlers()
   registerEcrIpcHandlers()
-  registerEksIpcHandlers()
+  registerEksIpcHandlers(() => mainWindow)
   registerOverviewIpcHandlers()
   registerSecurityIpcHandlers()
   registerServiceIpcHandlers()

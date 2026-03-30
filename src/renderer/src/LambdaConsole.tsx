@@ -1,20 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
-
+import type { CSSProperties } from 'react'
 import type { AwsConnection, LambdaCodeResult, LambdaCreateConfig, LambdaFunctionDetail, LambdaFunctionSummary } from '@shared/types'
 import { createLambdaFunction, deleteLambdaFunction, getLambdaFunction, getLambdaFunctionCode, invokeLambdaFunction, listLambdaFunctions } from './api'
 import { ConfirmButton } from './ConfirmButton'
+import { SvcState } from './SvcState'
+import './lambda.css'
 
 type ColKey = 'functionName' | 'handler' | 'runtime' | 'memory' | 'lastModified'
+type DetailTab = 'overview' | 'invoke' | 'code'
 
 const COLUMNS: { key: ColKey; label: string; color: string }[] = [
-  { key: 'functionName', label: 'Function', color: '#3b82f6' },
-  { key: 'handler', label: 'Handler', color: '#14b8a6' },
-  { key: 'runtime', label: 'Runtime', color: '#8b5cf6' },
-  { key: 'memory', label: 'Memory', color: '#f59e0b' },
-  { key: 'lastModified', label: 'Modified', color: '#22c55e' },
+  { key: 'functionName', label: 'Function', color: '#4a8fe7' },
+  { key: 'handler', label: 'Handler', color: '#35b7a6' },
+  { key: 'runtime', label: 'Runtime', color: '#8a7cf4' },
+  { key: 'memory', label: 'Memory', color: '#f59a3d' },
+  { key: 'lastModified', label: 'Modified', color: '#61c987' }
 ]
 
-const RUNTIMES = ['python3.12','python3.11','python3.10','nodejs22.x','nodejs20.x','nodejs18.x','java21','java17','dotnet8','dotnet6','ruby3.3','ruby3.2']
+const RUNTIMES = ['python3.12', 'python3.11', 'python3.10', 'nodejs22.x', 'nodejs20.x', 'nodejs18.x', 'java21', 'java17', 'dotnet8', 'dotnet6', 'ruby3.3', 'ruby3.2']
 
 const STARTER: Record<string, string> = {
   python: `import json\n\ndef handler(event, context):\n    return {'statusCode': 200, 'body': json.dumps({'message': 'Hello!'})}\n`,
@@ -22,19 +25,24 @@ const STARTER: Record<string, string> = {
   default: `# Lambda handler\n`
 }
 
-function starterFor(rt: string) { return rt.startsWith('python') ? STARTER.python : rt.startsWith('node') ? STARTER.node : STARTER.default }
+const starterFor = (runtime: string) => runtime.startsWith('python') ? STARTER.python : runtime.startsWith('node') ? STARTER.node : STARTER.default
+const runtimeFamily = (runtime: string) => runtime.startsWith('python') ? 'Python' : runtime.startsWith('node') ? 'Node.js' : runtime.startsWith('java') ? 'Java' : runtime.startsWith('dotnet') ? '.NET' : runtime.startsWith('ruby') ? 'Ruby' : runtime || 'Unknown'
+const updateHandlerForRuntime = (runtime: string) => runtime.startsWith('java') ? 'example.Handler::handleRequest' : `${runtime.startsWith('python') ? 'lambda_function' : runtime.startsWith('node') ? 'index' : 'Handler'}.handler`
+const formatMemory = (value: number | string | undefined) => typeof value === 'number' ? `${value} MB` : typeof value === 'string' && value.trim() ? (value.toLowerCase().includes('mb') ? value : `${value} MB`) : '-'
+const parseMemory = (value: number | string | undefined) => typeof value === 'number' ? value : Number(value?.toString().match(/\d+/)?.[0] ?? 0)
+const getVal = (fn: LambdaFunctionSummary, key: ColKey) => key === 'functionName' ? fn.functionName : key === 'handler' ? fn.handler : key === 'runtime' ? fn.runtime : key === 'memory' ? formatMemory(fn.memory) : fn.lastModified
+const shellLabel = (connection: AwsConnection) => connection.kind === 'profile' ? connection.profile : connection.accountId
+const shellSubtitle = (connection: AwsConnection) => connection.kind === 'profile' ? connection.label : `${connection.sourceProfile} -> ${connection.roleArn.split('/').pop() ?? connection.roleArn}`
+const toneForState = (state: string) => state.toLowerCase() === 'active' ? 'success' : state.toLowerCase() === 'pending' ? 'warning' : ['failed', 'inactive'].includes(state.toLowerCase()) ? 'danger' : 'info'
 
-function getVal(fn: LambdaFunctionSummary, k: ColKey) {
-  switch (k) {
-    case 'functionName': return fn.functionName
-    case 'handler': return fn.handler
-    case 'runtime': return fn.runtime
-    case 'memory': return `${fn.memory} MB`
-    case 'lastModified': return fn.lastModified
+function formatDate(value: string) {
+  if (!value) return '-'
+  try {
+    return new Date(value).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  } catch {
+    return value
   }
 }
-
-type View = 'list' | 'code' | 'create'
 
 export function LambdaConsole({
   connection,
@@ -46,227 +54,336 @@ export function LambdaConsole({
   const [functions, setFunctions] = useState<LambdaFunctionSummary[]>([])
   const [selectedName, setSelectedName] = useState('')
   const [detail, setDetail] = useState<LambdaFunctionDetail | null>(null)
-  const [view, setView] = useState<View>('list')
+  const [view, setView] = useState<'list' | 'create'>('list')
+  const [detailTab, setDetailTab] = useState<DetailTab>('overview')
   const [filter, setFilter] = useState('')
-  const [visCols, setVisCols] = useState<Set<ColKey>>(() => new Set(COLUMNS.map(c => c.key)))
+  const [visCols, setVisCols] = useState<Set<ColKey>>(() => new Set(COLUMNS.map((column) => column.key)))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
-
   const [codeResult, setCodeResult] = useState<LambdaCodeResult | null>(null)
   const [codeFile, setCodeFile] = useState(0)
+  const [codeLoading, setCodeLoading] = useState(false)
   const [payload, setPayload] = useState('{}')
   const [invokeResult, setInvokeResult] = useState('')
   const [invoking, setInvoking] = useState(false)
-  const [showInvoke, setShowInvoke] = useState(false)
   const [appliedFocusToken, setAppliedFocusToken] = useState(0)
-
   const [createForm, setCreateForm] = useState<LambdaCreateConfig>({
-    functionName: '', runtime: 'python3.12', handler: 'lambda_function.handler', role: '', code: STARTER.python, description: '', timeout: 30, memorySize: 128
+    functionName: '',
+    runtime: 'python3.12',
+    handler: 'lambda_function.handler',
+    role: '',
+    code: STARTER.python,
+    description: '',
+    timeout: 30,
+    memorySize: 128
   })
 
-  async function load(selectName?: string) {
-    setError(''); setLoading(true)
-    try {
-      const fns = await listLambdaFunctions(connection)
-      setFunctions(fns)
-      const resolved = selectName ?? selectedName ?? fns[0]?.functionName ?? ''
-      if (resolved) { setSelectedName(resolved); setDetail(await getLambdaFunction(connection, resolved)) }
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
-    finally { setLoading(false) }
-  }
-
-useEffect(() => { void load() }, [connection.sessionId, connection.region])
-
-  useEffect(() => {
-    if (!focusFunctionName || focusFunctionName.token === appliedFocusToken) {
-      return
-    }
-
-    const match = functions.find((fn) => fn.functionName === focusFunctionName.functionName)
-    if (!match) {
-      return
-    }
-
-    setAppliedFocusToken(focusFunctionName.token)
-    setView('list')
-    void handleSelect(match.functionName)
-  }, [appliedFocusToken, focusFunctionName, functions])
-
-  const activeCols = COLUMNS.filter(c => visCols.has(c.key))
+  const activeCols = useMemo(() => COLUMNS.filter((column) => visCols.has(column.key)), [visCols])
   const filtered = useMemo(() => {
     if (!filter) return functions
-    const q = filter.toLowerCase()
-    return functions.filter(fn => activeCols.some(c => getVal(fn, c.key).toLowerCase().includes(q)))
-  }, [functions, filter, activeCols])
+    const query = filter.toLowerCase()
+    return functions.filter((fn) => activeCols.some((column) => getVal(fn, column.key).toLowerCase().includes(query)))
+  }, [activeCols, filter, functions])
+  const selectedSummary = useMemo(() => functions.find((fn) => fn.functionName === selectedName) ?? null, [functions, selectedName])
+  const runtimeFamilies = useMemo(() => new Set(functions.map((fn) => runtimeFamily(fn.runtime))).size, [functions])
+  const totalMemory = useMemo(() => functions.reduce((sum, fn) => sum + parseMemory(fn.memory), 0), [functions])
+  const selectedEnvCount = detail ? Object.keys(detail.environment).length : 0
+  const selectedTagEntries = selectedSummary?.tags ? Object.entries(selectedSummary.tags) : []
 
-  async function handleSelect(name: string) {
-    setSelectedName(name); setError('')
-    try { setDetail(await getLambdaFunction(connection, name)) } catch (e) { setError(String(e)) }
+  async function load(selectName?: string) {
+    setError('')
+    setLoading(true)
+    try {
+      const nextFunctions = await listLambdaFunctions(connection)
+      setFunctions(nextFunctions)
+      const resolved = selectName ?? selectedName ?? nextFunctions[0]?.functionName ?? ''
+      if (!resolved) {
+        setSelectedName('')
+        setDetail(null)
+        return
+      }
+      setSelectedName(resolved)
+      setDetail(await getLambdaFunction(connection, resolved))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoading(false)
+    }
   }
 
-  async function handleSeeCode() {
-    if (!selectedName) return
-    setError(''); setCodeFile(0)
-    try { setCodeResult(await getLambdaFunctionCode(connection, selectedName)); setView('code') }
-    catch (e) { setError(String(e)) }
+  async function handleSelect(name: string) {
+    setSelectedName(name)
+    setError('')
+    setMsg('')
+    setDetailTab('overview')
+    setCodeResult(null)
+    setCodeFile(0)
+    setInvokeResult('')
+    try {
+      setDetail(await getLambdaFunction(connection, name))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function ensureCodeLoaded(force = false) {
+    if (!selectedName || (codeResult && !force)) return
+    setCodeLoading(true)
+    setError('')
+    try {
+      const nextCode = await getLambdaFunctionCode(connection, selectedName)
+      setCodeResult(nextCode)
+      setCodeFile(0)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setCodeLoading(false)
+    }
   }
 
   async function handleInvoke() {
     if (!selectedName) return
-    setInvoking(true); setInvokeResult('')
+    setInvoking(true)
+    setInvokeResult('')
     try {
-      const r = await invokeLambdaFunction(connection, selectedName, payload)
-      setInvokeResult(r.functionError ? `ERROR: ${r.functionError}\n${r.rawPayload}` : r.rawPayload || JSON.stringify(r.payload, null, 2))
-    } catch (e) { setInvokeResult(String(e)) }
-    finally { setInvoking(false) }
+      const result = await invokeLambdaFunction(connection, selectedName, payload)
+      setInvokeResult(result.functionError ? `ERROR: ${result.functionError}\n${result.rawPayload}` : result.rawPayload || JSON.stringify(result.payload, null, 2))
+    } catch (err) {
+      setInvokeResult(String(err))
+    } finally {
+      setInvoking(false)
+    }
   }
 
   async function handleCreate() {
     if (!createForm.functionName || !createForm.role) return
     setError('')
-    try { await createLambdaFunction(connection, createForm); setMsg('Function created'); setView('list'); await load(createForm.functionName) }
-    catch (e) { setError(String(e)) }
+    try {
+      await createLambdaFunction(connection, createForm)
+      setMsg('Function created')
+      setView('list')
+      setDetailTab('overview')
+      await load(createForm.functionName)
+    } catch (err) {
+      setError(String(err))
+    }
   }
 
   async function handleDelete() {
     if (!selectedName) return
-    try { await deleteLambdaFunction(connection, selectedName); setMsg('Function deleted'); setSelectedName(''); setDetail(null); await load() }
-    catch (e) { setError(String(e)) }
+    try {
+      await deleteLambdaFunction(connection, selectedName)
+      setMsg('Function deleted')
+      setSelectedName('')
+      setDetail(null)
+      setCodeResult(null)
+      setInvokeResult('')
+      await load()
+    } catch (err) {
+      setError(String(err))
+    }
   }
 
-  if (view === 'code') {
-    return (
-      <div className="svc-console">
-        <div className="svc-tab-bar">
-          <button className="svc-tab" type="button" onClick={() => setView('list')}>Back to Functions</button>
-          <button className="svc-tab active" type="button">Code: {selectedName}</button>
+  useEffect(() => { void load() }, [connection.sessionId, connection.region])
+
+  useEffect(() => {
+    if (!focusFunctionName || focusFunctionName.token === appliedFocusToken) return
+    const match = functions.find((fn) => fn.functionName === focusFunctionName.functionName)
+    if (!match) return
+    setAppliedFocusToken(focusFunctionName.token)
+    setView('list')
+    void handleSelect(match.functionName)
+  }, [appliedFocusToken, focusFunctionName, functions])
+
+  const createView = (
+    <div className="lambda-console">
+      <section className="lambda-shell-hero">
+        <div className="lambda-shell-hero-copy">
+          <div className="eyebrow">Function authoring</div>
+          <h2>Create Lambda Function</h2>
+          <p>Provision a new function in the current AWS context with the same operator-first visual system used by Terraform.</p>
+          <div className="lambda-shell-meta-strip">
+            <div className="lambda-shell-meta-pill"><span>Connection</span><strong>{shellLabel(connection)}</strong></div>
+            <div className="lambda-shell-meta-pill"><span>Region</span><strong>{connection.region}</strong></div>
+            <div className="lambda-shell-meta-pill"><span>Runtime family</span><strong>{runtimeFamily(createForm.runtime)}</strong></div>
+          </div>
         </div>
-        {error && <div className="svc-error">{error}</div>}
-        {codeResult && codeResult.files.length > 0 && (
-          <>
-            <div className="svc-chips">
-              {codeResult.files.map((f, i) => (
-                <button key={f.path} className={`svc-chip ${i === codeFile ? 'active' : ''}`} type="button" style={i === codeFile ? { background: '#3b82f6', borderColor: '#3b82f6' } : undefined} onClick={() => setCodeFile(i)}>{f.path}</button>
+        <div className="lambda-shell-hero-stats">
+          <div className="lambda-shell-stat-card lambda-shell-stat-card-accent"><span>Handler</span><strong>{createForm.handler || '-'}</strong><small>Entry point for the deployment package.</small></div>
+          <div className="lambda-shell-stat-card"><span>Timeout</span><strong>{createForm.timeout ?? 30}s</strong><small>Execution ceiling per invoke.</small></div>
+          <div className="lambda-shell-stat-card"><span>Memory</span><strong>{createForm.memorySize ?? 128} MB</strong><small>Initial compute allocation.</small></div>
+          <div className="lambda-shell-stat-card"><span>Code</span><strong>{createForm.code.split('\n').length} lines</strong><small>Inline source bundled into the zip.</small></div>
+        </div>
+      </section>
+      {error && <div className="lambda-msg error">{error}</div>}
+      <div className="lambda-create-layout">
+        <section className="lambda-section">
+          <div className="lambda-section-head"><div><span className="lambda-pane-kicker">Configuration</span><h3>Runtime and deployment inputs</h3></div></div>
+          <div className="lambda-form-grid">
+            <label className="lambda-field"><span>Name</span><input value={createForm.functionName} onChange={(event) => setCreateForm((current) => ({ ...current, functionName: event.target.value }))} placeholder="my-function" /></label>
+            <label className="lambda-field"><span>Runtime</span><select value={createForm.runtime} onChange={(event) => { const runtime = event.target.value; setCreateForm((current) => ({ ...current, runtime, handler: updateHandlerForRuntime(runtime), code: starterFor(runtime) })) }}>{RUNTIMES.map((runtime) => <option key={runtime} value={runtime}>{runtime}</option>)}</select></label>
+            <label className="lambda-field"><span>Handler</span><input value={createForm.handler} onChange={(event) => setCreateForm((current) => ({ ...current, handler: event.target.value }))} /></label>
+            <label className="lambda-field"><span>Role ARN</span><input value={createForm.role} onChange={(event) => setCreateForm((current) => ({ ...current, role: event.target.value }))} placeholder="arn:aws:iam::..." /></label>
+            <label className="lambda-field"><span>Description</span><input value={createForm.description ?? ''} onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))} /></label>
+            <label className="lambda-field"><span>Timeout (s)</span><input type="number" value={createForm.timeout ?? 30} onChange={(event) => setCreateForm((current) => ({ ...current, timeout: parseInt(event.target.value, 10) || 30 }))} /></label>
+            <label className="lambda-field"><span>Memory (MB)</span><input type="number" value={createForm.memorySize ?? 128} onChange={(event) => setCreateForm((current) => ({ ...current, memorySize: parseInt(event.target.value, 10) || 128 }))} /></label>
+          </div>
+          <div className="lambda-btn-row">
+            <button type="button" className="lambda-toolbar-btn" onClick={() => setView('list')}>Cancel</button>
+            <button type="button" className="lambda-toolbar-btn accent" disabled={!createForm.functionName || !createForm.role} onClick={() => void handleCreate()}>Create Function</button>
+          </div>
+        </section>
+        <section className="lambda-section lambda-editor-section">
+          <div className="lambda-section-head"><div><span className="lambda-pane-kicker">Source</span><h3>Inline function code</h3></div><span className="lambda-pane-summary">{runtimeFamily(createForm.runtime)}</span></div>
+          <textarea className="lambda-code-editor" value={createForm.code} onChange={(event) => setCreateForm((current) => ({ ...current, code: event.target.value }))} rows={18} />
+        </section>
+      </div>
+    </div>
+  )
+
+  const listView = (
+    <div className="lambda-console">
+      <section className="lambda-shell-hero">
+        <div className="lambda-shell-hero-copy">
+          <div className="eyebrow">Lambda operations</div>
+          <h2>Serverless Function Control Plane</h2>
+          <p>Inspect runtime posture, view deployed code, run payloads, and manage Lambda inventory without changing underlying service behavior.</p>
+          <div className="lambda-shell-meta-strip">
+            <div className="lambda-shell-meta-pill"><span>Connection</span><strong>{shellLabel(connection)}</strong></div>
+            <div className="lambda-shell-meta-pill"><span>Scope</span><strong>{shellSubtitle(connection)}</strong></div>
+            <div className="lambda-shell-meta-pill"><span>Region</span><strong>{connection.region}</strong></div>
+          </div>
+        </div>
+        <div className="lambda-shell-hero-stats">
+          <div className="lambda-shell-stat-card lambda-shell-stat-card-accent"><span>Functions</span><strong>{functions.length}</strong><small>Total inventory in the selected region.</small></div>
+          <div className="lambda-shell-stat-card"><span>Filtered</span><strong>{filtered.length}</strong><small>Search results across enabled fields.</small></div>
+          <div className="lambda-shell-stat-card"><span>Runtime families</span><strong>{runtimeFamilies}</strong><small>Distinct execution stacks deployed.</small></div>
+          <div className="lambda-shell-stat-card"><span>Memory footprint</span><strong>{totalMemory} MB</strong><small>Aggregate configured memory.</small></div>
+        </div>
+      </section>
+      <div className="lambda-shell-toolbar">
+        <div className="lambda-toolbar-search">
+          <label className="lambda-search-field">
+            <span>Search inventory</span>
+            <input className="lambda-search-input" placeholder="Filter across enabled search fields..." value={filter} onChange={(event) => setFilter(event.target.value)} />
+          </label>
+          <div className="lambda-chip-row">
+            {COLUMNS.map((column) => (
+              <button key={column.key} type="button" className={`lambda-chip ${visCols.has(column.key) ? 'active' : ''}`} style={visCols.has(column.key) ? { '--lambda-chip-color': column.color } as CSSProperties : undefined} onClick={() => setVisCols((current) => { const next = new Set(current); next.has(column.key) ? next.delete(column.key) : next.add(column.key); return next })}>{column.label}</button>
+            ))}
+          </div>
+        </div>
+        <div className="lambda-toolbar-actions">
+          <button type="button" className="lambda-toolbar-btn" onClick={() => void load(selectedName || undefined)}>Refresh</button>
+          <button type="button" className="lambda-toolbar-btn accent" onClick={() => setView('create')}>New Function</button>
+        </div>
+      </div>
+      {msg && <div className="lambda-msg">{msg}</div>}
+      {error && <div className="lambda-msg error">{error}</div>}
+      <div className="lambda-main-layout">
+        <div className="lambda-function-rail">
+          <div className="lambda-pane-head"><div><span className="lambda-pane-kicker">Tracked functions</span><h3>Inventory</h3></div><span className="lambda-pane-summary">{filtered.length} shown</span></div>
+          {loading && filtered.length === 0 ? <SvcState variant="loading" resourceName="functions" message="Gathering Lambda inventory..." /> : filtered.length === 0 ? <SvcState variant={filter ? 'no-filter-matches' : 'empty'} resourceName="functions" message={filter ? 'No functions match the current search scope.' : 'No functions found in this region.'} /> : (
+            <div className="lambda-function-list">
+              {filtered.map((fn) => (
+                <button key={fn.functionName} type="button" className={`lambda-function-row ${fn.functionName === selectedName ? 'active' : ''}`} onClick={() => void handleSelect(fn.functionName)}>
+                  <div className="lambda-function-row-head">
+                    <div className="lambda-function-row-copy"><strong>{fn.functionName}</strong><span>{fn.handler}</span></div>
+                    <span className="lambda-runtime-badge">{runtimeFamily(fn.runtime)}</span>
+                  </div>
+                  <div className="lambda-function-row-meta"><span>{fn.runtime}</span><span>{formatMemory(fn.memory)}</span><span>{formatDate(fn.lastModified)}</span></div>
+                </button>
               ))}
-            </div>
-            <pre className="svc-code" style={{ maxHeight: 'calc(100vh - 300px)', overflow: 'auto' }}>{codeResult.files[codeFile].content}</pre>
-          </>
-        )}
-        {codeResult && codeResult.files.length === 0 && <div className="svc-empty">No readable source files found.</div>}
-      </div>
-    )
-  }
-
-  if (view === 'create') {
-    return (
-      <div className="svc-console">
-        <div className="svc-tab-bar">
-          <button className="svc-tab" type="button" onClick={() => setView('list')}>Cancel</button>
-          <button className="svc-tab active" type="button">Create Function</button>
-        </div>
-        {error && <div className="svc-error">{error}</div>}
-        <div className="svc-panel">
-          <div className="svc-form">
-            <label><span>Name</span><input value={createForm.functionName} onChange={e => setCreateForm(f => ({ ...f, functionName: e.target.value }))} placeholder="my-function" /></label>
-            <label><span>Runtime</span><select value={createForm.runtime} onChange={e => {
-              const rt = e.target.value; const hf = rt.startsWith('python') ? 'lambda_function' : rt.startsWith('node') ? 'index' : 'Handler'
-              setCreateForm(f => ({ ...f, runtime: rt, handler: rt.startsWith('java') ? 'example.Handler::handleRequest' : `${hf}.handler`, code: starterFor(rt) }))
-            }}>{RUNTIMES.map(r => <option key={r} value={r}>{r}</option>)}</select></label>
-            <label><span>Handler</span><input value={createForm.handler} onChange={e => setCreateForm(f => ({ ...f, handler: e.target.value }))} /></label>
-            <label><span>Role ARN</span><input value={createForm.role} onChange={e => setCreateForm(f => ({ ...f, role: e.target.value }))} placeholder="arn:aws:iam::..." /></label>
-            <label><span>Description</span><input value={createForm.description ?? ''} onChange={e => setCreateForm(f => ({ ...f, description: e.target.value }))} /></label>
-            <label><span>Timeout (s)</span><input type="number" value={createForm.timeout ?? 30} onChange={e => setCreateForm(f => ({ ...f, timeout: parseInt(e.target.value) || 30 }))} /></label>
-            <label><span>Memory (MB)</span><input type="number" value={createForm.memorySize ?? 128} onChange={e => setCreateForm(f => ({ ...f, memorySize: parseInt(e.target.value) || 128 }))} /></label>
-          </div>
-          <label style={{ display: 'block', fontSize: 12, color: '#9ca7b7', marginBottom: 6 }}>Function Code</label>
-          <textarea value={createForm.code} onChange={e => setCreateForm(f => ({ ...f, code: e.target.value }))} rows={14} style={{ width: '100%', fontFamily: 'monospace', fontSize: 12, background: '#0f1318', border: '1px solid #3b4350', borderRadius: 4, color: '#edf1f6', padding: 10, resize: 'vertical' }} />
-          <div className="svc-btn-row" style={{ marginTop: 12 }}>
-            <button type="button" className="svc-btn success" disabled={!createForm.functionName || !createForm.role} onClick={() => void handleCreate()}>Create Function</button>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="svc-console">
-      <div className="svc-tab-bar">
-        <button className="svc-tab active" type="button">Functions</button>
-        <button className="svc-tab right" type="button" onClick={() => void load()}>Refresh</button>
-      </div>
-
-      {msg && <div className="svc-msg">{msg}</div>}
-      {error && <div className="svc-error">{error}</div>}
-
-      <input className="svc-search" placeholder="Filter rows across selected columns..." value={filter} onChange={e => setFilter(e.target.value)} />
-
-      <div className="svc-chips">
-        {COLUMNS.map(col => (
-          <button
-            key={col.key}
-            className={`svc-chip ${visCols.has(col.key) ? 'active' : ''}`}
-            type="button"
-            style={visCols.has(col.key) ? { background: col.color, borderColor: col.color } : undefined}
-            onClick={() => setVisCols(p => { const n = new Set(p); n.has(col.key) ? n.delete(col.key) : n.add(col.key); return n })}
-          >{col.label}</button>
-        ))}
-      </div>
-
-      <div className="svc-layout">
-        <div className="svc-table-area">
-          <table className="svc-table">
-            <thead><tr>{activeCols.map(c => <th key={c.key}>{c.label}</th>)}</tr></thead>
-            <tbody>
-              {loading && <tr><td colSpan={activeCols.length}>Gathering data</td></tr>}
-              {!loading && filtered.map(fn => (
-                <tr key={fn.functionName} className={fn.functionName === selectedName ? 'active' : ''} onClick={() => void handleSelect(fn.functionName)}>
-                  {activeCols.map(c => <td key={c.key}>{getVal(fn, c.key)}</td>)}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {loading && filtered.length === 0 && <div className="svc-empty">Gathering data</div>}
-          {!loading && !filtered.length && <div className="svc-empty">No functions found.</div>}
-        </div>
-
-        <div className="svc-sidebar">
-          <div className="svc-section">
-            <h3>Actions</h3>
-            <div className="svc-actions">
-              <button className="svc-btn success" type="button" onClick={() => setView('create')}>New Function</button>
-              <button className="svc-btn primary" type="button" disabled={!selectedName} onClick={() => void handleSeeCode()}>See Code</button>
-              <button className="svc-btn teal" type="button" disabled={!selectedName} onClick={() => setShowInvoke(!showInvoke)}>{showInvoke ? 'Hide Invoke' : 'Run Function'}</button>
-              <ConfirmButton className="svc-btn danger" onConfirm={() => void handleDelete()}>Delete</ConfirmButton>
-            </div>
-          </div>
-
-          {detail && (
-            <div className="svc-section">
-              <h3>Details</h3>
-              <div className="svc-kv">
-                <div className="svc-kv-row"><div className="svc-kv-label">Name</div><div className="svc-kv-value">{detail.functionName}</div></div>
-                <div className="svc-kv-row"><div className="svc-kv-label">Runtime</div><div className="svc-kv-value">{detail.runtime}</div></div>
-                <div className="svc-kv-row"><div className="svc-kv-label">Handler</div><div className="svc-kv-value">{detail.handler}</div></div>
-                <div className="svc-kv-row"><div className="svc-kv-label">Memory</div><div className="svc-kv-value">{detail.memorySize} MB</div></div>
-                <div className="svc-kv-row"><div className="svc-kv-label">Timeout</div><div className="svc-kv-value">{detail.timeout}s</div></div>
-                <div className="svc-kv-row"><div className="svc-kv-label">Role</div><div className="svc-kv-value">{detail.role}</div></div>
-              </div>
             </div>
           )}
-
-          {showInvoke && selectedName && (
-            <div className="svc-section">
-              <h3>Invoke: {selectedName}</h3>
-              <div className="svc-form">
-                <label><span>Payload</span><textarea value={payload} onChange={e => setPayload(e.target.value)} rows={5} /></label>
+        </div>
+        <div className="lambda-detail-pane">
+          {!detail ? <SvcState variant="no-selection" resourceName="function" message="Select a Lambda function to inspect runtime details and operator actions." /> : (
+            <>
+              <section className="lambda-detail-hero">
+                <div className="lambda-detail-hero-copy">
+                  <div className="eyebrow">Runtime posture</div>
+                  <h3>{detail.functionName}</h3>
+                  <p>{detail.description || detail.functionArn}</p>
+                  <div className="lambda-detail-meta-strip">
+                    <div className="lambda-detail-meta-pill"><span>State</span><strong>{detail.state}</strong></div>
+                    <div className="lambda-detail-meta-pill"><span>Update status</span><strong>{detail.lastUpdateStatus}</strong></div>
+                    <div className="lambda-detail-meta-pill"><span>Runtime</span><strong>{detail.runtime}</strong></div>
+                    <div className="lambda-detail-meta-pill"><span>Handler</span><strong>{detail.handler}</strong></div>
+                  </div>
+                </div>
+                <div className="lambda-detail-hero-stats">
+                  <div className={`lambda-detail-stat-card ${toneForState(detail.state)}`}><span>Lifecycle</span><strong>{detail.state}</strong><small>{detail.lastUpdateStatus}</small></div>
+                  <div className="lambda-detail-stat-card"><span>Memory</span><strong>{detail.memorySize} MB</strong><small>Configured execution memory.</small></div>
+                  <div className="lambda-detail-stat-card"><span>Timeout</span><strong>{detail.timeout}s</strong><small>Upper bound for each invocation.</small></div>
+                  <div className="lambda-detail-stat-card"><span>Context</span><strong>{selectedEnvCount + selectedTagEntries.length}</strong><small>{selectedEnvCount} env vars and {selectedTagEntries.length} tags.</small></div>
+                </div>
+              </section>
+              <div className="lambda-detail-tabs">
+                <button type="button" className={detailTab === 'overview' ? 'active' : ''} onClick={() => setDetailTab('overview')}>Overview</button>
+                <button type="button" className={detailTab === 'invoke' ? 'active' : ''} onClick={() => setDetailTab('invoke')}>Invoke</button>
+                <button type="button" className={detailTab === 'code' ? 'active' : ''} onClick={() => { setDetailTab('code'); void ensureCodeLoaded() }}>Code</button>
               </div>
-              <button type="button" className="svc-btn success" disabled={invoking} onClick={() => void handleInvoke()}>{invoking ? 'Invoking...' : 'Invoke'}</button>
-              {invokeResult && <pre className="svc-code" style={{ marginTop: 10, maxHeight: 200, overflow: 'auto' }}>{invokeResult}</pre>}
-            </div>
+              {detailTab === 'overview' && (
+                <>
+                  <section className="lambda-section">
+                    <div className="lambda-section-head"><div><span className="lambda-pane-kicker">Actions</span><h3>Operator workflow</h3></div></div>
+                    <div className="lambda-action-grid">
+                      <button type="button" className="lambda-toolbar-btn accent" onClick={() => setView('create')}>Create Function</button>
+                      <button type="button" className="lambda-toolbar-btn" onClick={() => { setDetailTab('code'); void ensureCodeLoaded() }}>Open Source</button>
+                      <button type="button" className="lambda-toolbar-btn" onClick={() => setDetailTab('invoke')}>Invoke Function</button>
+                      <ConfirmButton className="lambda-toolbar-btn danger" onConfirm={() => void handleDelete()}>Delete</ConfirmButton>
+                    </div>
+                  </section>
+                  <section className="lambda-section">
+                    <div className="lambda-section-head"><div><span className="lambda-pane-kicker">Configuration</span><h3>Deployment details</h3></div></div>
+                    <div className="lambda-kv">
+                      <div className="lambda-kv-row"><div className="lambda-kv-label">Name</div><div className="lambda-kv-value">{detail.functionName}</div></div>
+                      <div className="lambda-kv-row"><div className="lambda-kv-label">ARN</div><div className="lambda-kv-value">{detail.functionArn}</div></div>
+                      <div className="lambda-kv-row"><div className="lambda-kv-label">Runtime</div><div className="lambda-kv-value">{detail.runtime}</div></div>
+                      <div className="lambda-kv-row"><div className="lambda-kv-label">Handler</div><div className="lambda-kv-value">{detail.handler}</div></div>
+                      <div className="lambda-kv-row"><div className="lambda-kv-label">Role</div><div className="lambda-kv-value">{detail.role}</div></div>
+                      <div className="lambda-kv-row"><div className="lambda-kv-label">Memory</div><div className="lambda-kv-value">{detail.memorySize} MB</div></div>
+                      <div className="lambda-kv-row"><div className="lambda-kv-label">Timeout</div><div className="lambda-kv-value">{detail.timeout}s</div></div>
+                      <div className="lambda-kv-row"><div className="lambda-kv-label">Last modified</div><div className="lambda-kv-value">{formatDate(detail.lastModified)}</div></div>
+                    </div>
+                  </section>
+                  <div className="lambda-info-grid">
+                    <section className="lambda-section">
+                      <div className="lambda-section-head"><div><span className="lambda-pane-kicker">Environment</span><h3>Injected variables</h3></div><span className="lambda-pane-summary">{selectedEnvCount}</span></div>
+                      {selectedEnvCount === 0 ? <SvcState variant="empty" resourceName="environment variables" message="No environment variables configured." compact /> : <div className="lambda-list-block">{Object.entries(detail.environment).map(([key, value]) => <div key={key} className="lambda-list-row"><strong>{key}</strong><span>{value}</span></div>)}</div>}
+                    </section>
+                    <section className="lambda-section">
+                      <div className="lambda-section-head"><div><span className="lambda-pane-kicker">Metadata</span><h3>Function tags</h3></div><span className="lambda-pane-summary">{selectedTagEntries.length}</span></div>
+                      {selectedTagEntries.length === 0 ? <SvcState variant="empty" resourceName="tags" message="No tags available on this function." compact /> : <div className="lambda-tag-grid">{selectedTagEntries.map(([key, value]) => <div key={key} className="lambda-tag-card"><span>{key}</span><strong>{value}</strong></div>)}</div>}
+                    </section>
+                  </div>
+                </>
+              )}
+              {detailTab === 'invoke' && (
+                <section className="lambda-section">
+                  <div className="lambda-section-head"><div><span className="lambda-pane-kicker">Invocation</span><h3>Run test payload</h3></div><span className="lambda-pane-summary">{detail.functionName}</span></div>
+                  <label className="lambda-field"><span>Payload</span><textarea value={payload} onChange={(event) => setPayload(event.target.value)} rows={8} /></label>
+                  <div className="lambda-btn-row"><button type="button" className="lambda-toolbar-btn accent" disabled={invoking} onClick={() => void handleInvoke()}>{invoking ? 'Invoking...' : 'Invoke'}</button></div>
+                  {invokeResult && <pre className="lambda-code-viewer">{invokeResult}</pre>}
+                </section>
+              )}
+              {detailTab === 'code' && (
+                <section className="lambda-section">
+                  <div className="lambda-section-head"><div><span className="lambda-pane-kicker">Source</span><h3>Deployed bundle contents</h3></div><div className="lambda-inline-head-actions">{codeResult?.truncated && <span className="lambda-inline-note">Archive was truncated to readable files.</span>}<button type="button" className="lambda-toolbar-btn" disabled={codeLoading} onClick={() => void ensureCodeLoaded(Boolean(codeResult))}>{codeLoading ? 'Loading...' : codeResult ? 'Reload Code' : 'Load Code'}</button></div></div>
+                  {codeLoading ? <SvcState variant="loading" resourceName="function code" message="Reading deployed archive..." compact /> : !codeResult ? <SvcState variant="empty" resourceName="function code" message="Load code to inspect the deployed files." compact /> : codeResult.files.length === 0 ? <SvcState variant="empty" resourceName="source files" message="No readable source files found." compact /> : <>
+                    <div className="lambda-chip-row">{codeResult.files.map((file, index) => <button key={file.path} type="button" className={`lambda-chip ${index === codeFile ? 'active' : ''}`} onClick={() => setCodeFile(index)}>{file.path}</button>)}</div>
+                    <pre className="lambda-code-viewer">{codeResult.files[codeFile].content}</pre>
+                  </>}
+                </section>
+              )}
+            </>
           )}
         </div>
       </div>
     </div>
   )
+
+  return view === 'create' ? createView : listView
 }

@@ -1295,6 +1295,30 @@ export function Ec2Console({
       : '',
     GOVERNANCE_TAG_KEYS.some((key) => !(volumeDetail.tags[key] || '').trim()) ? 'Warning: missing governance tags (Owner, Environment, or CostCenter).' : ''
   ].filter(Boolean) : []
+  const runningInstancesCount = instances.filter((instance) => instance.state === 'running').length
+  const stoppedInstancesCount = instances.filter((instance) => instance.state === 'stopped').length
+  const orphanVolumeCount = volumes.filter((volume) => volume.status === 'available-orphan').length
+  const snapshotReadyCount = snapshots.filter((snapshot) => snapshot.state === 'completed').length
+  const heroStats = mainTab === 'instances'
+    ? [
+        { label: 'Fleet', value: String(instances.length), detail: `${runningInstancesCount} running / ${stoppedInstancesCount} stopped`, tone: 'accent' },
+        { label: 'SSM Coverage', value: `${ssmOnlineCount}/${ssmManagedInstances.length}`, detail: 'managed instances online', tone: 'info' },
+        { label: 'Rightsizing', value: String(recommendations.length), detail: 'active recommendations', tone: recommendations.length ? 'warning' : 'default' },
+        { label: 'Selection', value: selectedInstance?.name && selectedInstance.name !== '-' ? selectedInstance.name : (selectedId || 'No instance selected'), detail: selectedInstance ? `${selectedInstance.type} in ${selectedInstance.availabilityZone}` : 'pick an instance to inspect', tone: 'default' }
+      ]
+    : mainTab === 'volumes'
+      ? [
+          { label: 'Volumes', value: String(volumes.length), detail: `${orphanVolumeCount} orphaned volumes`, tone: 'accent' },
+          { label: 'Inspection', value: volumeWorkflowBusy ? 'Active' : 'Idle', detail: volumeWorkflowStatus?.message ?? 'temporary inspection environments', tone: volumeWorkflowBusy ? 'info' : 'default' },
+          { label: 'Warnings', value: String(volumeWarnings.length), detail: selectedVolume ? (selectedVolume.name !== '-' ? selectedVolume.name : selectedVolume.volumeId) : 'select a volume for policy checks', tone: volumeWarnings.length ? 'warning' : 'default' },
+          { label: 'Selection', value: selectedVolume?.name && selectedVolume.name !== '-' ? selectedVolume.name : (selectedVolumeId || 'No volume selected'), detail: selectedVolume ? formatVolumeSettings(selectedVolume) : 'choose a volume to view topology', tone: 'default' }
+        ]
+      : [
+          { label: 'Snapshots', value: String(snapshots.length), detail: `${snapshotReadyCount} completed`, tone: 'accent' },
+          { label: 'Selected', value: selectedSnap?.tags.Name || selectedSnap?.snapshotId || 'No snapshot selected', detail: selectedSnap ? `${selectedSnap.volumeSize} GiB from ${selectedSnap.volumeId}` : 'browse snapshot inventory', tone: 'default' },
+          { label: 'Source Volume', value: selectedSnap?.volumeId || '-', detail: selectedSnap ? selectedSnap.progress : 'launch and tag workflows preserved', tone: 'info' },
+          { label: 'Session', value: connection.kind === 'assumed-role' ? 'Assumed role' : 'Profile session', detail: connection.profile, tone: 'default' }
+        ]
 
   const sshCmd = detail
     ? `ssh -i ${quoteSshArg(sshKey || `~/.ssh/${detail.keyName}.pem`)} ${sshUser}@${detail.publicIp !== '-' ? detail.publicIp : detail.privateIp}`
@@ -1304,10 +1328,52 @@ export function Ec2Console({
 
   return (
     <div className="ec2-console">
-      <FreshnessIndicator freshness={inventoryFreshness} label="Inventory last updated" />
-      {(mainTab === 'instances' || volumeWorkflowBusy || bastionLaunchBusy) && (
-        <FreshnessIndicator freshness={sessionFreshness} label="Session-sensitive detail last updated" staleLabel="Refresh detail" />
-      )}
+      <section className="ec2-shell-hero">
+        <div className="ec2-shell-hero-copy">
+          <span className="ec2-shell-kicker">Compute Operations</span>
+          <h2>EC2 inventory, storage workflows, and access paths in one workspace.</h2>
+          <p>
+            Review fleet state, inspect attached storage, manage snapshots, and drive SSM or bastion workflows from the same operational surface.
+          </p>
+          <div className="ec2-shell-meta-strip">
+            <div className="ec2-shell-meta-pill">
+              <span>Profile</span>
+              <strong>{connection.profile}</strong>
+            </div>
+            <div className="ec2-shell-meta-pill">
+              <span>Region</span>
+              <strong>{connection.region}</strong>
+            </div>
+            <div className="ec2-shell-meta-pill">
+              <span>Session</span>
+              <strong>{connection.kind === 'assumed-role' ? 'Assumed role' : 'Profile session'}</strong>
+            </div>
+            <div className="ec2-shell-meta-pill">
+              <span>Focus</span>
+              <strong>{mainTab === 'instances' ? 'Instances' : mainTab === 'volumes' ? 'Volumes' : 'Snapshots'}</strong>
+            </div>
+          </div>
+        </div>
+        <div className="ec2-shell-hero-stats">
+          {heroStats.map((stat) => (
+            <div
+              key={stat.label}
+              className={`ec2-shell-stat-card${stat.tone === 'accent' ? ' accent' : stat.tone === 'warning' ? ' warning' : stat.tone === 'info' ? ' info' : ''}`}
+            >
+              <span>{stat.label}</span>
+              <strong>{stat.value}</strong>
+              <small>{stat.detail}</small>
+            </div>
+          ))}
+        </div>
+      </section>
+      <div className="ec2-shell-toolbar">
+        <div className="ec2-shell-status">
+          <FreshnessIndicator freshness={inventoryFreshness} label="Inventory last updated" />
+          {(mainTab === 'instances' || volumeWorkflowBusy || bastionLaunchBusy) && (
+            <FreshnessIndicator freshness={sessionFreshness} label="Session-sensitive detail last updated" staleLabel="Refresh detail" />
+          )}
+        </div>
 
       {/* ── Main tabs ─────────────────────────────────── */}
       <div className="ec2-tab-bar">
@@ -1326,7 +1392,8 @@ export function Ec2Console({
           type="button"
           onClick={() => setMainTab('snapshots')}
         >Snapshots</button>
-        <button className="ec2-tab" type="button" onClick={() => void reload('manual')} style={{ marginLeft: 'auto' }}>Refresh</button>
+        <button className="ec2-toolbar-btn accent" type="button" onClick={() => void reload('manual')}>Refresh</button>
+      </div>
       </div>
 
       {msg && <div className="ec2-msg">{msg}</div>}
@@ -1334,53 +1401,77 @@ export function Ec2Console({
       {/* ══════════════════ INSTANCES ══════════════════ */}
       {mainTab === 'instances' && (
         <>
-          <div className="ec2-filter-bar">
-            <span className="ec2-filter-label">State</span>
-            <select
-              className="ec2-select"
-              value={stateFilter}
-              onChange={e => setStateFilter(e.target.value)}
-            >
-              <option value="all">All states</option>
-              <option value="running">Running</option>
-              <option value="stopped">Stopped</option>
-              <option value="pending">Pending</option>
-              <option value="terminated">Terminated</option>
-            </select>
-          </div>
+          <div className="ec2-filter-shell">
+            <div className="ec2-filter-grid">
+              <div className="ec2-filter-field">
+                <span className="ec2-filter-label">State</span>
+                <select
+                  className="ec2-select"
+                  value={stateFilter}
+                  onChange={e => setStateFilter(e.target.value)}
+                >
+                  <option value="all">All states</option>
+                  <option value="running">Running</option>
+                  <option value="stopped">Stopped</option>
+                  <option value="pending">Pending</option>
+                  <option value="terminated">Terminated</option>
+                </select>
+              </div>
 
-          <input
-            className="ec2-search-input"
-            placeholder="Filter rows across selected columns..."
-            value={searchFilter}
-            onChange={e => setSearchFilter(e.target.value)}
-          />
-
-          <div className="ec2-column-chips">
-            {COLUMNS.map(col => (
-              <button
-                key={col.key}
-                className={`ec2-chip ${visibleCols.has(col.key) ? 'active' : ''}`}
-                type="button"
-                style={visibleCols.has(col.key) ? { background: col.color, borderColor: col.color, color: '#fff' } : undefined}
-                onClick={() => toggleColumn(col.key)}
-              >
-                {col.label}
-              </button>
-            ))}
-          </div>
-
-          {recommendations.length > 0 && (
-            <div className="ec2-rec-summary">
-              <span className="ec2-rec-icon">!</span>
-              <span>{recommendations.length} right-sizing recommendation{recommendations.length > 1 ? 's' : ''} based on 7-day CPU usage</span>
-              {recsLoading && <span className="ec2-rec-loading">Refreshing...</span>}
+              <div className="ec2-filter-field ec2-filter-field-search">
+                <span className="ec2-filter-label">Search</span>
+                <input
+                  className="ec2-search-input"
+                  placeholder="Filter rows across selected columns..."
+                  value={searchFilter}
+                  onChange={e => setSearchFilter(e.target.value)}
+                />
+              </div>
             </div>
-          )}
+
+            <div className="ec2-column-chips">
+              {COLUMNS.map(col => (
+                <button
+                  key={col.key}
+                  className={`ec2-chip ${visibleCols.has(col.key) ? 'active' : ''}`}
+                  type="button"
+                  style={visibleCols.has(col.key) ? { background: col.color, borderColor: col.color, color: '#fff' } : undefined}
+                  onClick={() => toggleColumn(col.key)}
+                >
+                  {col.label}
+                </button>
+              ))}
+            </div>
+
+            {recommendations.length > 0 && (
+              <div className="ec2-rec-summary">
+                <span className="ec2-rec-icon">!</span>
+                <span>{recommendations.length} right-sizing recommendation{recommendations.length > 1 ? 's' : ''} based on 7-day CPU usage</span>
+                {recsLoading && <span className="ec2-rec-loading">Refreshing...</span>}
+              </div>
+            )}
+            {recommendations.length === 0 && recsLoading && (
+              <div className="ec2-rec-summary info">
+                <span className="ec2-rec-icon">!</span>
+                <span>Refreshing recommendations...</span>
+              </div>
+            )}
+          </div>
 
           <div className="ec2-main-layout">
             {/* ── Table area ──────────────────────────── */}
-            <div className="ec2-table-area">
+            <div className="ec2-table-shell">
+              <div className="ec2-table-shell-header">
+                <div>
+                  <h3>Instance Inventory</h3>
+                  <p>{filteredInstances.length} visible rows across {activeCols.length} active columns.</p>
+                </div>
+                <div className="ec2-table-shell-meta">
+                  <span className="ec2-workspace-badge">{runningInstancesCount} running</span>
+                  <span className="ec2-workspace-badge">{ssmOnlineCount} SSM online</span>
+                </div>
+              </div>
+              <div className="ec2-table-area">
               <table className="ec2-data-table">
                 <thead>
                   <tr>
@@ -1425,6 +1516,7 @@ export function Ec2Console({
               {!filteredInstances.length && (
                 <SvcState variant="no-filter-matches" resourceName="instances" compact />
               )}
+              </div>
             </div>
 
             {/* ── Sidebar ─────────────────────────────── */}

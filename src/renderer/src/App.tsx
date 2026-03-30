@@ -42,8 +42,10 @@ type PendingTerminalCommand = { id: number; command: string } | null
 type RefreshState = { screen: Screen; sawPending: boolean } | null
 type FabMode = 'closed' | 'menu' | 'credentials'
 type CompareSeed = { token: number; request: ComparisonRequest } | null
+type ProfileContextMenuState = { profileName: string; x: number; y: number } | null
 const PINNED_SERVICES_STORAGE_KEY = 'aws-lens:pinned-services'
 type FocusMap = Partial<Record<NavigationFocus['service'], TokenizedFocus>>
+const NAV_HIDDEN_SERVICE_IDS = new Set<ServiceId>(['overview', 'session-hub', 'compare'])
 
 const SERVICE_CATEGORY_ORDER = [
   'Infrastructure',
@@ -145,23 +147,6 @@ function ConnectedServiceScreen({
 }) {
   return (
     <>
-      <section className="hero catalog-hero">
-        <div>
-          <div className="eyebrow">Service</div>
-          <h2>{service.label}</h2>
-          <p className="hero-path">{SERVICE_DESCRIPTIONS[service.id]}</p>
-        </div>
-        <div className="hero-connection">
-          <div className="connection-summary">
-            <span>Status</span>
-            <strong>Live</strong>
-          </div>
-          <div className="connection-summary">
-            <span>Category</span>
-            <strong>{service.category || 'General'}</strong>
-          </div>
-        </div>
-      </section>
       {state.error && <div className="error-banner">{state.error}</div>}
       {state.connection && state.connected ? (
         children(state.connection)
@@ -321,6 +306,7 @@ export function App() {
   const [profileActionMsg, setProfileActionMsg] = useState('')
   const [focusMap, setFocusMap] = useState<FocusMap>({})
   const [compareSeed, setCompareSeed] = useState<CompareSeed>(null)
+  const [profileContextMenu, setProfileContextMenu] = useState<ProfileContextMenuState>(null)
   const connectionState = useAwsPageConnection('us-east-1')
   const awsActivity = useAwsActivity()
 
@@ -357,15 +343,19 @@ export function App() {
   useEffect(() => {
     if (services.length === 0) return
     const validServiceIds = new Set(services.map((service) => service.id))
-    setPinnedServiceIds((current) => current.filter((serviceId) => validServiceIds.has(serviceId)))
+    setPinnedServiceIds((current) => current.filter((serviceId) => validServiceIds.has(serviceId) && !NAV_HIDDEN_SERVICE_IDS.has(serviceId)))
   }, [services])
 
   const pinnedServices = useMemo(() => {
     const serviceById = new Map(services.map((service) => [service.id, service]))
     return pinnedServiceIds
       .map((serviceId) => serviceById.get(serviceId) ?? null)
-      .filter((service): service is ServiceDescriptor => service !== null && service.id !== 'overview' && service.id !== 'session-hub')
+      .filter((service): service is ServiceDescriptor => service !== null && !NAV_HIDDEN_SERVICE_IDS.has(service.id))
   }, [pinnedServiceIds, services])
+
+  const totalProfiles = connectionState.profiles.length
+  const totalPinnedProfiles = connectionState.pinnedProfileNames.length
+  const totalVisibleServices = services.filter((service) => !NAV_HIDDEN_SERVICE_IDS.has(service.id)).length
 
   const groupedServices = useMemo(() => {
     const grouped = new Map<string, ServiceDescriptor[]>()
@@ -382,7 +372,7 @@ export function App() {
       .map(([category, items]) => [
         category,
         items
-          .filter((service) => service.id !== 'overview' && service.id !== 'session-hub' && !pinnedIds.has(service.id))
+          .filter((service) => !NAV_HIDDEN_SERVICE_IDS.has(service.id) && !pinnedIds.has(service.id))
           .sort((a, b) => a.label.localeCompare(b.label))
       ] as const)
       .sort(([left], [right]) => {
@@ -440,6 +430,12 @@ export function App() {
     if (region) {
       connectionState.setRegion(region)
     }
+    setFocusMap((current) => {
+      if (!(serviceId in current)) return current
+      const next = { ...current }
+      delete next[serviceId]
+      return next
+    })
     setScreen(serviceId)
   }
 
@@ -486,11 +482,14 @@ export function App() {
       <div key={service.id} className={`service-link-row ${screen === service.id ? 'active' : ''}`}>
         <button
           type="button"
-          className={`service-link ${screen === service.id ? 'active' : ''}`}
+          className={`service-link ${options?.pinned ? 'service-link-pinned' : ''} ${screen === service.id ? 'active' : ''}`}
           disabled={!connectionState.connected}
-          onClick={() => setScreen(service.id)}
+          onClick={() => navigateToService(service.id)}
         >
-          <span>{service.label}</span>
+          <span className="service-link-copy">
+            <strong>{service.label}</strong>
+            <small>{service.category || 'General'}</small>
+          </span>
           {options?.pinned && <span className="service-link-badge">Pinned</span>}
         </button>
         <button
@@ -518,6 +517,30 @@ export function App() {
       void closeAwsTerminal()
     }
   }, [terminalOpen])
+
+  useEffect(() => {
+    if (!profileContextMenu) {
+      return
+    }
+
+    function handleCloseMenu() {
+      setProfileContextMenu(null)
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setProfileContextMenu(null)
+      }
+    }
+
+    window.addEventListener('click', handleCloseMenu)
+    window.addEventListener('keydown', handleEscape)
+
+    return () => {
+      window.removeEventListener('click', handleCloseMenu)
+      window.removeEventListener('keydown', handleEscape)
+    }
+  }, [profileContextMenu])
 
   useEffect(() => {
     if (!showCatalogFab && fabMode !== 'closed') {
@@ -652,44 +675,85 @@ export function App() {
 
     if (targetScreen === 'profiles') {
       return (
-        <section className="panel stack">
-          <div className="catalog-page-header">
-            <div>
+        <section className="profile-catalog-shell">
+          <div className="profile-catalog-hero">
+            <div className="profile-catalog-hero-copy">
               <div className="eyebrow">Profile Catalog</div>
-              <h2>Choose a profile from the catalog</h2>
-              <p className="hero-path">Pinned profiles stay on the left rail. Selection happens here instead of an inline dropdown.</p>
+              <h2>Switch accounts without losing context.</h2>
+              <p className="hero-path">Pinned profiles stay in the rail, region stays global, and every workspace uses the same active AWS context.</p>
             </div>
-            <input
-              value={profileSearch}
-              onChange={(event) => setProfileSearch(event.target.value)}
-              placeholder="Search profiles"
-            />
+            <div className="profile-catalog-stats" aria-label="Profile catalog summary">
+              <div className="profile-catalog-stat">
+                <span>Profiles</span>
+                <strong>{totalProfiles}</strong>
+              </div>
+              <div className="profile-catalog-stat">
+                <span>Pinned</span>
+                <strong>{totalPinnedProfiles}</strong>
+              </div>
+              <div className="profile-catalog-stat">
+                <span>Services</span>
+                <strong>{totalVisibleServices}</strong>
+              </div>
+            </div>
           </div>
+          <div className="panel stack profile-catalog-panel">
+            <div className="catalog-page-header profile-catalog-toolbar">
+              <div>
+                <div className="eyebrow">Workspace Access</div>
+                <h3>Choose a profile from the catalog</h3>
+                <p className="hero-path">Search by profile name, pin frequent targets, or remove credentials managed by the app.</p>
+              </div>
+              <label className="profile-search-field">
+                <span>Search profiles</span>
+                <input
+                  value={profileSearch}
+                  onChange={(event) => setProfileSearch(event.target.value)}
+                  placeholder="Search profiles"
+                />
+              </label>
+            </div>
           <div className="profile-catalog-grid">
-            {filteredProfiles.map((entry) => (
-              <div key={entry.name} className={`profile-catalog-card ${connectionState.profile === entry.name ? 'active' : ''}`}>
-                <div>
-                  <div className="project-card-title">{entry.name}</div>
-                  <div className="project-card-meta">
-                    <span>{entry.source}</span>
-                    <span>{entry.region}</span>
+            {filteredProfiles.length > 0 ? (
+              filteredProfiles.map((entry) => (
+                <div key={entry.name} className={`profile-catalog-card ${connectionState.profile === entry.name ? 'active' : ''}`}>
+                  <div className="profile-catalog-card-header">
+                    <div className="profile-catalog-card-badge">{getProfileBadge(entry.name)}</div>
+                    <div>
+                      <div className="project-card-title">{entry.name}</div>
+                      <div className="project-card-meta">
+                        <span>{entry.source}</span>
+                        <span>{entry.region}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="profile-catalog-status">
+                    <span>{connectionState.profile === entry.name ? 'Active context' : 'Available'}</span>
+                    {connectionState.pinnedProfileNames.includes(entry.name) && <strong>Pinned</strong>}
+                  </div>
+                  <div className="button-row profile-catalog-actions">
+                    <button type="button" className="accent" onClick={() => { connectionState.selectProfile(entry.name) }}>
+                      {connectionState.profile === entry.name ? 'Selected' : 'Select'}
+                    </button>
+                    <button type="button" className={connectionState.pinnedProfileNames.includes(entry.name) ? 'active' : ''} onClick={() => connectionState.togglePinnedProfile(entry.name)}>
+                      {connectionState.pinnedProfileNames.includes(entry.name) ? 'Unpin' : 'Pin'}
+                    </button>
+                    {entry.managedByApp && (
+                      <button type="button" onClick={() => void handleDeleteProfile(entry.name)}>
+                        Delete
+                      </button>
+                    )}
                   </div>
                 </div>
-                <div className="button-row">
-                  <button type="button" className="accent" onClick={() => { connectionState.selectProfile(entry.name) }}>
-                    {connectionState.profile === entry.name ? 'Selected' : 'Select'}
-                  </button>
-                  <button type="button" className={connectionState.pinnedProfileNames.includes(entry.name) ? 'active' : ''} onClick={() => connectionState.togglePinnedProfile(entry.name)}>
-                    {connectionState.pinnedProfileNames.includes(entry.name) ? 'Unpin' : 'Pin'}
-                  </button>
-                  {entry.managedByApp && (
-                    <button type="button" onClick={() => void handleDeleteProfile(entry.name)}>
-                      Delete
-                    </button>
-                  )}
-                </div>
+              ))
+            ) : (
+              <div className="profile-catalog-empty">
+                <div className="eyebrow">No Matches</div>
+                <h3>No profiles match "{profileSearch.trim()}"</h3>
+                <p className="hero-path">Try a different search or add a new profile from the floating action button.</p>
               </div>
-            ))}
+            )}
+          </div>
           </div>
         </section>
       )
@@ -767,13 +831,6 @@ export function App() {
     if (targetScreen === 'direct-access') {
       return (
         <section className="panel stack">
-          <section className="hero catalog-hero">
-            <div>
-              <div className="eyebrow">Access</div>
-              <h2>Direct Resource Access</h2>
-              <p className="hero-path">Open known resources by identifier when account-wide list permissions are blocked.</p>
-            </div>
-          </section>
           {connectionState.connection && connectionState.connected ? (
             <DirectResourceConsole connection={connectionState.connection} />
           ) : (
@@ -871,7 +928,19 @@ export function App() {
             key={pinnedName}
             type="button"
             className={`rail-avatar ${connectionState.profile === pinnedName ? 'active' : ''}`}
-            onClick={() => { connectionState.selectProfile(pinnedName); setScreen('overview') }}
+            onClick={() => {
+              setProfileContextMenu(null)
+              connectionState.selectProfile(pinnedName)
+              setScreen('overview')
+            }}
+            onContextMenu={(event) => {
+              event.preventDefault()
+              setProfileContextMenu({
+                profileName: pinnedName,
+                x: event.clientX,
+                y: event.clientY
+              })
+            }}
             title={pinnedName}
           >
             {getProfileBadge(pinnedName)}
@@ -892,7 +961,8 @@ export function App() {
             </button>
             <div className="service-nav-title">
               <h1>AWS Lens</h1>
-              <div className="app-version-row">
+            </div>
+            <div className="app-version-row service-nav-version-row">
                 {versionLabel && <span className="app-version-badge">v{versionLabel}</span>}
                 {releaseInfo?.updateAvailable && (
                   <button
@@ -905,7 +975,6 @@ export function App() {
                     ↑
                   </button>
                 )}
-              </div>
             </div>
           </div>
           <div className="service-nav-controls">
@@ -946,6 +1015,9 @@ export function App() {
           </div>
 
           <div className={`service-nav-scroll ${!connectionState.connected ? 'nav-disabled' : ''}`}>
+            <section className="service-group service-group-priority">
+              <div className="service-group-title">Workspace</div>
+              <div className="service-group-list">
             {pinnedServices.length > 0 && (
               <>
                 <section className="service-group">
@@ -958,33 +1030,44 @@ export function App() {
               </>
             )}
             {overviewService && (
+              <div className="service-link-row service-link-row-utility">
+                <button
+                  type="button"
+                  className={`service-link overview-link ${screen === 'overview' ? 'active' : ''}`}
+                  disabled={!connectionState.connected}
+                  onClick={() => navigateToService('overview')}
+                >
+                  <span>{overviewService.label} ({connectionState.region})</span>
+                </button>
+                <div className="pin-toggle pin-toggle-placeholder" aria-hidden="true" />
+              </div>
+            )}
+            <div className="service-link-row service-link-row-utility">
               <button
                 type="button"
-                className={`service-link overview-link ${screen === 'overview' ? 'active' : ''}`}
+                className={`service-link overview-link ${screen === 'direct-access' ? 'active' : ''}`}
                 disabled={!connectionState.connected}
-                onClick={() => setScreen('overview')}
+                onClick={() => setScreen('direct-access')}
               >
-                <span>{overviewService.label} ({connectionState.region})</span>
+                <span>Direct Resource Access</span>
               </button>
-            )}
-            <button
-              type="button"
-              className={`service-link overview-link ${screen === 'direct-access' ? 'active' : ''}`}
-              disabled={!connectionState.connected}
-              onClick={() => setScreen('direct-access')}
-            >
-              <span>Direct Resource Access</span>
-            </button>
+              <div className="pin-toggle pin-toggle-placeholder" aria-hidden="true" />
+            </div>
             {sessionHubService && (
-              <button
-                type="button"
-                className={`service-link overview-link ${screen === 'session-hub' ? 'active' : ''}`}
-                disabled={!connectionState.connected}
-                onClick={() => setScreen('session-hub')}
-              >
-                <span>{sessionHubService.label}</span>
-              </button>
+              <div className="service-link-row service-link-row-utility">
+                <button
+                  type="button"
+                  className={`service-link overview-link ${screen === 'session-hub' ? 'active' : ''}`}
+                  disabled={!connectionState.connected}
+                  onClick={() => navigateToService('session-hub')}
+                >
+                  <span>{sessionHubService.label}</span>
+                </button>
+                <div className="pin-toggle pin-toggle-placeholder" aria-hidden="true" />
+              </div>
             )}
+              </div>
+            </section>
             {groupedServices.map(([category, items]) => (
               items.length > 0 && (
                 <section key={category} className="service-group">
@@ -1153,7 +1236,7 @@ export function App() {
         )}
 
         {screen === 'auto-scaling' && selectedService?.id === 'auto-scaling' && (
-          <ConnectedServiceScreen service={selectedService!} state={connectionState}>
+          <ConnectedServiceScreen service={selectedService!} state={connectionState} hideHero>
             {(connection) => <AutoScalingConsole connection={connection} />}
           </ConnectedServiceScreen>
         )}
@@ -1327,6 +1410,29 @@ export function App() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {profileContextMenu && (
+        <div
+          className="profile-context-menu"
+          style={{
+            left: Math.min(profileContextMenu.x, window.innerWidth - 190),
+            top: Math.min(profileContextMenu.y, window.innerHeight - 80)
+          }}
+          onClick={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <button
+            type="button"
+            className="profile-context-menu__item danger"
+            onClick={() => {
+              connectionState.togglePinnedProfile(profileContextMenu.profileName)
+              setProfileContextMenu(null)
+            }}
+          >
+            Unpin {profileContextMenu.profileName}
+          </button>
         </div>
       )}
     </div>

@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
+import path from 'node:path'
 
-import { ipcMain } from 'electron'
+import { dialog, ipcMain, type BrowserWindow } from 'electron'
 
 import type { AwsConnection } from '@shared/types'
 import { getConnectionEnv } from './sessionHub'
@@ -27,7 +28,7 @@ async function wrap<T>(fn: () => Promise<T> | T): Promise<HandlerResult<T>> {
   }
 }
 
-export function registerEksIpcHandlers(): void {
+export function registerEksIpcHandlers(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('eks:list-clusters', async (_event, connection: AwsConnection) =>
     wrap(() => listEksClusters(connection))
   )
@@ -52,6 +53,31 @@ export function registerEksIpcHandlers(): void {
     'eks:add-kubeconfig',
     async (_event, connection: AwsConnection, clusterName: string, contextName: string, kubeconfigPath: string) =>
       wrap(() => addEksToKubeconfig(connection, clusterName, contextName, kubeconfigPath))
+  )
+  ipcMain.handle('eks:choose-kubeconfig-path', async (_event, currentPath?: string) =>
+    wrap(async () => {
+      const owner = getWindow()
+      const normalizedCurrentPath = currentPath?.trim()
+      const defaultPath = normalizedCurrentPath
+        ? (normalizedCurrentPath === '.kube/config' || normalizedCurrentPath === '.kube\\config'
+            ? path.join(process.env.USERPROFILE || process.env.HOME || '.', '.kube', 'config')
+            : normalizedCurrentPath)
+        : path.join(process.env.USERPROFILE || process.env.HOME || '.', '.kube', 'config')
+
+      const result = owner
+        ? await dialog.showSaveDialog(owner, {
+            title: 'Choose kubeconfig location',
+            defaultPath,
+            buttonLabel: 'Select config'
+          })
+        : await dialog.showSaveDialog({
+            title: 'Choose kubeconfig location',
+            defaultPath,
+            buttonLabel: 'Select config'
+          })
+
+      return result.canceled ? '' : result.filePath ?? ''
+    })
   )
   ipcMain.handle('eks:launch-kubectl', async (_event, connection: AwsConnection, clusterName: string) =>
     wrap(() => launchKubectlTerminal(connection, clusterName))

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './eks.css'
 import { SvcState } from './SvcState'
-
 import type {
   AwsConnection,
   CloudTrailEventSummary,
@@ -13,6 +12,7 @@ import type {
 } from '@shared/types'
 import {
   addEksToKubeconfig,
+  chooseEksKubeconfigPath,
   describeEksCluster,
   getEksObservabilityReport,
   listEksClusters,
@@ -24,26 +24,25 @@ import {
 } from './api'
 import { ObservabilityResilienceLab } from './ObservabilityResilienceLab'
 
-/* ── Column definitions ─────────────────────────────────── */
-
 type ClusterCol = 'name' | 'status' | 'version'
+type NgCol = 'name' | 'status' | 'min' | 'desired' | 'max' | 'cpu7d' | 'mem7d' | 'recommendation' | 'instanceTypes'
+
 const CLUSTER_COLUMNS: { key: ClusterCol; label: string; color: string }[] = [
-  { key: 'name', label: 'Name', color: '#3b82f6' },
-  { key: 'status', label: 'Status', color: '#22c55e' },
-  { key: 'version', label: 'Version', color: '#8b5cf6' }
+  { key: 'name', label: 'Name', color: '#4a8fe7' },
+  { key: 'status', label: 'Status', color: '#59c58c' },
+  { key: 'version', label: 'Version', color: '#f59a3d' }
 ]
 
-type NgCol = 'name' | 'status' | 'min' | 'desired' | 'max' | 'cpu7d' | 'mem7d' | 'recommendation' | 'instanceTypes'
 const NG_COLUMNS: { key: NgCol; label: string; color: string }[] = [
-  { key: 'name', label: 'Name', color: '#3b82f6' },
-  { key: 'status', label: 'Status', color: '#22c55e' },
-  { key: 'min', label: 'Min', color: '#f59e0b' },
-  { key: 'desired', label: 'Desired', color: '#14b8a6' },
-  { key: 'max', label: 'Max', color: '#ef4444' },
-  { key: 'cpu7d', label: 'CPU7d', color: '#06b6d4' },
-  { key: 'mem7d', label: 'Mem7d', color: '#8b5cf6' },
-  { key: 'recommendation', label: 'Recommendation', color: '#a855f7' },
-  { key: 'instanceTypes', label: 'InstanceTypes', color: '#ec4899' }
+  { key: 'name', label: 'Name', color: '#4a8fe7' },
+  { key: 'status', label: 'Status', color: '#59c58c' },
+  { key: 'min', label: 'Min', color: '#9ec7ff' },
+  { key: 'desired', label: 'Desired', color: '#f59a3d' },
+  { key: 'max', label: 'Max', color: '#ff8f7d' },
+  { key: 'cpu7d', label: 'CPU7d', color: '#7adbd1' },
+  { key: 'mem7d', label: 'Mem7d', color: '#b59cff' },
+  { key: 'recommendation', label: 'Recommendation', color: '#d3b46f' },
+  { key: 'instanceTypes', label: 'Instance types', color: '#f285b9' }
 ]
 
 function getNgValue(ng: EksNodegroupSummary, key: NgCol): string {
@@ -60,22 +59,54 @@ function getNgValue(ng: EksNodegroupSummary, key: NgCol): string {
   }
 }
 
-/* ── Status badge ───────────────────────────────────────── */
-
-function StatusBadge({ status }: { status: string }) {
-  const s = status.toLowerCase()
-  const cls =
-    s === 'active' || s === 'running' || s === 'successful'
-      ? 'eks-badge eks-badge-ok'
-      : s === 'creating' || s === 'updating' || s === 'pending'
-        ? 'eks-badge eks-badge-warn'
-        : s.includes('delet') || s.includes('fail') || s.includes('degrad')
-          ? 'eks-badge eks-badge-danger'
-          : 'eks-badge'
-  return <span className={cls}>{status}</span>
+function formatDateTime(value: string): string {
+  if (!value || value === '-') return '-'
+  try { return new Date(value).toLocaleString() } catch { return value }
 }
 
-/* ── Main EKS Console ───────────────────────────────────── */
+function truncate(value: string, max = 52): string {
+  if (!value) return '-'
+  if (value.length <= max) return value
+  return `${value.slice(0, max - 3)}...`
+}
+
+function statusTone(status: string): 'success' | 'warning' | 'danger' | 'info' {
+  const s = status.toLowerCase()
+  if (s === 'active' || s === 'running' || s === 'successful') return 'success'
+  if (s === 'creating' || s === 'updating' || s === 'pending') return 'warning'
+  if (s.includes('delet') || s.includes('fail') || s.includes('degrad')) return 'danger'
+  return 'info'
+}
+
+function accessSummary(detail: EksClusterDetail | null): string {
+  if (!detail) return '-'
+  if (detail.endpointPublicAccess && detail.endpointPrivateAccess) return 'Public + private'
+  if (detail.endpointPrivateAccess) return 'Private only'
+  if (detail.endpointPublicAccess) return 'Public only'
+  return 'Restricted'
+}
+
+function StatusBadge({ status }: { status: string }) {
+  return <span className={`eks-badge ${statusTone(status)}`}>{status}</span>
+}
+
+function MetricCard({
+  label,
+  value,
+  note,
+  tone = 'info'
+}: {
+  label: string
+  value: string | number
+  note: string
+  tone?: 'success' | 'warning' | 'danger' | 'info'
+}) {
+  return <div className={`eks-stat-card ${tone}`}><span>{label}</span><strong>{value}</strong><small>{note}</small></div>
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return <div className="eks-kv-row"><div className="eks-kv-label">{label}</div><div className="eks-kv-value">{value || '-'}</div></div>
+}
 
 export function EksConsole({
   connection,
@@ -86,31 +117,20 @@ export function EksConsole({
   focusClusterName?: { token: number; clusterName: string } | null
   onRunTerminalCommand?: (command: string) => void
 }) {
-  /* ── State ──────────────────────────────────────────── */
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
-
-  // Clusters
   const [clusters, setClusters] = useState<EksClusterSummary[]>([])
   const [selectedCluster, setSelectedCluster] = useState('')
   const [detail, setDetail] = useState<EksClusterDetail | null>(null)
   const [clusterSearch, setClusterSearch] = useState('')
   const [visibleClusterCols, setVisibleClusterCols] = useState<Set<ClusterCol>>(new Set(['name', 'status', 'version']))
-
-  // Node groups
   const [nodegroups, setNodegroups] = useState<EksNodegroupSummary[]>([])
   const [ngSearch, setNgSearch] = useState('')
   const [visibleNgCols, setVisibleNgCols] = useState<Set<NgCol>>(new Set(['name', 'status', 'min', 'desired', 'max', 'cpu7d', 'mem7d', 'recommendation', 'instanceTypes']))
   const [selectedNg, setSelectedNg] = useState('')
-
-  // Tabs
   const [sideTab, setSideTab] = useState<'overview' | 'timeline' | 'lab'>('overview')
-
-  // Describe panel
   const [showDescribe, setShowDescribe] = useState(false)
-
-  // Scale
   const [showScale, setShowScale] = useState(false)
   const [scaleMin, setScaleMin] = useState('')
   const [scaleDesired, setScaleDesired] = useState('')
@@ -122,17 +142,15 @@ export function EksConsole({
   const [kubeconfigLocation, setKubeconfigLocation] = useState('.kube/config')
   const [kubeconfigBusy, setKubeconfigBusy] = useState(false)
   const [kubeconfigErr, setKubeconfigErr] = useState('')
-
-  // Timeline
   const [timelineEvents, setTimelineEvents] = useState<CloudTrailEventSummary[]>([])
   const [timelineLoading, setTimelineLoading] = useState(false)
   const [timelineError, setTimelineError] = useState('')
   const [timelineStart, setTimelineStart] = useState(() => {
-    const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().slice(0, 10)
+    const d = new Date()
+    d.setDate(d.getDate() - 7)
+    return d.toISOString().slice(0, 10)
   })
   const [timelineEnd, setTimelineEnd] = useState(() => new Date().toISOString().slice(0, 10))
-
-  // Terminal
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [terminalOutput, setTerminalOutput] = useState('')
   const [terminalCmd, setTerminalCmd] = useState('')
@@ -144,39 +162,35 @@ export function EksConsole({
   const [labLoading, setLabLoading] = useState(false)
   const [labError, setLabError] = useState('')
 
-  /* ── Derived ────────────────────────────────────────── */
-  const activeClusterCols = CLUSTER_COLUMNS.filter(c => visibleClusterCols.has(c.key))
-  const activeNgCols = NG_COLUMNS.filter(c => visibleNgCols.has(c.key))
-
+  const activeClusterCols = CLUSTER_COLUMNS.filter((column) => visibleClusterCols.has(column.key))
+  const activeNgCols = NG_COLUMNS.filter((column) => visibleNgCols.has(column.key))
+  const showClusterName = visibleClusterCols.has('name')
+  const showClusterStatus = visibleClusterCols.has('status')
+  const showClusterVersion = visibleClusterCols.has('version')
   const filteredClusters = useMemo(() => {
     const q = clusterSearch.trim().toLowerCase()
     if (!q) return clusters
-    return clusters.filter(c =>
-      activeClusterCols.some(col => {
-        const val = col.key === 'name' ? c.name : col.key === 'status' ? c.status : c.version
-        return val.toLowerCase().includes(q)
-      })
-    )
-  }, [clusters, clusterSearch, activeClusterCols])
-
+    return clusters.filter((cluster) => activeClusterCols.some((column) => {
+      const value = column.key === 'name' ? cluster.name : column.key === 'status' ? cluster.status : cluster.version
+      return value.toLowerCase().includes(q)
+    }))
+  }, [activeClusterCols, clusterSearch, clusters])
   const filteredNodegroups = useMemo(() => {
     const q = ngSearch.trim().toLowerCase()
     if (!q) return nodegroups
-    return nodegroups.filter(ng =>
-      activeNgCols.some(col => getNgValue(ng, col.key).toLowerCase().includes(q))
-    )
-  }, [nodegroups, ngSearch, activeNgCols])
+    return nodegroups.filter((nodegroup) => activeNgCols.some((column) => getNgValue(nodegroup, column.key).toLowerCase().includes(q)))
+  }, [activeNgCols, ngSearch, nodegroups])
+  const selectedNodegroup = useMemo(() => nodegroups.find((nodegroup) => nodegroup.name === selectedNg) ?? null, [nodegroups, selectedNg])
+  const healthyClusters = useMemo(() => clusters.filter((cluster) => statusTone(cluster.status) === 'success').length, [clusters])
+  const totalDesiredNodes = useMemo(() => nodegroups.reduce((sum, nodegroup) => sum + Number(nodegroup.desired || 0), 0), [nodegroups])
 
-  /* ── Load clusters on mount ─────────────────────────── */
   async function reload() {
     setLoading(true)
     setError('')
     try {
       const list = await listEksClusters(connection)
       setClusters(list)
-      if (list.length && !selectedCluster) {
-        await selectCluster(list[0].name)
-      }
+      if (list.length && !selectedCluster) await selectCluster(list[0].name)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -184,18 +198,12 @@ export function EksConsole({
     }
   }
 
-useEffect(() => { void reload() }, [connection.sessionId, connection.region])
+  useEffect(() => { void reload() }, [connection.sessionId, connection.region])
 
   useEffect(() => {
-    if (!focusClusterName || focusClusterName.token === appliedFocusToken) {
-      return
-    }
-
+    if (!focusClusterName || focusClusterName.token === appliedFocusToken) return
     const match = clusters.find((cluster) => cluster.name === focusClusterName.clusterName)
-    if (!match) {
-      return
-    }
-
+    if (!match) return
     setAppliedFocusToken(focusClusterName.token)
     setSideTab('overview')
     void selectCluster(match.name)
@@ -216,28 +224,28 @@ useEffect(() => { void reload() }, [connection.sessionId, connection.region])
     setLabReport(null)
     setLabError('')
     try {
-      const [d, ngs] = await Promise.all([
+      const [clusterDetail, clusterNodegroups] = await Promise.all([
         describeEksCluster(connection, name),
         listEksNodegroups(connection, name)
       ])
-      setDetail(d)
-      setNodegroups(ngs)
-      if (ngs.length) setSelectedNg(ngs[0].name)
+      setDetail(clusterDetail)
+      setNodegroups(clusterNodegroups)
+      setSelectedNg(clusterNodegroups[0]?.name ?? '')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
   }
 
-  /* ── Timeline ───────────────────────────────────────── */
   async function loadTimeline() {
     if (!selectedCluster) return
     setTimelineLoading(true)
     setTimelineError('')
     try {
       const events = await lookupCloudTrailEventsByResource(
-        connection, selectedCluster,
+        connection,
+        selectedCluster,
         new Date(timelineStart).toISOString(),
-        new Date(timelineEnd + 'T23:59:59').toISOString()
+        new Date(`${timelineEnd}T23:59:59`).toISOString()
       )
       setTimelineEvents(events)
     } catch (e) {
@@ -273,12 +281,9 @@ useEffect(() => { void reload() }, [connection.sessionId, connection.region])
   }, [connection, labReport, selectedCluster, sideTab])
 
   function handleLabSignalNavigate(signal: CorrelatedSignalReference) {
-    if (signal.targetView === 'timeline') {
-      setSideTab('timeline')
-    }
+    if (signal.targetView === 'timeline') setSideTab('timeline')
   }
 
-  /* ── Actions ────────────────────────────────────────── */
   function openKubeconfigForm() {
     if (!selectedCluster) return
     setShowKubeconfigForm(true)
@@ -287,21 +292,23 @@ useEffect(() => { void reload() }, [connection.sessionId, connection.region])
     setKubeconfigErr('')
   }
 
+  async function browseKubeconfigLocation() {
+    if (kubeconfigBusy) return
+    setKubeconfigErr('')
+    try {
+      const selectedPath = await chooseEksKubeconfigPath(kubeconfigLocation)
+      if (selectedPath) setKubeconfigLocation(selectedPath)
+    } catch (e) {
+      setKubeconfigErr(e instanceof Error ? e.message : String(e))
+    }
+  }
+
   async function handleKubeconfig() {
     if (!selectedCluster) return
     const contextName = kubeconfigContextName.trim()
     const kubeconfigPath = kubeconfigLocation.trim()
-
-    if (!contextName) {
-      setKubeconfigErr('Context name is required')
-      return
-    }
-
-    if (!kubeconfigPath) {
-      setKubeconfigErr('Config location is required')
-      return
-    }
-
+    if (!contextName) return setKubeconfigErr('Context name is required')
+    if (!kubeconfigPath) return setKubeconfigErr('Config location is required')
     setMsg('')
     setError('')
     setKubeconfigErr('')
@@ -320,20 +327,14 @@ useEffect(() => { void reload() }, [connection.sessionId, connection.region])
   async function handleScale() {
     if (!selectedCluster || !selectedNg) return
     const minN = Number(scaleMin)
-    const desN = Number(scaleDesired)
+    const desiredN = Number(scaleDesired)
     const maxN = Number(scaleMax)
-    if (isNaN(minN) || isNaN(desN) || isNaN(maxN)) {
-      setScaleErr('Values must be numbers')
-      return
-    }
-    if (minN < 0 || desN < minN || desN > maxN) {
-      setScaleErr('Must satisfy: 0 <= min <= desired <= max')
-      return
-    }
+    if (Number.isNaN(minN) || Number.isNaN(desiredN) || Number.isNaN(maxN)) return setScaleErr('Values must be numbers')
+    if (minN < 0 || desiredN < minN || desiredN > maxN) return setScaleErr('Must satisfy: 0 <= min <= desired <= max')
     setScaleErr('')
     setScaleBusy(true)
     try {
-      await updateEksNodegroupScaling(connection, selectedCluster, selectedNg, minN, desN, maxN)
+      await updateEksNodegroupScaling(connection, selectedCluster, selectedNg, minN, desiredN, maxN)
       setNodegroups(await listEksNodegroups(connection, selectedCluster))
       setShowScale(false)
       setMsg(`Scaled ${selectedNg} successfully`)
@@ -344,7 +345,6 @@ useEffect(() => { void reload() }, [connection.sessionId, connection.region])
     }
   }
 
-  /* ── Terminal ───────────────────────────────────────── */
   async function openTerminal() {
     if (!selectedCluster || terminalBusy) return
     setTerminalBusy(true)
@@ -352,9 +352,7 @@ useEffect(() => { void reload() }, [connection.sessionId, connection.region])
     setMsg('')
     try {
       const result = await prepareEksKubectlSession(connection, selectedCluster)
-      const command = connection.kind === 'profile'
-        ? `$env:KUBECONFIG = '${result.path.replace(/'/g, "''")}'; Write-Host 'kubectl context ready for cluster: ${selectedCluster.replace(/'/g, "''")}'; Write-Host ''; kubectl cluster-info`
-        : `$env:KUBECONFIG = '${result.path.replace(/'/g, "''")}'; Write-Host 'kubectl context ready for cluster: ${selectedCluster.replace(/'/g, "''")}'; Write-Host ''; kubectl cluster-info`
+      const command = `$env:KUBECONFIG = '${result.path.replace(/'/g, "''")}'; Write-Host 'kubectl context ready for cluster: ${selectedCluster.replace(/'/g, "''")}'; Write-Host ''; kubectl cluster-info`
       onRunTerminalCommand?.(command)
       setMsg(`Opened kubectl terminal for ${selectedCluster} in the app terminal`)
     } catch (e) {
@@ -369,47 +367,42 @@ useEffect(() => { void reload() }, [connection.sessionId, connection.region])
     const cmd = terminalCmd.trim()
     setTerminalCmd('')
     setTerminalBusy(true)
-    setTerminalOutput(prev => prev + `$ ${cmd}\n`)
-
+    setTerminalOutput((previous) => `${previous}$ ${cmd}\n`)
     try {
       const output = await runEksCommand(connection, selectedCluster, terminalKubeconfigPath, cmd)
-      setTerminalOutput(prev => prev + output + '\n')
+      setTerminalOutput((previous) => `${previous}${output}\n`)
     } catch (e) {
-      setTerminalOutput(prev => prev + `Error: ${e instanceof Error ? e.message : String(e)}\n`)
+      setTerminalOutput((previous) => `${previous}Error: ${e instanceof Error ? e.message : String(e)}\n`)
     } finally {
       setTerminalBusy(false)
       setTimeout(() => {
-        if (terminalOutputRef.current) {
-          terminalOutputRef.current.scrollTop = terminalOutputRef.current.scrollHeight
-        }
+        if (terminalOutputRef.current) terminalOutputRef.current.scrollTop = terminalOutputRef.current.scrollHeight
       }, 50)
     }
   }
 
-  /* ── Scale form pre-fill ────────────────────────────── */
   function openScaleForm() {
-    const ng = nodegroups.find(n => n.name === selectedNg)
-    if (ng) {
-      setScaleMin(String(ng.min))
-      setScaleDesired(String(ng.desired))
-      setScaleMax(String(ng.max))
+    const nodegroup = nodegroups.find((item) => item.name === selectedNg)
+    if (nodegroup) {
+      setScaleMin(String(nodegroup.min))
+      setScaleDesired(String(nodegroup.desired))
+      setScaleMax(String(nodegroup.max))
     }
     setScaleErr('')
     setShowScale(true)
   }
 
-  /* ── Column toggle helpers ──────────────────────────── */
   function toggleClusterCol(key: ClusterCol) {
-    setVisibleClusterCols(prev => {
-      const next = new Set(prev)
+    setVisibleClusterCols((previous) => {
+      const next = new Set(previous)
       next.has(key) ? next.delete(key) : next.add(key)
       return next
     })
   }
 
   function toggleNgCol(key: NgCol) {
-    setVisibleNgCols(prev => {
-      const next = new Set(prev)
+    setVisibleNgCols((previous) => {
+      const next = new Set(previous)
       next.has(key) ? next.delete(key) : next.add(key)
       return next
     })
@@ -419,337 +412,327 @@ useEffect(() => { void reload() }, [connection.sessionId, connection.region])
 
   return (
     <div className="eks-console">
+      <section className="eks-shell-hero">
+        <div className="eks-shell-hero-copy">
+          <div className="eyebrow">EKS service</div>
+          <h2>{detail ? detail.name : 'Kubernetes operations center'}</h2>
+          <p>
+            {detail
+              ? `Inspect control plane posture, nodegroup capacity, CloudTrail activity, and kubeconfig workflows for ${detail.name}.`
+              : 'Review cluster health, drill into nodegroups, and move into kubectl workflows from one EKS workspace.'}
+          </p>
+          <div className="eks-shell-meta-strip">
+            <div className="eks-shell-meta-pill"><span>Connection</span><strong>{connection.kind === 'profile' ? connection.profile : connection.sessionId}</strong></div>
+            <div className="eks-shell-meta-pill"><span>Region</span><strong>{connection.region}</strong></div>
+            <div className="eks-shell-meta-pill"><span>Selected cluster</span><strong>{selectedCluster || 'None selected'}</strong></div>
+            <div className="eks-shell-meta-pill"><span>Access</span><strong>{accessSummary(detail)}</strong></div>
+          </div>
+        </div>
+        <div className="eks-shell-hero-stats">
+          <MetricCard label="Clusters" value={clusters.length} note={`${healthyClusters} healthy in this region`} tone="success" />
+          <MetricCard label="Nodegroups" value={selectedCluster ? nodegroups.length : 0} note={selectedCluster ? 'Attached to the selected cluster' : 'Select a cluster to inspect capacity'} />
+          <MetricCard label="Desired nodes" value={selectedCluster ? totalDesiredNodes : 0} note={selectedCluster ? 'Aggregated desired count across visible nodegroups' : 'No cluster selected yet'} tone="warning" />
+          <MetricCard label="Timeline window" value={`${timelineStart.slice(5)} - ${timelineEnd.slice(5)}`} note={selectedCluster ? 'CloudTrail activity range for the selected cluster' : 'Ready when a cluster is selected'} />
+        </div>
+      </section>
+
+      <div className="eks-shell-toolbar">
+        <div className="eks-toolbar">
+          <button className="eks-toolbar-btn accent" type="button" onClick={() => void reload()} disabled={loading}>Reload inventory</button>
+          <button className="eks-toolbar-btn" type="button" onClick={() => setShowDescribe((current) => !current)} disabled={!selectedCluster}>{showDescribe ? 'Hide details' : 'Describe cluster'}</button>
+          <button className="eks-toolbar-btn" type="button" onClick={openKubeconfigForm} disabled={!selectedCluster}>Add to kubeconfig</button>
+          <button className="eks-toolbar-btn" type="button" onClick={openScaleForm} disabled={!selectedCluster || !nodegroups.length}>Scale nodegroup</button>
+          <button className="eks-toolbar-btn" type="button" onClick={openTerminal} disabled={!selectedCluster || terminalBusy}>Open kubectl terminal</button>
+        </div>
+        <div className="eks-shell-status">
+          <div className="eks-status-card"><span>Inventory</span><strong>{loading ? 'Refreshing' : `${clusters.length} clusters loaded`}</strong></div>
+          <div className="eks-status-card"><span>Selection</span><strong>{selectedCluster ? truncate(selectedCluster, 28) : 'Waiting for selection'}</strong></div>
+          <div className="eks-status-card"><span>Mode</span><strong>{sideTab === 'overview' ? 'Capacity review' : sideTab === 'timeline' ? 'Change timeline' : 'Resilience lab'}</strong></div>
+        </div>
+      </div>
+
       {error && <SvcState variant="error" error={error} />}
       {msg && <div className="eks-msg">{msg}</div>}
 
       <div className="eks-main-layout">
-        {/* ── Left: cluster list ──────────────────────── */}
-        <div className="eks-list-panel">
-          <input
-            className="eks-search-input"
-            placeholder="Filter rows across selected columns..."
-            value={clusterSearch}
-            onChange={e => setClusterSearch(e.target.value)}
-          />
-
+        <div className="eks-project-table-area">
+          <div className="eks-pane-head">
+            <div><span className="eks-pane-kicker">Cluster inventory</span><h3>Regional clusters</h3></div>
+            <span className="eks-pane-summary">{filteredClusters.length} shown</span>
+          </div>
+          <input className="eks-search-input" placeholder="Filter clusters across selected columns..." value={clusterSearch} onChange={(event) => setClusterSearch(event.target.value)} />
           <div className="eks-column-chips">
-            {CLUSTER_COLUMNS.map(col => (
+            {CLUSTER_COLUMNS.map((column) => (
               <button
-                key={col.key}
-                className={`eks-chip ${visibleClusterCols.has(col.key) ? 'active' : ''}`}
+                key={column.key}
+                className={`eks-chip ${visibleClusterCols.has(column.key) ? 'active' : ''}`}
                 type="button"
-                style={visibleClusterCols.has(col.key) ? { background: col.color, borderColor: col.color, color: '#fff' } : undefined}
-                onClick={() => toggleClusterCol(col.key)}
+                style={visibleClusterCols.has(column.key) ? { background: column.color, borderColor: column.color, color: '#08111b' } : undefined}
+                onClick={() => toggleClusterCol(column.key)}
               >
-                {col.label}
+                {column.label}
               </button>
             ))}
           </div>
-
-          <div className="eks-list-scroll">
-            <table className="eks-list-table">
-              <thead>
-                <tr>
-                  {activeClusterCols.map(col => (
-                    <th key={col.key}>{col.label}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredClusters.map(c => (
-                  <tr
-                    key={c.name}
-                    className={c.name === selectedCluster ? 'active' : ''}
-                    onClick={() => void selectCluster(c.name)}
-                  >
-                    {activeClusterCols.map(col => (
-                      <td key={col.key}>
-                        {col.key === 'status' ? <StatusBadge status={c.status} /> :
-                         col.key === 'name' ? c.name : c.version}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-                {!filteredClusters.length && (
-                  <tr><td colSpan={activeClusterCols.length} style={{ color: '#9ca7b7' }}>No clusters found.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Describe panel */}
-          {showDescribe && detail && (
-            <div className="eks-describe-panel">
-              <h4>Cluster: {detail.name}</h4>
-              <div className="eks-describe-grid">
-                <div className="eks-kv"><span>Status</span><strong>{detail.status}</strong></div>
-                <div className="eks-kv"><span>Version</span><strong>{detail.version}</strong></div>
-                <div className="eks-kv"><span>Platform</span><strong>{detail.platformVersion}</strong></div>
-                <div className="eks-kv"><span>Created</span><strong>{detail.createdAt !== '-' ? new Date(detail.createdAt).toLocaleString() : '-'}</strong></div>
-                <div className="eks-kv"><span>VPC</span><strong>{detail.vpcId}</strong></div>
-                <div className="eks-kv"><span>Role ARN</span><strong style={{ fontSize: '10px' }}>{detail.roleArn}</strong></div>
-                <div className="eks-kv"><span>Public Endpoint</span><strong>{detail.endpointPublicAccess ? 'Yes' : 'No'}</strong></div>
-                <div className="eks-kv"><span>Private Endpoint</span><strong>{detail.endpointPrivateAccess ? 'Yes' : 'No'}</strong></div>
-                <div className="eks-kv"><span>Service CIDR</span><strong>{detail.serviceIpv4Cidr}</strong></div>
-                <div className="eks-kv"><span>OIDC Issuer</span><strong style={{ fontSize: '10px' }}>{detail.oidcIssuer}</strong></div>
-                <div className="eks-kv"><span>Subnets</span><strong style={{ fontSize: '10px' }}>{detail.subnetIds.join(', ') || '-'}</strong></div>
-                <div className="eks-kv"><span>Logging</span><strong>{detail.loggingEnabled.length ? detail.loggingEnabled.join(', ') : 'None'}</strong></div>
-              </div>
-            </div>
-          )}
-
-          <div className="eks-cluster-actions">
-            <button type="button" onClick={() => setShowDescribe(!showDescribe)} disabled={!selectedCluster}>
-              Describe
-            </button>
-            <button type="button" className="accent" onClick={openKubeconfigForm} disabled={!selectedCluster}>
-              Add to kubeconfig
-            </button>
-          </div>
-
-          {showKubeconfigForm && (
-            <div className="eks-kubeconfig-modal">
-              <h4>Add Cluster To kubeconfig</h4>
-              <div className="eks-kubeconfig-form">
-                <label>
-                  Context name
-                  <input
-                    value={kubeconfigContextName}
-                    onChange={(event) => setKubeconfigContextName(event.target.value)}
-                    placeholder="my-eks-context"
-                    autoFocus
-                  />
-                </label>
-                <label>
-                  Config location
-                  <input
-                    value={kubeconfigLocation}
-                    onChange={(event) => setKubeconfigLocation(event.target.value)}
-                    placeholder=".kube/config"
-                  />
-                </label>
-              </div>
-              <div className="eks-kubeconfig-actions">
-                <button type="button" onClick={() => setShowKubeconfigForm(false)} disabled={kubeconfigBusy}>
-                  Cancel
+          {filteredClusters.length === 0 ? (
+            <SvcState variant="empty" message="No clusters found for the active filters." />
+          ) : (
+            <div className="eks-project-list">
+              {filteredClusters.map((cluster) => (
+                <button key={cluster.name} type="button" className={`eks-project-row ${cluster.name === selectedCluster ? 'active' : ''}`} onClick={() => void selectCluster(cluster.name)}>
+                  <div className="eks-project-row-top">
+                    <div className="eks-project-row-copy">
+                      {showClusterName && <strong>{cluster.name}</strong>}
+                      <span title={cluster.endpoint}>{truncate(cluster.endpoint, 46)}</span>
+                    </div>
+                    {showClusterStatus && <StatusBadge status={cluster.status} />}
+                  </div>
+                  <div className="eks-project-row-meta">
+                    {showClusterVersion && <span>Kubernetes {cluster.version}</span>}
+                    <span>{connection.region}</span>
+                  </div>
+                  <div className="eks-project-row-metrics">
+                    <div><span>Role</span><strong>{truncate(cluster.roleArn, 32)}</strong></div>
+                    <div><span>Endpoint</span><strong>{cluster.endpoint ? 'Configured' : 'Unavailable'}</strong></div>
+                    {showClusterStatus && <div><span>Status</span><strong>{cluster.status}</strong></div>}
+                  </div>
                 </button>
-                <button type="button" className="accent" onClick={() => void handleKubeconfig()} disabled={kubeconfigBusy}>
-                  {kubeconfigBusy ? 'Adding...' : 'Add'}
-                </button>
-              </div>
-              {kubeconfigErr && <div className="eks-scale-err">{kubeconfigErr}</div>}
+              ))}
             </div>
           )}
         </div>
-
-        {/* ── Right: detail panel ─────────────────────── */}
-        <div className="eks-detail-panel">
-          <div className="eks-side-tabs">
-            <button
-              type="button"
-              className={sideTab === 'overview' ? 'active' : ''}
-              onClick={() => setSideTab('overview')}
-            >Overview</button>
-            <button
-              type="button"
-              className={sideTab === 'timeline' ? 'active' : ''}
-              onClick={() => setSideTab('timeline')}
-            >Change Timeline</button>
-            <button
-              type="button"
-              className={sideTab === 'lab' ? 'active' : ''}
-              onClick={() => setSideTab('lab')}
-            >Resilience Lab</button>
-          </div>
-
-          <div className="eks-detail-content">
-            {/* ── Overview tab: nodegroup table ──────── */}
-            {sideTab === 'overview' && (
-              <div className="eks-ng-table-area">
-                <input
-                  className="eks-search-input"
-                  placeholder="Filter rows across selected columns..."
-                  value={ngSearch}
-                  onChange={e => setNgSearch(e.target.value)}
-                />
-
-                <div className="eks-column-chips">
-                  {NG_COLUMNS.map(col => (
-                    <button
-                      key={col.key}
-                      className={`eks-chip ${visibleNgCols.has(col.key) ? 'active' : ''}`}
-                      type="button"
-                      style={visibleNgCols.has(col.key) ? { background: col.color, borderColor: col.color, color: '#fff' } : undefined}
-                      onClick={() => toggleNgCol(col.key)}
-                    >
-                      {col.label}
-                    </button>
-                  ))}
+        <div className="eks-detail-pane">
+          {!detail ? (
+            <SvcState variant="no-selection" resourceName="cluster" message="Select a cluster to view EKS details." />
+          ) : (
+            <>
+              <section className="eks-detail-hero">
+                <div className="eks-detail-hero-copy">
+                  <div className="eyebrow">Cluster posture</div>
+                  <h3>{detail.name}</h3>
+                  <p>{truncate(detail.endpoint, 88)}</p>
+                  <div className="eks-detail-meta-strip">
+                    <div className="eks-detail-meta-pill"><span>Status</span><strong>{detail.status}</strong></div>
+                    <div className="eks-detail-meta-pill"><span>Version</span><strong>{detail.version}</strong></div>
+                    <div className="eks-detail-meta-pill"><span>Platform</span><strong>{detail.platformVersion}</strong></div>
+                    <div className="eks-detail-meta-pill"><span>VPC</span><strong>{detail.vpcId}</strong></div>
+                  </div>
                 </div>
-
-                <div className="eks-ng-scroll">
-                  <table className="eks-data-table">
-                    <thead>
-                      <tr>
-                        {activeNgCols.map(col => (
-                          <th key={col.key}>{col.label}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredNodegroups.map(ng => (
-                        <tr
-                          key={ng.name}
-                          className={ng.name === selectedNg ? 'active' : ''}
-                          onClick={() => setSelectedNg(ng.name)}
-                        >
-                          {activeNgCols.map(col => (
-                            <td key={col.key}>
-                              {col.key === 'status' ? <StatusBadge status={ng.status} /> : getNgValue(ng, col.key)}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                      {!selectedCluster && (
-                        <tr><td colSpan={activeNgCols.length} style={{ color: '#9ca7b7' }}>Select a cluster.</td></tr>
-                      )}
-                      {selectedCluster && !filteredNodegroups.length && (
-                        <tr><td colSpan={activeNgCols.length} style={{ color: '#9ca7b7' }}>No node groups found.</td></tr>
-                      )}
-                    </tbody>
-                  </table>
+                <div className="eks-detail-hero-stats">
+                  <MetricCard label="Endpoint access" value={accessSummary(detail)} note={`${detail.publicAccessCidrs.length || 0} public CIDR entries`} tone={detail.endpointPrivateAccess ? 'success' : 'warning'} />
+                  <MetricCard label="Nodegroups" value={nodegroups.length} note={selectedNodegroup ? `${selectedNodegroup.name} selected` : 'No nodegroups found'} />
+                  <MetricCard label="Logging" value={detail.loggingEnabled.length || 0} note={detail.loggingEnabled.length ? detail.loggingEnabled.join(', ') : 'No control plane logging enabled'} tone={detail.loggingEnabled.length ? 'info' : 'danger'} />
+                  <MetricCard label="Created" value={formatDateTime(detail.createdAt)} note="Cluster creation time" />
                 </div>
+              </section>
 
-                {/* Scale modal */}
-                {showScale && (
-                  <div className="eks-scale-modal">
-                    <h4>Scale Nodegroup: {selectedNg}</h4>
-                    <div className="eks-scale-form">
-                      <label>
-                        Nodegroup
-                        <select value={selectedNg} onChange={e => {
-                          setSelectedNg(e.target.value)
-                          const ng = nodegroups.find(n => n.name === e.target.value)
-                          if (ng) { setScaleMin(String(ng.min)); setScaleDesired(String(ng.desired)); setScaleMax(String(ng.max)) }
-                        }}>
-                          {nodegroups.map(ng => (
-                            <option key={ng.name} value={ng.name}>{ng.name}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>Min<input type="number" value={scaleMin} onChange={e => setScaleMin(e.target.value)} /></label>
-                      <label>Desired<input type="number" value={scaleDesired} onChange={e => setScaleDesired(e.target.value)} /></label>
-                      <label>Max<input type="number" value={scaleMax} onChange={e => setScaleMax(e.target.value)} /></label>
-                      <button type="button" className="eks-scale-apply" disabled={scaleBusy} onClick={() => void handleScale()}>
-                        {scaleBusy ? 'Applying...' : 'Apply'}
-                      </button>
+              <div className="eks-detail-tabs">
+                <button className={sideTab === 'overview' ? 'active' : ''} type="button" onClick={() => setSideTab('overview')}>Overview</button>
+                <button className={sideTab === 'timeline' ? 'active' : ''} type="button" onClick={() => setSideTab('timeline')}>Change timeline</button>
+                <button className={sideTab === 'lab' ? 'active' : ''} type="button" onClick={() => setSideTab('lab')}>Resilience lab</button>
+              </div>
+
+              {sideTab === 'overview' && (
+                <section className="eks-section eks-nodegroups-section">
+                  {showDescribe && (
+                    <section className="eks-section eks-cluster-details-panel">
+                      <div className="eks-section-head">
+                        <div><span className="eks-section-kicker">Describe</span><h4>Cluster details</h4></div>
+                        <span className="eks-section-hint">Detailed control plane and networking configuration for the selected cluster.</span>
+                      </div>
+                      <div className="eks-kv">
+                        <InfoRow label="Cluster endpoint" value={detail.endpoint} />
+                        <InfoRow label="Role ARN" value={detail.roleArn} />
+                        <InfoRow label="OIDC issuer" value={detail.oidcIssuer} />
+                        <InfoRow label="Cluster security group" value={detail.clusterSecurityGroupId} />
+                        <InfoRow label="Security groups" value={detail.securityGroupIds.join(', ') || '-'} />
+                        <InfoRow label="Subnets" value={detail.subnetIds.join(', ') || '-'} />
+                        <InfoRow label="Service CIDR" value={detail.serviceIpv4Cidr} />
+                        <InfoRow label="Public access CIDRs" value={detail.publicAccessCidrs.join(', ') || '-'} />
+                        <InfoRow label="Tags" value={Object.entries(detail.tags).map(([key, value]) => `${key}=${value}`).join(', ') || '-'} />
+                      </div>
+                    </section>
+                  )}
+                  <section className="eks-section">
+                    <div className="eks-section-head">
+                      <div><span className="eks-section-kicker">Operations</span><h4>Cluster actions</h4></div>
+                      <span className="eks-section-hint">Actions keep existing behavior and operate on the selected cluster.</span>
                     </div>
-                    {scaleErr && <div className="eks-scale-err">{scaleErr}</div>}
+                    <div className="eks-action-grid">
+                      <button type="button" className="eks-action-btn accent" onClick={openKubeconfigForm}>Add to kubeconfig</button>
+                      <button type="button" className="eks-action-btn" onClick={openScaleForm} disabled={!nodegroups.length}>Scale nodegroup</button>
+                      <button type="button" className="eks-action-btn" onClick={openTerminal}>Open kubectl terminal</button>
+                      <button type="button" className="eks-action-btn" onClick={() => void loadTimeline()}>Refresh timeline</button>
+                    </div>
+                    {showScale && (
+                      <section className="eks-inline-panel eks-scale-inline-panel">
+                        <div className="eks-section-head">
+                          <div><span className="eks-section-kicker">Scaling</span><h4>Scale nodegroup</h4></div>
+                          <button type="button" className="eks-toolbar-btn" onClick={() => setShowScale(false)} disabled={scaleBusy}>Close</button>
+                        </div>
+                        <div className="eks-scale-form">
+                          <label>
+                            Nodegroup
+                            <select value={selectedNg} onChange={(event) => {
+                              setSelectedNg(event.target.value)
+                              const nodegroup = nodegroups.find((item) => item.name === event.target.value)
+                              if (nodegroup) {
+                                setScaleMin(String(nodegroup.min))
+                                setScaleDesired(String(nodegroup.desired))
+                                setScaleMax(String(nodegroup.max))
+                              }
+                            }}>
+                              {nodegroups.map((nodegroup) => <option key={nodegroup.name} value={nodegroup.name}>{nodegroup.name}</option>)}
+                            </select>
+                          </label>
+                          <label>Min<input type="number" value={scaleMin} onChange={(event) => setScaleMin(event.target.value)} /></label>
+                          <label>Desired<input type="number" value={scaleDesired} onChange={(event) => setScaleDesired(event.target.value)} /></label>
+                          <label>Max<input type="number" value={scaleMax} onChange={(event) => setScaleMax(event.target.value)} /></label>
+                          <button type="button" className="eks-toolbar-btn accent" disabled={scaleBusy} onClick={() => void handleScale()}>{scaleBusy ? 'Applying...' : 'Apply scale change'}</button>
+                        </div>
+                        {scaleErr && <div className="eks-inline-error">{scaleErr}</div>}
+                      </section>
+                    )}
+                  </section>
+                  <div className="eks-section-head">
+                    <div><span className="eks-section-kicker">Capacity</span><h4>Nodegroup inventory</h4></div>
+                    <span className="eks-section-hint">{filteredNodegroups.length} nodegroups match the active filters.</span>
                   </div>
-                )}
-              </div>
-            )}
-
-            {sideTab === 'lab' && (
-              <div className="eks-lab-panel">
-                <ObservabilityResilienceLab
-                  report={labReport}
-                  loading={labLoading}
-                  error={labError}
-                  onRefresh={() => void loadLab()}
-                  onNavigateSignal={handleLabSignalNavigate}
-                />
-              </div>
-            )}
-
-            {/* ── Change Timeline tab ───────────────── */}
-            {sideTab === 'timeline' && (
-              <div className="eks-ng-table-area">
-                <div className="eks-timeline-controls">
-                  <label>
-                    From
-                    <input type="date" value={timelineStart} onChange={e => setTimelineStart(e.target.value)} />
-                  </label>
-                  <label>
-                    To
-                    <input type="date" value={timelineEnd} onChange={e => setTimelineEnd(e.target.value)} />
-                  </label>
-                </div>
-                {!selectedCluster && <SvcState variant="no-selection" resourceName="cluster" message="Select a cluster to view events." compact />}
-                {selectedCluster && timelineLoading && <SvcState variant="loading" resourceName="events" compact />}
-                {selectedCluster && !timelineLoading && timelineError && (
-                  <SvcState variant="error" error={timelineError} compact />
-                )}
-                {selectedCluster && !timelineLoading && !timelineError && timelineEvents.length === 0 && (
-                  <SvcState variant="empty" resourceName="CloudTrail events" compact />
-                )}
-                {selectedCluster && !timelineLoading && timelineEvents.length > 0 && (
-                  <div className="eks-timeline-table-wrap">
-                    <table className="eks-timeline-table">
-                      <thead>
-                        <tr>
-                          <th>Event</th>
-                          <th>User</th>
-                          <th>Date</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {timelineEvents.map(ev => (
-                          <tr key={ev.eventId}>
-                            <td title={ev.eventSource}>{ev.eventName}</td>
-                            <td>{ev.username}</td>
-                            <td>{ev.eventTime !== '-' ? new Date(ev.eventTime).toLocaleString() : '-'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <input className="eks-search-input" placeholder="Filter nodegroups across selected columns..." value={ngSearch} onChange={(event) => setNgSearch(event.target.value)} />
+                  <div className="eks-column-chips">
+                    {NG_COLUMNS.map((column) => (
+                      <button
+                        key={column.key}
+                        className={`eks-chip ${visibleNgCols.has(column.key) ? 'active' : ''}`}
+                        type="button"
+                        style={visibleNgCols.has(column.key) ? { background: column.color, borderColor: column.color, color: '#08111b' } : undefined}
+                        onClick={() => toggleNgCol(column.key)}
+                      >
+                        {column.label}
+                      </button>
+                    ))}
                   </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* ── Operations bar ──────────────────────── */}
-          <div className="eks-operations-bar">
-            <h4>Cluster Operations</h4>
-            <div className="eks-operations-buttons">
-              <button
-                type="button"
-                className="eks-btn-scale"
-                disabled={!selectedCluster || !nodegroups.length}
-                onClick={openScaleForm}
-              >
-                Scale Nodegroup
-              </button>
-              <button
-                type="button"
-                className="eks-btn-terminal"
-                disabled={!selectedCluster}
-                onClick={openTerminal}
-              >
-                Open kubectl Terminal
-              </button>
-            </div>
-          </div>
+                  <div className="eks-nodegroup-layout">
+                    <div className="eks-table-shell">
+                      <div className="eks-ng-scroll">
+                        <table className="eks-data-table">
+                          <thead><tr>{activeNgCols.map((column) => <th key={column.key}>{column.label}</th>)}</tr></thead>
+                          <tbody>
+                            {!filteredNodegroups.length && <tr><td colSpan={activeNgCols.length} className="eks-table-empty">{selectedCluster ? 'No nodegroups found.' : 'Select a cluster.'}</td></tr>}
+                            {filteredNodegroups.map((nodegroup) => (
+                              <tr key={nodegroup.name} className={nodegroup.name === selectedNg ? 'active' : ''} onClick={() => setSelectedNg(nodegroup.name)}>
+                                {activeNgCols.map((column) => <td key={column.key}>{column.key === 'status' ? <StatusBadge status={nodegroup.status} /> : getNgValue(nodegroup, column.key)}</td>)}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                    <aside className="eks-side-card">
+                      <div className="eks-section-head">
+                        <div><span className="eks-section-kicker">Selection</span><h4>{selectedNodegroup?.name || 'Nodegroup details'}</h4></div>
+                      </div>
+                      {selectedNodegroup ? (
+                        <>
+                          <div className="eks-side-card-grid">
+                            <MetricCard label="Desired" value={selectedNodegroup.desired} note="Current desired capacity" tone="warning" />
+                            <MetricCard label="Min" value={selectedNodegroup.min} note="Lower autoscaling bound" />
+                            <MetricCard label="Max" value={selectedNodegroup.max} note="Upper autoscaling bound" />
+                            <MetricCard label="Status" value={selectedNodegroup.status} note="Latest nodegroup lifecycle state" tone={statusTone(selectedNodegroup.status)} />
+                          </div>
+                          <div className="eks-mini-kv">
+                            <InfoRow label="Instance types" value={selectedNodegroup.instanceTypes || '-'} />
+                            <InfoRow label="Recommendation" value="No recommendation data surfaced in this view" />
+                          </div>
+                        </>
+                      ) : <SvcState variant="empty" resourceName="nodegroup" compact />}
+                    </aside>
+                  </div>
+                </section>
+              )}
+              {sideTab === 'timeline' && (
+                <section className="eks-section">
+                  <div className="eks-section-head">
+                    <div><span className="eks-section-kicker">CloudTrail</span><h4>Change timeline</h4></div>
+                  </div>
+                  <div className="eks-timeline-controls">
+                    <label>From<input type="date" value={timelineStart} onChange={(event) => setTimelineStart(event.target.value)} /></label>
+                    <label>To<input type="date" value={timelineEnd} onChange={(event) => setTimelineEnd(event.target.value)} /></label>
+                  </div>
+                  {timelineLoading && <SvcState variant="loading" resourceName="events" compact />}
+                  {!timelineLoading && timelineError && <SvcState variant="error" error={timelineError} compact />}
+                  {!timelineLoading && !timelineError && timelineEvents.length === 0 && <SvcState variant="empty" resourceName="CloudTrail events" compact />}
+                  {!timelineLoading && timelineEvents.length > 0 && (
+                    <div className="eks-table-shell eks-timeline-table-wrap">
+                      <table className="eks-timeline-table">
+                        <thead><tr><th>Event</th><th>User</th><th>Source</th><th>Date</th></tr></thead>
+                        <tbody>
+                          {timelineEvents.map((event) => (
+                            <tr key={event.eventId}>
+                              <td title={event.eventSource}>{event.eventName}</td>
+                              <td>{event.username}</td>
+                              <td>{event.sourceIpAddress}</td>
+                              <td>{formatDateTime(event.eventTime)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </section>
+              )}
+              {sideTab === 'lab' && (
+                <section className="eks-section eks-lab-shell">
+                  <ObservabilityResilienceLab
+                    report={labReport}
+                    loading={labLoading}
+                    error={labError}
+                    onRefresh={() => void loadLab()}
+                    onNavigateSignal={handleLabSignalNavigate}
+                  />
+                </section>
+              )}
+            </>
+          )}
         </div>
       </div>
-
-      {/* ── Embedded terminal ──────────────────────────── */}
+      {showKubeconfigForm && (
+        <div className="eks-modal-backdrop" onClick={() => { if (!kubeconfigBusy) setShowKubeconfigForm(false) }}>
+          <section className="eks-modal-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="eks-section-head">
+              <div><span className="eks-section-kicker">Kubeconfig</span><h4>Add selected cluster</h4></div>
+            </div>
+            <div className="eks-form-grid">
+              <label>Context name<input value={kubeconfigContextName} onChange={(event) => setKubeconfigContextName(event.target.value)} placeholder="my-eks-context" autoFocus /></label>
+              <label>
+                Config location
+                <div className="eks-picker-field">
+                  <input value={kubeconfigLocation} placeholder=".kube/config" readOnly />
+                  <button type="button" className="eks-toolbar-btn" onClick={() => void browseKubeconfigLocation()} disabled={kubeconfigBusy}>Browse</button>
+                </div>
+              </label>
+            </div>
+            <div className="eks-inline-actions">
+              <button type="button" className="eks-toolbar-btn" onClick={() => setShowKubeconfigForm(false)} disabled={kubeconfigBusy}>Cancel</button>
+              <button type="button" className="eks-toolbar-btn accent" onClick={() => void handleKubeconfig()} disabled={kubeconfigBusy}>{kubeconfigBusy ? 'Adding...' : 'Add to kubeconfig'}</button>
+            </div>
+            {kubeconfigErr && <div className="eks-inline-error">{kubeconfigErr}</div>}
+          </section>
+        </div>
+      )}
       {terminalOpen && (
         <div className="eks-terminal-panel">
           <div className="eks-terminal-header">
-            <span>kubectl Terminal - {selectedCluster}</span>
+            <span>kubectl terminal - {selectedCluster}</span>
             <button type="button" onClick={() => { setTerminalOpen(false); setTerminalKubeconfigPath('') }}>Close</button>
           </div>
-          <div className="eks-terminal-output" ref={terminalOutputRef}>
-            {terminalOutput}
-          </div>
+          <div className="eks-terminal-output" ref={terminalOutputRef}>{terminalOutput}</div>
           <div className="eks-terminal-input-row">
             <span className="eks-terminal-prompt">$</span>
             <input
               value={terminalCmd}
-              onChange={e => setTerminalCmd(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') void runTerminalCommand() }}
+              onChange={(event) => setTerminalCmd(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Enter') void runTerminalCommand() }}
               placeholder={terminalBusy ? 'Running...' : 'Type a command (e.g. kubectl get nodes)'}
               disabled={terminalBusy}
               autoFocus

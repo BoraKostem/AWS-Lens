@@ -1,0 +1,253 @@
+.waf-console {
+  gap: 12px;
+}
+
+.waf-shell-toolbar {
+  align-items: stretch;
+}
+
+.waf-toolbar-status {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.waf-toolbar-field,
+.waf-toolbar-badge,
+.waf-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.waf-toolbar-field span,
+.waf-toolbar-badge span,
+.waf-field span {
+  color: #8fa3ba;
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.waf-toolbar-field select,
+.waf-toolbar-badge,
+.waf-search-input,
+.waf-json-editor {
+  border-radius: 12px;
+}
+
+.waf-toolbar-badge {
+  min-width: 132px;
+  justify-content: center;
+  padding: 8px 12px;
+  border: 1px solid rgba(145, 176, 207, 0.14);
+  background: linear-gradient(180deg, rgba(20, 28, 40, 0.94), rgba(13, 20, 31, 0.94));
+}
+
+.waf-toolbar-badge strong {
+  color: #edf4fb;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  font-size: 0.9rem;
+  letter-spacing: -0.03em;
+}
+
+.waf-list-pane {
+  gap: 12px;
+}
+
+.waf-filter-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.waf-search-input {
+  min-height: 42px;
+}
+
+.waf-chip-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.waf-chip-row-tight {
+  margin-bottom: 12px;
+}
+
+.waf-chip {
+  padding: 7px 12px;
+  border: 1px solid rgba(145, 176, 207, 0.12);
+  border-radius: 999px;
+  background: rgba(8, 14, 22, 0.76);
+  color: #a6bbcf;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.waf-chip.active {
+  color: #081019;
+}
+
+.waf-acl-row {
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.waf-detail-pane {
+  gap: 14px;
+}
+
+.waf-detail-pane .tf-project-info-shell,
+.waf-detail-pane .tf-collapsible {
+  overflow: visible;
+}
+
+.waf-detail-pane .tf-collapsible {
+  border-radius: 16px;
+}
+
+.waf-detail-pane .tf-collapsible-body {
+  padding-bottom: 18px;
+}
+
+.waf-detail-pane .tf-kv-row {
+  grid-template-columns: minmax(120px, 160px) minmax(0, 1fr);
+  align-items: start;
+}
+
+.waf-detail-pane .tf-kv-value {
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.waf-section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.waf-section-head h3 {
+  margin: 4px 0 0;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  font-size: 1rem;
+  letter-spacing: -0.03em;
+  color: #edf4fb;
+}
+
+.waf-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.waf-field-span-2 {
+  grid-column: span 2;
+}
+
+.waf-action-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.waf-inline-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.waf-grid-table {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.waf-grid-table-head,
+.waf-grid-table-row {
+  display: grid;
+  gap: 10px;
+  align-items: center;
+  border-radius: 14px;
+}
+
+.waf-grid-table-head {
+  padding: 10px 12px;
+  border: 1px solid rgba(245, 154, 61, 0.12);
+  background: linear-gradient(180deg, rgba(42, 31, 22, 0.72), rgba(24, 19, 15, 0.72));
+  color: #ffc789;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.waf-grid-table-row {
+  padding: 12px;
+  border: 1px solid rgba(145, 176, 207, 0.08);
+  background: linear-gradient(180deg, rgba(12, 18, 26, 0.98), rgba(10, 15, 22, 0.98));
+  color: #dbe7f4;
+  font-size: 0.8rem;
+}
+
+.waf-rule-grid {
+  grid-template-columns: minmax(0, 1.4fr) 120px 120px minmax(0, 1fr) auto;
+}
+
+.waf-association-grid {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.waf-inline-action {
+  min-width: 88px;
+  width: auto;
+}
+
+.waf-json-editor,
+.waf-mono {
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+}
+
+.waf-json-editor {
+  width: 100%;
+  min-height: 320px;
+  background: rgba(7, 13, 22, 0.96);
+}
+
+@media (max-width: 1100px) {
+  .waf-rule-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .waf-grid-table-head.waf-rule-grid {
+    display: none;
+  }
+}
+
+@media (max-width: 960px) {
+  .waf-toolbar-status,
+  .waf-inline-form,
+  .waf-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .waf-field-span-2 {
+    grid-column: auto;
+  }
+
+  .waf-association-grid,
+  .waf-rule-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .waf-grid-table-head {
+    display: none;
+  }
+}

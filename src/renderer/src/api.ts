@@ -811,6 +811,10 @@ export async function addEksToKubeconfig(
   return unwrap((await awsBridge().addEksToKubeconfig(connection, clusterName, contextName, kubeconfigPath)) as Wrapped<string>)
 }
 
+export async function chooseEksKubeconfigPath(currentPath?: string): Promise<string> {
+  return unwrap((await rawAwsBridge().chooseEksKubeconfigPath(currentPath)) as Wrapped<string>)
+}
+
 export async function launchKubectlTerminal(connection: AwsConnection, clusterName: string): Promise<void> {
   return unwrap((await awsBridge().launchKubectlTerminal(connection, clusterName)) as Wrapped<void>)
 }

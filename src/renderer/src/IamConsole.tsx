@@ -1206,51 +1206,141 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
   const activeRoleCols = ROLE_COLS.filter(c => roleVisibleCols.has(c.key))
   const filteredPolicies = filterItems(policies, policyFilter, POLICY_COLS, policyVisibleCols)
   const activePolicyCols = POLICY_COLS.filter(c => policyVisibleCols.has(c.key))
+  const scopeLabel = connection.kind === 'profile' ? connection.profile : connection.sessionId
+  const selectedSummary =
+    mainTab === 'users'
+      ? selectedUser?.userName
+      : mainTab === 'groups'
+        ? selectedGroup?.groupName
+        : mainTab === 'roles'
+          ? selectedRole?.roleName
+          : mainTab === 'policies'
+            ? selectedPolicy?.policyName
+            : selectedSimEntity?.name
+  const inventoryCount =
+    mainTab === 'users'
+      ? users.length
+      : mainTab === 'groups'
+        ? groups.length
+        : mainTab === 'roles'
+          ? roles.length
+          : mainTab === 'policies'
+            ? policies.length
+            : simEntities.length
+  const visibleColumnCount =
+    mainTab === 'users'
+      ? userVisibleCols.size
+      : mainTab === 'groups'
+        ? groupVisibleCols.size
+        : mainTab === 'roles'
+          ? roleVisibleCols.size
+          : mainTab === 'policies'
+            ? policyVisibleCols.size
+            : 3
+  const simulatorAllowed = simResults.filter((result) => result.decision.toLowerCase() === 'allowed').length
+  const simulatorDenied = simResults.filter((result) => result.decision.toLowerCase().includes('deny')).length
 
   /* ── Render ──────────────────────────────────────────────── */
 
   return (
-    <div className="svc-console">
+    <div className="svc-console iam-console">
+      <section className="iam-shell-hero">
+        <div className="iam-shell-hero-copy">
+          <div className="eyebrow">Identity Access Posture</div>
+          <h2>IAM control plane</h2>
+          <p>Carry the Terraform console’s visual hierarchy into identity workflows so operators can orient on scope, inspect posture, and then act without changing any underlying IAM behavior.</p>
+          <div className="iam-shell-meta-strip">
+            <div className="iam-shell-meta-pill">
+              <span>Connection</span>
+              <strong>{connection.kind}</strong>
+            </div>
+            <div className="iam-shell-meta-pill">
+              <span>Scope</span>
+              <strong>{scopeLabel}</strong>
+            </div>
+            <div className="iam-shell-meta-pill">
+              <span>Region</span>
+              <strong>{connection.region || 'global'}</strong>
+            </div>
+            <div className="iam-shell-meta-pill">
+              <span>Selection</span>
+              <strong>{selectedSummary || 'No selection'}</strong>
+            </div>
+          </div>
+        </div>
+        <div className="iam-shell-hero-stats">
+          <div className="iam-shell-stat-card iam-shell-stat-card-accent">
+            <span>Active surface</span>
+            <strong>{MAIN_TABS.find((tab) => tab.id === mainTab)?.label ?? 'IAM'}</strong>
+            <small>{mainTabLoading === mainTab ? 'Refreshing live data now' : 'Current workspace is ready for review'}</small>
+          </div>
+          <div className="iam-shell-stat-card">
+            <span>Inventory</span>
+            <strong>{inventoryCount}</strong>
+            <small>Objects loaded in the current tab</small>
+          </div>
+          <div className="iam-shell-stat-card">
+            <span>Visible columns</span>
+            <strong>{visibleColumnCount}</strong>
+            <small>Column filters enabled for this view</small>
+          </div>
+          <div className="iam-shell-stat-card">
+            <span>Simulator</span>
+            <strong>{simResults.length}</strong>
+            <small>{simResults.length ? `${simulatorAllowed} allowed, ${simulatorDenied} denied` : 'Run a decision trace to inspect access'}</small>
+          </div>
+        </div>
+      </section>
       {/* ── Main tabs ──────────────────────────────────── */}
-      <div className="svc-tab-bar">
+      <div className="iam-shell-toolbar">
         <button className="svc-tab-hamburger" type="button" onClick={() => setTabsOpen(p => !p)}>
           <span className={`hamburger-icon ${tabsOpen ? 'open' : ''}`}>
             <span /><span /><span />
           </span>
         </button>
-        {tabsOpen && MAIN_TABS.map(t => (
-          <button
-            key={t.id}
-            type="button"
-            className={`svc-tab ${mainTab === t.id ? 'active' : ''}`}
-            onClick={() => switchMainTab(t.id)}
-          >{t.label}</button>
-        ))}
-        {tabsOpen && <button className="svc-tab right" type="button" onClick={() => void loadMainTab(mainTab)}>Refresh</button>}
+        <div className="iam-tab-bar">
+          {tabsOpen && MAIN_TABS.map(t => (
+            <button
+              key={t.id}
+              type="button"
+              className={`svc-tab ${mainTab === t.id ? 'active' : ''}`}
+              onClick={() => switchMainTab(t.id)}
+            >{t.label}</button>
+          ))}
+        </div>
+        {tabsOpen && <button className="iam-refresh-btn" type="button" onClick={() => void loadMainTab(mainTab)}>Refresh</button>}
       </div>
 
       {error && <div className="svc-error">{error}</div>}
-      {success && <div className="empty-state compact">{success}</div>}
+      {success && <div className="svc-msg">{success}</div>}
 
       {/* ══════════════════ USERS ══════════════════ */}
       {mainTab === 'users' && (
         <>
-          <input
-            className="svc-search"
-            placeholder="Filter rows across selected columns..."
-            value={userFilter}
-            onChange={e => setUserFilter(e.target.value)}
-          />
-          <div className="svc-chips">
-            {USER_COLS.map(c => (
-              <button
-                key={c.key}
-                type="button"
-                className={`svc-chip ${userVisibleCols.has(c.key) ? 'active' : ''}`}
-                style={userVisibleCols.has(c.key) ? { background: c.color, borderColor: c.color } : undefined}
-                onClick={() => toggleCol(setUserVisibleCols, c.key)}
-              >{c.label}</button>
-            ))}
+          <div className="iam-surface">
+            <div className="iam-filter-shell">
+              <div>
+                <span className="iam-pane-kicker">Users</span>
+                <h3>Principal inventory</h3>
+              </div>
+              <input
+                className="svc-search iam-search"
+                placeholder="Filter rows across selected columns..."
+                value={userFilter}
+                onChange={e => setUserFilter(e.target.value)}
+              />
+            </div>
+            <div className="svc-chips iam-chip-row">
+              {USER_COLS.map(c => (
+                <button
+                  key={c.key}
+                  type="button"
+                  className={`svc-chip ${userVisibleCols.has(c.key) ? 'active' : ''}`}
+                  style={userVisibleCols.has(c.key) ? { background: c.color, borderColor: c.color } : undefined}
+                  onClick={() => toggleCol(setUserVisibleCols, c.key)}
+                >{c.label}</button>
+              ))}
+            </div>
           </div>
 
           <div className="iam-layout">
@@ -1429,22 +1519,30 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
       {/* ══════════════════ GROUPS ══════════════════ */}
       {mainTab === 'groups' && (
         <>
-          <input
-            className="svc-search"
-            placeholder="Filter rows across selected columns..."
-            value={groupFilter}
-            onChange={e => setGroupFilter(e.target.value)}
-          />
-          <div className="svc-chips">
-            {GROUP_COLS.map(c => (
-              <button
-                key={c.key}
-                type="button"
-                className={`svc-chip ${groupVisibleCols.has(c.key) ? 'active' : ''}`}
-                style={groupVisibleCols.has(c.key) ? { background: c.color, borderColor: c.color } : undefined}
-                onClick={() => toggleCol(setGroupVisibleCols, c.key)}
-              >{c.label}</button>
-            ))}
+          <div className="iam-surface">
+            <div className="iam-filter-shell">
+              <div>
+                <span className="iam-pane-kicker">Groups</span>
+                <h3>Shared access boundaries</h3>
+              </div>
+              <input
+                className="svc-search iam-search"
+                placeholder="Filter rows across selected columns..."
+                value={groupFilter}
+                onChange={e => setGroupFilter(e.target.value)}
+              />
+            </div>
+            <div className="svc-chips iam-chip-row">
+              {GROUP_COLS.map(c => (
+                <button
+                  key={c.key}
+                  type="button"
+                  className={`svc-chip ${groupVisibleCols.has(c.key) ? 'active' : ''}`}
+                  style={groupVisibleCols.has(c.key) ? { background: c.color, borderColor: c.color } : undefined}
+                  onClick={() => toggleCol(setGroupVisibleCols, c.key)}
+                >{c.label}</button>
+              ))}
+            </div>
           </div>
 
           <div className="iam-layout">
@@ -1523,22 +1621,30 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
       {/* ══════════════════ ROLES ══════════════════ */}
       {mainTab === 'roles' && (
         <>
-          <input
-            className="svc-search"
-            placeholder="Filter rows across selected columns..."
-            value={roleFilter}
-            onChange={e => setRoleFilter(e.target.value)}
-          />
-          <div className="svc-chips">
-            {ROLE_COLS.map(c => (
-              <button
-                key={c.key}
-                type="button"
-                className={`svc-chip ${roleVisibleCols.has(c.key) ? 'active' : ''}`}
-                style={roleVisibleCols.has(c.key) ? { background: c.color, borderColor: c.color } : undefined}
-                onClick={() => toggleCol(setRoleVisibleCols, c.key)}
-              >{c.label}</button>
-            ))}
+          <div className="iam-surface">
+            <div className="iam-filter-shell">
+              <div>
+                <span className="iam-pane-kicker">Roles</span>
+                <h3>Delegated execution paths</h3>
+              </div>
+              <input
+                className="svc-search iam-search"
+                placeholder="Filter rows across selected columns..."
+                value={roleFilter}
+                onChange={e => setRoleFilter(e.target.value)}
+              />
+            </div>
+            <div className="svc-chips iam-chip-row">
+              {ROLE_COLS.map(c => (
+                <button
+                  key={c.key}
+                  type="button"
+                  className={`svc-chip ${roleVisibleCols.has(c.key) ? 'active' : ''}`}
+                  style={roleVisibleCols.has(c.key) ? { background: c.color, borderColor: c.color } : undefined}
+                  onClick={() => toggleCol(setRoleVisibleCols, c.key)}
+                >{c.label}</button>
+              ))}
+            </div>
           </div>
 
           <div className="iam-layout">
@@ -1673,35 +1779,42 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
       {/* ══════════════════ POLICIES ══════════════════ */}
       {mainTab === 'policies' && (
         <>
-          <div className="svc-btn-row" style={{ marginBottom: 4 }}>
-            <button
-              type="button"
-              className={`svc-btn ${policyScope === 'Local' ? 'primary' : 'muted'}`}
-              onClick={() => { setPolicyScope('Local'); void loadPolicies('Local') }}
-            >Local</button>
-            <button
-              type="button"
-              className={`svc-btn ${policyScope === 'All' ? 'primary' : 'muted'}`}
-              onClick={() => { setPolicyScope('All'); void loadPolicies('All') }}
-            >All</button>
-          </div>
-
-          <input
-            className="svc-search"
-            placeholder="Filter rows across selected columns..."
-            value={policyFilter}
-            onChange={e => setPolicyFilter(e.target.value)}
-          />
-          <div className="svc-chips">
-            {POLICY_COLS.map(c => (
-              <button
-                key={c.key}
-                type="button"
-                className={`svc-chip ${policyVisibleCols.has(c.key) ? 'active' : ''}`}
-                style={policyVisibleCols.has(c.key) ? { background: c.color, borderColor: c.color } : undefined}
-                onClick={() => toggleCol(setPolicyVisibleCols, c.key)}
-              >{c.label}</button>
-            ))}
+          <div className="iam-surface">
+            <div className="iam-filter-shell iam-filter-shell-policy">
+              <div>
+                <span className="iam-pane-kicker">Policies</span>
+                <h3>Permission definitions</h3>
+              </div>
+              <div className="svc-btn-row iam-scope-switch">
+                <button
+                  type="button"
+                  className={`svc-btn ${policyScope === 'Local' ? 'primary' : 'muted'}`}
+                  onClick={() => { setPolicyScope('Local'); void loadPolicies('Local') }}
+                >Local</button>
+                <button
+                  type="button"
+                  className={`svc-btn ${policyScope === 'All' ? 'primary' : 'muted'}`}
+                  onClick={() => { setPolicyScope('All'); void loadPolicies('All') }}
+                >All</button>
+              </div>
+              <input
+                className="svc-search iam-search"
+                placeholder="Filter rows across selected columns..."
+                value={policyFilter}
+                onChange={e => setPolicyFilter(e.target.value)}
+              />
+            </div>
+            <div className="svc-chips iam-chip-row">
+              {POLICY_COLS.map(c => (
+                <button
+                  key={c.key}
+                  type="button"
+                  className={`svc-chip ${policyVisibleCols.has(c.key) ? 'active' : ''}`}
+                  style={policyVisibleCols.has(c.key) ? { background: c.color, borderColor: c.color } : undefined}
+                  onClick={() => toggleCol(setPolicyVisibleCols, c.key)}
+                >{c.label}</button>
+              ))}
+            </div>
           </div>
 
           <div className="iam-layout">
@@ -1870,15 +1983,29 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
       )}
 
       {/* ══════════════════ POLICY SIMULATOR ══════════════════ */}
-      {mainTab === 'simulator' && <SimulatorPanel
-        entities={simEntities}
-        entitiesLoading={simEntitiesLoading}
-        selectedEntity={selectedSimEntity}
-        onSelectEntity={setSelectedSimEntity}
-        results={simResults}
-        loading={simLoading}
-        onSimulate={() => void handleSimulate()}
-      />}
+      {mainTab === 'simulator' && (
+        <div className="iam-surface">
+          <div className="iam-filter-shell">
+            <div>
+              <span className="iam-pane-kicker">Simulator</span>
+              <h3>Policy decision trace</h3>
+            </div>
+            <div className="iam-simulator-summary">
+              <span>{simEntities.length} principals</span>
+              <span>{simResults.length} evaluated actions</span>
+            </div>
+          </div>
+          <SimulatorPanel
+            entities={simEntities}
+            entitiesLoading={simEntitiesLoading}
+            selectedEntity={selectedSimEntity}
+            onSelectEntity={setSelectedSimEntity}
+            results={simResults}
+            loading={simLoading}
+            onSimulate={() => void handleSimulate()}
+          />
+        </div>
+      )}
     </div>
   )
 }

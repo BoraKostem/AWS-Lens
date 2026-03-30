@@ -230,8 +230,10 @@ export async function getServiceDiagnostics(
     .sort((left, right) => byTimestampDesc(left.stoppedAt, right.stoppedAt))
     .slice(0, 20)
 
-  const taskRows = [...runningTasks, ...stoppedTaskRows]
-    .map((task) => toDiagnosticsTaskRow(task))
+  const taskRows = enrichTaskRowsWithLogConfig(
+    [...runningTasks, ...stoppedTaskRows].map((task) => toDiagnosticsTaskRow(task)),
+    taskDefinition
+  )
     .sort((left, right) => {
       const leftTs = left.stoppedAt !== '-' ? left.stoppedAt : left.startedAt
       const rightTs = right.stoppedAt !== '-' ? right.stoppedAt : right.startedAt
@@ -361,6 +363,38 @@ function buildLogTargets(taskRows: EcsDiagnosticsTaskRow[]): EcsDiagnosticsLogTa
       reason: container.logGroup && container.logStream ? '' : 'No awslogs configuration detected'
     }))
   )
+}
+
+function enrichTaskRowsWithLogConfig(
+  taskRows: EcsDiagnosticsTaskRow[],
+  taskDefinition: EcsTaskDefinitionReference | null
+): EcsDiagnosticsTaskRow[] {
+  if (!taskDefinition) return taskRows
+
+  const containerConfig = new Map(
+    taskDefinition.containerImages.map((container) => [container.name, container] as const)
+  )
+
+  return taskRows.map((task) => ({
+    ...task,
+    containers: task.containers.map((container) => {
+      const config = containerConfig.get(container.name)
+      if (!config || config.logDriver !== 'awslogs') {
+        return container
+      }
+
+      const logGroup = config.logGroup || container.logGroup
+      const logStream = config.logStreamPrefix && task.taskId
+        ? `${config.logStreamPrefix}/${container.name}/${task.taskId}`
+        : container.logStream
+
+      return {
+        ...container,
+        logGroup,
+        logStream
+      }
+    })
+  }))
 }
 
 function buildIndicators(
@@ -599,15 +633,12 @@ function minutesSince(value: string): number | null {
 }
 
 function extractLogInfo(
-  taskDefinitionArn: string,
-  containerName: string
+  _taskDefinitionArn: string,
+  _containerName: string
 ): { logGroup: string; logStream: string } {
-  // Typical awslogs pattern: /ecs/<task-family>
-  // Log stream: <prefix>/<container-name>/<task-id>
-  const taskId = taskDefinitionArn.split('/').pop()?.split(':')[0] ?? ''
   return {
-    logGroup: `/ecs/${taskId}`,
-    logStream: `ecs/${containerName}`
+    logGroup: '',
+    logStream: ''
   }
 }
 

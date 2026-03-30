@@ -83,6 +83,26 @@ function severityClass(severity: RdsRiskFinding['severity']): string {
   return `rds-finding-${severity}`
 }
 
+function prettifyStatusLabel(value: string): string {
+  return value
+    .split('-')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function tileToneSummary(tone: RdsOperationalStatusTone): string {
+  switch (tone) {
+    case 'good':
+      return 'Healthy operating signal'
+    case 'warning':
+      return 'Needs operator review'
+    case 'risk':
+      return 'Elevated operational risk'
+    default:
+      return 'Current observed posture'
+  }
+}
+
 function KV({ items }: { items: Array<[string, string]> }) {
   return (
     <div className="rds-kv">
@@ -290,6 +310,29 @@ export function RdsConsole({ connection }: { connection: AwsConnection }) {
   const overviewConnectionDetails = mainTab === 'instances' ? instanceDetail?.connectionDetails ?? [] : clusterDetail?.connectionDetails ?? []
   const overviewTitle = mainTab === 'instances' ? instanceDetail?.summary.dbInstanceIdentifier ?? '' : clusterDetail?.summary.dbClusterIdentifier ?? ''
   const overviewStatus = mainTab === 'instances' ? instanceDetail?.summary.status ?? '' : clusterDetail?.summary.status ?? ''
+  const totalInventory = mainTab === 'instances' ? instances.length : clusters.length
+  const filteredInventory = mainTab === 'instances' ? filteredInstances.length : filteredClusters.length
+  const availableInventory = mainTab === 'instances'
+    ? instances.filter((item) => item.status === 'available').length
+    : clusters.filter((item) => item.status === 'available').length
+  const fleetLabel = mainTab === 'instances' ? 'Instance fleet' : 'Aurora fleet'
+  const selectionLabel = mainTab === 'instances' ? 'Selected instance' : 'Selected cluster'
+  const selectedFindingCount = mainTab === 'instances'
+    ? instanceDetail?.posture.findings.length ?? 0
+    : clusterDetail?.posture.findings.length ?? 0
+  const selectedMaintenanceCount = mainTab === 'instances'
+    ? instanceDetail?.posture.maintenanceItems.length ?? 0
+    : clusterDetail?.posture.maintenanceItems.length ?? 0
+  const selectedEngine = mainTab === 'instances'
+    ? (instanceDetail ? `${instanceDetail.summary.engine} ${instanceDetail.summary.engineVersion}` : 'Select a resource')
+    : (clusterDetail ? `${clusterDetail.summary.engine} ${clusterDetail.summary.engineVersion}` : 'Select a resource')
+  const topologyCount = mainTab === 'instances'
+    ? instances.filter((item) => item.multiAz || !!item.dbClusterIdentifier).length
+    : clusters.reduce((count, cluster) => count + cluster.writerNodes.length + cluster.readerNodes.length, 0)
+  const detailHeroStats = overviewPosture?.summaryTiles.slice(0, 4) ?? []
+  const messageTone = msg.toLowerCase().includes('failed') || msg.toLowerCase().includes('error') || msg.toLowerCase().includes('not found')
+    ? 'error'
+    : 'success'
 
   async function loadInstanceDetail(id: string) {
     try {
@@ -438,69 +481,134 @@ export function RdsConsole({ connection }: { connection: AwsConnection }) {
 
   return (
     <div className="rds-console">
-      <div className="rds-tab-bar">
-        <button className={`rds-tab ${mainTab === 'instances' ? 'active' : ''}`} type="button" onClick={() => setMainTab('instances')}>
-          RDS Instances
-        </button>
-        <button className={`rds-tab ${mainTab === 'aurora' ? 'active' : ''}`} type="button" onClick={() => setMainTab('aurora')}>
-          Aurora Clusters
-        </button>
-        <button
-          className="rds-tab"
-          type="button"
-          onClick={() => void reload(selectedInstanceId, selectedClusterId, selectedAuroraNodeId)}
-          style={{ marginLeft: 'auto' }}
-        >
-          Refresh
-        </button>
+      <section className="rds-shell-hero">
+        <div className="rds-shell-hero-copy">
+          <div className="eyebrow">RDS service</div>
+          <h2>{overviewTitle || (mainTab === 'instances' ? 'Database instance command center' : 'Aurora cluster command center')}</h2>
+          <p>
+            {mainTab === 'instances'
+              ? 'Monitor instance posture, review replica coverage, and run operational actions without leaving the console.'
+              : 'Track Aurora topology, review failover readiness, and operate cluster nodes from the same surface.'}
+          </p>
+          <div className="rds-shell-meta-strip">
+            <div className="rds-shell-meta-pill">
+              <span>Scope</span>
+              <strong>{mainTab === 'instances' ? 'RDS instances' : 'Aurora clusters'}</strong>
+            </div>
+            <div className="rds-shell-meta-pill">
+              <span>Region</span>
+              <strong>{connection.region}</strong>
+            </div>
+            <div className="rds-shell-meta-pill">
+              <span>Selection</span>
+              <strong>{overviewTitle || 'None selected'}</strong>
+            </div>
+            <div className="rds-shell-meta-pill">
+              <span>Engine</span>
+              <strong>{selectedEngine}</strong>
+            </div>
+          </div>
+        </div>
+        <div className="rds-shell-hero-stats">
+          <div className="rds-shell-stat-card rds-shell-stat-card-accent">
+            <span>{fleetLabel}</span>
+            <strong>{totalInventory}</strong>
+            <small>{filteredInventory} visible with current filters</small>
+          </div>
+          <div className="rds-shell-stat-card">
+            <span>Available</span>
+            <strong>{availableInventory}</strong>
+            <small>{mainTab === 'instances' ? 'Instances ready for connections' : 'Clusters ready for writes'}</small>
+          </div>
+          <div className="rds-shell-stat-card">
+            <span>{mainTab === 'instances' ? 'Replica coverage' : 'Topology nodes'}</span>
+            <strong>{topologyCount}</strong>
+            <small>{mainTab === 'instances' ? 'Resources participating in replication' : 'Writer and reader nodes discovered'}</small>
+          </div>
+          <div className={`rds-shell-stat-card ${selectedFindingCount > 0 ? 'warning' : 'success'}`}>
+            <span>{selectionLabel}</span>
+            <strong>{overviewStatus ? prettifyStatusLabel(overviewStatus) : 'Standby'}</strong>
+            <small>{selectedFindingCount} findings, {selectedMaintenanceCount} maintenance items</small>
+          </div>
+        </div>
+      </section>
+
+      <div className="rds-shell-toolbar">
+        <div className="rds-toolbar">
+          <button className={`rds-toolbar-btn ${mainTab === 'instances' ? 'active' : ''}`} type="button" onClick={() => setMainTab('instances')}>
+            RDS Instances
+          </button>
+          <button className={`rds-toolbar-btn ${mainTab === 'aurora' ? 'active' : ''}`} type="button" onClick={() => setMainTab('aurora')}>
+            Aurora Clusters
+          </button>
+          <button
+            className="rds-toolbar-btn accent"
+            type="button"
+            onClick={() => void reload(selectedInstanceId, selectedClusterId, selectedAuroraNodeId)}
+          >
+            Refresh Inventory
+          </button>
+        </div>
+        <div className="rds-shell-status">
+          <div className="rds-shell-status-card">
+            <span>Status filter</span>
+            <select className="rds-select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option value="all">All statuses</option>
+              <option value="available">Available</option>
+              <option value="stopped">Stopped</option>
+              <option value="starting">Starting</option>
+              <option value="stopping">Stopping</option>
+              <option value="creating">Creating</option>
+              <option value="deleting">Deleting</option>
+              <option value="modifying">Modifying</option>
+            </select>
+          </div>
+          <div className="rds-shell-status-card rds-shell-status-search">
+            <span>Search</span>
+            <input
+              className="rds-search-input"
+              placeholder="Filter rows across selected columns..."
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
+        </div>
       </div>
 
-      {msg && <div className="rds-msg">{msg}</div>}
-
-      <div className="rds-filter-bar">
-        <span className="rds-filter-label">Status</span>
-        <select className="rds-select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-          <option value="all">All statuses</option>
-          <option value="available">Available</option>
-          <option value="stopped">Stopped</option>
-          <option value="starting">Starting</option>
-          <option value="stopping">Stopping</option>
-          <option value="creating">Creating</option>
-          <option value="deleting">Deleting</option>
-          <option value="modifying">Modifying</option>
-        </select>
-      </div>
-
-      <input
-        className="rds-search-input"
-        placeholder="Filter rows across selected columns..."
-        value={search}
-        onChange={(event) => setSearch(event.target.value)}
-      />
-
-      <div className="rds-column-chips">
-        {(mainTab === 'instances' ? INSTANCE_COLUMNS : AURORA_COLUMNS).map((column) => {
-          const active = mainTab === 'instances'
-            ? visibleInstanceCols.has(column.key as InstanceColumnKey)
-            : visibleAuroraCols.has(column.key as AuroraColumnKey)
-          return (
-            <button
-              key={column.key}
-              className={`rds-chip ${active ? 'active' : ''}`}
-              type="button"
-              style={active ? { background: column.color, borderColor: column.color, color: '#fff' } : undefined}
-              onClick={() => mainTab === 'instances'
-                ? toggleInstanceCol(column.key as InstanceColumnKey)
-                : toggleAuroraCol(column.key as AuroraColumnKey)}
-            >
-              {column.label}
-            </button>
-          )
-        })}
-      </div>
+      {msg && <div className={`rds-msg ${messageTone}`}>{msg}</div>}
 
       <div className="rds-main-layout">
-        <div className="rds-table-area">
+        <div className="rds-table-panel">
+          <div className="rds-pane-head">
+            <div>
+              <span className="rds-pane-kicker">{mainTab === 'instances' ? 'Tracked databases' : 'Tracked clusters'}</span>
+              <h3>{mainTab === 'instances' ? 'Fleet inventory' : 'Cluster inventory'}</h3>
+            </div>
+            <span className="rds-pane-summary">{filteredInventory} shown</span>
+          </div>
+
+          <div className="rds-column-chips">
+            {(mainTab === 'instances' ? INSTANCE_COLUMNS : AURORA_COLUMNS).map((column) => {
+              const active = mainTab === 'instances'
+                ? visibleInstanceCols.has(column.key as InstanceColumnKey)
+                : visibleAuroraCols.has(column.key as AuroraColumnKey)
+              return (
+                <button
+                  key={column.key}
+                  className={`rds-chip ${active ? 'active' : ''}`}
+                  type="button"
+                  style={active ? { background: column.color, borderColor: column.color, color: '#fff' } : undefined}
+                  onClick={() => mainTab === 'instances'
+                    ? toggleInstanceCol(column.key as InstanceColumnKey)
+                    : toggleAuroraCol(column.key as AuroraColumnKey)}
+                >
+                  {column.label}
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="rds-table-area">
           {mainTab === 'instances' ? (
             <>
               <table className="rds-data-table">
@@ -596,44 +704,89 @@ export function RdsConsole({ connection }: { connection: AwsConnection }) {
             </>
           )}
         </div>
+        </div>
         <div className="rds-sidebar">
-          <div className="rds-side-tabs">
-            <button className={sideTab === 'overview' ? 'active' : ''} type="button" onClick={() => setSideTab('overview')}>
-              Overview
-            </button>
-            <button className={sideTab === 'timeline' ? 'active' : ''} type="button" onClick={() => setSideTab('timeline')}>
-              Change Timeline
-            </button>
-          </div>
-
-          {sideTab === 'overview' && (
+          {((mainTab === 'instances' && instanceDetail) || (mainTab === 'aurora' && clusterDetail)) ? (
             <>
-              {overviewPosture && (
-                <>
-                  <div className="rds-sidebar-section">
-                    <div className="rds-overview-head">
-                      <div>
-                        <div className="rds-overview-kicker">{mainTab === 'instances' ? 'Instance Operations' : 'Cluster Operations'}</div>
-                        <h3>{overviewTitle}</h3>
-                      </div>
-                      {overviewStatus && <StatusBadge status={overviewStatus} />}
+              <section className="rds-detail-hero">
+                <div className="rds-detail-hero-copy">
+                  <div className="eyebrow">{mainTab === 'instances' ? 'Instance posture' : 'Cluster posture'}</div>
+                  <h3>{overviewTitle}</h3>
+                  <p>{mainTab === 'instances' ? 'Operational posture, maintenance windows, and connection metadata for the selected database.' : 'Topology, failover readiness, and maintenance signals for the selected Aurora cluster.'}</p>
+                  <div className="rds-detail-meta-strip">
+                    <div className="rds-detail-meta-pill">
+                      <span>Status</span>
+                      <strong>{overviewStatus ? prettifyStatusLabel(overviewStatus) : 'Unknown'}</strong>
                     </div>
-                    <SummaryTiles items={overviewPosture.summaryTiles} />
+                    <div className="rds-detail-meta-pill">
+                      <span>Region</span>
+                      <strong>{connection.region}</strong>
+                    </div>
+                    <div className="rds-detail-meta-pill">
+                      <span>Mode</span>
+                      <strong>{mainTab === 'instances' ? 'RDS instance' : 'Aurora cluster'}</strong>
+                    </div>
+                    <div className="rds-detail-meta-pill">
+                      <span>Timeline</span>
+                      <strong>{timelineStart} to {timelineEnd}</strong>
+                    </div>
                   </div>
+                </div>
+                <div className="rds-detail-hero-stats">
+                  {detailHeroStats.map((item) => (
+                    <div key={item.id} className={`rds-detail-stat-card ${item.tone}`}>
+                      <span>{item.label}</span>
+                      <strong>{item.value}</strong>
+                      <small>{tileToneSummary(item.tone)}</small>
+                    </div>
+                  ))}
+                  {!detailHeroStats.length && (
+                    <div className="rds-detail-stat-card info">
+                      <span>Selection</span>
+                      <strong>Standby</strong>
+                      <small>Select a resource to inspect posture.</small>
+                    </div>
+                  )}
+                </div>
+              </section>
 
-                  <div className="rds-sidebar-section">
-                    <h3>Posture</h3>
-                    <PostureBadges items={overviewPosture.badges} />
-                  </div>
-                </>
-              )}
+              <div className="rds-side-tabs">
+                <button className={sideTab === 'overview' ? 'active' : ''} type="button" onClick={() => setSideTab('overview')}>
+                  Overview
+                </button>
+                <button className={sideTab === 'timeline' ? 'active' : ''} type="button" onClick={() => setSideTab('timeline')}>
+                  Change Timeline
+                </button>
+              </div>
 
-              {mainTab === 'instances' && instanceDetail && (
+              {sideTab === 'overview' && (
                 <>
-                  <div className="rds-sidebar-section">
-                    <h3>Operational Findings</h3>
-                    <FindingsList items={instanceDetail.posture.findings} />
-                  </div>
+                  {overviewPosture && (
+                    <>
+                      <div className="rds-sidebar-section">
+                        <div className="rds-overview-head">
+                          <div>
+                            <div className="rds-overview-kicker">{mainTab === 'instances' ? 'Instance operations' : 'Cluster operations'}</div>
+                            <h3>{overviewTitle}</h3>
+                          </div>
+                          {overviewStatus && <StatusBadge status={overviewStatus} />}
+                        </div>
+                        <SummaryTiles items={overviewPosture.summaryTiles} />
+                      </div>
+
+                      <div className="rds-sidebar-section">
+                        <h3>Posture</h3>
+                        <PostureBadges items={overviewPosture.badges} />
+                      </div>
+                    </>
+                  )}
+
+                  {mainTab === 'instances' && instanceDetail && (
+                    <>
+                      <div className="rds-sidebar-section">
+                        <h3>Operational Findings</h3>
+                        <FindingsList items={instanceDetail.posture.findings} />
+                      </div>
 
                   <div className="rds-sidebar-section">
                     <h3>Maintenance</h3>
@@ -732,15 +885,15 @@ export function RdsConsole({ connection }: { connection: AwsConnection }) {
                       ))}
                     </div>
                   </div>
-                </>
-              )}
+                    </>
+                  )}
 
-              {mainTab === 'aurora' && clusterDetail && (
-                <>
-                  <div className="rds-sidebar-section">
-                    <h3>Operational Findings</h3>
-                    <FindingsList items={clusterDetail.posture.findings} />
-                  </div>
+                  {mainTab === 'aurora' && clusterDetail && (
+                    <>
+                      <div className="rds-sidebar-section">
+                        <h3>Operational Findings</h3>
+                        <FindingsList items={clusterDetail.posture.findings} />
+                      </div>
 
                   <div className="rds-sidebar-section">
                     <h3>Maintenance</h3>
@@ -857,55 +1010,63 @@ export function RdsConsole({ connection }: { connection: AwsConnection }) {
                       ))}
                     </div>
                   </div>
+                    </>
+                  )}
                 </>
               )}
 
-              {((mainTab === 'instances' && !instanceDetail) || (mainTab === 'aurora' && !clusterDetail)) && (
+              {sideTab === 'timeline' && (
                 <div className="rds-sidebar-section">
-                  <div className="rds-empty">Select a resource to view operations data.</div>
+                  <div className="rds-timeline-controls">
+                    <label>
+                      From
+                      <input type="date" value={timelineStart} onChange={(event) => setTimelineStart(event.target.value)} />
+                    </label>
+                    <label>
+                      To
+                      <input type="date" value={timelineEnd} onChange={(event) => setTimelineEnd(event.target.value)} />
+                    </label>
+                  </div>
+                  {!hasTimelineResource && <div className="rds-empty">Select a resource to view events.</div>}
+                  {hasTimelineResource && timelineLoading && <div className="rds-empty">Loading events...</div>}
+                  {hasTimelineResource && !timelineLoading && timelineError && <div className="rds-empty" style={{ color: '#f87171' }}>{timelineError}</div>}
+                  {hasTimelineResource && !timelineLoading && !timelineError && timelineEvents.length === 0 && <div className="rds-empty">No CloudTrail events found.</div>}
+                  {hasTimelineResource && !timelineLoading && timelineEvents.length > 0 && (
+                    <div className="rds-timeline-table-wrap">
+                      <table className="rds-timeline-table">
+                        <thead>
+                          <tr>
+                            <th>Event</th>
+                            <th>User</th>
+                            <th>Date</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {timelineEvents.map((event) => (
+                            <tr key={event.eventId}>
+                              <td title={event.eventSource}>{event.eventName}</td>
+                              <td>{event.username}</td>
+                              <td>{event.eventTime !== '-' ? new Date(event.eventTime).toLocaleString() : '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               )}
             </>
-          )}
-
-          {sideTab === 'timeline' && (
+          ) : (
             <div className="rds-sidebar-section">
-              <div className="rds-timeline-controls">
-                <label>
-                  From
-                  <input type="date" value={timelineStart} onChange={(event) => setTimelineStart(event.target.value)} />
-                </label>
-                <label>
-                  To
-                  <input type="date" value={timelineEnd} onChange={(event) => setTimelineEnd(event.target.value)} />
-                </label>
+              <div className="rds-empty-state">
+                <span className="rds-pane-kicker">{mainTab === 'instances' ? 'No instance selected' : 'No cluster selected'}</span>
+                <h3>{mainTab === 'instances' ? 'Choose a database to inspect posture.' : 'Choose a cluster to inspect topology.'}</h3>
+                <p>
+                  {mainTab === 'instances'
+                    ? 'The detail pane will show maintenance windows, replica topology, actions, and CloudTrail changes for the selected instance.'
+                    : 'The detail pane will show topology, failover readiness, cluster actions, and CloudTrail changes for the selected Aurora resource.'}
+                </p>
               </div>
-              {!hasTimelineResource && <div className="rds-empty">Select a resource to view events.</div>}
-              {hasTimelineResource && timelineLoading && <div className="rds-empty">Loading events...</div>}
-              {hasTimelineResource && !timelineLoading && timelineError && <div className="rds-empty" style={{ color: '#f87171' }}>{timelineError}</div>}
-              {hasTimelineResource && !timelineLoading && !timelineError && timelineEvents.length === 0 && <div className="rds-empty">No CloudTrail events found.</div>}
-              {hasTimelineResource && !timelineLoading && timelineEvents.length > 0 && (
-                <div className="rds-timeline-table-wrap">
-                  <table className="rds-timeline-table">
-                    <thead>
-                      <tr>
-                        <th>Event</th>
-                        <th>User</th>
-                        <th>Date</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {timelineEvents.map((event) => (
-                        <tr key={event.eventId}>
-                          <td title={event.eventSource}>{event.eventName}</td>
-                          <td>{event.username}</td>
-                          <td>{event.eventTime !== '-' ? new Date(event.eventTime).toLocaleString() : '-'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
             </div>
           )}
         </div>

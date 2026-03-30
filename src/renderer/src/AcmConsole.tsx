@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import './terraform.css'
+import './acm.css'
 import { SvcState } from './SvcState'
 
 import type { AcmCertificateDetail, AcmCertificateSummary, AwsConnection, Route53RecordChange } from '@shared/types'
@@ -10,6 +12,7 @@ type SortKey = 'domainName' | 'status' | 'notAfter' | 'daysUntilExpiry' | 'renew
 type SummaryBucket = 'all' | 'expiring7' | 'expiring30' | 'pending' | 'unused'
 type UsageFilter = 'all' | 'in-use' | 'unused'
 type StatusFilter = 'all' | 'issued' | 'pending_validation' | 'problem'
+type AcmTone = 'danger' | 'warning' | 'success' | 'info'
 
 const COLUMNS: { key: ColKey; label: string; color: string }[] = [
   { key: 'domainName', label: 'Certificate', color: '#3b82f6' },
@@ -53,6 +56,34 @@ function severityBadgeClass(severity: AcmCertificateSummary['urgencySeverity']):
       return 'ok'
     default:
       return 'muted'
+  }
+}
+
+function severityTone(severity: AcmCertificateSummary['urgencySeverity'] | undefined): AcmTone {
+  switch (severity) {
+    case 'critical':
+      return 'danger'
+    case 'warning':
+      return 'warning'
+    case 'stable':
+      return 'success'
+    default:
+      return 'info'
+  }
+}
+
+function statusTone(status: string | undefined): AcmTone {
+  switch (status) {
+    case 'ISSUED':
+      return 'success'
+    case 'PENDING_VALIDATION':
+      return 'warning'
+    case 'FAILED':
+    case 'EXPIRED':
+    case 'REVOKED':
+      return 'danger'
+    default:
+      return 'info'
   }
 }
 
@@ -289,62 +320,85 @@ export function AcmConsole({
   }
 
   const selectedSummary = certs.find((cert) => cert.certificateArn === selectedArn) ?? null
+  const visibleCount = filteredCerts.length
+  const inUseCount = certs.filter((cert) => cert.inUse).length
+  const detailValidationPending = detail?.domainValidationOptions.filter((option) => option.validationStatus !== 'SUCCESS').length ?? 0
+  const detailAssociationCount = (detail?.loadBalancerAssociations.length ?? 0) + (detail?.inUseAssociations.length ?? 0)
 
   return (
-    <div className="svc-console acm-watch">
-      <div className="svc-tab-bar">
-        <button className="svc-tab active" type="button">Certificate Watch</button>
-        <button className="svc-tab right" type="button" onClick={() => void refresh()} disabled={loading}>
-          {loading ? 'Refreshing...' : 'Refresh'}
-        </button>
-      </div>
+    <div className="tf-console acm-shell">
+      <section className="tf-shell-hero acm-shell-hero">
+        <div className="tf-shell-hero-copy">
+          <div className="eyebrow">ACM service</div>
+          <h2>{selectedSummary?.domainName || 'Certificate watchtower'}</h2>
+          <p>
+            {selectedSummary
+              ? `Inspect expiry posture, validation blockers, renewal state, and downstream associations for ${selectedSummary.domainName || selectedSummary.certificateArn}.`
+              : 'Track certificate freshness, request new certificates, and follow validation or association issues from a single ACM workspace.'}
+          </p>
+          <div className="tf-shell-meta-strip">
+            <div className="tf-shell-meta-pill">
+              <span>Connection</span>
+              <strong>{connection.profile || 'AWS session'}</strong>
+            </div>
+            <div className="tf-shell-meta-pill">
+              <span>Region</span>
+              <strong>{connection.region || 'global'}</strong>
+            </div>
+            <div className="tf-shell-meta-pill">
+              <span>Selection</span>
+              <strong>{selectedSummary ? (selectedSummary.domainName || selectedSummary.certificateArn) : 'No certificate selected'}</strong>
+            </div>
+            <div className="tf-shell-meta-pill">
+              <span>Validation</span>
+              <strong>{selectedSummary?.pendingValidationCount ? `${selectedSummary.pendingValidationCount} pending checks` : 'Validation clear'}</strong>
+            </div>
+          </div>
+        </div>
+        <div className="tf-shell-hero-stats">
+          <button type="button" className={`tf-shell-stat-card tf-shell-stat-card-accent acm-hero-card ${summaryBucket === 'all' ? 'active' : ''}`} onClick={() => setSummaryBucket('all')}>
+            <span>Certificates</span>
+            <strong>{summaryCounts.all}</strong>
+            <small>{visibleCount} visible after filters</small>
+          </button>
+          <button type="button" className={`tf-shell-stat-card acm-hero-card ${summaryBucket === 'expiring7' ? 'active' : ''}`} onClick={() => setSummaryBucket('expiring7')}>
+            <span>Expiring in 7d</span>
+            <strong>{summaryCounts.expiring7}</strong>
+            <small>Critical renewal watchlist</small>
+          </button>
+          <button type="button" className={`tf-shell-stat-card acm-hero-card ${summaryBucket === 'pending' ? 'active' : ''}`} onClick={() => setSummaryBucket('pending')}>
+            <span>Pending validation</span>
+            <strong>{summaryCounts.pending}</strong>
+            <small>DNS or email confirmation required</small>
+          </button>
+          <button type="button" className={`tf-shell-stat-card acm-hero-card ${summaryBucket === 'unused' ? 'active' : ''}`} onClick={() => setSummaryBucket('unused')}>
+            <span>Unused</span>
+            <strong>{summaryCounts.unused}</strong>
+            <small>Candidate cleanup inventory</small>
+          </button>
+        </div>
+      </section>
 
-      {msg && <div className="svc-msg">{msg}</div>}
-      {error && <SvcState variant="error" error={error} />}
-
-      <div className="svc-stat-strip">
-        <button type="button" className={`svc-stat-card acm-watch-card ${summaryBucket === 'all' ? 'active' : ''}`} onClick={() => setSummaryBucket('all')}>
-          <span>All Certificates</span>
-          <strong>{summaryCounts.all}</strong>
-        </button>
-        <button type="button" className={`svc-stat-card acm-watch-card critical ${summaryBucket === 'expiring7' ? 'active' : ''}`} onClick={() => setSummaryBucket('expiring7')}>
-          <span>Expiring In 7d</span>
-          <strong>{summaryCounts.expiring7}</strong>
-        </button>
-        <button type="button" className={`svc-stat-card acm-watch-card warning ${summaryBucket === 'expiring30' ? 'active' : ''}`} onClick={() => setSummaryBucket('expiring30')}>
-          <span>Expiring In 30d</span>
-          <strong>{summaryCounts.expiring30}</strong>
-        </button>
-        <button type="button" className={`svc-stat-card acm-watch-card warning ${summaryBucket === 'pending' ? 'active' : ''}`} onClick={() => setSummaryBucket('pending')}>
-          <span>Pending Validation</span>
-          <strong>{summaryCounts.pending}</strong>
-        </button>
-        <button type="button" className={`svc-stat-card acm-watch-card ${summaryBucket === 'unused' ? 'active' : ''}`} onClick={() => setSummaryBucket('unused')}>
-          <span>Unused</span>
-          <strong>{summaryCounts.unused}</strong>
-        </button>
-      </div>
-
-      <div className="svc-panel acm-watch-toolbar">
-        <div className="svc-inline">
+      <div className="tf-shell-toolbar acm-toolbar">
+        <div className="tf-toolbar acm-toolbar-controls">
           <input
-            className="svc-search"
+            className="acm-toolbar-search"
             placeholder="Filter by domain, status, renewal, or attached resource..."
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
           />
-          <select className="svc-select" value={usageFilter} onChange={(event) => setUsageFilter(event.target.value as UsageFilter)}>
+          <select className="acm-toolbar-select" value={usageFilter} onChange={(event) => setUsageFilter(event.target.value as UsageFilter)}>
             <option value="all">All usage</option>
             <option value="in-use">In use</option>
             <option value="unused">Unused</option>
           </select>
-          <select className="svc-select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
+          <select className="acm-toolbar-select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
             <option value="all">All status</option>
             <option value="issued">Issued</option>
             <option value="pending_validation">Pending validation</option>
             <option value="problem">Problems</option>
           </select>
-          <select className="svc-select" value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
+          <select className="acm-toolbar-select" value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
             <option value="daysUntilExpiry">Sort: Days to expiry</option>
             <option value="notAfter">Sort: Expiry timestamp</option>
             <option value="domainName">Sort: Domain</option>
@@ -352,19 +406,39 @@ export function AcmConsole({
             <option value="pendingValidationCount">Sort: Validation blockers</option>
             <option value="inUseByCount">Sort: Associations</option>
           </select>
-          <button type="button" className="svc-btn muted" onClick={() => setSortAsc((current) => !current)}>
+          <button type="button" className="tf-toolbar-btn" onClick={() => setSortAsc((current) => !current)}>
             {sortAsc ? 'Ascending' : 'Descending'}
           </button>
+          <button type="button" className="tf-toolbar-btn accent" onClick={() => void refresh()} disabled={loading}>
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
+        <div className="tf-shell-status acm-toolbar-status">
+          <div className="acm-toolbar-request">
+            <div className="acm-toolbar-request-head">
+              <span>Request certificate</span>
+              <strong>{visibleCount} visible, {inUseCount} attached</strong>
+            </div>
+            <div className="acm-request-form acm-request-form-compact">
+              <label><span>Domain</span><input value={domainName} onChange={(event) => setDomainName(event.target.value)} placeholder="example.com" /></label>
+              <label><span>Validation</span><select value={validationMethod} onChange={(event) => setValidationMethod(event.target.value as 'DNS' | 'EMAIL')}><option value="DNS">DNS</option><option value="EMAIL">EMAIL</option></select></label>
+              <label><span>SANs</span><input value={sans} onChange={(event) => setSans(event.target.value)} placeholder="www.example.com, api.example.com" /></label>
+            </div>
+            <button type="button" className="tf-toolbar-btn accent" disabled={!domainName} onClick={() => void doRequest()}>Request</button>
+          </div>
         </div>
       </div>
 
-      <div className="svc-chips">
+      {msg && <div className="svc-msg">{msg}</div>}
+      {error && <SvcState variant="error" error={error} />}
+
+      <div className="acm-column-toggles">
         {COLUMNS.map((column) => (
           <button
             key={column.key}
-            className={`svc-chip ${visCols.has(column.key) ? 'active' : ''}`}
+            className={`acm-column-chip ${visCols.has(column.key) ? 'active' : ''}`}
             type="button"
-            style={visCols.has(column.key) ? { background: column.color, borderColor: column.color } : undefined}
+            style={visCols.has(column.key) ? { borderColor: column.color, color: column.color } : undefined}
             onClick={() => setVisCols((current) => {
               const next = new Set(current)
               if (next.has(column.key)) {
@@ -380,9 +454,44 @@ export function AcmConsole({
         ))}
       </div>
 
-      <div className="svc-layout">
-        <div className="svc-table-area">
-          <table className="svc-table">
+      <div className="tf-main-layout acm-main-layout">
+        <div className="tf-project-table-area acm-inventory-pane">
+          <div className="tf-pane-head">
+            <div>
+              <span className="tf-pane-kicker">Certificate inventory</span>
+              <h3>Watch list</h3>
+            </div>
+            <span className="tf-pane-summary">{visibleCount} shown</span>
+          </div>
+
+          <div className="tf-linked-list acm-summary-grid">
+            <button type="button" className={`tf-linked-card acm-summary-card ${summaryBucket === 'expiring30' ? 'active' : ''}`} onClick={() => setSummaryBucket('expiring30')}>
+              <span className="tf-status-badge warning">30d watch</span>
+              <div className="acm-summary-card-copy">
+                <strong>{summaryCounts.expiring30}</strong>
+                <span>Certificates expiring inside 30 days.</span>
+              </div>
+            </button>
+            <button type="button" className={`tf-linked-card acm-summary-card ${usageFilter === 'in-use' ? 'active' : ''}`} onClick={() => setUsageFilter('in-use')}>
+              <span className="tf-status-badge info">In use</span>
+              <div className="acm-summary-card-copy">
+                <strong>{inUseCount}</strong>
+                <span>Attached to load balancers or related resources.</span>
+              </div>
+            </button>
+          </div>
+
+          <div className="tf-detail-tabs acm-detail-tabs acm-list-tabs">
+            <button className={summaryBucket === 'all' ? 'active' : ''} onClick={() => setSummaryBucket('all')}>All</button>
+            <button className={summaryBucket === 'expiring7' ? 'active' : ''} onClick={() => setSummaryBucket('expiring7')}>7d risk</button>
+            <button className={summaryBucket === 'expiring30' ? 'active' : ''} onClick={() => setSummaryBucket('expiring30')}>30d watch</button>
+            <button className={summaryBucket === 'pending' ? 'active' : ''} onClick={() => setSummaryBucket('pending')}>Pending validation</button>
+            <button className={summaryBucket === 'unused' ? 'active' : ''} onClick={() => setSummaryBucket('unused')}>Unused</button>
+          </div>
+
+          <div className="tf-section acm-table-shell">
+            <div className="acm-table-wrap">
+              <table className="svc-table acm-table">
             <thead>
               <tr>
                 {activeCols.map((column) => <th key={column.key}>{column.label}</th>)}
@@ -454,13 +563,68 @@ export function AcmConsole({
                 </tr>
               ))}
             </tbody>
-          </table>
-          {!filteredCerts.length && !loading && <SvcState variant="no-filter-matches" resourceName="certificates" compact />}
+              </table>
+            </div>
+            {!filteredCerts.length && !loading && <SvcState variant="no-filter-matches" resourceName="certificates" compact />}
+          </div>
         </div>
 
-        <div className="svc-sidebar">
-          <div className="svc-section">
-            <h3>Watch Summary</h3>
+        <div className="tf-detail-pane acm-detail-pane">
+          <section className="tf-detail-hero acm-detail-hero">
+            <div className="tf-detail-hero-copy">
+              <div className="eyebrow">Selected certificate</div>
+              <h3>{selectedSummary?.domainName || 'No certificate selected'}</h3>
+              <p>{selectedSummary?.certificateArn || 'Select a certificate to inspect renewal state, validation flow, and associations.'}</p>
+              <div className="tf-detail-meta-strip">
+                <div className="tf-detail-meta-pill">
+                  <span>Status</span>
+                  <strong>{selectedSummary?.status || '-'}</strong>
+                </div>
+                <div className="tf-detail-meta-pill">
+                  <span>Urgency</span>
+                  <strong>{selectedSummary?.urgencySeverity || '-'}</strong>
+                </div>
+                <div className="tf-detail-meta-pill">
+                  <span>Expiry</span>
+                  <strong>{selectedSummary ? fmtDays(selectedSummary.daysUntilExpiry) : '-'}</strong>
+                </div>
+                <div className="tf-detail-meta-pill">
+                  <span>Associations</span>
+                  <strong>{selectedSummary?.inUseByCount ?? 0}</strong>
+                </div>
+              </div>
+            </div>
+            <div className="tf-detail-hero-stats">
+              <div className={`tf-detail-stat-card ${statusTone(selectedSummary?.status)}`}>
+                <span>Certificate state</span>
+                <strong>{selectedSummary?.status || 'Standby'}</strong>
+                <small>{selectedSummary?.type || 'Select a certificate from the watch list.'}</small>
+              </div>
+              <div className={`tf-detail-stat-card ${severityTone(selectedSummary?.urgencySeverity)}`}>
+                <span>Urgency</span>
+                <strong>{selectedSummary?.urgencySeverity || 'Idle'}</strong>
+                <small>{selectedSummary?.urgencyReason || 'No active certificate warning selected.'}</small>
+              </div>
+              <div className="tf-detail-stat-card">
+                <span>Validation blockers</span>
+                <strong>{selectedSummary ? selectedSummary.pendingValidationCount + selectedSummary.dnsValidationIssueCount : 0}</strong>
+                <small>{selectedSummary ? 'Pending validations plus DNS blockers.' : 'Visible after selection.'}</small>
+              </div>
+              <div className="tf-detail-stat-card">
+                <span>Resource usage</span>
+                <strong>{selectedSummary?.inUseByCount ?? 0}</strong>
+                <small>{selectedSummary?.inUse ? 'Downstream resources reference this cert.' : 'Not currently attached.'}</small>
+              </div>
+            </div>
+          </section>
+
+          <div className="tf-section">
+            <div className="tf-section-head">
+              <div>
+                <h3>Watch Summary</h3>
+                <div className="tf-section-hint">Primary posture for the selected certificate.</div>
+              </div>
+            </div>
             {selectedSummary ? (
               <>
                 <div className="svc-kv">
@@ -470,10 +634,10 @@ export function AcmConsole({
                   <div className="svc-kv-row"><div className="svc-kv-label">Renewal</div><div className="svc-kv-value">{selectedSummary.renewalStatus || '-'} / {selectedSummary.renewalEligibility || '-'}</div></div>
                   <div className="svc-kv-row"><div className="svc-kv-label">Associations</div><div className="svc-kv-value">{selectedSummary.inUse ? `${selectedSummary.inUseByCount} in-use references` : 'Unused certificate'}</div></div>
                 </div>
-                <div className="svc-btn-row" style={{ marginTop: 12 }}>
-                  <button type="button" className="svc-btn muted" onClick={() => void copyText(selectedSummary.certificateArn, 'Certificate ARN')}>Copy ARN</button>
+                <div className="acm-action-row">
+                  <button type="button" className="tf-toolbar-btn" onClick={() => void copyText(selectedSummary.certificateArn, 'Certificate ARN')}>Copy ARN</button>
                   {selectedSummary.loadBalancerAssociations[0] && (
-                    <button type="button" className="svc-btn primary" onClick={() => onOpenLoadBalancer(selectedSummary.loadBalancerAssociations[0].loadBalancerArn)}>
+                    <button type="button" className="tf-toolbar-btn accent" onClick={() => onOpenLoadBalancer(selectedSummary.loadBalancerAssociations[0].loadBalancerArn)}>
                       Open Load Balancer
                     </button>
                   )}
@@ -484,21 +648,16 @@ export function AcmConsole({
             )}
           </div>
 
-          <div className="svc-section">
-            <h3>Request Certificate</h3>
-            <div className="svc-form">
-              <label><span>Domain</span><input value={domainName} onChange={(event) => setDomainName(event.target.value)} placeholder="example.com" /></label>
-              <label><span>Validation</span><select value={validationMethod} onChange={(event) => setValidationMethod(event.target.value as 'DNS' | 'EMAIL')}><option value="DNS">DNS</option><option value="EMAIL">EMAIL</option></select></label>
-              <label><span>SANs</span><input value={sans} onChange={(event) => setSans(event.target.value)} placeholder="www.example.com, api.example.com" /></label>
+          <div className="tf-section">
+            <div className="tf-section-head">
+              <div>
+                <h3>Certificate Detail</h3>
+                <div className="tf-section-hint">Issuer, validity window, validation flow, and linked resources.</div>
+              </div>
             </div>
-            <button type="button" className="svc-btn success" disabled={!domainName} onClick={() => void doRequest()}>Request</button>
-          </div>
-
-          <div className="svc-section">
-            <h3>Certificate Detail</h3>
             {detail ? (
               <>
-                {detailLoading && <div className="svc-section-hint">Refreshing detail...</div>}
+                {detailLoading && <div className="tf-section-hint">Refreshing detail...</div>}
                 <div className="svc-kv">
                   <div className="svc-kv-row"><div className="svc-kv-label">Status</div><div className="svc-kv-value"><span className={`svc-badge ${badgeClass(detail.status)}`}>{detail.status}</span></div></div>
                   <div className="svc-kv-row"><div className="svc-kv-label">Validity</div><div className="svc-kv-value">{fmtTs(detail.notBefore)} to {fmtTs(detail.notAfter)}</div></div>
@@ -508,9 +667,9 @@ export function AcmConsole({
                   <div className="svc-kv-row"><div className="svc-kv-label">SANs</div><div className="svc-kv-value">{detail.subjectAlternativeNames.join(', ') || '-'}</div></div>
                 </div>
 
-                <div style={{ marginTop: 14 }}>
-                  <h3 style={{ fontSize: 12, margin: '0 0 8px' }}>Validation Watch</h3>
-                  <table className="svc-table" style={{ fontSize: 11 }}>
+                <div className="acm-subsection">
+                  <h3 className="acm-subsection-title">Validation Watch</h3>
+                  <table className="svc-table acm-table" style={{ fontSize: 11 }}>
                     <thead>
                       <tr><th>Domain</th><th>Status</th><th>DNS</th><th>Action</th></tr>
                     </thead>
@@ -540,8 +699,8 @@ export function AcmConsole({
                   {detail.domainValidationOptions.length === 0 && <SvcState variant="empty" resourceName="validation details" compact />}
                 </div>
 
-                <div style={{ marginTop: 14 }}>
-                  <h3 style={{ fontSize: 12, margin: '0 0 8px' }}>Resource Associations</h3>
+                <div className="acm-subsection">
+                  <h3 className="acm-subsection-title">Resource Associations</h3>
                   {detail.loadBalancerAssociations.length > 0 && (
                     <div className="svc-list" style={{ marginBottom: 10 }}>
                       {detail.loadBalancerAssociations.map((association) => (
@@ -571,8 +730,8 @@ export function AcmConsole({
                   )}
                 </div>
 
-                <div style={{ marginTop: 12 }}>
-                  <ConfirmButton className="svc-btn danger" onConfirm={() => void doDelete()}>Delete Certificate</ConfirmButton>
+                <div className="acm-action-row">
+                  <ConfirmButton className="tf-toolbar-btn danger" onConfirm={() => void doDelete()}>Delete Certificate</ConfirmButton>
                 </div>
               </>
             ) : (

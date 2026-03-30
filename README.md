@@ -2,7 +2,7 @@
 
 # AWS Lens
 
-A desktop operator workspace with first-class Terraform infrastructure management, built on Electron, React, and TypeScript. AWS Lens brings Terraform projects, drift detection, governance checks, variable management, and plan visualization into a single desktop experience alongside 25+ AWS service consoles.
+A desktop AWS operator workspace built on Electron, React, and TypeScript. AWS Lens combines a profile-aware navigation shell, service-specific operational consoles, Terraform infrastructure management, governance checks, session switching, direct resource access, and an embedded terminal in one desktop UI.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![Electron](https://img.shields.io/badge/Electron-35-47848F.svg?logo=electron&logoColor=white)](https://www.electronjs.org/)
@@ -12,9 +12,54 @@ A desktop operator workspace with first-class Terraform infrastructure managemen
 [![Node.js](https://img.shields.io/badge/Node.js-20%2B-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![pnpm](https://img.shields.io/badge/pnpm-required-F69220.svg?logo=pnpm&logoColor=white)](https://pnpm.io/)
 
-<img src="images/terraform-main.png" alt="AWS Lens Terraform Workspace" width="100%" />
+<img src="images/overview.png" alt="AWS Lens overview workspace" width="100%" />
 
 </div>
+
+---
+
+## Interface Tour
+
+The current UI is organized around a left-rail workspace shell instead of a single-service dashboard. Operators select a profile and region once, then move across overview, Terraform, direct resource access, session workflows, and service-specific consoles without losing context.
+
+### Shared Shell
+
+- Left sidebar with profile and region context, pinned services, grouped AWS workspaces, and utility screens
+- Persistent footer terminal toggle backed by `node-pty` and synchronized with the active AWS session
+- Refresh actions keep the current selection and screen context instead of forcing a full navigation reset
+- Screen-specific hero panels surface posture, cost, inventory, and next actions up front
+
+### Overview Workspace
+
+![AWS Lens Overview](images/overview.png)
+
+The overview screen is the new landing surface. It combines regional posture, top services, cost posture, relationship counts, insights, and quick routing into deeper consoles from the same shell.
+
+### EC2 Workspace
+
+![AWS Lens EC2 Workspace](images/ec2.png)
+
+The EC2 console now uses an operator-focused split layout: fleet summary cards on top, instance/volume/snapshot tabs in the center, and action-heavy detail panels for start/stop, resize, snapshots, bastion access, CloudWatch jumps, and SSM-driven workflows.
+
+### S3 Workspace
+
+![AWS Lens S3 Workspace](images/s3.png)
+
+The S3 console pairs object browsing with governance posture. Buckets, prefixes, preview/edit flows, lifecycle gaps, encryption/versioning state, and remediation-oriented governance actions live in the same workspace.
+
+### Session and Compliance Workspaces
+
+![AWS Lens Session Hub](images/session-hub.png)
+
+![AWS Lens Compliance Center](images/complience-center.png)
+
+Session Hub handles assume-role targets and temporary sessions, while Compliance Center acts as an operational queue for findings, severity rollups, filters, and guided remediation.
+
+### Terraform Workspace
+
+![AWS Lens Terraform Workspace](images/terraform-main.png)
+
+Terraform remains a first-class part of the application, but it now sits inside the same navigation shell as the AWS service consoles instead of feeling like a separate mode.
 
 ---
 
@@ -92,8 +137,6 @@ Visual graph of Terraform-managed resources and their dependency relationships, 
 
 Beyond Terraform, AWS Lens provides a full operator workspace for common AWS services. It reads local AWS profiles, lets you activate a profile and region, and keeps that context synchronized across the UI and the embedded terminal.
 
-![AWS Lens Overview](images/overview.png)
-
 ### Profile and Region Context
 
 - Reads AWS profiles from `~/.aws/config` and `~/.aws/credentials`
@@ -102,6 +145,7 @@ Beyond Terraform, AWS Lens provides a full operator workspace for common AWS ser
 - Pin frequently used services in the sidebar for faster switching
 - Region-aware service navigation with context kept in sync across all screens
 - Refresh the active screen without losing the selected account or region context
+- Keeps utility screens such as `Overview`, `Direct Resource Access`, and `Session Hub` pinned near the top of the workspace shell
 
 ### Overview Dashboard
 
@@ -115,6 +159,8 @@ The Overview screen is the landing surface for day-to-day AWS navigation. It giv
 - Search-by-tag workflow that returns matching resources and a cost-oriented rollup
 
 Overview doubles as a routing surface: clicking most tiles opens the corresponding service workspace with the current AWS context already applied.
+
+The current renderer implements tabbed overview modes for `Overview (Region)`, `Resource Relationship View`, `Statistics`, and `Search By Tag`, matching the navigation visible in the new UI.
 
 ### Session Hub
 

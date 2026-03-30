@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import './terraform.css'
+import './cloudformation.css'
 import { SvcState } from './SvcState'
 
 import type {
@@ -431,6 +433,18 @@ function badgeClass(value: string): string {
   return 'active'
 }
 
+function stackTone(status: string): 'success' | 'warning' | 'danger' | 'info' {
+  const badge = badgeClass(status)
+  if (badge === 'ok') return 'success'
+  if (badge === 'warn') return 'warning'
+  if (badge === 'danger') return 'danger'
+  return 'info'
+}
+
+function formatConnectionLabel(connection: AwsConnection): string {
+  return connection.kind === 'profile' ? connection.profile : connection.roleArn
+}
+
 function safePretty(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2)
@@ -659,12 +673,31 @@ export function CloudFormationConsole({
 
   const visStackCols = STACK_COLS.filter(c => stackCols.has(c.key))
   const visResCols = RES_COLS.filter(c => resCols.has(c.key))
+  const selectedStackSummary = useMemo(
+    () => stacks.find((stack) => stack.stackName === selectedStack) ?? null,
+    [selectedStack, stacks]
+  )
 
   const filteredStacks = useMemo(() => {
     if (!filter) return stacks
     const q = filter.toLowerCase()
     return stacks.filter(s => s.stackName.toLowerCase().includes(q) || s.status.toLowerCase().includes(q))
   }, [stacks, filter])
+
+  const stackStatusCounts = useMemo(() => {
+    let healthy = 0
+    let changing = 0
+    let attention = 0
+
+    for (const stack of stacks) {
+      const tone = stackTone(stack.status)
+      if (tone === 'success') healthy += 1
+      else if (tone === 'warning' || tone === 'info') changing += 1
+      else attention += 1
+    }
+
+    return { healthy, changing, attention }
+  }, [stacks])
 
   const diagram = useMemo(() => buildDiagramFromResources(resources), [resources])
 
@@ -763,14 +796,62 @@ export function CloudFormationConsole({
   }
 
   return (
-    <div className="svc-console">
-      <div className="svc-tab-bar">
+    <div className="svc-console cfn-console">
+      <section className="tf-shell-hero cfn-shell-hero">
+        <div className="tf-shell-hero-copy">
+          <div className="eyebrow">CloudFormation posture</div>
+          <h2>Manage CloudFormation stacks.</h2>
+          <p>Track stack inventory, drift posture, change-set previews, and dependency views in one place.</p>
+          <div className="tf-shell-meta-strip">
+            <div className="tf-shell-meta-pill">
+              <span>Connection</span>
+              <strong>{formatConnectionLabel(connection)}</strong>
+            </div>
+            <div className="tf-shell-meta-pill">
+              <span>Region</span>
+              <strong>{connection.region}</strong>
+            </div>
+            <div className="tf-shell-meta-pill">
+              <span>Selected stack</span>
+              <strong>{selectedStack || 'No selection'}</strong>
+            </div>
+          </div>
+        </div>
+        <div className="tf-shell-hero-stats">
+          <div className="tf-shell-stat-card tf-shell-stat-card-accent">
+            <span>Total stacks</span>
+            <strong>{stacks.length}</strong>
+            <small>{filteredStacks.length === stacks.length ? 'Full inventory in view' : `${filteredStacks.length} matching current filter`}</small>
+          </div>
+          <div className="tf-shell-stat-card">
+            <span>Healthy</span>
+            <strong>{stackStatusCounts.healthy}</strong>
+            <small>Completed or in-sync stacks</small>
+          </div>
+          <div className="tf-shell-stat-card">
+            <span>Changing</span>
+            <strong>{stackStatusCounts.changing}</strong>
+            <small>Stacks progressing or awaiting review</small>
+          </div>
+          <div className="tf-shell-stat-card">
+            <span>Attention</span>
+            <strong>{stackStatusCounts.attention}</strong>
+            <small>Stacks needing follow-up</small>
+          </div>
+        </div>
+      </section>
+
+      <div className="tf-shell-toolbar cfn-shell-toolbar">
+        <div className="svc-tab-bar">
         <button className={`svc-tab ${tab === 'stacks' ? 'active' : ''}`} type="button" onClick={() => setTab('stacks')}>Stacks</button>
         <button className={`svc-tab ${tab === 'diagram' ? 'active' : ''}`} type="button" onClick={() => setTab('diagram')}>Diagram</button>
         <button className="svc-tab right" type="button" onClick={() => void load(selectedStack, 'manual')}>Refresh</button>
       </div>
-
-      <FreshnessIndicator freshness={stackFreshness} label="Stacks last updated" />
+        <div className="tf-shell-status">
+          <FreshnessIndicator freshness={stackFreshness} label="Stacks last updated" />
+          {tab === 'stacks' && <FreshnessIndicator freshness={driftFreshness} label="Drift last checked" staleLabel="Recheck drift" />}
+        </div>
+      </div>
       {error && <SvcState variant="error" error={error} />}
 
       {tab === 'stacks' && (
@@ -809,8 +890,55 @@ export function CloudFormationConsole({
               {!filteredStacks.length && !loading && <SvcState variant="empty" resourceName="stacks" compact />}
             </div>
 
-            <div className="svc-sidebar">
-              <div className="svc-section">
+            <div className="svc-sidebar cfn-detail-pane">
+              <section className="tf-detail-hero cfn-detail-hero">
+                <div className="tf-detail-hero-copy">
+                  <div className="eyebrow">Stack posture</div>
+                  <h3>{selectedStack || 'Stack Detail'}</h3>
+                  <p>{detailTab === 'change-sets' ? 'Review pending change sets before execution.' : detailTab === 'drift' ? 'Compare template intent against live infrastructure.' : 'Inspect the current resource inventory for this stack.'}</p>
+                  <div className="tf-detail-meta-strip">
+                    <div className="tf-detail-meta-pill">
+                      <span>Status</span>
+                      <strong>{selectedStackSummary?.status ?? '-'}</strong>
+                    </div>
+                    <div className="tf-detail-meta-pill">
+                      <span>Created</span>
+                      <strong>{selectedStackSummary ? fmtTs(selectedStackSummary.creationTime) : '-'}</strong>
+                    </div>
+                    <div className="tf-detail-meta-pill">
+                      <span>Region</span>
+                      <strong>{connection.region}</strong>
+                    </div>
+                    <div className="tf-detail-meta-pill">
+                      <span>Connection</span>
+                      <strong>{formatConnectionLabel(connection)}</strong>
+                    </div>
+                  </div>
+                </div>
+                <div className="tf-detail-hero-stats">
+                  <div className={`tf-detail-stat-card ${selectedStackSummary ? stackTone(selectedStackSummary.status) : 'info'}`}>
+                    <span>Stack state</span>
+                    <strong>{selectedStackSummary?.status ?? 'No selection'}</strong>
+                    <small>{detailLoading ? 'Refreshing stack detail' : 'Latest stack summary from CloudFormation'}</small>
+                  </div>
+                  <div className="tf-detail-stat-card">
+                    <span>Resources</span>
+                    <strong>{resources.length}</strong>
+                    <small>Resources currently returned for this stack</small>
+                  </div>
+                  <div className="tf-detail-stat-card">
+                    <span>Change sets</span>
+                    <strong>{changeSets.length}</strong>
+                    <small>{selectedChangeSetName || 'No selected change set'}</small>
+                  </div>
+                  <div className="tf-detail-stat-card">
+                    <span>Drift</span>
+                    <strong>{driftSummary?.stackDriftStatus ?? 'NOT_CHECKED'}</strong>
+                    <small>{driftSummary?.detectionStatus ?? 'No drift workflow started yet'}</small>
+                  </div>
+                </div>
+              </section>
+              <div className="svc-section cfn-stack-info">
                 <h3>{selectedStack || 'Stack Detail'}</h3>
                 <div className="svc-kv">
                   <div className="svc-kv-row"><div className="svc-kv-label">Resources</div><div className="svc-kv-value">{resources.length}</div></div>
@@ -1046,7 +1174,7 @@ export function CloudFormationConsole({
       )}
 
       {tab === 'diagram' && (
-        <>
+        <div className="cfn-diagram-pane">
           <div className="svc-chips" style={{ marginBottom: 10 }}>
             {stacks.map(s => (
               <button
@@ -1059,7 +1187,7 @@ export function CloudFormationConsole({
             ))}
           </div>
           <CfnDiagramView diagram={diagram} />
-        </>
+        </div>
       )}
     </div>
   )

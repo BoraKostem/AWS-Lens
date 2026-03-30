@@ -1,0 +1,321 @@
+.kms-console {
+  gap: 10px;
+}
+
+.kms-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(145, 176, 207, 0.12);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(16, 24, 35, 0.96), rgba(10, 16, 24, 0.96));
+}
+
+.kms-topbar-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.kms-topbar-copy h2 {
+  margin: 0;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  font-size: 1.15rem;
+  letter-spacing: -0.04em;
+  color: #edf4fb;
+}
+
+.kms-topbar-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.kms-topbar-meta span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(9, 15, 23, 0.72);
+  border: 1px solid rgba(145, 176, 207, 0.08);
+  color: #a9bfd4;
+  font-size: 0.72rem;
+}
+
+.kms-topbar-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(72px, 92px));
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.kms-mini-stat {
+  padding: 8px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(145, 176, 207, 0.08);
+  background: linear-gradient(180deg, rgba(20, 29, 41, 0.96), rgba(11, 18, 27, 0.96));
+}
+
+.kms-mini-stat span {
+  display: block;
+  color: #8fa3ba;
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.kms-mini-stat strong {
+  display: block;
+  margin-top: 4px;
+  color: #edf4fb;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  font-size: 1rem;
+  letter-spacing: -0.04em;
+}
+
+.kms-controls {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: end;
+  padding: 12px 14px;
+  border: 1px solid rgba(145, 176, 207, 0.1);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(12, 19, 29, 0.95), rgba(8, 14, 22, 0.95));
+}
+
+.kms-primary-actions {
+  align-items: center;
+}
+
+.kms-filter-strip {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.kms-search-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.kms-search-field span,
+.kms-algorithm-card span,
+.kms-plaintext-shell span {
+  color: #8fa3ba;
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.kms-search-field input {
+  min-height: 40px;
+}
+
+.kms-column-toggle-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.kms-column-toggle {
+  min-height: 40px;
+  padding: 0 11px;
+  border: 1px solid rgba(145, 176, 207, 0.12);
+  border-radius: 11px;
+  background: linear-gradient(180deg, rgba(22, 32, 45, 0.96), rgba(13, 21, 32, 0.96));
+  color: #9fb4ca;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.kms-column-toggle.active {
+  border-color: rgba(245, 154, 61, 0.26);
+  background: linear-gradient(180deg, rgba(245, 154, 61, 0.18), rgba(245, 154, 61, 0.08));
+  color: #fff0e2;
+}
+
+.kms-inventory-pane,
+.kms-detail-pane {
+  max-height: calc(100vh - 275px);
+}
+
+.kms-inventory-pane .tf-pane-head,
+.kms-section-head {
+  margin-bottom: 10px;
+}
+
+.kms-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.kms-section-head h3 {
+  margin: 4px 0 0;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  font-size: 0.98rem;
+  letter-spacing: -0.03em;
+  color: #edf4fb;
+}
+
+.kms-section-copy {
+  margin: 0 0 12px;
+  color: #9fb4ca;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.kms-detail-pane .tf-detail-hero {
+  padding: 10px 12px;
+  gap: 10px;
+}
+
+.kms-detail-pane .tf-detail-hero-copy {
+  gap: 6px;
+}
+
+.kms-detail-pane .tf-detail-hero-copy h3 {
+  font-size: 1.15rem;
+}
+
+.kms-detail-pane .tf-detail-hero-copy p {
+  font-size: 0.76rem;
+}
+
+.kms-detail-pane .tf-detail-meta-pill {
+  min-width: 116px;
+  padding: 7px 9px;
+}
+
+.kms-detail-pane .tf-detail-meta-pill strong {
+  font-size: 0.74rem;
+}
+
+.kms-detail-pane .tf-detail-stat-card {
+  min-height: 72px;
+  padding: 8px 10px;
+}
+
+.kms-detail-pane .tf-detail-stat-card strong {
+  font-size: 0.95rem;
+}
+
+.kms-detail-pane .tf-detail-stat-card small {
+  font-size: 0.64rem;
+}
+
+.kms-detail-pane .tf-section {
+  padding: 12px;
+}
+
+.kms-algorithm-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.kms-algorithm-card {
+  min-height: 92px;
+  padding: 10px 12px;
+  border: 1px solid rgba(145, 176, 207, 0.1);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(12, 19, 28, 0.96), rgba(9, 15, 23, 0.96));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kms-algorithm-card strong {
+  color: #edf4fb;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  font-size: 1rem;
+  letter-spacing: -0.04em;
+}
+
+.kms-algorithm-card small {
+  color: rgba(238, 240, 244, 0.72);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.kms-plaintext-shell {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(145, 176, 207, 0.12);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(10, 17, 26, 0.98), rgba(7, 13, 20, 0.98));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kms-plaintext-output {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(145, 176, 207, 0.08);
+  background: rgba(3, 8, 14, 0.92);
+  color: #dce8f5;
+  font-family: "IBM Plex Mono", "Cascadia Code", monospace;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 1100px) {
+  .kms-topbar,
+  .kms-controls,
+  .kms-filter-strip {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .kms-topbar {
+    align-items: stretch;
+  }
+
+  .kms-topbar-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .kms-column-toggle-group {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 960px) {
+  .kms-algorithm-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .kms-inventory-pane,
+  .kms-detail-pane {
+    max-height: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .kms-topbar-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .kms-column-toggle {
+    width: 100%;
+  }
+}

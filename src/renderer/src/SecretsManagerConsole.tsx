@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import './secrets-manager.css'
 
 import {
   createSecret,
@@ -300,6 +301,10 @@ export function SecretsManagerConsole({
   }
 
   const activeCols = COLUMNS.filter((col) => visCols.has(col.key))
+  const selectedSummary = secrets.find((secret) => secret.arn === selectedSecretId) ?? null
+  const rotatingCount = secrets.filter((secret) => secret.rotationEnabled).length
+  const deletedCount = secrets.filter((secret) => secret.deletedDate && secret.deletedDate !== '-').length
+  const taggedCount = secrets.filter((secret) => secret.tags && Object.keys(secret.tags).length > 0).length
 
   const filteredSecrets = useMemo(() => {
     if (!filter) return secrets
@@ -309,14 +314,65 @@ export function SecretsManagerConsole({
 
   if (mainTab === 'create') {
     return (
-      <div className="svc-console">
-        <div className="svc-tab-bar">
-          <button className="svc-tab" type="button" onClick={() => setMainTab('secrets')}>Cancel</button>
-          <button className="svc-tab active" type="button">Create Secret</button>
+      <div className="svc-console tf-console secrets-shell">
+        <section className="tf-shell-hero secrets-shell-hero">
+          <div className="tf-shell-hero-copy">
+            <div className="eyebrow">Secrets manager</div>
+            <h2>Create a new managed secret</h2>
+            <p>
+              Provision the secret name, encryption context, and initial value from the same workspace used to inspect rotation posture and downstream dependencies.
+            </p>
+            <div className="tf-shell-meta-strip">
+              <div className="tf-shell-meta-pill">
+                <span>Connection</span>
+                <strong>{connection.profile || 'AWS session'}</strong>
+              </div>
+              <div className="tf-shell-meta-pill">
+                <span>Region</span>
+                <strong>{connection.region || '-'}</strong>
+              </div>
+              <div className="tf-shell-meta-pill">
+                <span>Mode</span>
+                <strong>Create flow</strong>
+              </div>
+            </div>
+          </div>
+          <div className="tf-shell-hero-stats">
+            <div className="tf-shell-stat-card tf-shell-stat-card-accent secrets-hero-card">
+              <span>Name</span>
+              <strong>{newName || 'Pending'}</strong>
+              <small>Secret identifier to provision</small>
+            </div>
+            <div className="tf-shell-stat-card secrets-hero-card">
+              <span>KMS key</span>
+              <strong>{newKmsKeyId || 'AWS managed'}</strong>
+              <small>Optional customer-managed envelope key</small>
+            </div>
+            <div className="tf-shell-stat-card secrets-hero-card">
+              <span>Description</span>
+              <strong>{newDescription ? 'Included' : 'Optional'}</strong>
+              <small>Operator context for ownership and usage</small>
+            </div>
+            <div className="tf-shell-stat-card secrets-hero-card">
+              <span>Initial value</span>
+              <strong>{newValue ? `${newValue.length} chars` : 'Empty'}</strong>
+              <small>Stored as the first current version</small>
+            </div>
+          </div>
+        </section>
+
+        <div className="tf-shell-toolbar secrets-toolbar">
+          <div className="tf-toolbar">
+            <button className="tf-toolbar-btn" type="button" onClick={() => setMainTab('secrets')}>Back to inventory</button>
+          </div>
+          <div className="secrets-toolbar-status">
+            <span>New secret form</span>
+            <strong>{newName || 'Awaiting required name'}</strong>
+          </div>
         </div>
         {error && <div className="svc-error">{error}</div>}
-        <div className="svc-panel">
-          <div className="svc-form">
+        <div className="svc-panel secrets-create-panel">
+          <div className="svc-form secrets-create-form">
             <label><span>Name</span><input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="my-secret" /></label>
             <label><span>Description</span><input value={newDescription} onChange={(event) => setNewDescription(event.target.value)} placeholder="Optional description" /></label>
             <label><span>KMS Key ID</span><input value={newKmsKeyId} onChange={(event) => setNewKmsKeyId(event.target.value)} placeholder="Optional KMS key" /></label>
@@ -331,22 +387,79 @@ export function SecretsManagerConsole({
   }
 
   return (
-    <div className="svc-console">
-      <div className="svc-tab-bar">
-        <button className={`svc-tab ${mainTab === 'secrets' ? 'active' : ''}`} type="button" onClick={() => setMainTab('secrets')}>Secrets</button>
-        <button className="svc-tab right" type="button" onClick={() => void refresh()}>Refresh</button>
+    <div className="svc-console tf-console secrets-shell">
+      <section className="tf-shell-hero secrets-shell-hero">
+        <div className="tf-shell-hero-copy">
+          <div className="eyebrow">Secrets manager</div>
+          <h2>{selectedSummary?.name || 'Secret operations workspace'}</h2>
+          <p>
+            {selectedSummary
+              ? `Inspect versions, policy posture, likely consumers, and change history for ${selectedSummary.name}.`
+              : 'Review managed secrets, rotate credentials, and inspect dependency risk from a single inventory workspace.'}
+          </p>
+          <div className="tf-shell-meta-strip">
+            <div className="tf-shell-meta-pill">
+              <span>Connection</span>
+              <strong>{connection.profile || 'AWS session'}</strong>
+            </div>
+            <div className="tf-shell-meta-pill">
+              <span>Region</span>
+              <strong>{connection.region || '-'}</strong>
+            </div>
+            <div className="tf-shell-meta-pill">
+              <span>Selection</span>
+              <strong>{selectedSummary?.name || 'No secret selected'}</strong>
+            </div>
+            <div className="tf-shell-meta-pill">
+              <span>Rotation</span>
+              <strong>{selectedSummary ? (selectedSummary.rotationEnabled ? 'Enabled' : 'Disabled') : 'Awaiting selection'}</strong>
+            </div>
+          </div>
+        </div>
+        <div className="tf-shell-hero-stats">
+          <div className="tf-shell-stat-card tf-shell-stat-card-accent secrets-hero-card">
+            <span>Inventory</span>
+            <strong>{secrets.length}</strong>
+            <small>{filteredSecrets.length} visible after filters</small>
+          </div>
+          <div className="tf-shell-stat-card secrets-hero-card">
+            <span>Rotation enabled</span>
+            <strong>{rotatingCount}</strong>
+            <small>Secrets already on an automated cadence</small>
+          </div>
+          <div className="tf-shell-stat-card secrets-hero-card">
+            <span>Tagged</span>
+            <strong>{taggedCount}</strong>
+            <small>Entries carrying owner or environment metadata</small>
+          </div>
+          <div className="tf-shell-stat-card secrets-hero-card">
+            <span>Deleted</span>
+            <strong>{deletedCount}</strong>
+            <small>Recoverable items awaiting restore or purge</small>
+          </div>
+        </div>
+      </section>
+
+      <div className="tf-shell-toolbar secrets-toolbar">
+        <div className="tf-toolbar secrets-toolbar-controls">
+          <input className="secrets-toolbar-search svc-search" placeholder="Filter by name, description, status, version count, or access time..." value={filter} onChange={(event) => setFilter(event.target.value)} />
+          <button className="tf-toolbar-btn accent" type="button" onClick={() => setMainTab('create')}>New Secret</button>
+          <button className="tf-toolbar-btn" type="button" onClick={() => void refresh()}>{loading ? 'Refreshing...' : 'Refresh'}</button>
+        </div>
+        <div className="secrets-toolbar-status">
+          <span>Visible columns</span>
+          <strong>{activeCols.length} active</strong>
+        </div>
       </div>
 
       {msg && <div className="svc-msg">{msg}</div>}
       {error && <div className="svc-error">{error}</div>}
 
-      <input className="svc-search" placeholder="Filter rows across selected columns..." value={filter} onChange={(event) => setFilter(event.target.value)} />
-
-      <div className="svc-chips">
+      <div className="svc-chips secrets-column-chips">
         {COLUMNS.map((col) => (
           <button
             key={col.key}
-            className={`svc-chip ${visCols.has(col.key) ? 'active' : ''}`}
+            className={`svc-chip secrets-column-chip ${visCols.has(col.key) ? 'active' : ''}`}
             type="button"
             style={visCols.has(col.key) ? { background: col.color, borderColor: col.color } : undefined}
             onClick={() => setVisCols((previous) => {
@@ -359,8 +472,8 @@ export function SecretsManagerConsole({
         ))}
       </div>
 
-      <div className="svc-layout">
-        <div className="svc-table-area">
+      <div className="svc-layout secrets-layout">
+        <div className="svc-table-area secrets-table-area">
           <table className="svc-table">
             <thead>
               <tr>{activeCols.map((col) => <th key={col.key}>{col.label}</th>)}</tr>
@@ -368,7 +481,7 @@ export function SecretsManagerConsole({
             <tbody>
               {loading && <tr><td colSpan={activeCols.length}>Gathering data</td></tr>}
               {!loading && filteredSecrets.map((secret) => (
-                <tr key={secret.arn} className={secret.arn === selectedSecretId ? 'active' : ''} onClick={() => void selectSecret(secret.arn)}>
+                <tr key={secret.arn} className={secret.arn === selectedSecretId ? 'active secrets-row-active' : ''} onClick={() => void selectSecret(secret.arn)}>
                   {activeCols.map((col) => (
                     <td key={col.key}>
                       {col.key === 'rotation'
@@ -384,8 +497,46 @@ export function SecretsManagerConsole({
           {!loading && !filteredSecrets.length && <div className="svc-empty">No secrets found.</div>}
         </div>
 
-        <div className="svc-sidebar">
-          <div className="svc-side-tabs">
+        <div className="svc-sidebar secrets-sidebar">
+          <section className="secrets-detail-summary">
+            <div className="secrets-detail-summary-copy">
+              <div className="eyebrow">Selected secret</div>
+              <h3>{detail?.name || 'No secret selected'}</h3>
+              <p>
+                {detail
+                  ? 'Update values, inspect versions, and review dependency or policy posture from this rail.'
+                  : 'Choose a secret from the inventory to inspect metadata, versions, policy, and dependent workloads.'}
+              </p>
+            </div>
+            <div className="secrets-detail-pills">
+              <div className="secrets-detail-pill">
+                <span>Status</span>
+                <strong>{detail ? (detail.deletedDate ? 'Deleted' : 'Active') : 'Idle'}</strong>
+              </div>
+              <div className="secrets-detail-pill">
+                <span>Rotation</span>
+                <strong>{detail ? (detail.rotationEnabled ? 'Enabled' : 'Disabled') : '-'}</strong>
+              </div>
+              <div className="secrets-detail-pill">
+                <span>Versions</span>
+                <strong>{detail?.versions.length ?? 0}</strong>
+              </div>
+              <div className="secrets-detail-pill">
+                <span>Consumers</span>
+                <strong>{dependencyReport?.dependencies.length ?? 0}</strong>
+              </div>
+              <div className="secrets-detail-pill">
+                <span>Last changed</span>
+                <strong>{detail ? fmtTs(detail.lastChangedDate) : '-'}</strong>
+              </div>
+              <div className="secrets-detail-pill">
+                <span>Policy</span>
+                <strong>{detail?.policy ? 'Present' : 'Missing'}</strong>
+              </div>
+            </div>
+          </section>
+
+          <div className="svc-side-tabs secrets-side-tabs">
             <button className={sideTab === 'overview' ? 'active' : ''} type="button" onClick={() => setSideTab('overview')}>Overview</button>
             <button className={sideTab === 'dependencies' ? 'active' : ''} type="button" onClick={() => setSideTab('dependencies')}>Dependencies</button>
             <button className={sideTab === 'value' ? 'active' : ''} type="button" onClick={() => setSideTab('value')}>Value</button>
@@ -393,7 +544,7 @@ export function SecretsManagerConsole({
             <button className={sideTab === 'policy' ? 'active' : ''} type="button" onClick={() => setSideTab('policy')}>Policy</button>
             <button className={sideTab === 'tags' ? 'active' : ''} type="button" onClick={() => setSideTab('tags')}>Tags</button>
           </div>
-          <div className="svc-sidebar-body">
+          <div className="svc-sidebar-body secrets-sidebar-body">
 
           {sideTab === 'overview' && (
             <>
@@ -474,7 +625,7 @@ export function SecretsManagerConsole({
                     </div>
                   )}
 
-                  <div className="svc-table-wrap secrets-dependency-table-wrap" style={{ maxHeight: 'calc(100vh - 600px)', marginBottom: 12 }}>
+                  <div className="svc-table-wrap secrets-dependency-table-wrap" style={{ maxHeight: 'calc(100vh - 320px)', marginBottom: 12 }}>
                     <table className="svc-table secrets-dependency-table">
                       <thead>
                         <tr>
@@ -600,7 +751,7 @@ export function SecretsManagerConsole({
             <div className="svc-section">
               <h3>Versions</h3>
               {detail && detail.versions.length > 0 ? (
-                <div style={{ overflow: 'auto', maxHeight: 'calc(100vh - 420px)' }}>
+                <div style={{ overflowX: 'auto', maxHeight: 'calc(100vh - 220px)' }}>
                   <table className="svc-table">
                     <thead>
                       <tr>
@@ -657,7 +808,7 @@ export function SecretsManagerConsole({
               {detail ? (
                 <>
                   {Object.keys(detail.tags).length > 0 ? (
-                    <div style={{ overflow: 'auto', maxHeight: 'calc(100vh - 500px)', marginBottom: 12 }}>
+                    <div style={{ overflowX: 'auto', maxHeight: 'calc(100vh - 260px)', marginBottom: 12 }}>
                       <table className="svc-table">
                         <thead>
                           <tr>

@@ -47,15 +47,18 @@ function fmtCurrency(value: number): string {
   return `$${value.toFixed(2)}`
 }
 
-function fmtTime(value: string): string {
-  return value ? new Date(value).toLocaleString() : '-'
-}
-
 function sumMetricField(regions: RegionMetric[], key: keyof RegionMetric): number {
   return regions.reduce((s, r) => {
     const v = r[key]
     return s + (typeof v === 'number' ? v : 0)
   }, 0)
+}
+
+function getTopServiceTiles(metrics: OverviewMetrics, limit = 8): Array<{ tile: ServiceTileDef, total: number }> {
+  return SERVICE_TILES
+    .map((tile) => ({ tile, total: sumMetricField(metrics.regions, tile.key) }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, limit)
 }
 
 export function OverviewConsole({
@@ -223,18 +226,22 @@ export function OverviewConsole({
           <section className="global-overview-bar">
             {!globalMetrics ? (
               <div className="global-overview-prompt">
-                <h3>Global Overview</h3>
-                <button
-                  type="button"
-                  className="accent"
-                  disabled={globalLoading}
-                  onClick={() => void loadGlobalOverview()}
-                >
-                  {globalLoading ? 'Loading...' : 'Load Global Overview'}
-                </button>
-                <span className="hero-path" style={{ margin: 0, fontSize: '0.78rem' }}>
-                  Warning: this can take 2-5 minutes.
-                </span>
+                <div className="global-overview-copy">
+                  <div className="eyebrow">Cross-region view</div>
+                  <h3>Global Overview</h3>
+                  <p className="hero-path">Load account-wide metrics and compare service distribution across every available region.</p>
+                </div>
+                <div className="global-overview-actions">
+                  <button
+                    type="button"
+                    className="accent"
+                    disabled={globalLoading}
+                    onClick={() => void loadGlobalOverview()}
+                  >
+                    {globalLoading ? 'Loading...' : 'Load Global Overview'}
+                  </button>
+                  <span className="global-overview-note">Can take 2-5 minutes</span>
+                </div>
               </div>
             ) : (
               <>
@@ -301,66 +308,123 @@ export function OverviewConsole({
           {/* ── Overview (Region) tab ─────────────────────────── */}
           {tab === 'overview' && (
             <>
-              <div className="overview-section-title">Overview (Region)</div>
               {loading && <SvcState variant="loading" resourceName="overview data" compact />}
               {metrics && (
                 <>
-                  <section className="overview-tiles">
-                    <div className="overview-tile highlight">
-                      <strong>{fmtCurrency(displayedMonthlyCost)}</strong>
-                      <span>Total Monthly Cost</span>
+                  <section className="overview-surface">
+                    <div className="overview-hero-card">
+                      <div className="overview-hero-copy">
+                        <div className="eyebrow">Regional posture</div>
+                        <h3>{connectionState.region}</h3>
+                        <p>
+                          Cost, inventory, topology, and insight signals for the active region.
+                        </p>
+                        <div className="overview-meta-strip">
+                          <div className="overview-meta-pill">
+                            <span>Monthly cost</span>
+                            <strong>{fmtCurrency(displayedMonthlyCost)}</strong>
+                          </div>
+                          <div className="overview-meta-pill">
+                            <span>Active regions</span>
+                            <strong>{metrics.globalTotals.regionCount}</strong>
+                          </div>
+                          <div className="overview-meta-pill">
+                            <span>Region catalog</span>
+                            <strong>{availableRegions.length} available</strong>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="overview-hero-stats">
+                        <div className="overview-glance-card overview-glance-card-accent">
+                          <span>Cost posture</span>
+                          <strong>{fmtCurrency(displayedMonthlyCost)}</strong>
+                          <small>{displayedCostDetail}</small>
+                        </div>
+                        <div className="overview-glance-card">
+                          <span>Total resources</span>
+                          <strong>{metrics.globalTotals.totalResources}</strong>
+                          <small>Active region</small>
+                        </div>
+                        <div className="overview-glance-card">
+                          <span>Relationships</span>
+                          <strong>{relationships?.edges.length ?? 0}</strong>
+                          <small>Mapped dependencies</small>
+                        </div>
+                        <div className="overview-glance-card">
+                          <span>Insights</span>
+                          <strong>{statistics?.insights.length ?? 0}</strong>
+                          <small>Generated findings</small>
+                        </div>
+                      </div>
                     </div>
-                    {SERVICE_TILES.map((tile) => {
-                      const total = sumMetricField(metrics.regions, tile.key)
-                      return (
+
+                    <div className="overview-section-title">Top Services</div>
+                    <section className="overview-tiles overview-tiles-featured">
+                      {getTopServiceTiles(metrics, 6).map(({ tile, total }, index) => (
                         <button
                           key={tile.key}
                           type="button"
-                          className="overview-tile clickable"
+                          className={`overview-tile clickable ${index === 0 ? 'highlight' : ''}`}
                           onClick={() => onNavigate?.(tile.serviceId)}
                         >
+                          <span className="overview-tile-kicker">Service</span>
                           <strong>{total}</strong>
                           <span>{tile.label}</span>
                         </button>
-                      )
-                    })}
-                    <div className="overview-tile">
-                      <strong>{metrics.globalTotals.totalResources}</strong>
-                      <span>Total Resources</span>
-                    </div>
-                    <div className="overview-tile">
-                      <strong>{metrics.globalTotals.regionCount}</strong>
-                      <span>Active Regions</span>
-                    </div>
-                    <div className="overview-tile">
-                      <strong>{relationships?.edges.length ?? 0}</strong>
-                      <span>Relationships</span>
-                    </div>
-                    <div className="overview-tile">
-                      <strong>{statistics?.insights.length ?? 0}</strong>
-                      <span>Insights</span>
-                    </div>
-                    <div className="overview-tile">
-                      <strong>{statistics?.stats.length ?? 0}</strong>
-                      <span>Service Stats</span>
-                    </div>
+                      ))}
+                    </section>
+
+                    <div className="overview-section-title">Platform Summary</div>
+                    <section className="overview-tiles overview-tiles-summary">
+                      <div className="overview-tile highlight">
+                        <span className="overview-tile-kicker">Spend</span>
+                        <strong>{fmtCurrency(displayedMonthlyCost)}</strong>
+                        <span>Total Monthly Cost</span>
+                      </div>
+                      <div className="overview-tile">
+                        <span className="overview-tile-kicker">Inventory</span>
+                        <strong>{metrics.globalTotals.totalResources}</strong>
+                        <span>Total Resources</span>
+                      </div>
+                      <div className="overview-tile">
+                        <span className="overview-tile-kicker">Coverage</span>
+                        <strong>{metrics.globalTotals.regionCount}</strong>
+                        <span>Active Regions</span>
+                      </div>
+                      <div className="overview-tile">
+                        <span className="overview-tile-kicker">Topology</span>
+                        <strong>{relationships?.edges.length ?? 0}</strong>
+                        <span>Relationships</span>
+                      </div>
+                      <div className="overview-tile">
+                        <span className="overview-tile-kicker">Signals</span>
+                        <strong>{statistics?.insights.length ?? 0}</strong>
+                        <span>Insights</span>
+                      </div>
+                      <div className="overview-tile">
+                        <span className="overview-tile-kicker">Tracking</span>
+                        <strong>{statistics?.stats.length ?? 0}</strong>
+                        <span>Service Stats</span>
+                      </div>
+                    </section>
                   </section>
 
                   <div className="overview-bottom-row">
-                    Current month total: <strong>{fmtCurrency(displayedMonthlyCost)} USD</strong>
-                    <span style={{ fontSize: '0.78rem', color: 'var(--muted)', marginLeft: '0.5rem' }}>({displayedCostDetail})</span>
+                    <span>Current month total</span>
+                    <strong>{fmtCurrency(displayedMonthlyCost)} USD</strong>
+                    <span className="overview-bottom-row-detail">{displayedCostDetail}</span>
                   </div>
 
                   <section className="workspace-grid">
                     <div className="column stack">
-                      <div className="panel">
+                      <div className="panel overview-data-panel">
                         <div className="panel-header"><h3>Regional Breakdown</h3></div>
-                        <div className="table-grid">
+                        <div className="table-grid overview-table-grid">
                           <div className="table-row table-head overview-region-grid">
                             <div>Region</div><div>EC2</div><div>Lambda</div><div>EKS</div><div>ASG</div><div>Total</div>
                           </div>
                           {metrics.regions.map((row) => (
-                            <div key={row.region} className="table-row overview-region-grid">
+                            <div key={row.region} className="table-row overview-table-row overview-region-grid">
                               <div>{row.region}</div>
                               <div>{row.ec2Count}</div>
                               <div>{row.lambdaCount}</div>
@@ -373,17 +437,17 @@ export function OverviewConsole({
                       </div>
 
                       {costBreakdown && costBreakdown.entries.length > 0 && (
-                        <div className="panel">
+                        <div className="panel overview-data-panel">
                           <div className="panel-header">
                             <h3>Cost by Service — {costBreakdown.period}</h3>
                             <span className="hero-path" style={{ margin: 0 }}>{fmtCurrency(costBreakdown.total)} USD</span>
                           </div>
-                          <div className="table-grid">
+                          <div className="table-grid overview-table-grid">
                             <div className="table-row table-head" style={{ display: 'grid', gridTemplateColumns: '1fr auto auto' }}>
                               <div>Service</div><div>Cost</div><div>%</div>
                             </div>
                             {costBreakdown.entries.map((entry) => (
-                              <div key={entry.service} className="table-row" style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '1rem' }}>
+                              <div key={entry.service} className="table-row overview-table-row overview-cost-row" style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '1rem' }}>
                                 <div>{entry.service}</div>
                                 <div style={{ textAlign: 'right' }}>{fmtCurrency(entry.amount)}</div>
                                 <div style={{ textAlign: 'right', color: 'var(--muted)' }}>{(entry.amount / costBreakdown.total * 100).toFixed(1)}%</div>
@@ -394,7 +458,7 @@ export function OverviewConsole({
                       )}
                     </div>
                     <div className="column stack">
-                      <div className="panel">
+                      <div className="panel overview-insights-panel">
                         <div className="panel-header"><h3>Insights</h3></div>
                         {(statistics?.insights ?? []).map((item: InsightItem, index) => (
                           <div key={`${item.service}-${index}`} className="insight-card">
@@ -464,31 +528,43 @@ export function OverviewConsole({
 
             return (
               <>
-                {/* Summary tiles */}
-                <section className="overview-tiles" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
-                  <div className="overview-tile highlight">
-                    <strong>{allNodes.length}</strong>
-                    <span>Total Nodes</span>
-                  </div>
-                  <div className="overview-tile highlight">
-                    <strong>{allEdges.length}</strong>
-                    <span>Total Edges</span>
-                  </div>
-                  <div className="overview-tile">
-                    <strong>{nodeTypes.length}</strong>
-                    <span>Resource Types</span>
-                  </div>
-                  <div className="overview-tile">
-                    <strong>{relationGroups.size}</strong>
-                    <span>Relation Types</span>
+                <section className="overview-surface">
+                  <div className="relationship-hero-card">
+                    <div className="relationship-hero-copy">
+                      <div className="eyebrow">Topology map</div>
+                      <h3>Resource Relationship View</h3>
+                      <p>Inspect linked AWS resources, filter by node type, and isolate the relationships that matter.</p>
+                    </div>
+                    <div className="relationship-hero-stats">
+                      <div className="overview-tile highlight">
+                        <span className="overview-tile-kicker">Nodes</span>
+                        <strong>{allNodes.length}</strong>
+                        <span>Total Nodes</span>
+                      </div>
+                      <div className="overview-tile highlight">
+                        <span className="overview-tile-kicker">Edges</span>
+                        <strong>{allEdges.length}</strong>
+                        <span>Total Edges</span>
+                      </div>
+                      <div className="overview-tile">
+                        <span className="overview-tile-kicker">Types</span>
+                        <strong>{nodeTypes.length}</strong>
+                        <span>Resource Types</span>
+                      </div>
+                      <div className="overview-tile">
+                        <span className="overview-tile-kicker">Relations</span>
+                        <strong>{relationGroups.size}</strong>
+                        <span>Relation Types</span>
+                      </div>
+                    </div>
                   </div>
                 </section>
 
                 {/* Node type breakdown + filter */}
-                <section className="workspace-grid">
-                  <div className="panel">
+                <section className="workspace-grid relationship-control-grid">
+                  <div className="panel relationship-panel">
                     <div className="panel-header"><h3>Nodes by Type</h3></div>
-                    <div className="overview-chip-row">
+                    <div className="overview-chip-row relationship-chip-grid">
                       <button
                         type="button"
                         className={`overview-service-chip ${relFilter === 'all' ? 'active' : ''}`}
@@ -511,12 +587,36 @@ export function OverviewConsole({
                         </button>
                       ))}
                     </div>
+                    <div className="panel-header minor relationship-filter-header"><h3>Edge Filters</h3></div>
+                    <div className="overview-chip-row relationship-chip-grid">
+                      <button
+                        type="button"
+                        className={`overview-service-chip ${edgeRelFilter === 'all' ? 'active' : ''}`}
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => { setEdgeRelFilter('all'); setEdgePage(0) }}
+                      >
+                        <span>All</span>
+                        <strong>{nodeFilteredEdges.length}</strong>
+                      </button>
+                      {[...edgeRelCounts.entries()].sort((a, b) => b[1] - a[1]).map(([rel, count]) => (
+                        <button
+                          key={rel}
+                          type="button"
+                          className={`overview-service-chip ${edgeRelFilter === rel ? 'active' : ''}`}
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => { setEdgeRelFilter(edgeRelFilter === rel ? 'all' : rel); setEdgePage(0) }}
+                        >
+                          <span>{rel}</span>
+                          <strong>{count}</strong>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="panel">
+                  <div className="panel relationship-panel">
                     <div className="panel-header"><h3>Relation Summary</h3></div>
-                    <div className="selection-list" style={{ maxHeight: '90px', overflowY: 'auto' }}>
+                    <div className="selection-list relationship-summary-list">
                       {[...relationGroups.entries()].sort((a, b) => b[1] - a[1]).map(([rel, count]) => (
-                        <div key={rel} className="selection-item">
+                        <div key={rel} className="selection-item relationship-summary-item">
                           <span>{rel}</span>
                           <strong>{count}</strong>
                         </div>
@@ -527,33 +627,10 @@ export function OverviewConsole({
                 </section>
 
                 {/* Edge table */}
-                <section className="panel">
+                <section className="panel relationship-panel relationship-table-panel">
                   <div className="panel-header">
                     <h3>Relationship Edges</h3>
                     <span className="hero-path" style={{ margin: 0 }}>{filteredEdges.length} of {allEdges.length} edges</span>
-                  </div>
-                  <div className="overview-chip-row">
-                    <button
-                      type="button"
-                      className={`overview-service-chip ${edgeRelFilter === 'all' ? 'active' : ''}`}
-                      style={{ cursor: 'pointer' }}
-                      onClick={() => { setEdgeRelFilter('all'); setEdgePage(0) }}
-                    >
-                      <span>All</span>
-                      <strong>{nodeFilteredEdges.length}</strong>
-                    </button>
-                    {[...edgeRelCounts.entries()].sort((a, b) => b[1] - a[1]).map(([rel, count]) => (
-                      <button
-                        key={rel}
-                        type="button"
-                        className={`overview-service-chip ${edgeRelFilter === rel ? 'active' : ''}`}
-                        style={{ cursor: 'pointer' }}
-                        onClick={() => { setEdgeRelFilter(edgeRelFilter === rel ? 'all' : rel); setEdgePage(0) }}
-                      >
-                        <span>{rel}</span>
-                        <strong>{count}</strong>
-                      </button>
-                    ))}
                   </div>
                   {(() => {
                     const pageSize = 10
@@ -562,7 +639,7 @@ export function OverviewConsole({
                     const pagedEdges = filteredEdges.slice(safePage * pageSize, (safePage + 1) * pageSize)
                     return (
                       <>
-                        <div className="table-grid">
+                        <div className="table-grid relationship-table-grid">
                           <div className="table-row table-head overview-rel-grid">
                             <div>Source</div><div>Source Type</div><div>Relation</div><div>Target</div><div>Target Type</div>
                           </div>
@@ -570,23 +647,23 @@ export function OverviewConsole({
                             const srcLabel = nodeLabels.get(edge.source)
                             const tgtLabel = nodeLabels.get(edge.target)
                             return (
-                              <div key={`${edge.source}-${edge.target}-${index}`} className="table-row overview-rel-grid">
-                                <div>{srcLabel ? <><span className="mono">{edge.source}</span><br /><span className="hero-path" style={{ margin: 0, fontSize: '0.78rem' }}>{srcLabel}</span></> : <span className="mono">{edge.source}</span>}</div>
-                                <div>{edge.sourceType}</div>
-                                <div>{edge.relation}</div>
-                                <div>{tgtLabel ? <><span className="mono">{edge.target}</span><br /><span className="hero-path" style={{ margin: 0, fontSize: '0.78rem' }}>{tgtLabel}</span></> : <span className="mono">{edge.target}</span>}</div>
-                                <div>{edge.targetType}</div>
+                              <div key={`${edge.source}-${edge.target}-${index}`} className="table-row relationship-edge-row overview-rel-grid">
+                                <div>{srcLabel ? <><span className="mono">{edge.source}</span><br /><span className="hero-path relationship-edge-label">{srcLabel}</span></> : <span className="mono">{edge.source}</span>}</div>
+                                <div><span className="relationship-type-pill">{edge.sourceType}</span></div>
+                                <div className="relationship-edge-relation">{edge.relation}</div>
+                                <div>{tgtLabel ? <><span className="mono">{edge.target}</span><br /><span className="hero-path relationship-edge-label">{tgtLabel}</span></> : <span className="mono">{edge.target}</span>}</div>
+                                <div><span className="relationship-type-pill">{edge.targetType}</span></div>
                               </div>
                             )
                           })}
                           {filteredEdges.length === 0 && <SvcState variant={relFilter !== 'all' || edgeRelFilter !== 'all' ? 'no-filter-matches' : 'empty'} resourceName="relationships" compact />}
                         </div>
                         {totalPages > 1 && (
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.6rem' }}>
-                            <span style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>
+                          <div className="relationship-pagination">
+                            <span className="relationship-pagination-text">
                               {safePage * pageSize + 1}–{Math.min((safePage + 1) * pageSize, filteredEdges.length)} of {filteredEdges.length}
                             </span>
-                            <div style={{ display: 'flex', gap: '0.4rem' }}>
+                            <div className="relationship-pagination-actions">
                               <button type="button" disabled={safePage === 0} onClick={() => setEdgePage(safePage - 1)} style={{ cursor: safePage === 0 ? 'default' : 'pointer' }}>Prev</button>
                               <button type="button" disabled={safePage >= totalPages - 1} onClick={() => setEdgePage(safePage + 1)} style={{ cursor: safePage >= totalPages - 1 ? 'default' : 'pointer' }}>Next</button>
                             </div>
@@ -643,82 +720,49 @@ export function OverviewConsole({
 
             return (
               <>
-                {/* Summary tiles */}
-                <section className="overview-tiles" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
-                  <div className="overview-tile highlight">
-                    <strong>{allInsights.length}</strong>
-                    <span>Total Insights</span>
-                  </div>
-                  <div className="overview-tile highlight">
-                    <strong>{allSignals.length}</strong>
-                    <span>Regional Signals</span>
-                  </div>
-                  <div className="overview-tile">
-                    <strong>{warningCount + errorCount}</strong>
-                    <span>Warnings</span>
-                  </div>
-                  <div className="overview-tile">
-                    <strong>{allStats.length - 2}</strong>
-                    <span>Services Tracked</span>
-                  </div>
-                  <div className="overview-tile">
-                    <strong>{connectionState.region}</strong>
-                    <span>Primary Region</span>
-                  </div>
-                </section>
-
-                {/* Service statistics by category */}
-                <section className="workspace-grid">
-                  <div className="column stack">
-                    {[
-                      { title: 'Compute', items: computeStats },
-                      { title: 'Storage & Data', items: storageStats },
-                      { title: 'Management & Messaging', items: mgmtStats }
-                    ].map((group) => (
-                      <div key={group.title} className="panel">
-                        <div className="panel-header"><h3>{group.title}</h3></div>
-                        <div className="table-grid">
-                          {group.items.map((item) => (
-                            <div key={item.label} className="table-row overview-stat-grid">
-                              <div>{item.label}</div>
-                              <div><strong>{item.value}</strong></div>
-                              <div className="hero-path">{item.detail}</div>
-                            </div>
-                          ))}
-                          {group.items.length === 0 && <SvcState variant="empty" message="No data." compact />}
-                        </div>
+                <section className="overview-surface">
+                  <div className="stats-hero-card">
+                    <div className="stats-hero-copy">
+                      <div className="eyebrow">Operational snapshot</div>
+                      <h3>Statistics</h3>
+                      <p>Service-level counts, insights, and regional signals for the active AWS footprint.</p>
+                    </div>
+                    <div className="stats-hero-grid">
+                      <div className="overview-tile highlight">
+                        <span className="overview-tile-kicker">Insights</span>
+                        <strong>{allInsights.length}</strong>
+                        <span>Total Insights</span>
                       </div>
-                    ))}
-                  </div>
-                  <div className="column stack">
-                    {[
-                      { title: 'Networking', items: networkStats },
-                      { title: 'Security & Identity', items: securityStats },
-                      { title: 'Summary', items: summaryStats }
-                    ].map((group) => (
-                      <div key={group.title} className="panel">
-                        <div className="panel-header"><h3>{group.title}</h3></div>
-                        <div className="table-grid">
-                          {group.items.map((item) => (
-                            <div key={item.label} className="table-row overview-stat-grid">
-                              <div>{item.label}</div>
-                              <div><strong>{item.value}</strong></div>
-                              <div className="hero-path">{item.detail}</div>
-                            </div>
-                          ))}
-                          {group.items.length === 0 && <SvcState variant="empty" message="No data." compact />}
-                        </div>
+                      <div className="overview-tile highlight">
+                        <span className="overview-tile-kicker">Signals</span>
+                        <strong>{allSignals.length}</strong>
+                        <span>Regional Signals</span>
                       </div>
-                    ))}
+                      <div className="overview-tile">
+                        <span className="overview-tile-kicker">Attention</span>
+                        <strong>{warningCount + errorCount}</strong>
+                        <span>Warnings</span>
+                      </div>
+                      <div className="overview-tile">
+                        <span className="overview-tile-kicker">Coverage</span>
+                        <strong>{allStats.length - 2}</strong>
+                        <span>Services Tracked</span>
+                      </div>
+                      <div className="overview-tile">
+                        <span className="overview-tile-kicker">Region</span>
+                        <strong>{connectionState.region}</strong>
+                        <span>Primary Region</span>
+                      </div>
+                    </div>
                   </div>
                 </section>
 
                 {/* Insights with filter */}
-                <section className="panel stack">
+                <section className="panel stack stats-panel">
                   <div className="panel-header">
                     <h3>Insights ({filteredInsights.length})</h3>
                   </div>
-                  <div className="overview-chip-row">
+                  <div className="overview-chip-row stats-chip-grid">
                     {([['all', 'All', allInsights.length], ['info', 'Info', infoCount], ['warning', 'Warning', warningCount], ['error', 'Error', errorCount]] as const).map(([key, label, count]) => (
                       <button
                         key={key}
@@ -747,11 +791,11 @@ export function OverviewConsole({
                 </section>
 
                 {/* Regional Signals with filter */}
-                <section className="panel stack">
+                <section className="panel stack stats-panel">
                   <div className="panel-header">
                     <h3>Regional Signals ({filteredSignals.length})</h3>
                   </div>
-                  <div className="overview-chip-row">
+                  <div className="overview-chip-row stats-chip-grid">
                     {([['all', 'All', allSignals.length], ['cost', 'Cost', costSignals], ['security', 'Security', securitySignals], ['operations', 'Operations', opsSignals], ['cleanup', 'Cleanup', cleanupSignals]] as const).map(([key, label, count]) => (
                       <button
                         key={key}
@@ -781,6 +825,58 @@ export function OverviewConsole({
                     </div>
                   ))}
                   {filteredSignals.length === 0 && <SvcState variant="no-filter-matches" resourceName="signals" compact />}
+                </section>
+
+                {/* Service statistics by category */}
+                <section className="panel stack stats-panel stats-secondary-panel">
+                  <div className="panel-header">
+                    <h3>Service Breakdown</h3>
+                    <span className="hero-path" style={{ margin: 0 }}>{allStats.length - 2} tracked metrics</span>
+                  </div>
+                  <section className="workspace-grid stats-category-grid">
+                    <div className="column stack">
+                      {[
+                        { title: 'Compute', items: computeStats },
+                        { title: 'Storage & Data', items: storageStats },
+                        { title: 'Management & Messaging', items: mgmtStats }
+                      ].map((group) => (
+                        <div key={group.title} className="stats-subpanel">
+                          <div className="panel-header minor"><h3>{group.title}</h3></div>
+                          <div className="table-grid stats-table-grid">
+                            {group.items.map((item) => (
+                              <div key={item.label} className="table-row stats-table-row overview-stat-grid">
+                                <div>{item.label}</div>
+                                <div><strong>{item.value}</strong></div>
+                                <div className="hero-path">{item.detail}</div>
+                              </div>
+                            ))}
+                            {group.items.length === 0 && <SvcState variant="empty" message="No data." compact />}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="column stack">
+                      {[
+                        { title: 'Networking', items: networkStats },
+                        { title: 'Security & Identity', items: securityStats },
+                        { title: 'Summary', items: summaryStats }
+                      ].map((group) => (
+                        <div key={group.title} className="stats-subpanel">
+                          <div className="panel-header minor"><h3>{group.title}</h3></div>
+                          <div className="table-grid stats-table-grid">
+                            {group.items.map((item) => (
+                              <div key={item.label} className="table-row stats-table-row overview-stat-grid">
+                                <div>{item.label}</div>
+                                <div><strong>{item.value}</strong></div>
+                                <div className="hero-path">{item.detail}</div>
+                              </div>
+                            ))}
+                            {group.items.length === 0 && <SvcState variant="empty" message="No data." compact />}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
                 </section>
               </>
             )

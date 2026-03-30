@@ -436,88 +436,98 @@ export function SessionHub({
   void countdownTick
 
   return (
-    <>
+    <div className="session-hub-shell">
       {message && <div className="empty-state compact">{message}</div>}
       {error && <div className="error-banner">{error}</div>}
 
-      <section className="hero catalog-hero session-hub-hero">
-        <div>
+      <section className="session-hub-shell-hero">
+        <div className="session-hub-shell-hero-copy">
           <div className="eyebrow">Security</div>
           <h2>Cross-Account Session Hub</h2>
-          <p className="hero-path">
+          <p>
             Saved role targets persist locally. Temporary credentials stay in memory only and are never written into AWS config or credentials files.
           </p>
+          <div className="session-hub-shell-meta-strip">
+            <div className="session-hub-shell-meta-pill">
+              <span>Context</span>
+              <strong>{connectionState.connection?.label ?? 'No active context'}</strong>
+            </div>
+            <div className="session-hub-shell-meta-pill">
+              <span>Mode</span>
+              <strong>{connectionState.connection?.kind ?? '-'}</strong>
+            </div>
+            <div className="session-hub-shell-meta-pill">
+              <span>Region</span>
+              <strong>{connectionState.connection?.region ?? connectionState.region}</strong>
+            </div>
+            <div className="session-hub-shell-meta-pill">
+              <span>Expires</span>
+              <strong>{connectionState.activeSession ? formatCountdown(connectionState.activeSession.expiration) : 'Base profile'}</strong>
+            </div>
+          </div>
         </div>
-        <div className="hero-connection">
-          <div className="connection-summary">
-            <span>Current Context</span>
-            <strong>{connectionState.connection?.label ?? 'None'}</strong>
+        <div className="session-hub-shell-hero-stats">
+          <div className="session-hub-shell-stat-card session-hub-shell-stat-card-accent">
+            <span>Saved targets</span>
+            <strong>{visibleTargets.length}</strong>
+            <small>{scopedProfileName || 'No base profile selected'}</small>
           </div>
-          <div className="connection-summary">
-            <span>Mode</span>
-            <strong>{connectionState.connection?.kind ?? '-'}</strong>
+          <div className="session-hub-shell-stat-card">
+            <span>Active sessions</span>
+            <strong>{activeSessionCount}</strong>
+            <small>{expiredSessionCount} expired retained in memory</small>
           </div>
-          <div className="connection-summary">
-            <span>Region</span>
-            <strong>{connectionState.connection?.region ?? '-'}</strong>
+          <div className="session-hub-shell-stat-card">
+            <span>Active account</span>
+            <strong>{connectionState.activeSession?.accountId || 'Base'}</strong>
+            <small>{connectionState.connection?.region ?? connectionState.region}</small>
           </div>
-          <div className="connection-summary">
-            <span>Expires</span>
-            <strong>{connectionState.activeSession ? formatCountdown(connectionState.activeSession.expiration) : 'Base profile'}</strong>
+          <div className="session-hub-shell-stat-card">
+            <span>Diff contexts</span>
+            <strong>{compareOptions.length}</strong>
+            <small>Profiles and sessions available to compare</small>
           </div>
         </div>
       </section>
 
-      <section className="overview-tiles session-hub-tiles">
-        <div className="overview-tile highlight">
-          <strong>{visibleTargets.length}</strong>
-          <span>Saved Targets</span>
-        </div>
-        <div className="overview-tile">
-          <strong>{activeSessionCount}</strong>
-          <span>Active Sessions</span>
-        </div>
-        <div className="overview-tile">
-          <strong>{expiredSessionCount}</strong>
-          <span>Expired Sessions</span>
-        </div>
-        <div className="overview-tile">
-          <strong>{connectionState.activeSession?.accountId || 'Base'}</strong>
-          <span>Active Account</span>
-        </div>
-        <div className="overview-tile">
-          <strong>{connectionState.connection?.region ?? '-'}</strong>
-          <span>Context Region</span>
-        </div>
-      </section>
-
-      <FreshnessIndicator freshness={freshness} label="Sessions last refreshed" staleLabel="Session list may be stale" />
-
-      <div className="overview-bottom-row">
-        <span>Current context: <strong>{currentContextMeta}</strong></span>
-        {connectionState.connection && (
-          <button type="button" className="accent" onClick={() => {
-            const currentConnection = connectionState.connection
-            if (currentConnection) {
-              onOpenTerminal(currentConnection)
-            }
-          }}>
+      <div className="session-hub-shell-toolbar">
+        <div className="session-hub-toolbar">
+          <button
+            type="button"
+            className="session-hub-toolbar-btn accent"
+            onClick={() => {
+              const currentConnection = connectionState.connection
+              if (currentConnection) {
+                onOpenTerminal(currentConnection)
+              }
+            }}
+            disabled={!connectionState.connection}
+          >
             Open Terminal
           </button>
-        )}
-        {connectionState.activeSession && (
-          <button type="button" onClick={() => connectionState.clearActiveSession()}>
+          <button
+            type="button"
+            className="session-hub-toolbar-btn"
+            onClick={() => connectionState.clearActiveSession()}
+            disabled={!connectionState.activeSession}
+          >
             Revert To Base Profile
           </button>
-        )}
-        <button type="button" onClick={() => void refreshSessionHub()}>
-          Refresh Sessions
-        </button>
+          <button type="button" className="session-hub-toolbar-btn" onClick={() => void refreshSessionHub()}>
+            Refresh Sessions
+          </button>
+        </div>
+        <div className="session-hub-shell-status">
+          <div className="session-hub-context-chip">
+            <span>Current context</span>
+            <strong>{currentContextMeta}</strong>
+          </div>
+          <FreshnessIndicator freshness={freshness} label="Sessions last refreshed" staleLabel="Session list may be stale" />
+        </div>
       </div>
 
-      <div className="overview-section-title">Saved Targets</div>
-      <section className="workspace-grid">
-        <div className="column stack">
+      <div className="session-hub-main-layout">
+        <div className="column stack session-hub-editor-column">
           <div className="panel">
             <div className="panel-header">
               <h3>{editingTargetId ? 'Edit Assume-Role Target' : 'New Assume-Role Target'}</h3>
@@ -592,7 +602,7 @@ export function SessionHub({
           </div>
         </div>
 
-        <div className="column stack">
+        <div className="column stack session-hub-target-column">
           <div className="panel">
             <div className="panel-header">
               <h3>Saved Targets</h3>
@@ -625,14 +635,14 @@ export function SessionHub({
             )}
           </div>
         </div>
-      </section>
+      </div>
 
       <div className="overview-section-title">Assumed Sessions</div>
-      <section className="panel">
+      <section className="panel session-hub-sessions-panel">
         {connectionState.sessions.length === 0 ? (
           <div className="empty-state compact">No assumed sessions in memory.</div>
         ) : (
-          <div className="table-grid">
+          <div className="table-grid session-hub-session-table">
             <div className="table-row table-head session-hub-session-grid">
               <div>Session</div>
               <div>Status</div>
@@ -642,7 +652,7 @@ export function SessionHub({
               <div>Actions</div>
             </div>
             {connectionState.sessions.map((session) => (
-              <div key={session.id} className="table-row session-hub-session-grid">
+              <div key={session.id} className="table-row session-hub-session-grid session-hub-session-row">
                 <div>
                   <strong>{session.label}</strong>
                   <div className="hero-path">{session.assumedRoleArn || session.roleArn}</div>
@@ -683,7 +693,7 @@ export function SessionHub({
       </section>
 
       <div className="overview-section-title">Account Comparison</div>
-      <section className="panel">
+      <section className="panel session-hub-compare-panel">
         <div className="panel-header">
           <h3>Launch Diff Mode</h3>
         </div>
@@ -709,6 +719,6 @@ export function SessionHub({
         </div>
         <div className="empty-state compact">Diff Mode opens a dedicated workspace with inventory, posture, ownership, cost, and risk-focused comparisons.</div>
       </section>
-    </>
+    </div>
   )
 }
