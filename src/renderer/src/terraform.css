@@ -300,6 +300,93 @@
   gap: 8px;
 }
 
+.tf-readiness-banner {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid #3b4350;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  background: linear-gradient(180deg, rgba(37, 43, 51, 0.96), rgba(21, 27, 34, 0.92));
+}
+
+.tf-readiness-banner.ready {
+  border-color: rgba(46, 204, 113, 0.28);
+}
+
+.tf-readiness-banner.warning,
+.tf-readiness-banner.attention {
+  border-color: rgba(243, 156, 18, 0.28);
+}
+
+.tf-readiness-banner.blocked {
+  border-color: rgba(231, 76, 60, 0.32);
+}
+
+.tf-readiness-copy,
+.tf-primary-action-stack,
+.tf-readiness-metrics div,
+.tf-overview-card,
+.tf-linked-copy,
+.tf-history-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.tf-readiness-copy {
+  gap: 4px;
+  min-width: 0;
+}
+
+.tf-readiness-copy strong,
+.tf-remediation-card strong,
+.tf-overview-card strong,
+.tf-history-card-head strong,
+.tf-plan-summary-card.emphasis strong {
+  color: #edf1f6;
+  font-size: 16px;
+}
+
+.tf-readiness-copy span:last-child,
+.tf-remediation-card span:last-child,
+.tf-overview-card span,
+.tf-history-card span {
+  color: #9ca7b7;
+  font-size: 12px;
+}
+
+.tf-readiness-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 320px;
+}
+
+.tf-readiness-metrics div,
+.tf-overview-card {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  gap: 4px;
+}
+
+.tf-primary-action-area {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: 12px;
+}
+
+.tf-primary-action-stack {
+  gap: 8px;
+}
+
+.tf-primary-action-stack-commit {
+  padding-left: 12px;
+  border-left: 1px solid #3b4350;
+}
+
 .tf-action-btn {
   padding: 9px 10px;
   border: 0;
@@ -341,6 +428,12 @@
 
 .tf-action-btn.state {
   background: #8e44ad;
+}
+
+.tf-action-btn.primary {
+  min-height: 42px;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .tf-plan-controls-toggle-row {
@@ -487,6 +580,10 @@
   padding: 12px;
 }
 
+.tf-plan-summary-card.emphasis {
+  background: linear-gradient(180deg, rgba(74, 143, 231, 0.14), rgba(32, 37, 45, 0.98));
+}
+
 .tf-plan-summary-label {
   font-size: 11px;
   font-weight: 700;
@@ -539,6 +636,54 @@
 .tf-plan-chip.subtle {
   background: rgba(255, 255, 255, 0.06);
   color: #c0c8d2;
+}
+
+.tf-inline-collapsible {
+  margin-top: 12px;
+}
+
+.tf-linkage-panel {
+  background: rgba(30, 35, 43, 0.55);
+}
+
+.tf-linked-list,
+.tf-history-card-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.tf-linked-card,
+.tf-history-card,
+.tf-remediation-card {
+  border: 1px solid #3b4350;
+  border-radius: 8px;
+  padding: 12px;
+  background: #1a2028;
+}
+
+.tf-linked-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.tf-linked-copy {
+  gap: 4px;
+  min-width: 0;
+}
+
+.tf-linked-copy strong {
+  color: #dfe6ee;
+  font-size: 13px;
+}
+
+.tf-linked-copy span {
+  color: #8c98a8;
+  font-size: 11px;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  word-break: break-word;
 }
 
 .tf-plan-filters {
@@ -1113,6 +1258,27 @@
   flex-wrap: wrap;
 }
 
+.tf-overview-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.tf-overview-card.success { border-color: rgba(46, 204, 113, 0.2); }
+.tf-overview-card.warning { border-color: rgba(243, 156, 18, 0.24); }
+.tf-overview-card.danger { border-color: rgba(231, 76, 60, 0.24); }
+.tf-overview-card.info { border-color: rgba(74, 143, 231, 0.24); }
+
+.tf-remediation-card {
+  margin-top: 12px;
+  gap: 4px;
+}
+
+.tf-remediation-card.success { border-color: rgba(46, 204, 113, 0.24); }
+.tf-remediation-card.warning { border-color: rgba(243, 156, 18, 0.24); }
+.tf-remediation-card.danger { border-color: rgba(231, 76, 60, 0.24); }
+
 /* ── Confirm guardrail ───────────────────────────────────── */
 
 .tf-confirming {
@@ -1675,6 +1841,67 @@
   gap: 4px;
 }
 
+.tf-governance-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.tf-governance-summary-card,
+.tf-governance-file-card {
+  border: 1px solid #3b4350;
+  border-radius: 8px;
+  background: #1a2028;
+  padding: 10px 12px;
+}
+
+.tf-governance-summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tf-governance-summary-card strong {
+  color: #edf1f6;
+  font-size: 18px;
+}
+
+.tf-governance-summary-card span {
+  color: #9ca7b7;
+  font-size: 11px;
+}
+
+.tf-governance-file-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.tf-governance-file-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.tf-governance-file-meta {
+  min-width: 0;
+}
+
+.tf-governance-file-meta strong {
+  display: block;
+  color: #dfe6ee;
+  font-size: 12px;
+  word-break: break-word;
+}
+
+.tf-governance-file-meta span {
+  color: #8c98a8;
+  font-size: 11px;
+}
+
 .tf-governance-summary-row {
   display: flex;
   align-items: center;
@@ -1924,6 +2151,23 @@
   min-height: 200px;
 }
 
+.tf-history-card-head,
+.tf-history-card-metrics,
+.tf-history-detail-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tf-history-card-metrics {
+  font-size: 11px;
+  color: #9ca7b7;
+}
+
+.tf-history-detail-actions {
+  justify-content: flex-end;
+}
+
 .tf-history-cmd {
   display: inline-block;
   padding: 2px 8px;
@@ -1971,6 +2215,27 @@
 
   .tf-actions-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tf-readiness-banner,
+  .tf-primary-action-area {
+    grid-template-columns: 1fr;
+  }
+
+  .tf-readiness-banner {
+    flex-direction: column;
+  }
+
+  .tf-readiness-metrics {
+    min-width: 0;
+    grid-template-columns: 1fr;
+  }
+
+  .tf-primary-action-stack-commit {
+    padding-left: 0;
+    border-left: 0;
+    border-top: 1px solid #3b4350;
+    padding-top: 12px;
   }
 
   .tf-workspace-controls {

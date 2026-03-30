@@ -19,6 +19,7 @@ import type {
   TerraformGraphEdge,
   TerraformGraphNode,
   TerraformGovernanceCheckResult,
+  TerraformGovernanceFinding,
   TerraformGovernanceReport,
   TerraformGovernanceToolkit,
   TerraformInputConfiguration,
@@ -194,6 +195,130 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+const TF_UI_STORAGE_KEY = 'aws-lens:terraform-ui-state'
+
+type TerraformUiState = {
+  selectedProjectByContext: Record<string, string>
+  detailTabByContext: Record<string, DetailTab>
+  driftStatusFilterByProject: Record<string, 'all' | TerraformDriftStatus>
+  driftTypeFilterByProject: Record<string, string>
+  historyFiltersByProject: Record<string, {
+    commandFilter: TerraformCommandName | 'all'
+    successFilter: 'all' | 'success' | 'failure'
+    projectFilter: 'current' | 'all'
+  }>
+}
+
+function loadTerraformUiState(): TerraformUiState {
+  if (typeof window === 'undefined') {
+    return {
+      selectedProjectByContext: {},
+      detailTabByContext: {},
+      driftStatusFilterByProject: {},
+      driftTypeFilterByProject: {},
+      historyFiltersByProject: {}
+    }
+  }
+
+  try {
+    const raw = window.localStorage.getItem(TF_UI_STORAGE_KEY)
+    if (!raw) throw new Error('missing')
+    const parsed = JSON.parse(raw) as Partial<TerraformUiState>
+    return {
+      selectedProjectByContext: parsed.selectedProjectByContext ?? {},
+      detailTabByContext: parsed.detailTabByContext ?? {},
+      driftStatusFilterByProject: parsed.driftStatusFilterByProject ?? {},
+      driftTypeFilterByProject: parsed.driftTypeFilterByProject ?? {},
+      historyFiltersByProject: parsed.historyFiltersByProject ?? {}
+    }
+  } catch {
+    return {
+      selectedProjectByContext: {},
+      detailTabByContext: {},
+      driftStatusFilterByProject: {},
+      driftTypeFilterByProject: {},
+      historyFiltersByProject: {}
+    }
+  }
+}
+
+function saveTerraformUiState(state: TerraformUiState) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(TF_UI_STORAGE_KEY, JSON.stringify(state))
+}
+
+function governanceSeverityWeight(severity: TerraformGovernanceFinding['severity']): number {
+  return severity === 'critical' ? 5 : severity === 'high' ? 4 : severity === 'medium' ? 3 : severity === 'low' ? 2 : 1
+}
+
+function summarizeGovernance(report: TerraformGovernanceReport | null) {
+  if (!report) {
+    return {
+      blockingFailures: 0,
+      findings: [] as TerraformGovernanceFinding[],
+      findingsByFile: [] as Array<{ file: string; count: number; highestSeverity: TerraformGovernanceFinding['severity'] }>
+    }
+  }
+
+  const failedBlockingChecks = report.checks.filter((check) => check.blocking && check.status !== 'passed')
+  const findings = report.checks
+    .flatMap((check) => check.findings)
+    .sort((a, b) => governanceSeverityWeight(b.severity) - governanceSeverityWeight(a.severity))
+
+  const byFile = new Map<string, { count: number; highestSeverity: TerraformGovernanceFinding['severity'] }>()
+  for (const finding of findings) {
+    if (!finding.file) continue
+    const existing = byFile.get(finding.file)
+    if (!existing) {
+      byFile.set(finding.file, { count: 1, highestSeverity: finding.severity })
+      continue
+    }
+
+    existing.count += 1
+    if (governanceSeverityWeight(finding.severity) > governanceSeverityWeight(existing.highestSeverity)) {
+      existing.highestSeverity = finding.severity
+    }
+  }
+
+  return {
+    blockingFailures: failedBlockingChecks.length,
+    findings,
+    findingsByFile: [...byFile.entries()]
+      .map(([file, info]) => ({ file, ...info }))
+      .sort((a, b) => {
+        const severityDelta = governanceSeverityWeight(b.highestSeverity) - governanceSeverityWeight(a.highestSeverity)
+        return severityDelta !== 0 ? severityDelta : b.count - a.count
+      })
+  }
+}
+
+function describeRunOutcome(record: TerraformRunRecord): string {
+  if (record.success === null) return 'This run is still in progress.'
+  if (record.command === 'plan' && record.planSummary) {
+    if (!record.success) return 'Terraform could not finish generating a usable plan.'
+    if (!record.planSummary.hasChanges) return 'Plan finished cleanly with no actionable infrastructure changes.'
+    if (record.planSummary.isDeleteHeavy) return 'Plan succeeded, but the saved plan is delete-heavy and should be reviewed carefully before apply.'
+    if (record.planSummary.hasReplacementChanges) return 'Plan succeeded with replacement work. Review replace paths and blast radius before apply.'
+    return 'Plan succeeded with a bounded set of changes and no destructive-heavy warning.'
+  }
+  if (record.command === 'apply') {
+    return record.success
+      ? 'Apply completed successfully. Treat this as the latest realized project state.'
+      : 'Apply failed. Compare the output with drift and state views before retrying.'
+  }
+  if (record.command === 'destroy') {
+    return record.success
+      ? 'Destroy completed successfully. Verify any expected removals in drift or state history.'
+      : 'Destroy failed. Remaining resources may now need a targeted follow-up or drift review.'
+  }
+  if (record.command.startsWith('state')) {
+    return record.success
+      ? 'State operation completed successfully. Validate backups and project state before additional edits.'
+      : 'State operation failed. Review the output and current state before attempting another mutation.'
+  }
+  return record.success ? 'Command completed successfully.' : 'Command failed. Review the output for the exact Terraform error.'
 }
 
   function terraformContextKey(connection: AwsConnection): string {
@@ -1334,6 +1459,7 @@ function GovernancePanel({
   const [expandedCheck, setExpandedCheck] = useState<string | null>(null)
 
   const hasAnyTool = toolkit?.tools.some((t) => t.available) ?? false
+  const governanceSummary = useMemo(() => summarizeGovernance(report), [report])
 
   return (
     <div className="tf-section tf-governance-panel">
@@ -1389,6 +1515,35 @@ function GovernancePanel({
               {new Date(report.ranAt).toLocaleTimeString()}
             </span>
           </div>
+
+          <div className="tf-governance-summary-grid">
+            <div className="tf-governance-summary-card">
+              <div className="tf-plan-summary-label">Blocking Status</div>
+              <strong>{governanceSummary.blockingFailures === 0 ? 'Ready' : `${governanceSummary.blockingFailures} failed`}</strong>
+              <span>{governanceSummary.blockingFailures === 0 ? 'Required checks are clear.' : 'Apply and destroy stay blocked until fixed.'}</span>
+            </div>
+            <div className="tf-governance-summary-card">
+              <div className="tf-plan-summary-label">Findings</div>
+              <strong>{governanceSummary.findings.length}</strong>
+              <span>{governanceSummary.findingsByFile.length} file{governanceSummary.findingsByFile.length === 1 ? '' : 's'} affected</span>
+            </div>
+          </div>
+
+          {governanceSummary.findingsByFile.length > 0 && (
+            <div className="tf-governance-file-list">
+              {governanceSummary.findingsByFile.slice(0, 6).map((item) => (
+                <div key={item.file} className="tf-governance-file-card">
+                  <span className={`tf-governance-severity ${item.highestSeverity}`}>
+                    {SEVERITY_LABELS[item.highestSeverity] ?? item.highestSeverity}
+                  </span>
+                  <div className="tf-governance-file-meta">
+                    <strong>{item.file}</strong>
+                    <span>{item.count} finding{item.count === 1 ? '' : 's'}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {report.checks.map((check) => (
             <div
@@ -1464,7 +1619,8 @@ function ActionsTab({
   governanceReport,
   governanceRunning,
   onRunGovernanceChecks,
-  onDetectGovernanceTools
+  onDetectGovernanceTools,
+  onOpenDriftTab
 }: {
   project: TerraformProject
   cliOk: boolean
@@ -1479,6 +1635,7 @@ function ActionsTab({
   governanceRunning: boolean
   onRunGovernanceChecks: () => void
   onDetectGovernanceTools: () => void
+  onOpenDriftTab: () => void
 }) {
   const [outputOpen, setOutputOpen] = useState(false)
   const [showPlanControls, setShowPlanControls] = useState(false)
@@ -1509,6 +1666,7 @@ function ActionsTab({
   )
   const changesByAddress = useMemo(() => new Map(project.planChanges.map((change) => [change.address, change])), [project.planChanges])
   const applyWarning = planCommitMismatchWarning(project)
+  const governanceSummary = useMemo(() => summarizeGovernance(governanceReport), [governanceReport])
   const groupedChanges = useMemo(() => {
     const source = groupBy === 'module'
       ? s.groups.byModule
@@ -1525,34 +1683,86 @@ function ActionsTab({
     ? parsePlanAddressList(targetText)
     : parsePlanAddressList(replaceText)
   const canRunAdvancedPlan = advancedMode === 'refresh-only' || advancedAddresses.length > 0
+  const destructiveSignal = s.isDeleteHeavy || s.hasDestructiveChanges
+  const topFindings = governanceSummary.findings.slice(0, 3)
+  const readinessTone = !cliOk
+    ? 'blocked'
+    : !hasSavedPlan
+      ? 'attention'
+      : governanceBlocked || applyWarning || destructiveSignal
+        ? 'warning'
+        : 'ready'
+  const readinessTitle = !cliOk
+    ? 'Terraform CLI unavailable'
+    : !hasSavedPlan
+      ? 'Run a saved plan before apply'
+      : governanceBlocked
+        ? 'Fix blocking governance findings'
+        : applyWarning
+          ? 'Saved plan is behind the current checkout'
+          : destructiveSignal
+            ? 'High-impact plan requires review'
+            : 'Safe to continue to apply review'
+  const readinessBody = !cliOk
+    ? 'Terraform actions remain disabled until the CLI is detected.'
+    : !hasSavedPlan
+      ? 'Apply and destroy stay disabled until a saved plan exists for this project and workspace.'
+      : governanceBlocked
+        ? 'Required safety checks failed. Resolve the linked findings and rerun Safety Checks.'
+        : applyWarning
+          ? applyWarning
+          : destructiveSignal
+            ? 'Delete-heavy or destructive changes were detected. Review the blast radius before confirming.'
+            : 'Required checks are clear and the current saved plan can be reviewed for apply.'
 
   return (
     <>
       <div className="tf-section">
-        <h3>Actions</h3>
-        <div className="tf-actions-grid">
-          <button className="tf-action-btn init" disabled={!cliOk || running} onClick={onInit}>Init</button>
-          <button className="tf-action-btn plan" disabled={!cliOk || running} onClick={() => onPlan()}>Plan</button>
-          <button
-            className={`tf-action-btn apply${governanceBlocked ? ' governance-blocked' : ''}`}
-            disabled={!cliOk || running || !hasSavedPlan || governanceBlocked}
-            onClick={onApply}
-            title={!hasSavedPlan ? 'Run Plan first to enable Apply.' : governanceBlocked ? 'Blocked: governance checks failed.' : undefined}
-          >
-            Apply
-          </button>
-          <button
-            className={`tf-action-btn destroy${governanceBlocked ? ' governance-blocked' : ''}`}
-            disabled={!cliOk || running || !hasSavedPlan || governanceBlocked}
-            onClick={onDestroy}
-            title={!hasSavedPlan ? 'Run Plan first to enable Destroy.' : governanceBlocked ? 'Blocked: governance checks failed.' : undefined}
-          >
-            Destroy
-          </button>
+        <div className="tf-section-head">
+          <div>
+            <h3>Actions</h3>
+            <div className="tf-section-hint">Default path: update inputs if needed, generate a saved plan, review the summary, then apply.</div>
+          </div>
+        </div>
+        <div className={`tf-readiness-banner ${readinessTone}`}>
+          <div className="tf-readiness-copy">
+            <span className="tf-plan-summary-label">Safe To Apply?</span>
+            <strong>{readinessTitle}</strong>
+            <span>{readinessBody}</span>
+          </div>
+          <div className="tf-readiness-metrics">
+            <div><strong>{hasSavedPlan ? 'Yes' : 'No'}</strong><span>saved plan</span></div>
+            <div><strong>{governanceSummary.blockingFailures}</strong><span>blocking failures</span></div>
+            <div><strong>{s.affectedResources}</strong><span>resources touched</span></div>
+          </div>
+        </div>
+        <div className="tf-primary-action-area">
+          <div className="tf-primary-action-stack">
+            <button className="tf-action-btn init" disabled={!cliOk || running} onClick={onInit}>Init</button>
+            <button className="tf-action-btn plan primary" disabled={!cliOk || running} onClick={() => onPlan()}>Run Saved Plan</button>
+          </div>
+          <div className="tf-primary-action-stack tf-primary-action-stack-commit">
+            <button
+              className={`tf-action-btn apply primary${governanceBlocked ? ' governance-blocked' : ''}`}
+              disabled={!cliOk || running || !hasSavedPlan || governanceBlocked}
+              onClick={onApply}
+              title={!hasSavedPlan ? 'Run Plan first to enable Apply.' : governanceBlocked ? 'Blocked: governance checks failed.' : undefined}
+            >
+              Apply Saved Plan
+            </button>
+            <button
+              className={`tf-action-btn destroy${governanceBlocked ? ' governance-blocked' : ''}`}
+              disabled={!cliOk || running || !hasSavedPlan || governanceBlocked}
+              onClick={onDestroy}
+              title={!hasSavedPlan ? 'Run Plan first to enable Destroy.' : governanceBlocked ? 'Blocked: governance checks failed.' : undefined}
+            >
+              Destroy
+            </button>
+          </div>
         </div>
         <div className="tf-plan-controls-toggle-row">
           <button type="button" className="tf-toolbar-btn" onClick={() => setShowPlanControls((value) => !value)} disabled={!cliOk || running}>
-            {showPlanControls ? 'Hide plan controls' : 'Show plan controls'}
+            {showPlanControls ? 'Hide advanced plan controls' : 'Show advanced plan controls'}
           </button>
           {!hasSavedPlan && (
             <div className="tf-section-hint">Run Plan first. Apply and Destroy stay disabled until a saved plan exists.</div>
@@ -1636,9 +1846,21 @@ function ActionsTab({
           <div className="tf-plan-risk-row">
             {s.hasReplacementChanges && <span className="tf-plan-risk-badge replace">Replacement changes</span>}
             {s.isDeleteHeavy && <span className="tf-plan-risk-badge destructive">Delete-heavy blast radius</span>}
+            {governanceBlocked && <span className="tf-plan-risk-badge destructive">Blocked by governance</span>}
           </div>
         </div>
         <div className="tf-plan-summary-grid">
+          <div className="tf-plan-summary-card emphasis">
+            <div className="tf-plan-summary-label">Decision</div>
+            <strong>{destructiveSignal ? 'Review carefully' : s.hasChanges ? 'Low-friction review' : 'No action needed'}</strong>
+            <span>
+              {destructiveSignal
+                ? 'Destructive or replacement signals are present.'
+                : s.hasChanges
+                  ? 'Most changes are non-destructive.'
+                  : 'Current saved plan does not propose changes.'}
+            </span>
+          </div>
           <div className="tf-plan-summary-card">
             <div className="tf-plan-summary-label">Action totals</div>
             <div className="tf-summary">
@@ -1671,12 +1893,17 @@ function ActionsTab({
         ) : (
           <SvcState variant="empty" message="No actionable changes in the saved plan." compact />
         )}
-        <div className="tf-section-hint">
-          JSON fields used: {s.jsonFieldsUsed.join(', ')}
-        </div>
-        <div className="tf-section-hint">
-          Heuristic areas: {s.heuristicNotes.join(' ')}
-        </div>
+        <details className="tf-collapsible tf-inline-collapsible">
+          <summary className="tf-collapsible-summary">Why this summary looks this way</summary>
+          <div className="tf-collapsible-body">
+            <div className="tf-section-hint">
+              JSON fields used: {s.jsonFieldsUsed.join(', ')}
+            </div>
+            <div className="tf-section-hint">
+              Heuristic areas: {s.heuristicNotes.join(' ')}
+            </div>
+          </div>
+        </details>
       </div>
 
       {filteredChanges.length > 0 && (
@@ -1721,7 +1948,10 @@ function ActionsTab({
           </div>
           <div className="tf-section-hint">{filteredChanges.length} change{filteredChanges.length === 1 ? '' : 's'} match the current filters. Grouped by {groupLabel(groupBy).toLowerCase()}.</div>
           <PlanGroupList groups={groupedChanges} changesByAddress={changesByAddress} />
-          <div className="tf-plan-change-list">
+          <details className="tf-collapsible tf-inline-collapsible">
+            <summary className="tf-collapsible-summary">Open detailed change cards</summary>
+            <div className="tf-collapsible-body">
+              <div className="tf-plan-change-list">
             {filteredChanges.map((change) => (
               <div key={change.address} className={`tf-plan-change-card ${change.isReplacement ? 'replace' : change.isDestructive ? 'destructive' : ''}`}>
                 <div className="tf-plan-change-head">
@@ -1758,9 +1988,50 @@ function ActionsTab({
                 )}
               </div>
             ))}
-          </div>
+              </div>
+            </div>
+          </details>
         </div>
       )}
+
+      {(governanceBlocked || topFindings.length > 0) && (
+        <div className="tf-section tf-linkage-panel">
+          <div className="tf-section-head">
+            <div>
+              <h3>Governance Focus</h3>
+              <div className="tf-section-hint">Fix the exact findings below, then rerun checks and plan review.</div>
+            </div>
+            <button type="button" className="tf-toolbar-btn" onClick={onRunGovernanceChecks} disabled={governanceRunning || !cliOk}>
+              {governanceRunning ? 'Running...' : 'Re-run checks'}
+            </button>
+          </div>
+          {topFindings.length > 0 ? (
+            <div className="tf-linked-list">
+              {topFindings.map((finding, index) => (
+                <div key={`${finding.ruleId}:${finding.file}:${finding.line}:${index}`} className="tf-linked-card">
+                  <span className={`tf-governance-severity ${finding.severity}`}>{SEVERITY_LABELS[finding.severity] ?? finding.severity}</span>
+                  <div className="tf-linked-copy">
+                    <strong>{finding.message}</strong>
+                    <span>{finding.file}{finding.line > 0 ? `:${finding.line}` : ''}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <SvcState variant="empty" message="No governance findings are currently linked to this plan." compact />
+          )}
+        </div>
+      )}
+
+      <div className="tf-section tf-linkage-panel">
+        <div className="tf-section-head">
+          <div>
+            <h3>Related Follow-up</h3>
+            <div className="tf-section-hint">Open drift after mutating commands to verify realized state against AWS.</div>
+          </div>
+          <button type="button" className="tf-toolbar-btn" onClick={onOpenDriftTab}>Open Drift</button>
+        </div>
+      </div>
 
       <div className="tf-section">
         <h3>Infrastructure Diagram</h3>
@@ -1769,31 +2040,35 @@ function ActionsTab({
 
       {project.actionRows.length > 0 && (
         <div className="tf-section">
-          <h3>Action Table</h3>
-          <div className="tf-action-table-wrap">
-            <table className="tf-data-table">
-              <thead>
-                <tr>
-                  <th>Order</th>
-                  <th>Action</th>
-                  <th>Address</th>
-                  <th>ResourceType</th>
-                  <th>PhysicalResourceId</th>
-                </tr>
-              </thead>
-              <tbody>
-                {project.actionRows.map((row) => (
-                  <tr key={row.order}>
-                    <td>{row.order}</td>
-                    <td><span className={`tf-summary-count ${row.action}`}>{row.action}</span></td>
-                    <td title={row.address}>{row.address}</td>
-                    <td>{row.resourceType}</td>
-                    <td title={row.physicalResourceId}>{row.physicalResourceId}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <details className="tf-collapsible tf-inline-collapsible">
+            <summary className="tf-collapsible-summary">Open ordered action table</summary>
+            <div className="tf-collapsible-body">
+              <div className="tf-action-table-wrap">
+                <table className="tf-data-table">
+                  <thead>
+                    <tr>
+                      <th>Order</th>
+                      <th>Action</th>
+                      <th>Address</th>
+                      <th>ResourceType</th>
+                      <th>PhysicalResourceId</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {project.actionRows.map((row) => (
+                      <tr key={row.order}>
+                        <td>{row.order}</td>
+                        <td><span className={`tf-summary-count ${row.action}`}>{row.action}</span></td>
+                        <td title={row.address}>{row.address}</td>
+                        <td>{row.resourceType}</td>
+                        <td title={row.physicalResourceId}>{row.physicalResourceId}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </details>
         </div>
       )}
 
@@ -2209,6 +2484,12 @@ function DriftTab({
     () => filteredItems.find((item) => driftItemKey(item) === selectedKey) ?? filteredItems[0] ?? null,
     [filteredItems, selectedKey]
   )
+  const summaryCards = report ? [
+    { label: 'Drifted', value: report.summary.statusCounts.drifted, tone: 'warning' },
+    { label: 'Missing', value: report.summary.statusCounts.missing_in_aws, tone: 'danger' },
+    { label: 'Unmanaged', value: report.summary.statusCounts.unmanaged_in_aws, tone: 'info' },
+    { label: 'In Sync', value: report.summary.statusCounts.in_sync, tone: 'success' }
+  ] : []
 
   return (
     <>
@@ -2226,6 +2507,14 @@ function DriftTab({
         </div>
         {report && (
           <>
+            <div className="tf-overview-card-grid">
+              {summaryCards.map((card) => (
+                <div key={card.label} className={`tf-overview-card ${card.tone}`}>
+                  <span>{card.label}</span>
+                  <strong>{card.value}</strong>
+                </div>
+              ))}
+            </div>
             <div className="tf-summary">
               <span className="tf-summary-item"><span className="tf-summary-count">{report.summary.total}</span> total</span>
               <span className="tf-summary-item"><span className="tf-summary-count drifted">{report.summary.statusCounts.drifted}</span> drifted</span>
@@ -2317,6 +2606,16 @@ function DriftTab({
                   <button type="button" className="tf-toolbar-btn" onClick={() => onRunStateShow(selectedItem)} disabled={!selectedItem.terminalCommand}>terraform state show</button>
                 </div>
               </div>
+              <div className="tf-overview-card-grid">
+                <div className={`tf-overview-card ${selectedItem.status === 'in_sync' ? 'success' : selectedItem.status === 'unsupported' ? 'info' : 'warning'}`}>
+                  <span>Status</span>
+                  <strong>{DRIFT_STATUS_LABELS[selectedItem.status]}</strong>
+                </div>
+                <div className={`tf-overview-card ${selectedItem.assessment === 'verified' ? 'success' : selectedItem.assessment === 'inferred' ? 'warning' : 'info'}`}>
+                  <span>Assessment</span>
+                  <strong>{DRIFT_ASSESSMENT_LABELS[selectedItem.assessment]}</strong>
+                </div>
+              </div>
               <div className="tf-kv">
                 <div className="tf-kv-row"><div className="tf-kv-label">Status</div><div className="tf-kv-value">{DRIFT_STATUS_LABELS[selectedItem.status]}</div></div>
                 <div className="tf-kv-row"><div className="tf-kv-label">Assessment</div><div className="tf-kv-value">{DRIFT_ASSESSMENT_LABELS[selectedItem.assessment]}</div></div>
@@ -2330,6 +2629,11 @@ function DriftTab({
                 <div className="tf-kv-row"><div className="tf-kv-label">Evidence</div><div className="tf-kv-value">{selectedItem.evidence.length > 0 ? selectedItem.evidence.join(' | ') : '-'}</div></div>
                 <div className="tf-kv-row"><div className="tf-kv-label">Related Terraform Addresses</div><div className="tf-kv-value">{selectedItem.relatedTerraformAddresses.length > 0 ? selectedItem.relatedTerraformAddresses.join(', ') : '-'}</div></div>
                 <div className="tf-kv-row"><div className="tf-kv-label">Differences</div><div className="tf-kv-value">{selectedItem.differences.length > 0 ? selectedItem.differences.map((difference) => `${difference.label}: ${difference.terraformValue || '-'} -> ${difference.liveValue || '-'} (${difference.assessment})`).join(' | ') : '-'}</div></div>
+              </div>
+              <div className="tf-remediation-card">
+                <span className="tf-plan-summary-label">Suggested remediation</span>
+                <strong>{selectedItem.suggestedNextStep}</strong>
+                <span>{selectedItem.relatedTerraformAddresses.length > 0 ? `Related Terraform addresses: ${selectedItem.relatedTerraformAddresses.join(', ')}` : 'No related Terraform addresses were inferred for this item.'}</span>
               </div>
             </div>
           )}
@@ -2345,35 +2649,22 @@ function DriftTab({
               </div>
             </div>
           </div>
-          <div className="tf-resource-table-wrap">
-            <table className="tf-data-table">
-              <thead>
-                <tr>
-                  <th>Scanned</th>
-                  <th>Trigger</th>
-                  <th>Trend Context</th>
-                  <th>Drifted</th>
-                  <th>Missing</th>
-                  <th>Unmanaged</th>
-                  <th>Unsupported</th>
-                  <th>In Sync</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.history.snapshots.slice(0, 8).map((snapshot, index) => (
-                  <tr key={snapshot.id}>
-                    <td>{formatIsoDate(snapshot.scannedAt)}</td>
-                    <td>{snapshot.trigger === 'manual' ? 'Manual re-scan' : 'Initial scan'}</td>
-                    <td>{index === 0 ? DRIFT_TREND_LABELS[report.history.trend] : '-'}</td>
-                    <td>{snapshot.summary.statusCounts.drifted}</td>
-                    <td>{snapshot.summary.statusCounts.missing_in_aws}</td>
-                    <td>{snapshot.summary.statusCounts.unmanaged_in_aws}</td>
-                    <td>{snapshot.summary.statusCounts.unsupported}</td>
-                    <td>{snapshot.summary.statusCounts.in_sync}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="tf-history-card-list">
+            {report.history.snapshots.slice(0, 8).map((snapshot, index) => (
+              <div key={snapshot.id} className="tf-history-card">
+                <div className="tf-history-card-head">
+                  <strong>{formatIsoDate(snapshot.scannedAt)}</strong>
+                  <span>{snapshot.trigger === 'manual' ? 'Manual re-scan' : 'Initial scan'}</span>
+                </div>
+                <div className="tf-history-card-metrics">
+                  <span>Trend: {index === 0 ? DRIFT_TREND_LABELS[report.history.trend] : 'Previous point'}</span>
+                  <span>{snapshot.summary.statusCounts.drifted} drifted</span>
+                  <span>{snapshot.summary.statusCounts.missing_in_aws} missing</span>
+                  <span>{snapshot.summary.statusCounts.unmanaged_in_aws} unmanaged</span>
+                  <span>{snapshot.summary.statusCounts.in_sync} in sync</span>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -2419,15 +2710,31 @@ function DriftTab({
 
 /* ── History Tab ──────────────────────────────────────────── */
 
-function HistoryTab({ projectId }: { projectId: string }) {
+function HistoryTab({
+  projectId,
+  initialFilters,
+  onFiltersChange,
+  onOpenProject,
+  onOpenTab
+}: {
+  projectId: string
+  initialFilters?: {
+    commandFilter: TerraformCommandName | 'all'
+    successFilter: 'all' | 'success' | 'failure'
+    projectFilter: 'current' | 'all'
+  }
+  onFiltersChange?: (filters: { commandFilter: TerraformCommandName | 'all'; successFilter: 'all' | 'success' | 'failure'; projectFilter: 'current' | 'all' }) => void
+  onOpenProject?: (projectId: string) => void
+  onOpenTab?: (tab: DetailTab) => void
+}) {
   const [records, setRecords] = useState<TerraformRunRecord[]>([])
   const [loading, setLoading] = useState(false)
   const [selectedRunId, setSelectedRunId] = useState('')
   const [runOutput, setRunOutput] = useState('')
   const [outputLoading, setOutputLoading] = useState(false)
-  const [commandFilter, setCommandFilter] = useState<TerraformCommandName | 'all'>('all')
-  const [successFilter, setSuccessFilter] = useState<'all' | 'success' | 'failure'>('all')
-  const [projectFilter, setProjectFilter] = useState<'current' | 'all'>('current')
+  const [commandFilter, setCommandFilter] = useState<TerraformCommandName | 'all'>(initialFilters?.commandFilter ?? 'all')
+  const [successFilter, setSuccessFilter] = useState<'all' | 'success' | 'failure'>(initialFilters?.successFilter ?? 'all')
+  const [projectFilter, setProjectFilter] = useState<'current' | 'all'>(initialFilters?.projectFilter ?? 'current')
 
   const loadHistory = useCallback(async () => {
     setLoading(true)
@@ -2447,6 +2754,10 @@ function HistoryTab({ projectId }: { projectId: string }) {
   }, [projectId, commandFilter, successFilter, projectFilter])
 
   useEffect(() => { void loadHistory() }, [loadHistory])
+
+  useEffect(() => {
+    onFiltersChange?.({ commandFilter, successFilter, projectFilter })
+  }, [commandFilter, onFiltersChange, projectFilter, successFilter])
 
   useEffect(() => {
     if (!selectedRunId) { setRunOutput(''); return }
@@ -2471,16 +2782,23 @@ function HistoryTab({ projectId }: { projectId: string }) {
     void loadHistory()
   }
 
-  const projectNames = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const r of records) map.set(r.projectId, r.projectName)
-    return map
-  }, [records])
+  const historySummary = useMemo(() => ({
+    total: records.length,
+    success: records.filter((record) => record.success === true).length,
+    failed: records.filter((record) => record.success === false).length,
+    running: records.filter((record) => record.success === null).length
+  }), [records])
 
   return (
     <>
       <div className="tf-section">
         <h3>Run History</h3>
+        <div className="tf-overview-card-grid">
+          <div className="tf-overview-card info"><span>Total runs</span><strong>{historySummary.total}</strong></div>
+          <div className="tf-overview-card success"><span>Successful</span><strong>{historySummary.success}</strong></div>
+          <div className="tf-overview-card danger"><span>Failed</span><strong>{historySummary.failed}</strong></div>
+          <div className="tf-overview-card warning"><span>Running</span><strong>{historySummary.running}</strong></div>
+        </div>
         <div className="tf-history-filters">
           <div className="tf-history-filter-group">
             <label>Scope</label>
@@ -2560,7 +2878,22 @@ function HistoryTab({ projectId }: { projectId: string }) {
               <div className="tf-section">
                 <div className="tf-section-head">
                   <h3>Run Detail</h3>
-                  <button className="tf-toolbar-btn danger" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => void handleDelete(selectedRecord.id)}>Delete</button>
+                  <div className="tf-history-detail-actions">
+                    <button className="tf-toolbar-btn" onClick={() => {
+                      onOpenProject?.(selectedRecord.projectId)
+                      onOpenTab?.('actions')
+                    }}>Open Project</button>
+                    <button className="tf-toolbar-btn" onClick={() => {
+                      onOpenProject?.(selectedRecord.projectId)
+                      onOpenTab?.('drift')
+                    }}>Open Drift</button>
+                    <button className="tf-toolbar-btn danger" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => void handleDelete(selectedRecord.id)}>Delete</button>
+                  </div>
+                </div>
+                <div className={`tf-remediation-card ${selectedRecord.success ? 'success' : selectedRecord.success === false ? 'danger' : 'warning'}`}>
+                  <span className="tf-plan-summary-label">Outcome interpretation</span>
+                  <strong>{selectedRecord.success === null ? 'Run in progress' : selectedRecord.success ? 'Successful command' : 'Command failed'}</strong>
+                  <span>{describeRunOutcome(selectedRecord)}</span>
                 </div>
                 <div className="tf-kv">
                   <div className="tf-kv-row"><div className="tf-kv-label">Command</div><div className="tf-kv-value">{selectedRecord.command}</div></div>
@@ -2631,6 +2964,7 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   onRunTerminalCommand?: (command: string) => void
   onNavigateService?: (serviceId: ServiceId, resourceId?: string) => void
 }) {
+  const [uiState, setUiState] = useState<TerraformUiState>(() => loadTerraformUiState())
   const [cliInfo, setCliInfo] = useState<TerraformCliInfo | null>(null)
   const [projects, setProjectsList] = useState<TerraformProjectListItem[]>([])
   const [selectedId, setSelectedId] = useState('')
@@ -2676,6 +3010,7 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   const [progressLine, setProgressLine] = useState('')
   const [showProgress, setShowProgress] = useState(false)
   const [progressItems, setProgressItems] = useState<Map<string, { status: string; done: boolean }>>(new Map())
+  const driftLoadKeyRef = useRef('')
   const {
     freshness: workspaceFreshness,
     beginRefresh: beginWorkspaceRefresh,
@@ -2692,6 +3027,15 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   const cliOk = cliInfo?.found === true
   const contextKey = terraformContextKey(connection)
   const projectConnection = connectionForProject(connection, detail)
+  const persistedSelectedId = uiState.selectedProjectByContext[contextKey] ?? ''
+  const persistedDetailTab = uiState.detailTabByContext[contextKey] ?? 'actions'
+  const persistedHistoryFilters = detail ? uiState.historyFiltersByProject[detail.id] : undefined
+  const persistedDriftStatusFilter = detail ? (uiState.driftStatusFilterByProject[detail.id] ?? 'all') : 'all'
+  const persistedDriftTypeFilter = detail ? (uiState.driftTypeFilterByProject[detail.id] ?? 'all') : 'all'
+
+  useEffect(() => {
+    saveTerraformUiState(uiState)
+  }, [uiState])
 
   // Detect CLI on mount
   useEffect(() => {
@@ -2700,9 +3044,9 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
     })
   }, [])
 
-  // Reset state when profile changes
+  // Reset state only when the AWS/Terraform context changes.
   useEffect(() => {
-    setSelectedId('')
+    setSelectedId(persistedSelectedId)
     setDetail(null)
     setProjectsList([])
     setDriftReport(null)
@@ -2710,6 +3054,8 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
     setSelectedDriftKey('')
     setLabReport(null)
     setLabError('')
+    setDetailTab(persistedDetailTab)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contextKey])
 
   // Load projects
@@ -2729,6 +3075,14 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   }, [beginWorkspaceRefresh, completeWorkspaceRefresh, connection, contextKey, failWorkspaceRefresh])
 
   useEffect(() => { void reload() }, [reload])
+
+  useEffect(() => {
+    if (projects.length === 0) return
+    if (selectedId && projects.some((project) => project.id === selectedId)) return
+    const persistedId = persistedSelectedId
+    const fallbackId = projects.some((project) => project.id === persistedId) ? persistedId : projects[0]?.id
+    if (fallbackId) setSelectedId(fallbackId)
+  }, [contextKey, persistedSelectedId, projects, selectedId])
 
   useEffect(() => {
     if (refreshNonce === 0) {
@@ -2753,8 +3107,68 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
     }).catch(() => setDetail(null))
   }, [connection, contextKey, selectedId])
 
+  useEffect(() => {
+    if (!detail) return
+    setDriftStatusFilter(persistedDriftStatusFilter)
+    setDriftTypeFilter(persistedDriftTypeFilter)
+  }, [detail?.id, persistedDriftStatusFilter, persistedDriftTypeFilter])
+
+  useEffect(() => {
+    if (!selectedId) return
+    setUiState((current) => {
+      if (current.selectedProjectByContext[contextKey] === selectedId) return current
+      return {
+        ...current,
+        selectedProjectByContext: {
+          ...current.selectedProjectByContext,
+          [contextKey]: selectedId
+        }
+      }
+    })
+  }, [contextKey, selectedId])
+
+  useEffect(() => {
+    setUiState((current) => {
+      if (current.detailTabByContext[contextKey] === detailTab) return current
+      return {
+        ...current,
+        detailTabByContext: {
+          ...current.detailTabByContext,
+          [contextKey]: detailTab
+        }
+      }
+    })
+  }, [contextKey, detailTab])
+
+  useEffect(() => {
+    if (!detail) return
+    setUiState((current) => {
+      const statusSame = current.driftStatusFilterByProject[detail.id] === driftStatusFilter
+      const typeSame = current.driftTypeFilterByProject[detail.id] === driftTypeFilter
+      if (statusSame && typeSame) return current
+      return {
+        ...current,
+        driftStatusFilterByProject: statusSame
+          ? current.driftStatusFilterByProject
+          : {
+              ...current.driftStatusFilterByProject,
+              [detail.id]: driftStatusFilter
+            },
+        driftTypeFilterByProject: typeSame
+          ? current.driftTypeFilterByProject
+          : {
+              ...current.driftTypeFilterByProject,
+              [detail.id]: driftTypeFilter
+            }
+      }
+    })
+  }, [detail, driftStatusFilter, driftTypeFilter])
+
   const loadDrift = useCallback(async (options?: { forceRefresh?: boolean }) => {
     if (!detail) return
+    const requestKey = `${contextKey}:${detail.id}:${projectConnection.region}:${options?.forceRefresh ? 'force' : 'normal'}`
+    if (driftLoadKeyRef.current === requestKey) return
+    driftLoadKeyRef.current = requestKey
     beginDriftRefresh(options?.forceRefresh ? 'manual' : 'background')
     setDriftLoading(true)
     setDriftError('')
@@ -2767,6 +3181,9 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
       failDriftRefresh()
       setDriftError(err instanceof Error ? err.message : String(err))
     } finally {
+      if (driftLoadKeyRef.current === requestKey) {
+        driftLoadKeyRef.current = ''
+      }
       setDriftLoading(false)
     }
   }, [beginDriftRefresh, completeDriftRefresh, contextKey, detail, failDriftRefresh, projectConnection])
@@ -3443,6 +3860,7 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
                   governanceRunning={governanceRunning}
                   onRunGovernanceChecks={handleRunGovernanceChecks}
                   onDetectGovernanceTools={handleDetectGovernanceTools}
+                  onOpenDriftTab={() => setDetailTab('drift')}
               />
               )}
               {detailTab === 'state' && (
@@ -3486,7 +3904,29 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
                 />
               )}
               {detailTab === 'history' && (
-                <HistoryTab projectId={detail.id} />
+                <HistoryTab
+                  projectId={detail.id}
+                  initialFilters={persistedHistoryFilters}
+                  onFiltersChange={(filters) => setUiState((current) => {
+                    const existing = current.historyFiltersByProject[detail.id]
+                    if (
+                      existing?.commandFilter === filters.commandFilter
+                      && existing?.successFilter === filters.successFilter
+                      && existing?.projectFilter === filters.projectFilter
+                    ) {
+                      return current
+                    }
+                    return {
+                      ...current,
+                      historyFiltersByProject: {
+                        ...current.historyFiltersByProject,
+                        [detail.id]: filters
+                      }
+                    }
+                  })}
+                  onOpenProject={(projectId) => setSelectedId(projectId)}
+                  onOpenTab={setDetailTab}
+                />
               )}
             </>
           )}

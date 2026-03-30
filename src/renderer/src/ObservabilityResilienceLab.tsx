@@ -167,25 +167,27 @@ export function ObservabilityResilienceLab({
             </div>
           </div>
 
-          <div className="obs-lab-section">
-            <div className="obs-lab-section-title">Correlated Signals</div>
-            <div className="obs-lab-list">
-              {report.correlatedSignals.map((signal) => (
-                <article key={signal.id} className="obs-lab-card">
-                  <div className="obs-lab-card-top">
-                    <h4>{signal.title}</h4>
-                    <span className="obs-lab-type">{signal.serviceId}</span>
-                  </div>
-                  <p>{signal.detail}</p>
-                  {onNavigateSignal && (
-                    <div className="obs-lab-actions">
-                      <button type="button" onClick={() => onNavigateSignal(signal)}>Open {signal.targetView}</button>
+          {report.scope.kind !== 'terraform' && (
+            <div className="obs-lab-section">
+              <div className="obs-lab-section-title">Correlated Signals</div>
+              <div className="obs-lab-list">
+                {report.correlatedSignals.map((signal) => (
+                  <article key={signal.id} className="obs-lab-card">
+                    <div className="obs-lab-card-top">
+                      <h4>{signal.title}</h4>
+                      <span className="obs-lab-type">{signal.serviceId}</span>
                     </div>
-                  )}
-                </article>
-              ))}
+                    <p>{signal.detail}</p>
+                    {onNavigateSignal && (
+                      <div className="obs-lab-actions">
+                        <button type="button" onClick={() => onNavigateSignal(signal)}>Open {signal.targetView}</button>
+                      </div>
+                    )}
+                  </article>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </>
       )}
     </div>
