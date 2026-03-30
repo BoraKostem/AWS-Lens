@@ -12,10 +12,9 @@ if (!window.awsLens) {
   window.awsLens = webBridge
 }
 if (!window.terraformWorkspace) {
-  // Stub: terraform workspace bridge calls are also routed via /api/rpc
-  const { webBridge } = await import('./webBridge')
+  const { terraformBridge } = await import('./webBridge')
   // @ts-expect-error
-  window.terraformWorkspace = webBridge
+  window.terraformWorkspace = terraformBridge
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
