@@ -5,7 +5,7 @@
  *   POST /api/rpc               { channel, args[] }  → handler result
  *   GET  /api/health            → { ok: true }
  *   WS   /api/terminal          → node-pty session (proxied via ws)
- *   WS   /api/terraform-events  → streaming terraform command events
+ *   WS   /api/events             → streaming push events (terraform, ec2, ...)
  *   GET  /*                     → React SPA (served from /public)
  */
 
@@ -34,7 +34,7 @@ import { registerCompareIpcHandlers } from '../main/compareIpc'
 import { registerComplianceIpcHandlers } from '../main/complianceIpc'
 import { registerIpcHandlers } from '../main/ipc'
 import { registerTerminalIpcHandlers } from '../main/terminalIpc'
-import { makeMockWindow, onTerraformEvent, offTerraformEvent } from './terraformEvents'
+import { makeMockWindow, onEvent, offEvent } from './terraformEvents'
 
 // Register all handlers into webRegistry
 registerAwsIpcHandlers()
@@ -112,17 +112,32 @@ app.get('/{*splat}', (_req, res) => {
 // ── HTTP + WebSocket server ──────────────────────────────────────────────────
 const server = http.createServer(app)
 
-// ── Terraform event stream WebSocket ────────────────────────────────────────
-const tfWss = new WebSocketServer({ server, path: '/api/terraform-events' })
+// ── Push event stream WebSocket ─────────────────────────────────────────────
+// Multiplexes all server-side push events (terraform, ec2, etc.) to clients.
+// Messages: { channel: string, payload: unknown }
+const eventsWss = new WebSocketServer({ server, path: '/api/events' })
 
-tfWss.on('connection', (ws) => {
-  const handler = (payload: unknown) => {
-    if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify(payload))
+const PUSH_CHANNELS = [
+  'terraform:event',
+  'ec2:temp-volume-progress',
+]
+
+eventsWss.on('connection', (ws) => {
+  const handlers: Array<{ channel: string; fn: (payload: unknown) => void }> = []
+
+  for (const channel of PUSH_CHANNELS) {
+    const fn = (payload: unknown) => {
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ channel, payload }))
+      }
     }
+    onEvent(channel, fn)
+    handlers.push({ channel, fn })
   }
-  onTerraformEvent('terraform:event', handler)
-  ws.on('close', () => offTerraformEvent('terraform:event', handler))
+
+  ws.on('close', () => {
+    for (const { channel, fn } of handlers) offEvent(channel, fn)
+  })
 })
 
 // ── Terminal WebSocket ───────────────────────────────────────────────────────

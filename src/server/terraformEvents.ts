@@ -1,14 +1,15 @@
 /**
- * Terraform event bus for web mode.
+ * Server-side push event bus for web mode.
  *
- * In Electron mode, terraform command events are pushed via
- * `window.webContents.send('terraform:event', payload)`.
- * In web mode there is no BrowserWindow, so this module provides:
+ * In Electron mode, pushed events are delivered via:
+ *   - window.webContents.send(channel, payload)  — for BrowserWindow-level events
+ *   - event.sender.send(channel, payload)         — for per-request push events
  *
- *   1. broadcastTerraformEvent() — called by a mock BrowserWindow returned
- *      from makeMockWindow(), which is passed as getWindow() to registerIpcHandlers()
- *   2. onTerraformEvent() / offTerraformEvent() — used by the WebSocket handler
- *      in index.ts to push events to connected clients
+ * In web mode neither is available. This module provides a Node EventEmitter
+ * bus that replaces both, plus helpers used by:
+ *   1. makeMockWindow() — passed as getWindow() for BrowserWindow-level events
+ *   2. makeMockEvent()  — passed as the IPC event object so event.sender.send works
+ *   3. onEvent() / offEvent() — used by the /api/events WebSocket in index.ts
  */
 
 import { EventEmitter } from 'node:events'
@@ -16,28 +17,51 @@ import { EventEmitter } from 'node:events'
 const bus = new EventEmitter()
 bus.setMaxListeners(200)
 
-export function broadcastTerraformEvent(channel: string, payload: unknown): void {
+export function broadcastEvent(channel: string, payload: unknown): void {
   bus.emit(channel, payload)
 }
 
-export function onTerraformEvent(channel: string, handler: (payload: unknown) => void): void {
+/** @deprecated use broadcastEvent */
+export const broadcastTerraformEvent = broadcastEvent
+
+export function onEvent(channel: string, handler: (payload: unknown) => void): void {
   bus.on(channel, handler)
 }
 
-export function offTerraformEvent(channel: string, handler: (payload: unknown) => void): void {
+/** @deprecated use onEvent */
+export const onTerraformEvent = onEvent
+
+export function offEvent(channel: string, handler: (payload: unknown) => void): void {
   bus.off(channel, handler)
 }
 
+/** @deprecated use offEvent */
+export const offTerraformEvent = offEvent
+
 /**
- * Returns a mock BrowserWindow whose webContents.send() publishes
- * to the internal event bus instead of Electron's IPC.
+ * Mock BrowserWindow for handlers that call getWindow().webContents.send().
  */
 export function makeMockWindow() {
   return {
     webContents: {
       send(channel: string, payload: unknown): void {
-        broadcastTerraformEvent(channel, payload)
+        broadcastEvent(channel, payload)
       }
     }
+  }
+}
+
+/**
+ * Mock IPC event for handlers that call event.sender.send().
+ * Used by electronShim so ALL ipcMain.handle() callbacks get a real event object.
+ */
+export function makeMockEvent() {
+  return {
+    sender: {
+      send(channel: string, payload: unknown): void {
+        broadcastEvent(channel, payload)
+      }
+    },
+    returnValue: undefined as unknown
   }
 }

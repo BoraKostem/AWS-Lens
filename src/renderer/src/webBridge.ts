@@ -35,18 +35,44 @@ function getTerminalWs(): WebSocket {
   return terminalWs
 }
 
-// Terraform event listeners — bridged via WebSocket in web mode
-type TerraformListener = (event: unknown) => void
-const tfListeners = new Map<TerraformListener, (event: MessageEvent) => void>()
-let tfWs: WebSocket | null = null
+// Push event listeners — bridged via /api/events WebSocket in web mode
+// Each message is { channel: string, payload: unknown }
+type PushListener = (event: unknown) => void
+const pushListeners = new Map<string, Map<PushListener, (event: MessageEvent) => void>>()
+let eventsWs: WebSocket | null = null
 
-function getTfWs(): WebSocket {
-  if (tfWs && tfWs.readyState === WebSocket.OPEN) {
-    return tfWs
+function getEventsWs(): WebSocket {
+  if (eventsWs && eventsWs.readyState !== WebSocket.CLOSED) {
+    return eventsWs
   }
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  tfWs = new WebSocket(`${proto}://${window.location.host}/api/terraform-events`)
-  return tfWs
+  eventsWs = new WebSocket(`${proto}://${window.location.host}/api/events`)
+  return eventsWs
+}
+
+function subscribePush(channel: string, listener: PushListener): void {
+  const ws = getEventsWs()
+  const handler = (event: MessageEvent) => {
+    try {
+      const msg = JSON.parse(event.data as string) as { channel: string; payload: unknown }
+      if (msg.channel === channel) listener(msg.payload)
+    } catch {/* ignore */}
+  }
+  if (!pushListeners.has(channel)) pushListeners.set(channel, new Map())
+  pushListeners.get(channel)!.set(listener, handler)
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.addEventListener('message', handler)
+  } else {
+    ws.addEventListener('open', () => ws.addEventListener('message', handler), { once: true })
+  }
+}
+
+function unsubscribePush(channel: string, listener: PushListener): void {
+  const handler = pushListeners.get(channel)?.get(listener)
+  if (handler) {
+    try { getEventsWs().removeEventListener('message', handler) } catch {/* ignore */}
+    pushListeners.get(channel)!.delete(listener)
+  }
 }
 
 // Build a proxy that maps every Window['awsLens'] method to rpc() by
@@ -424,26 +450,13 @@ export const webBridge: Window['awsLens'] = {
   runTerraformGovernanceChecks: (p, id, c) => rpc('terraform:governance:run-checks', p, id, c),
   getTerraformGovernanceReport: (id) => rpc('terraform:governance:get-report', id),
 
-  // Streaming terraform command events via WebSocket
-  subscribe: (listener) => {
-    const ws = getTfWs()
-    const handler = (event: MessageEvent) => {
-      try { listener(JSON.parse(event.data as string)) } catch {/* ignore */}
-    }
-    tfListeners.set(listener, handler)
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.addEventListener('message', handler)
-    } else {
-      ws.addEventListener('open', () => ws.addEventListener('message', handler), { once: true })
-    }
-  },
-  unsubscribe: (listener) => {
-    const handler = tfListeners.get(listener)
-    if (handler) {
-      try { getTfWs().removeEventListener('message', handler) } catch {/* ignore */}
-      tfListeners.delete(listener)
-    }
-  },
+  // Streaming terraform command events
+  subscribe: (listener) => subscribePush('terraform:event', listener),
+  unsubscribe: (listener) => unsubscribePush('terraform:event', listener),
+
+  // Streaming EBS temp-volume inspection progress
+  subscribeTempVolumeProgress: (listener) => subscribePush('ec2:temp-volume-progress', listener),
+  unsubscribeTempVolumeProgress: (listener) => unsubscribePush('ec2:temp-volume-progress', listener),
 
   // ── Terminal (WebSocket) ───────────────────────────────────────────────────
   openTerminal: (connection, initialCommand?) => {
@@ -492,6 +505,22 @@ export const webBridge: Window['awsLens'] = {
     ws.addEventListener('message', handler)
   },
   offTerminalEvent: (listener) => {
+    const handler = terminalListeners.get(listener)
+    if (handler) {
+      try { getTerminalWs().removeEventListener('message', handler) } catch {/* ignore */}
+      terminalListeners.delete(listener)
+    }
+  },
+  // subscribeTerminal / unsubscribeTerminal — same WebSocket, different method names
+  subscribeTerminal: (listener) => {
+    const ws = getTerminalWs()
+    const handler = (event: MessageEvent) => {
+      try { listener(JSON.parse(event.data as string)) } catch {/* ignore */}
+    }
+    terminalListeners.set(listener, handler)
+    ws.addEventListener('message', handler)
+  },
+  unsubscribeTerminal: (listener) => {
     const handler = terminalListeners.get(listener)
     if (handler) {
       try { getTerminalWs().removeEventListener('message', handler) } catch {/* ignore */}

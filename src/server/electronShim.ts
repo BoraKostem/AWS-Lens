@@ -8,13 +8,26 @@
 import os from 'node:os'
 import path from 'node:path'
 
-type IpcHandler = (_event: null, ...args: unknown[]) => unknown
+// Import lazily to avoid circular dep at module init time
+let _makeMockEvent: (() => { sender: { send: (ch: string, p: unknown) => void }; returnValue: unknown }) | null = null
+async function getMockEvent() {
+  if (!_makeMockEvent) {
+    const mod = await import('./terraformEvents')
+    _makeMockEvent = mod.makeMockEvent
+  }
+  return _makeMockEvent()
+}
+
+type IpcHandler = (_event: unknown, ...args: unknown[]) => unknown
 
 export const webRegistry = new Map<string, (...args: unknown[]) => Promise<unknown>>()
 
 export const ipcMain = {
   handle(channel: string, fn: IpcHandler) {
-    webRegistry.set(channel, (...args: unknown[]) => Promise.resolve(fn(null, ...args)))
+    webRegistry.set(channel, async (...args: unknown[]) => {
+      const mockEvent = await getMockEvent()
+      return fn(mockEvent, ...args)
+    })
   },
   on() {},
   off() {},
