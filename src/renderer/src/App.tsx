@@ -1654,6 +1654,96 @@ export function App() {
 }`}</pre>
               </div>
             </div>
+
+            <div className="permissions-terraform">
+              <div className="eyebrow">Provision via Terraform</div>
+              <p className="hero-path">Drop either block into your Terraform configuration. Run <code>terraform apply</code> to create the user and access key, then copy the outputs into your profile credentials.</p>
+              <div className="permissions-tier-grid">
+
+                <div className="permissions-tier-card">
+                  <div className="permissions-tier-header">
+                    <span className="permissions-tier-badge minimal">Minimal</span>
+                    <div className="permissions-tier-title">Cost &amp; Identity reader</div>
+                    <div className="permissions-tier-desc">Inline policy — Cost Explorer + STS only.</div>
+                  </div>
+                  <pre className="permissions-policy">{`resource "aws_iam_user" "aws_lens_reader" {
+  name = "aws-lens-reader"
+}
+
+resource "aws_iam_user_policy" "aws_lens_reader" {
+  name = "aws-lens-cost-read"
+  user = aws_iam_user.aws_lens_reader.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "CostExplorer"
+        Effect = "Allow"
+        Action = [
+          "ce:GetCostAndUsage",
+          "ce:GetCostForecast",
+          "ce:GetUsageForecast",
+          "ce:GetDimensionValues",
+          "ce:GetTags"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid      = "Identity"
+        Effect   = "Allow"
+        Action   = ["sts:GetCallerIdentity"]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_access_key" "aws_lens_reader" {
+  user = aws_iam_user.aws_lens_reader.name
+}
+
+output "aws_lens_reader_key_id" {
+  value = aws_iam_access_key.aws_lens_reader.id
+}
+
+output "aws_lens_reader_secret" {
+  value     = aws_iam_access_key.aws_lens_reader.secret
+  sensitive = true
+}`}</pre>
+                </div>
+
+                <div className="permissions-tier-card">
+                  <div className="permissions-tier-header">
+                    <span className="permissions-tier-badge full">Full Read-Only</span>
+                    <div className="permissions-tier-title">All panels, no writes</div>
+                    <div className="permissions-tier-desc">Attaches the AWS managed ReadOnlyAccess policy.</div>
+                  </div>
+                  <pre className="permissions-policy">{`resource "aws_iam_user" "aws_lens_readonly" {
+  name = "aws-lens-readonly"
+}
+
+resource "aws_iam_user_policy_attachment" "aws_lens_readonly" {
+  user       = aws_iam_user.aws_lens_readonly.name
+  policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+}
+
+resource "aws_iam_access_key" "aws_lens_readonly" {
+  user = aws_iam_user.aws_lens_readonly.name
+}
+
+output "aws_lens_readonly_key_id" {
+  value = aws_iam_access_key.aws_lens_readonly.id
+}
+
+output "aws_lens_readonly_secret" {
+  value     = aws_iam_access_key.aws_lens_readonly.secret
+  sensitive = true
+}`}</pre>
+                </div>
+
+              </div>
+            </div>
           </div>
         </section>
       )

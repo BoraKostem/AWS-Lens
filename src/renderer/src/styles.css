@@ -5919,6 +5919,24 @@ button.overview-tile.clickable.active strong {
   overflow-y: auto;
 }
 
+.permissions-terraform {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.permissions-terraform > .hero-path {
+  margin: 0.4rem 0 1rem;
+}
+
+.permissions-terraform > .hero-path code {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.8em;
+  background: rgba(200, 200, 215, 0.08);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
 .profile-catalog-item {
   align-items: center;
   padding: 0.25rem;
