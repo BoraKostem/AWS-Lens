@@ -35,6 +35,20 @@ function getTerminalWs(): WebSocket {
   return terminalWs
 }
 
+// Terraform event listeners — bridged via WebSocket in web mode
+type TerraformListener = (event: unknown) => void
+const tfListeners = new Map<TerraformListener, (event: MessageEvent) => void>()
+let tfWs: WebSocket | null = null
+
+function getTfWs(): WebSocket {
+  if (tfWs && tfWs.readyState === WebSocket.OPEN) {
+    return tfWs
+  }
+  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+  tfWs = new WebSocket(`${proto}://${window.location.host}/api/terraform-events`)
+  return tfWs
+}
+
 // Build a proxy that maps every Window['awsLens'] method to rpc() by
 // inspecting the method name → channel name mapping below.
 // All methods are defined explicitly so TypeScript stays happy.
@@ -409,6 +423,27 @@ export const webBridge: Window['awsLens'] = {
   getTerraformGovernanceToolkit: () => rpc('terraform:governance:toolkit'),
   runTerraformGovernanceChecks: (p, id, c) => rpc('terraform:governance:run-checks', p, id, c),
   getTerraformGovernanceReport: (id) => rpc('terraform:governance:get-report', id),
+
+  // Streaming terraform command events via WebSocket
+  subscribe: (listener) => {
+    const ws = getTfWs()
+    const handler = (event: MessageEvent) => {
+      try { listener(JSON.parse(event.data as string)) } catch {/* ignore */}
+    }
+    tfListeners.set(listener, handler)
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.addEventListener('message', handler)
+    } else {
+      ws.addEventListener('open', () => ws.addEventListener('message', handler), { once: true })
+    }
+  },
+  unsubscribe: (listener) => {
+    const handler = tfListeners.get(listener)
+    if (handler) {
+      try { getTfWs().removeEventListener('message', handler) } catch {/* ignore */}
+      tfListeners.delete(listener)
+    }
+  },
 
   // ── Terminal (WebSocket) ───────────────────────────────────────────────────
   openTerminal: (connection, initialCommand?) => {

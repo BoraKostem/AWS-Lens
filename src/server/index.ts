@@ -2,10 +2,11 @@
  * AWS Lens web server — wraps all Electron IPC handlers as an HTTP RPC endpoint.
  *
  * Architecture:
- *   POST /api/rpc          { channel, args[] }  → handler result
- *   GET  /api/health       → { ok: true }
- *   WS   /api/terminal     → node-pty session (proxied via ws)
- *   GET  /*                → React SPA (served from /public)
+ *   POST /api/rpc               { channel, args[] }  → handler result
+ *   GET  /api/health            → { ok: true }
+ *   WS   /api/terminal          → node-pty session (proxied via ws)
+ *   WS   /api/terraform-events  → streaming terraform command events
+ *   GET  /*                     → React SPA (served from /public)
  */
 
 import http from 'node:http'
@@ -33,6 +34,7 @@ import { registerCompareIpcHandlers } from '../main/compareIpc'
 import { registerComplianceIpcHandlers } from '../main/complianceIpc'
 import { registerIpcHandlers } from '../main/ipc'
 import { registerTerminalIpcHandlers } from '../main/terminalIpc'
+import { makeMockWindow, onTerraformEvent, offTerraformEvent } from './terraformEvents'
 
 // Register all handlers into webRegistry
 registerAwsIpcHandlers()
@@ -46,7 +48,10 @@ registerSgIpcHandlers()
 registerVpcIpcHandlers()
 registerCompareIpcHandlers()
 registerComplianceIpcHandlers()
-registerIpcHandlers(() => null)
+
+// Pass a mock BrowserWindow so terraform emit() calls reach the event bus
+const mockWindow = makeMockWindow()
+registerIpcHandlers(() => mockWindow as never)
 
 // Terminal IPC uses Electron events — skip in web mode (WebSocket handles it directly)
 // registerTerminalIpcHandlers()
@@ -107,6 +112,20 @@ app.get('/{*splat}', (_req, res) => {
 // ── HTTP + WebSocket server ──────────────────────────────────────────────────
 const server = http.createServer(app)
 
+// ── Terraform event stream WebSocket ────────────────────────────────────────
+const tfWss = new WebSocketServer({ server, path: '/api/terraform-events' })
+
+tfWss.on('connection', (ws) => {
+  const handler = (payload: unknown) => {
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify(payload))
+    }
+  }
+  onTerraformEvent('terraform:event', handler)
+  ws.on('close', () => offTerraformEvent('terraform:event', handler))
+})
+
+// ── Terminal WebSocket ───────────────────────────────────────────────────────
 const wss = new WebSocketServer({ server, path: '/api/terminal' })
 
 wss.on('connection', (ws) => {
