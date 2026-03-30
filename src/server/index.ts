@@ -87,7 +87,9 @@ app.post('/api/rpc', async (req, res) => {
     const result = await handler(...(args ?? []))
     res.json(result)
   } catch (err) {
-    res.json({ ok: false, error: err instanceof Error ? err.message : String(err) })
+    const message = err instanceof Error ? err.message : String(err)
+    console.error(`[rpc] ${channel} failed:`, message)
+    res.status(500).json({ ok: false, error: message, channel })
   }
 })
 

@@ -5,6 +5,9 @@
  * The Express server reads from that Map to dispatch RPC calls.
  */
 
+import os from 'node:os'
+import path from 'node:path'
+
 type IpcHandler = (_event: null, ...args: unknown[]) => unknown
 
 export const webRegistry = new Map<string, (...args: unknown[]) => Promise<unknown>>()
@@ -22,8 +25,6 @@ export const app = {
   getVersion: () => process.env.APP_VERSION ?? '0.1.0',
   getName: () => 'aws-lens',
   getPath: (name: string) => {
-    const os = require('os') as typeof import('os')
-    const path = require('path') as typeof import('path')
     const base = os.homedir()
     const map: Record<string, string> = {
       home: base,
