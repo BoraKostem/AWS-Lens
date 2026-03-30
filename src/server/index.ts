@@ -12,6 +12,10 @@ import http from 'node:http'
 import path from 'node:path'
 import url from 'node:url'
 
+// -- Bootstrap AWS profiles from env vars before anything else
+import { bootstrapProfiles } from './bootstrapProfiles'
+bootstrapProfiles()
+
 // -- Import shim FIRST so webRegistry is populated before any ipcMain.handle calls
 import { webRegistry } from './electronShim'
 
