@@ -35,6 +35,7 @@ import { registerComplianceIpcHandlers } from '../main/complianceIpc'
 import { registerIpcHandlers } from '../main/ipc'
 import { registerTerminalIpcHandlers } from '../main/terminalIpc'
 import { makeMockWindow, onEvent, offEvent } from './terraformEvents'
+import { githubAuthRouter } from './githubAuth'
 
 // Register all handlers into webRegistry
 registerAwsIpcHandlers()
@@ -71,6 +72,9 @@ const PUBLIC_DIR = path.join(
 
 const app = express()
 app.use(express.json({ limit: '4mb' }))
+
+// ── GitHub Device OAuth ──────────────────────────────────────────────────────
+app.use('/api/github/auth', githubAuthRouter())
 
 // ── Health ──────────────────────────────────────────────────────────────────
 app.get('/api/health', (_req, res) => {
