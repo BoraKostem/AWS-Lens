@@ -11,7 +11,7 @@ import { SERVICE_CATALOG } from './catalog'
 import { exportDiagnosticsBundle } from './diagnostics'
 import { exportEnterpriseAuditEvents, getEnterpriseSettings, listEnterpriseAuditEvents, setEnterpriseAccessMode } from './enterprise'
 import { createHandlerWrapper } from './operations'
-import { getReleaseInfo } from './releaseCheck'
+import { checkForAppUpdates, downloadAppUpdate, getReleaseInfo, installAppUpdate } from './releaseCheck'
 import { getSelectedProjectId, setSelectedProjectId } from './store'
 import {
   addProject,
@@ -236,6 +236,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('shell:open-external', async (_event, url: string) => wrap(() => shell.openExternal(url)))
   ipcMain.handle('shell:open-path', async (_event, targetPath: string) => wrap(() => shell.openPath(targetPath)))
   ipcMain.handle('app:release-info', async () => wrap(() => getReleaseInfo()))
+  ipcMain.handle('app:update:check', async () => wrap(() => checkForAppUpdates()))
+  ipcMain.handle('app:update:download', async () => wrap(() => downloadAppUpdate()))
+  ipcMain.handle('app:update:install', async () => wrap(() => installAppUpdate()))
   ipcMain.handle('app:export-diagnostics', async () => wrap(() => exportDiagnosticsBundle(getWindow())))
   ipcMain.handle('enterprise:get-settings', async () => wrap(() => getEnterpriseSettings()))
   ipcMain.handle('enterprise:set-access-mode', async (_event, accessMode: 'read-only' | 'operator') =>

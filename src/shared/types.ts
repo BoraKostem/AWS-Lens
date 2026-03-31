@@ -235,7 +235,16 @@ export type AppReleaseChannel = 'stable' | 'preview' | 'unknown'
 
 export type AppReleaseCheckStatus = 'idle' | 'checking' | 'ready' | 'error'
 
-export type AppReleaseMechanism = 'github-release-check'
+export type AppReleaseMechanism = 'github-release-check' | 'electron-updater'
+
+export type AppUpdateStatus =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'not-available'
+  | 'downloading'
+  | 'downloaded'
+  | 'error'
 
 export type AppReleaseBuildInfo = {
   version: string
@@ -260,6 +269,12 @@ export type AppReleaseInfo = {
   error: string | null
   checkStatus: AppReleaseCheckStatus
   updateMechanism: AppReleaseMechanism
+  updateStatus: AppUpdateStatus
+  supportsAutoUpdate: boolean
+  canCheckForUpdates: boolean
+  canDownloadUpdate: boolean
+  canInstallUpdate: boolean
+  downloadProgressPercent: number | null
   currentBuild: AppReleaseBuildInfo
   latestRelease: AppReleaseArtifactInfo
 }

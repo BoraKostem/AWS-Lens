@@ -861,6 +861,18 @@ export async function getAppReleaseInfo(): Promise<AppReleaseInfo> {
   return unwrap((await rawAwsBridge().getReleaseInfo()) as Wrapped<AppReleaseInfo>)
 }
 
+export async function checkForAppUpdates(): Promise<AppReleaseInfo> {
+  return unwrap((await rawAwsBridge().checkForAppUpdates()) as Wrapped<AppReleaseInfo>)
+}
+
+export async function downloadAppUpdate(): Promise<AppReleaseInfo> {
+  return unwrap((await rawAwsBridge().downloadAppUpdate()) as Wrapped<AppReleaseInfo>)
+}
+
+export async function installAppUpdate(): Promise<AppReleaseInfo> {
+  return unwrap((await rawAwsBridge().installAppUpdate()) as Wrapped<AppReleaseInfo>)
+}
+
 export async function exportDiagnosticsBundle(): Promise<AppDiagnosticsExportResult> {
   return unwrap((await rawAwsBridge().exportDiagnosticsBundle()) as Wrapped<AppDiagnosticsExportResult>)
 }

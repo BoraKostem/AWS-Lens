@@ -4,9 +4,16 @@ on:
   workflow_dispatch:
     inputs:
       app_version:
-        description: App version in x.x.x format
+        description: App version in x.x.x or x.x.x-preview.n format
         required: true
         type: string
+      release_channel:
+        description: Which update channel to publish
+        required: true
+        type: choice
+        options:
+          - stable
+          - preview
       target_platform:
         description: Which installer set to build and release
         required: true
@@ -27,24 +34,59 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
+      full_version: ${{ steps.release-meta.outputs.full_version }}
+      release_name: ${{ steps.release-meta.outputs.release_name }}
+      is_prerelease: ${{ steps.release-meta.outputs.is_prerelease }}
 
     steps:
+      - name: Compute release metadata
+        id: release-meta
+        shell: bash
+        run: |
+          raw_version="${{ github.event.inputs.app_version }}"
+          channel="${{ github.event.inputs.release_channel }}"
+
+          if [[ "$channel" == "stable" ]]; then
+            if [[ ! "$raw_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Stable releases require app_version in x.x.x format" >&2
+              exit 1
+            fi
+            full_version="$raw_version"
+            release_name="v$full_version"
+            is_prerelease="false"
+          else
+            if [[ "$raw_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-preview\.[0-9]+$ ]]; then
+              full_version="$raw_version"
+            elif [[ "$raw_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              full_version="${raw_version}-preview.1"
+            else
+              echo "Preview releases require x.x.x or x.x.x-preview.n format" >&2
+              exit 1
+            fi
+            release_name="[preview] v$full_version"
+            is_prerelease="true"
+          fi
+
+          echo "full_version=$full_version" >> "$GITHUB_OUTPUT"
+          echo "release_name=$release_name" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
+
       - name: Build selected matrix
         id: set-matrix
         shell: bash
         run: |
           case "${{ github.event.inputs.target_platform }}" in
             windows)
-              matrix='{"include":[{"os":"windows-latest","platform":"windows","label":"Windows","build_command":"pnpm dist:win","artifact_name":"windows-installers","artifact_glob":"release/*.exe"}]}'
+              matrix='{"include":[{"os":"windows-latest","platform":"windows","label":"Windows","build_command":"pnpm dist:win","artifact_name":"windows-installers","artifact_glob":"release/**"}]}'
               ;;
             mac)
-              matrix='{"include":[{"os":"macos-latest","platform":"mac","label":"macOS","build_command":"pnpm dist:mac","artifact_name":"macos-installers","artifact_glob":"release/*.dmg\nrelease/*.zip"}]}'
+              matrix='{"include":[{"os":"macos-latest","platform":"mac","label":"macOS","build_command":"pnpm dist:mac","artifact_name":"macos-installers","artifact_glob":"release/**"}]}'
               ;;
             linux)
-              matrix='{"include":[{"os":"ubuntu-latest","platform":"linux","label":"Debian","build_command":"pnpm dist:linux","artifact_name":"linux-installers","artifact_glob":"release/*.deb\nrelease/*.AppImage"}]}'
+              matrix='{"include":[{"os":"ubuntu-latest","platform":"linux","label":"Debian","build_command":"pnpm dist:linux","artifact_name":"linux-installers","artifact_glob":"release/**"}]}'
               ;;
             all)
-              matrix='{"include":[{"os":"windows-latest","platform":"windows","label":"Windows","build_command":"pnpm dist:win","artifact_name":"windows-installers","artifact_glob":"release/*.exe"},{"os":"macos-latest","platform":"mac","label":"macOS","build_command":"pnpm dist:mac","artifact_name":"macos-installers","artifact_glob":"release/*.dmg\nrelease/*.zip"},{"os":"ubuntu-latest","platform":"linux","label":"Debian","build_command":"pnpm dist:linux","artifact_name":"linux-installers","artifact_glob":"release/*.deb\nrelease/*.AppImage"}]}'
+              matrix='{"include":[{"os":"windows-latest","platform":"windows","label":"Windows","build_command":"pnpm dist:win","artifact_name":"windows-installers","artifact_glob":"release/**"},{"os":"macos-latest","platform":"mac","label":"macOS","build_command":"pnpm dist:mac","artifact_name":"macos-installers","artifact_glob":"release/**"},{"os":"ubuntu-latest","platform":"linux","label":"Debian","build_command":"pnpm dist:linux","artifact_name":"linux-installers","artifact_glob":"release/**"}]}'
               ;;
             *)
               echo "Unsupported target_platform=${{ github.event.inputs.target_platform }}" >&2
@@ -63,6 +105,8 @@ jobs:
       APPLE_API_KEY: ${{ matrix.os == 'macos-latest' && secrets.APPLE_API_KEY || '' }}
       APPLE_API_KEY_ID: ${{ matrix.os == 'macos-latest' && secrets.APPLE_API_KEY_ID || '' }}
       APPLE_API_ISSUER: ${{ matrix.os == 'macos-latest' && secrets.APPLE_API_ISSUER || '' }}
+      AWS_LENS_BUILD_HASH: ${{ github.sha }}
+      AWS_LENS_RELEASE_CHANNEL: ${{ github.event.inputs.release_channel }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
@@ -71,8 +115,8 @@ jobs:
       - name: Validate version input
         shell: bash
         run: |
-          if [[ ! "${{ github.event.inputs.app_version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Expected app_version in x.x.x format" >&2
+          if [[ -z "${{ needs.prepare.outputs.full_version }}" ]]; then
+            echo "Expected a non-empty computed full_version" >&2
             exit 1
           fi
 
@@ -93,7 +137,7 @@ jobs:
       - name: Set package version
         shell: bash
         run: |
-          node -e "const fs=require('fs'); const file='package.json'; const pkg=JSON.parse(fs.readFileSync(file,'utf8')); pkg.version='${{ github.event.inputs.app_version }}'; fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + '\n');"
+          node -e "const fs=require('fs'); const file='package.json'; const pkg=JSON.parse(fs.readFileSync(file,'utf8')); pkg.version='${{ needs.prepare.outputs.full_version }}'; fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + '\n');"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -237,21 +281,20 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ github.event.inputs.app_version }}
-          name: v${{ github.event.inputs.app_version }}
+          tag_name: v${{ needs.prepare.outputs.full_version }}
+          name: ${{ needs.prepare.outputs.release_name }}
+          prerelease: ${{ needs.prepare.outputs.is_prerelease == 'true' }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
-            ${{ github.event.inputs.target_platform == 'windows' && 'dist-artifacts/windows-installers/**/*.exe' || '' }}
-            ${{ github.event.inputs.target_platform == 'mac' && 'dist-artifacts/macos-installers/**/*.dmg' || '' }}
-            ${{ github.event.inputs.target_platform == 'mac' && 'dist-artifacts/macos-installers/**/*.zip' || '' }}
-            ${{ github.event.inputs.target_platform == 'linux' && 'dist-artifacts/linux-installers/**/*.deb' || '' }}
-            ${{ github.event.inputs.target_platform == 'linux' && 'dist-artifacts/linux-installers/**/*.AppImage' || '' }}
-            ${{ github.event.inputs.target_platform == 'all' && 'dist-artifacts/windows-installers/**/*.exe' || '' }}
-            ${{ github.event.inputs.target_platform == 'all' && 'dist-artifacts/macos-installers/**/*.dmg' || '' }}
-            ${{ github.event.inputs.target_platform == 'all' && 'dist-artifacts/macos-installers/**/*.zip' || '' }}
-            ${{ github.event.inputs.target_platform == 'all' && 'dist-artifacts/linux-installers/**/*.deb' || '' }}
-            ${{ github.event.inputs.target_platform == 'all' && 'dist-artifacts/linux-installers/**/*.AppImage' || '' }}
+            dist-artifacts/**/*.exe
+            dist-artifacts/**/*.dmg
+            dist-artifacts/**/*.zip
+            dist-artifacts/**/*.deb
+            dist-artifacts/**/*.AppImage
+            dist-artifacts/**/*.yml
+            dist-artifacts/**/*.yaml
+            dist-artifacts/**/*.blockmap
 
   cleanup:
     name: Cleanup workflow artifacts

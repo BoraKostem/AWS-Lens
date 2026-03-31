@@ -1,5 +1,6 @@
 appId: com.awslens.desktop
 productName: AWS Lens
+generateUpdatesFilesForAllChannels: true
 
 directories:
   output: release
@@ -13,6 +14,11 @@ files:
 
 asarUnpack:
   - node_modules/node-pty/**/*
+
+publish:
+  provider: github
+  owner: BoraKostem
+  repo: AWS-Lens
 
 win:
   target:

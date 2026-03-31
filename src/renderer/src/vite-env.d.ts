@@ -35,6 +35,9 @@ declare global {
       assumeSavedRoleTarget: (targetId: string) => Promise<unknown>
       listServices: () => Promise<unknown>
       getReleaseInfo: () => Promise<unknown>
+      checkForAppUpdates: () => Promise<unknown>
+      downloadAppUpdate: () => Promise<unknown>
+      installAppUpdate: () => Promise<unknown>
       exportDiagnosticsBundle: () => Promise<unknown>
       getCallerIdentity: (connection: AwsConnection) => Promise<unknown>
       listEc2Instances: (connection: AwsConnection) => Promise<unknown>
