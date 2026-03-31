@@ -9,6 +9,8 @@ import { app, type BrowserWindow } from 'electron'
 import type {
   TerraformActionRow,
   TerraformCliInfo,
+  TerraformCliKind,
+  TerraformCliOption,
   TerraformCommandLog,
   TerraformCommandRequest,
   TerraformGitChangedFile,
@@ -50,7 +52,7 @@ import type {
   TerraformVariableDefinition,
   AwsConnection
 } from '@shared/types'
-import { getProjects, setProjects } from './store'
+import { getPreferredTerraformCliKind, getProjects, setPreferredTerraformCliKind, setProjects } from './store'
 import { resolveTerraformSecretReference } from './aws/terraformInputs'
 import { getConnectionEnv } from './sessionHub'
 import { saveRunRecord, updateRunRecord, redactArgs } from './terraformHistoryStore'
@@ -144,6 +146,10 @@ function stripAnsi(text: string): string {
 
 function terraformCommand(): string {
   return cachedCli?.found && cachedCli.path ? cachedCli.path : 'terraform'
+}
+
+function terraformCliLabel(): string {
+  return cachedCli?.label || 'Terraform'
 }
 
 function displayConnectionLabel(profileName: string, connection?: AwsConnection): string {
@@ -362,66 +368,151 @@ function writePlanMetadata(rootPath: string, options: TerraformPlanOptions | und
 
 let cachedCli: TerraformCliInfo | null = null
 
-function terraformCandidates(): string[] {
-  const names = process.platform === 'win32' ? ['terraform.exe', 'terraform'] : ['terraform']
+function cliCandidates(kind: TerraformCliKind): string[] {
+  const baseName = kind === 'opentofu' ? 'tofu' : 'terraform'
+  const executableName = process.platform === 'win32' ? `${baseName}.exe` : baseName
+  const names = process.platform === 'win32' ? [executableName, baseName] : [baseName]
   const fallbacks: string[] = []
+
   if (process.platform === 'win32') {
     const pf = process.env.ProgramFiles ?? 'C:\\Program Files'
     const pfx86 = process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)'
-    fallbacks.push(
-      path.join(pf, 'Terraform', 'terraform.exe'),
-      path.join(pfx86, 'Terraform', 'terraform.exe'),
-      path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'Terraform', 'terraform.exe'),
-      path.join(os.homedir(), '.tfenv', 'bin', 'terraform.exe')
-    )
+    if (kind === 'opentofu') {
+      fallbacks.push(
+        path.join(pf, 'OpenTofu', 'tofu.exe'),
+        path.join(pfx86, 'OpenTofu', 'tofu.exe'),
+        path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'OpenTofu', 'tofu.exe')
+      )
+    } else {
+      fallbacks.push(
+        path.join(pf, 'Terraform', 'terraform.exe'),
+        path.join(pfx86, 'Terraform', 'terraform.exe'),
+        path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'Terraform', 'terraform.exe')
+      )
+    }
+    fallbacks.push(path.join(os.homedir(), '.tfenv', 'bin', executableName))
   } else if (process.platform === 'darwin') {
     fallbacks.push(
-      '/usr/local/bin/terraform',
-      '/opt/homebrew/bin/terraform',
-      path.join(os.homedir(), '.tfenv', 'bin', 'terraform'),
-      path.join(os.homedir(), 'bin', 'terraform')
+      `/usr/local/bin/${baseName}`,
+      `/opt/homebrew/bin/${baseName}`,
+      path.join(os.homedir(), '.tfenv', 'bin', baseName),
+      path.join(os.homedir(), 'bin', baseName)
     )
   } else {
     fallbacks.push(
-      '/usr/local/bin/terraform',
-      '/usr/bin/terraform',
-      '/snap/bin/terraform',
-      path.join(os.homedir(), '.tfenv', 'bin', 'terraform'),
-      path.join(os.homedir(), 'bin', 'terraform')
+      `/usr/local/bin/${baseName}`,
+      `/usr/bin/${baseName}`,
+      `/snap/bin/${baseName}`,
+      path.join(os.homedir(), '.tfenv', 'bin', baseName),
+      path.join(os.homedir(), 'bin', baseName)
     )
   }
-  return [...names, ...fallbacks]
+
+  return [...new Set([...names, ...fallbacks])]
+}
+
+function cliKindLabel(kind: TerraformCliKind): string {
+  return kind === 'opentofu' ? 'OpenTofu' : 'Terraform'
+}
+
+async function probeCliCandidate(kind: TerraformCliKind, candidate: string): Promise<TerraformCliOption | null> {
+  try {
+    const result = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+      execFile(candidate, ['version', '-json'], { timeout: 10000, windowsHide: true }, (err, stdout, stderr) => {
+        if (err) reject(err)
+        else resolve({ stdout, stderr })
+      })
+    })
+    let version = ''
+    try {
+      const json = JSON.parse(result.stdout) as { terraform_version?: string }
+      version = json.terraform_version ?? ''
+    } catch {
+      const match = result.stdout.match(/(?:Terraform|OpenTofu)\s+v([\d.]+)/i)
+      version = match?.[1] ?? result.stdout.trim().slice(0, 40)
+    }
+    return {
+      kind,
+      label: cliKindLabel(kind),
+      path: candidate,
+      version
+    }
+  } catch {
+    return null
+  }
+}
+
+async function detectAvailableCliOptions(): Promise<TerraformCliOption[]> {
+  const discovered: TerraformCliOption[] = []
+  for (const kind of ['opentofu', 'terraform'] as const) {
+    for (const candidate of cliCandidates(kind)) {
+      const option = await probeCliCandidate(kind, candidate)
+      if (!option) continue
+      if (discovered.some((item) => item.kind === option.kind)) break
+      discovered.push(option)
+      break
+    }
+  }
+  return discovered
+}
+
+function chooseActiveCli(options: TerraformCliOption[], preferredKind: TerraformCliKind | ''): TerraformCliOption | null {
+  if (preferredKind) {
+    const preferred = options.find((item) => item.kind === preferredKind)
+    if (preferred) return preferred
+  }
+  return options.find((item) => item.kind === 'opentofu')
+    ?? options.find((item) => item.kind === 'terraform')
+    ?? null
 }
 
 export async function detectTerraformCli(): Promise<TerraformCliInfo> {
-  for (const candidate of terraformCandidates()) {
-    try {
-      const result = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-        execFile(candidate, ['version', '-json'], { timeout: 10000 }, (err, stdout, stderr) => {
-          if (err) reject(err)
-          else resolve({ stdout, stderr })
-        })
-      })
-      let version = ''
-      try {
-        const json = JSON.parse(result.stdout) as { terraform_version?: string }
-        version = json.terraform_version ?? ''
-      } catch {
-        const match = result.stdout.match(/Terraform v([\d.]+)/)
-        version = match?.[1] ?? result.stdout.trim().slice(0, 40)
-      }
-      cachedCli = { found: true, path: candidate, version, error: '' }
-      return cachedCli
-    } catch {
-      continue
+  const available = await detectAvailableCliOptions()
+  const selected = chooseActiveCli(available, getPreferredTerraformCliKind())
+  if (selected) {
+    cachedCli = {
+      found: true,
+      kind: selected.kind,
+      label: selected.label,
+      path: selected.path,
+      version: selected.version,
+      error: '',
+      available
     }
+    return cachedCli
   }
-  cachedCli = { found: false, path: '', version: '', error: 'Terraform CLI not found. Please install Terraform and ensure it is on your PATH.' }
+
+  cachedCli = {
+    found: false,
+    kind: '',
+    label: '',
+    path: '',
+    version: '',
+    error: 'No Terraform-compatible CLI found. Install OpenTofu or Terraform and ensure it is on your PATH.',
+    available: []
+  }
   return cachedCli
 }
 
 export function getCachedCliInfo(): TerraformCliInfo {
-  return cachedCli ?? { found: false, path: '', version: '', error: 'CLI detection has not run yet.' }
+  return cachedCli ?? {
+    found: false,
+    kind: '',
+    label: '',
+    path: '',
+    version: '',
+    error: 'CLI detection has not run yet.',
+    available: []
+  }
+}
+
+export async function setActiveTerraformCli(kind: TerraformCliKind): Promise<TerraformCliInfo> {
+  setPreferredTerraformCliKind(kind)
+  const info = await detectTerraformCli()
+  if (!info.found || info.kind !== kind) {
+    throw new Error(`${cliKindLabel(kind)} CLI is not available on this machine.`)
+  }
+  return info
 }
 
 /* ── S3 Backend Parsing ───────────────────────────────────── */
@@ -2898,12 +2989,16 @@ export function getProjectContext(profileName: string, projectId: string, connec
   rootPath: string
   env: Record<string, string>
   tfCliPath: string
+  tfCliLabel: string
+  tfCliKind: TerraformCliKind | ''
 } {
   const project = getStoredProjects(profileName).find((p) => p.id === projectId)
   if (!project) throw new Error('Project not found.')
   return {
     rootPath: project.rootPath,
     env: buildEnvWithVars(project, connection),
-    tfCliPath: terraformCommand()
+    tfCliPath: terraformCommand(),
+    tfCliLabel: terraformCliLabel(),
+    tfCliKind: cachedCli?.kind ?? ''
   }
 }

@@ -56,7 +56,7 @@ import {
   listTransitGateways,
   listVpcs
 } from './aws/vpc'
-import { getProject } from './terraform'
+import { getCachedCliInfo, getProject } from './terraform'
 
 type ComparableValue = string | number | boolean
 type IdentityKey = 'cloudIdentifier' | 'logicalName'
@@ -426,7 +426,9 @@ function buildSummary(items: TerraformDriftItem[], coverage: TerraformDriftCover
 function makeStateShowCommand(project: TerraformProject, address: string): string {
   if (!address) return ''
   const escapedRoot = project.rootPath.replace(/'/g, "''")
-  return `Set-Location '${escapedRoot}'; terraform state show ${address}`
+  const cliPath = getCachedCliInfo().path
+  const cliInvocation = cliPath ? `& '${cliPath.replace(/'/g, "''")}'` : 'terraform'
+  return `Set-Location '${escapedRoot}'; ${cliInvocation} state show ${address}`
 }
 
 function findLiveMatch(terraform: ComparableResource, live: ComparableResource[], identityKeys: IdentityKey[]): ComparableResource | null {
@@ -639,9 +641,9 @@ function coverageItem(resourceType: string, verifiedChecks: string[], inferredCh
 
 function buildNextStepForDiff(resource: TerraformResourceInventoryItem, differences: TerraformDriftDifference[]): string {
   if (differences.some((difference) => difference.kind === 'tag')) {
-    return `Review ${resource.address} with terraform state show, reconcile the mismatched tags in Terraform or AWS, then run a manual drift re-scan.`
+    return `Review ${resource.address} with state show, reconcile the mismatched tags in configuration or AWS, then run a manual drift re-scan.`
   }
-  return `Review ${resource.address} with terraform state show, decide whether Terraform or AWS is the source of truth for the changed fields, then re-scan after reconciliation.`
+  return `Review ${resource.address} with state show, decide whether configuration or AWS is the source of truth for the changed fields, then re-scan after reconciliation.`
 }
 
 function buildSupportedItems<TLive>(
@@ -676,7 +678,7 @@ function buildSupportedItems<TLive>(
         status: 'missing_in_aws',
         assessment: 'verified',
         explanation: 'Terraform state references this resource, but no matching live AWS resource was found in the scanned inventory.',
-        suggestedNextStep: `Run terraform state show for ${terraformResource.resource.address}, verify whether the resource was deleted or renamed, and decide whether to recreate it or remove the stale state entry.`,
+        suggestedNextStep: `Run state show for ${terraformResource.resource.address}, verify whether the resource was deleted or renamed, and decide whether to recreate it or remove the stale state entry.`,
         consoleUrl: terraformResource.comparable.consoleUrl,
         terminalCommand: makeStateShowCommand(project, terraformResource.resource.address),
         differences: [],
@@ -731,7 +733,7 @@ function buildUnsupportedItems(project: TerraformProject, inventory: TerraformRe
       status: 'unsupported' as const,
       assessment: 'unsupported' as const,
       explanation: 'This Terraform resource type is present in state, but this app does not yet verify live reconciliation for it.',
-      suggestedNextStep: `Use terraform plan or terraform state show for ${item.address}. This app keeps unsupported types explicit so you can track the remaining coverage gap.`,
+      suggestedNextStep: `Use plan or state show for ${item.address}. This app keeps unsupported types explicit so you can track the remaining coverage gap.`,
       consoleUrl: '',
       terminalCommand: makeStateShowCommand(project, item.address),
       differences: [],

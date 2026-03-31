@@ -63,6 +63,7 @@ import {
   runCommand,
   runGovernanceChecks,
   selectWorkspace,
+  setCliKind,
   setSelectedProjectId,
   subscribe,
   unsubscribe,
@@ -150,6 +151,10 @@ function variableLayerMode(layer: TerraformVariableLayer, name: string): 'inheri
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))]
+}
+
+function cliDisplayName(cliInfo: TerraformCliInfo | null | undefined): string {
+  return cliInfo?.label || 'Infrastructure CLI'
 }
 
 function formatIsoDate(iso: string): string {
@@ -1658,6 +1663,7 @@ function GovernancePanel({
 function ActionsTab({
   project,
   cliOk,
+  cliLabel,
   running,
   lastLog,
   onInit,
@@ -1673,6 +1679,7 @@ function ActionsTab({
 }: {
   project: TerraformProject
   cliOk: boolean
+  cliLabel: string
   running: boolean
   lastLog: TerraformCommandLog | null
   onInit: () => void
@@ -1742,7 +1749,7 @@ function ActionsTab({
         ? 'warning'
         : 'ready'
   const readinessTitle = !cliOk
-    ? 'Terraform CLI unavailable'
+    ? `${cliLabel} unavailable`
     : !hasSavedPlan
       ? 'Run a saved plan before apply'
       : governanceBlocked
@@ -1753,7 +1760,7 @@ function ActionsTab({
             ? 'High-impact plan requires review'
             : 'Safe to continue to apply review'
   const readinessBody = !cliOk
-    ? 'Terraform actions remain disabled until the CLI is detected.'
+    ? 'Infrastructure actions remain disabled until a supported CLI is detected.'
     : !hasSavedPlan
       ? 'Apply and destroy stay disabled until a saved plan exists for this project and workspace.'
       : governanceBlocked
@@ -2564,6 +2571,7 @@ function DriftTab({
   report,
   loading,
   error,
+  cliLabel,
   statusFilter,
   typeFilter,
   selectedKey,
@@ -2578,6 +2586,7 @@ function DriftTab({
   report: TerraformDriftReport | null
   loading: boolean
   error: string
+  cliLabel: string
   statusFilter: 'all' | TerraformDriftStatus
   typeFilter: string
   selectedKey: string
@@ -2743,7 +2752,7 @@ function DriftTab({
                       if (svc) onNavigateService(svc, selectedItem.cloudIdentifier || undefined)
                     }}>Open in App</button>
                   )}
-                  <button type="button" className="tf-toolbar-btn" onClick={() => onRunStateShow(selectedItem)} disabled={!selectedItem.terminalCommand}>terraform state show</button>
+                  <button type="button" className="tf-toolbar-btn" onClick={() => onRunStateShow(selectedItem)} disabled={!selectedItem.terminalCommand}>{cliLabel} state show</button>
                 </div>
               </div>
               <div className="tf-overview-card-grid">
@@ -3198,7 +3207,7 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   // Detect CLI on mount
   useEffect(() => {
     void detectCli().then(setCliInfo).catch(() => {
-      setCliInfo({ found: false, path: '', version: '', error: 'Failed to detect Terraform CLI.' })
+      setCliInfo({ found: false, kind: '', label: '', path: '', version: '', error: 'Failed to detect infrastructure CLI.', available: [] })
     })
   }, [])
 
@@ -3391,9 +3400,9 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   // Governance: detect tools once on CLI detect
   useEffect(() => {
     if (cliOk && !governanceToolkit?.detectedAt) {
-      void detectGovernanceTools(cliInfo?.path).then(setGovernanceToolkit).catch(() => {})
+      void detectGovernanceTools(cliInfo?.path, cliInfo?.label, cliInfo?.kind).then(setGovernanceToolkit).catch(() => {})
     }
-  }, [cliOk, cliInfo?.path, governanceToolkit?.detectedAt])
+  }, [cliOk, cliInfo?.kind, cliInfo?.label, cliInfo?.path, governanceToolkit?.detectedAt])
 
   // Governance: clear report when switching projects
   useEffect(() => {
@@ -3402,10 +3411,26 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
 
   const handleDetectGovernanceTools = useCallback(async () => {
     try {
-      const tk = await detectGovernanceTools(cliInfo?.path)
+      const tk = await detectGovernanceTools(cliInfo?.path, cliInfo?.label, cliInfo?.kind)
       setGovernanceToolkit(tk)
     } catch { /* ignore */ }
-  }, [cliInfo?.path])
+  }, [cliInfo?.kind, cliInfo?.label, cliInfo?.path])
+
+  const handleCliSwitch = useCallback(async (nextKind: 'terraform' | 'opentofu') => {
+    try {
+      const next = await setCliKind(nextKind)
+      setCliInfo(next)
+      setGovernanceToolkit(null)
+      setGovernanceReport(null)
+      if (next.found) {
+        const tk = await detectGovernanceTools(next.path, next.label, next.kind)
+        setGovernanceToolkit(tk)
+      }
+      setMsg('')
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : String(err))
+    }
+  }, [])
 
   const handleRunGovernanceChecks = useCallback(async () => {
     if (!detail) return
@@ -3806,7 +3831,7 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   function handleStateMove(fromAddress: string, toAddress: string) {
     setConfirmDialog({
       title: 'Confirm State Move',
-      description: `Move Terraform state from ${fromAddress} to ${toAddress}. A local backup will be captured first.`,
+      description: `Move state from ${fromAddress} to ${toAddress}. A local backup will be captured first.`,
       confirmWord: 'MOVE',
       onConfirm: () => {
         setConfirmDialog(null)
@@ -3818,7 +3843,7 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   function handleStateRemove(address: string) {
     setConfirmDialog({
       title: 'Confirm State Remove',
-      description: `Remove ${address} from Terraform state without deleting the provider resource. A local backup will be captured first.`,
+      description: `Remove ${address} from state without deleting the provider resource. A local backup will be captured first.`,
       confirmWord: 'REMOVE',
       onConfirm: () => {
         setConfirmDialog(null)
@@ -3830,7 +3855,7 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   function handleForceUnlock(lockId: string) {
     setConfirmDialog({
       title: 'Confirm Force Unlock',
-      description: `Force-unlock Terraform state lock ${lockId}. Only continue if no active Terraform operation still owns the lock. A local backup will be captured first.`,
+      description: `Force-unlock state lock ${lockId}. Only continue if no active apply, plan, or state operation still owns the lock. A local backup will be captured first.`,
       confirmWord: 'UNLOCK',
       onConfirm: () => {
         setConfirmDialog(null)
@@ -3847,12 +3872,12 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   function handleRunDriftStateShow(item: TerraformDriftItem) {
     if (!item.terminalCommand) return
     onRunTerminalCommand?.(item.terminalCommand)
-    setMsg('Terraform state command opened in terminal')
+    setMsg(`${cliDisplayName(cliInfo)} state command opened in terminal`)
   }
 
   function handleLabArtifactRun(artifact: GeneratedArtifact) {
     onRunTerminalCommand?.(artifact.content)
-    setMsg('Terraform artifact opened in terminal')
+    setMsg(`${cliDisplayName(cliInfo)} artifact opened in terminal`)
   }
 
   function handleLabSignalNavigate(signal: CorrelatedSignalReference) {
@@ -3886,17 +3911,17 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
     <div className="tf-console">
       <section className="tf-shell-hero">
         <div className="tf-shell-hero-copy">
-          <div className="eyebrow">Terraform service</div>
+          <div className="eyebrow">Terraform / OpenTofu service</div>
           <h2>{detail ? detail.name : 'Infrastructure command center'}</h2>
           <p>
             {detail
               ? `Plan, apply, drift review, state operations, and governance checks for ${detail.environment.environmentLabel}.`
-              : 'Select a Terraform project to review readiness, manage state, inspect drift, and track command history.'}
+              : 'Select an infrastructure project to review readiness, manage state, inspect drift, and track command history.'}
           </p>
           <div className="tf-shell-meta-strip">
             <div className="tf-shell-meta-pill">
               <span>CLI</span>
-              <strong>{cliInfo?.found ? `Terraform ${cliInfo.version}` : 'Unavailable'}</strong>
+              <strong>{cliInfo?.found ? `${cliInfo.label} ${cliInfo.version}` : 'Unavailable'}</strong>
             </div>
             <div className="tf-shell-meta-pill">
               <span>Workspace</span>
@@ -3947,10 +3972,24 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
         </div>
         <div className="tf-shell-status">
           {cliInfo && !cliInfo.found && (
-            <div className="tf-cli-banner">{cliInfo.error || 'Terraform CLI not found. Please install Terraform.'}</div>
+            <div className="tf-cli-banner">{cliInfo.error || 'OpenTofu or Terraform CLI not found. Please install one of them.'}</div>
           )}
           {cliInfo?.found && (
             <div className="tf-cli-banner success">{cliInfo.path}</div>
+          )}
+          {cliInfo?.available && cliInfo.available.length > 1 && (
+            <label className="tf-cli-banner success" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <span>Active CLI</span>
+              <select
+                value={cliInfo.kind}
+                onChange={(event) => void handleCliSwitch(event.target.value as 'terraform' | 'opentofu')}
+                disabled={running || governanceRunning}
+              >
+                {cliInfo.available.map((option) => (
+                  <option key={option.kind} value={option.kind}>{option.label}</option>
+                ))}
+              </select>
+            </label>
           )}
           <FreshnessIndicator freshness={workspaceFreshness} label="Workspace inventory last updated" />
           {detailTab === 'drift' && <FreshnessIndicator freshness={driftFreshness} label="Drift last updated" staleLabel="Re-scan drift" />}
@@ -4146,6 +4185,7 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
                 <ActionsTab
                   project={detail}
                   cliOk={cliOk}
+                  cliLabel={cliDisplayName(cliInfo)}
                   running={running}
                   lastLog={lastLog}
                   onInit={handleInit}
@@ -4178,6 +4218,7 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
                   report={driftReport}
                   loading={driftLoading}
                   error={driftError}
+                  cliLabel={cliDisplayName(cliInfo)}
                   statusFilter={driftStatusFilter}
                   typeFilter={driftTypeFilter}
                   selectedKey={selectedDriftKey}

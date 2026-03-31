@@ -16,6 +16,7 @@ import {
   createProjectWorkspace,
   detectMissingVars,
   detectTerraformCli,
+  setActiveTerraformCli,
   deleteProjectWorkspace,
   getCachedCliInfo,
   getCommandLogs,
@@ -134,6 +135,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('services:list', async () => wrap(() => SERVICE_CATALOG))
   ipcMain.handle('terraform:cli:detect', async () => wrap(() => detectTerraformCli()))
   ipcMain.handle('terraform:cli:info', async () => wrap(() => getCachedCliInfo()))
+  ipcMain.handle('terraform:cli:set-kind', async (_event, kind: 'terraform' | 'opentofu') => wrap(() => setActiveTerraformCli(kind)))
   ipcMain.handle('terraform:projects:list', async (_event, profileName: string, connection?: AwsConnection) => wrap(() => listProjectSummaries(profileName, connection)))
   ipcMain.handle('terraform:projects:get', async (_event, profileName: string, projectId: string, connection?: AwsConnection) => wrap(() => getProject(profileName, projectId, connection)))
   ipcMain.handle('terraform:projects:selected:get', async (_event, profileName: string) => wrap(() => getSelectedProjectId(profileName)))
@@ -222,12 +224,15 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('terraform:history:list', async (_event, filter?: TerraformRunHistoryFilter) => wrap(() => listRunRecords(filter)))
   ipcMain.handle('terraform:history:get-output', async (_event, runId: string) => wrap(() => getRunOutput(runId)))
   ipcMain.handle('terraform:history:delete', async (_event, runId: string) => wrap(() => deleteRunRecord(runId)))
-  ipcMain.handle('terraform:governance:detect-tools', async (_event, tfCliPath?: string) => wrap(() => detectGovernanceTools(tfCliPath)))
+  ipcMain.handle('terraform:governance:detect-tools', async (_event, tfCliPath?: string, cliLabel?: string, cliKind?: 'terraform' | 'opentofu' | '') =>
+    wrap(() => detectGovernanceTools(tfCliPath, cliLabel, cliKind))
+  )
   ipcMain.handle('terraform:governance:toolkit', async () => wrap(() => getCachedGovernanceToolkit()))
   ipcMain.handle('terraform:governance:run-checks', async (_event, profileName: string, projectId: string, connection?: AwsConnection) =>
     wrap(() => {
       const ctx = getProjectContext(profileName, projectId, connection)
-      return runGovernanceChecks(projectId, ctx.rootPath, ctx.env)
+      return detectGovernanceTools(ctx.tfCliPath, ctx.tfCliLabel, ctx.tfCliKind)
+        .then(() => runGovernanceChecks(projectId, ctx.rootPath, ctx.env))
     })
   )
   ipcMain.handle('terraform:governance:get-report', async (_event, projectId: string) => wrap(() => getGovernanceReport(projectId)))

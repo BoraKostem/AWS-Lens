@@ -3,6 +3,7 @@ import path from 'node:path'
 
 import { app } from 'electron'
 import type {
+  TerraformCliKind,
   TerraformInputConfiguration,
   TerraformProjectEnvironmentMetadata,
   TerraformSecretReference,
@@ -27,6 +28,7 @@ type ProfileData = {
 
 type StoreData = {
   profiles: Record<string, ProfileData>
+  preferredTerraformCliKind: TerraformCliKind | ''
 }
 
 const PROFILE_DEFAULTS: ProfileData = {
@@ -154,6 +156,7 @@ function read(): StoreData {
     // Migrate old flat format → profile-scoped format
     if (Array.isArray(parsed.projects) && !parsed.profiles) {
       const migrated: StoreData = {
+        preferredTerraformCliKind: '',
         profiles: {
           default: {
             projects: sanitizeProjects(parsed.projects),
@@ -178,9 +181,15 @@ function read(): StoreData {
         }
       }
     }
-    return { profiles }
+    return {
+      profiles,
+      preferredTerraformCliKind:
+        parsed.preferredTerraformCliKind === 'terraform' || parsed.preferredTerraformCliKind === 'opentofu'
+          ? parsed.preferredTerraformCliKind
+          : ''
+    }
   } catch {
-    return { profiles: {} }
+    return { profiles: {}, preferredTerraformCliKind: '' }
   }
 }
 
@@ -215,5 +224,15 @@ export function setSelectedProjectId(profileName: string, projectId: string): vo
     data.profiles[profileName] = { ...PROFILE_DEFAULTS }
   }
   data.profiles[profileName].selectedProjectId = projectId
+  write(data)
+}
+
+export function getPreferredTerraformCliKind(): TerraformCliKind | '' {
+  return read().preferredTerraformCliKind
+}
+
+export function setPreferredTerraformCliKind(kind: TerraformCliKind | ''): void {
+  const data = read()
+  data.preferredTerraformCliKind = kind
   write(data)
 }

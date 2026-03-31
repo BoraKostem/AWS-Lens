@@ -38,6 +38,10 @@ export async function getCliInfo(): Promise<TerraformCliInfo> {
   return unwrap(await bridge().getCliInfo() as Wrapped<TerraformCliInfo>)
 }
 
+export async function setCliKind(kind: 'terraform' | 'opentofu'): Promise<TerraformCliInfo> {
+  return unwrap(await bridge().setCliKind(kind) as Wrapped<TerraformCliInfo>)
+}
+
 export async function listProjects(profileName: string, connection?: AwsConnection): Promise<TerraformProjectListItem[]> {
   return unwrap(await bridge().listProjects(profileName, connection) as Wrapped<TerraformProjectListItem[]>)
 }
@@ -151,8 +155,12 @@ export async function deleteRunRecord(runId: string): Promise<void> {
   return unwrap(await bridge().deleteRunRecord(runId) as Wrapped<void>)
 }
 
-export async function detectGovernanceTools(tfCliPath?: string): Promise<TerraformGovernanceToolkit> {
-  return unwrap(await bridge().detectGovernanceTools(tfCliPath) as Wrapped<TerraformGovernanceToolkit>)
+export async function detectGovernanceTools(
+  tfCliPath?: string,
+  cliLabel?: string,
+  cliKind?: 'terraform' | 'opentofu' | ''
+): Promise<TerraformGovernanceToolkit> {
+  return unwrap(await bridge().detectGovernanceTools(tfCliPath, cliLabel, cliKind) as Wrapped<TerraformGovernanceToolkit>)
 }
 
 export async function getGovernanceToolkit(): Promise<TerraformGovernanceToolkit> {

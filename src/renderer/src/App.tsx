@@ -139,10 +139,12 @@ const SOFT_REFRESH_SCREENS = new Set<Screen>([
 function ConnectedServiceScreen({
   service,
   state,
+  hideHero,
   children
 }: {
   service: ServiceDescriptor
   state: ReturnType<typeof useAwsPageConnection>
+  hideHero?: boolean
   children: (connection: NonNullable<ReturnType<typeof useAwsPageConnection>['connection']>) => React.ReactNode
 }) {
   return (
@@ -151,7 +153,7 @@ function ConnectedServiceScreen({
       {state.connection && state.connected ? (
         children(state.connection)
       ) : (
-        <section className="empty-hero">
+        <section className={hideHero ? 'empty-hero empty-hero-compact' : 'empty-hero'}>
           <div>
             <div className="eyebrow">{service.label}</div>
             <h2>Select a profile to load {service.label}</h2>
@@ -431,9 +433,9 @@ export function App() {
       connectionState.setRegion(region)
     }
     setFocusMap((current) => {
-      if (!(serviceId in current)) return current
+      if (!Object.prototype.hasOwnProperty.call(current, serviceId)) return current
       const next = { ...current }
-      delete next[serviceId]
+      delete next[serviceId as NavigationFocus['service']]
       return next
     })
     setScreen(serviceId)

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import type { CSSProperties } from 'react'
 import './route53.css'
 
 import type { AwsConnection, Route53RecordChange } from '@shared/types'
@@ -240,7 +241,7 @@ export function Route53Console({
             key={col.key}
             className={`route53-chip ${visCols.has(col.key) ? 'active' : ''}`}
             type="button"
-            style={visCols.has(col.key) ? { ['--route53-chip' as const]: col.color } : undefined}
+            style={visCols.has(col.key) ? ({ ['--route53-chip' as const]: col.color } as CSSProperties) : undefined}
             onClick={() => setVisCols(p => { const n = new Set(p); n.has(col.key) ? n.delete(col.key) : n.add(col.key); return n })}
           >
             {col.label}

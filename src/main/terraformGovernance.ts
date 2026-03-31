@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import path from 'node:path'
 
 import type {
+  TerraformCliKind,
   TerraformGovernanceCheckResult,
   TerraformGovernanceCheckStatus,
   TerraformGovernanceFinding,
@@ -25,7 +26,7 @@ type ToolSpec = {
 const TOOL_SPECS: ToolSpec[] = [
   {
     id: 'fmt',
-    label: 'terraform fmt',
+    label: 'fmt',
     commands: ['terraform'],
     versionArgs: ['version', '-json'],
     versionPattern: /(\d+\.\d+\.\d+)/,
@@ -33,7 +34,7 @@ const TOOL_SPECS: ToolSpec[] = [
   },
   {
     id: 'validate',
-    label: 'terraform validate',
+    label: 'validate',
     commands: ['terraform'],
     versionArgs: ['version', '-json'],
     versionPattern: /(\d+\.\d+\.\d+)/,
@@ -67,9 +68,13 @@ const TOOL_SPECS: ToolSpec[] = [
 
 let cachedToolkit: TerraformGovernanceToolkit | null = null
 let terraformPath = 'terraform'
+let terraformLabel = 'Terraform'
+let terraformKind: TerraformCliKind | '' = 'terraform'
 
-function setTerraformPath(tfPath: string): void {
+function setTerraformRuntime(tfPath: string, cliLabel?: string, cliKind?: TerraformCliKind | ''): void {
   terraformPath = tfPath
+  terraformLabel = cliLabel || 'Terraform'
+  terraformKind = cliKind ?? 'terraform'
 }
 
 async function probeCommand(command: string, args: string[]): Promise<{ found: boolean; path: string; version: string }> {
@@ -96,7 +101,7 @@ async function detectTool(spec: ToolSpec): Promise<TerraformGovernanceToolInfo> 
       const match = result.version.match(spec.versionPattern)
       return {
         id: spec.id,
-        label: spec.label,
+        label: spec.id === 'fmt' || spec.id === 'validate' ? `${terraformLabel} ${spec.label}` : spec.label,
         available: true,
         path: result.path,
         version: match?.[1] ?? result.version.slice(0, 50),
@@ -106,7 +111,7 @@ async function detectTool(spec: ToolSpec): Promise<TerraformGovernanceToolInfo> 
   }
   return {
     id: spec.id,
-    label: spec.label,
+    label: spec.id === 'fmt' || spec.id === 'validate' ? `${terraformLabel} ${spec.label}` : spec.label,
     available: false,
     path: '',
     version: '',
@@ -114,16 +119,32 @@ async function detectTool(spec: ToolSpec): Promise<TerraformGovernanceToolInfo> 
   }
 }
 
-export async function detectGovernanceTools(tfCliPath?: string): Promise<TerraformGovernanceToolkit> {
-  if (tfCliPath) setTerraformPath(tfCliPath)
+export async function detectGovernanceTools(
+  tfCliPath?: string,
+  cliLabel?: string,
+  cliKind?: TerraformCliKind | ''
+): Promise<TerraformGovernanceToolkit> {
+  if (tfCliPath) setTerraformRuntime(tfCliPath, cliLabel, cliKind)
 
   const tools = await Promise.all(TOOL_SPECS.map(detectTool))
-  cachedToolkit = { tools, detectedAt: new Date().toISOString() }
+  cachedToolkit = {
+    tools,
+    detectedAt: new Date().toISOString(),
+    cliKind: terraformKind,
+    cliLabel: terraformLabel,
+    cliPath: terraformPath
+  }
   return cachedToolkit
 }
 
 export function getCachedGovernanceToolkit(): TerraformGovernanceToolkit {
-  return cachedToolkit ?? { tools: [], detectedAt: '' }
+  return cachedToolkit ?? {
+    tools: [],
+    detectedAt: '',
+    cliKind: '',
+    cliLabel: '',
+    cliPath: ''
+  }
 }
 
 /* ── Check Runners ───────────────────────────────────────── */

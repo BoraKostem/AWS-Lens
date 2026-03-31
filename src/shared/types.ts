@@ -2278,11 +2278,23 @@ export type TerraformCommandName =
   | 'state-pull'
   | 'version'
 
+export type TerraformCliKind = 'terraform' | 'opentofu'
+
+export type TerraformCliOption = {
+  kind: TerraformCliKind
+  label: string
+  path: string
+  version: string
+}
+
 export type TerraformCliInfo = {
   found: boolean
+  kind: TerraformCliKind | ''
+  label: string
   path: string
   version: string
   error: string
+  available: TerraformCliOption[]
 }
 
 export type TerraformVariableDefinition = {
@@ -2711,6 +2723,9 @@ export type TerraformGovernanceReport = {
 export type TerraformGovernanceToolkit = {
   tools: TerraformGovernanceToolInfo[]
   detectedAt: string
+  cliKind: TerraformCliKind | ''
+  cliLabel: string
+  cliPath: string
 }
 
 export type TerraformProjectStatus = 'Ready' | 'Missing'

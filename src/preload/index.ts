@@ -603,6 +603,7 @@ const listenerMap = new Map<(event: unknown) => void, (...args: unknown[]) => vo
 const api = {
   detectCli: () => ipcRenderer.invoke('terraform:cli:detect'),
   getCliInfo: () => ipcRenderer.invoke('terraform:cli:info'),
+  setCliKind: (kind: 'terraform' | 'opentofu') => ipcRenderer.invoke('terraform:cli:set-kind', kind),
   listProjects: (profileName: string, connection?: AwsConnection) => ipcRenderer.invoke('terraform:projects:list', profileName, connection),
   getProject: (profileName: string, projectId: string, connection?: AwsConnection) => ipcRenderer.invoke('terraform:projects:get', profileName, projectId, connection),
   getDrift: (profileName: string, projectId: string, connection: AwsConnection, options?: { forceRefresh?: boolean }) =>
@@ -638,7 +639,8 @@ const api = {
   listRunHistory: (filter?: TerraformRunHistoryFilter) => ipcRenderer.invoke('terraform:history:list', filter),
   getRunOutput: (runId: string) => ipcRenderer.invoke('terraform:history:get-output', runId),
   deleteRunRecord: (runId: string) => ipcRenderer.invoke('terraform:history:delete', runId),
-  detectGovernanceTools: (tfCliPath?: string) => ipcRenderer.invoke('terraform:governance:detect-tools', tfCliPath),
+  detectGovernanceTools: (tfCliPath?: string, cliLabel?: string, cliKind?: 'terraform' | 'opentofu' | '') =>
+    ipcRenderer.invoke('terraform:governance:detect-tools', tfCliPath, cliLabel, cliKind),
   getGovernanceToolkit: () => ipcRenderer.invoke('terraform:governance:toolkit'),
   runGovernanceChecks: (profileName: string, projectId: string, connection?: AwsConnection) =>
     ipcRenderer.invoke('terraform:governance:run-checks', profileName, projectId, connection),
