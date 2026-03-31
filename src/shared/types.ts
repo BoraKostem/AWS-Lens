@@ -275,6 +275,8 @@ export type AppReleaseInfo = {
   canDownloadUpdate: boolean
   canInstallUpdate: boolean
   downloadProgressPercent: number | null
+  selectedChannel: AppReleaseChannel
+  autoDownloadEnabled: boolean
   currentBuild: AppReleaseBuildInfo
   latestRelease: AppReleaseArtifactInfo
 }

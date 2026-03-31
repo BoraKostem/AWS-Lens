@@ -4808,6 +4808,37 @@ button.overview-tile.clickable.active strong {
   gap: 0.8rem;
 }
 
+.settings-updates-form {
+  display: grid;
+  grid-template-columns: minmax(0, 280px) minmax(0, 1fr);
+  gap: 0.8rem;
+  align-items: start;
+}
+
+.settings-checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 14px;
+  border: 1px solid rgba(136, 156, 181, 0.12);
+  background: rgba(8, 14, 22, 0.72);
+}
+
+.settings-checkbox-row input {
+  width: auto;
+  margin-top: 0.2rem;
+}
+
+.settings-checkbox-row strong {
+  color: #f3f7fc;
+}
+
+.settings-checkbox-row p {
+  margin: 0.22rem 0 0;
+  color: #a8b8ca;
+}
+
 .settings-action-row {
   display: flex;
   flex-wrap: wrap;
@@ -6969,6 +7000,7 @@ textarea {
   .settings-section-grid,
   .settings-general-form,
   .settings-toolchain-form,
+  .settings-updates-form,
   .settings-info-grid,
   .settings-environment-grid,
   .environment-onboarding-grid {

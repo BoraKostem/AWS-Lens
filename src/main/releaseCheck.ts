@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { autoUpdater } from 'electron-updater'
 
 import type { AppReleaseInfo } from '@shared/types'
+import { getAppSettings } from './appSettings'
 import { executeOperation } from './operations'
 import { logError, logInfo, logWarn } from './observability'
 
@@ -29,6 +30,11 @@ function inferReleaseChannel(version: string): 'stable' | 'preview' | 'unknown' 
 }
 
 function configuredReleaseChannel(currentVersion: string): 'stable' | 'preview' | 'unknown' {
+  const preferred = getAppSettings().updates.releaseChannel
+  if (preferred === 'stable' || preferred === 'preview') {
+    return preferred
+  }
+
   const configured = typeof __AWS_LENS_RELEASE_CHANNEL__ === 'string' ? __AWS_LENS_RELEASE_CHANNEL__.trim().toLowerCase() : ''
 
   if (configured === 'stable' || configured === 'preview') {
@@ -126,6 +132,7 @@ function baseReleaseInfo(): AppReleaseInfo {
   const currentVersion = app.getVersion()
   const releaseUrl = RELEASES_URL
   const channel = configuredReleaseChannel(currentVersion)
+  const appSettings = getAppSettings()
   const base: AppReleaseInfo = {
     currentVersion,
     latestVersion: null,
@@ -141,6 +148,8 @@ function baseReleaseInfo(): AppReleaseInfo {
     canDownloadUpdate: false,
     canInstallUpdate: false,
     downloadProgressPercent: null,
+    selectedChannel: channel,
+    autoDownloadEnabled: appSettings.updates.autoDownload,
     currentBuild: {
       version: currentVersion,
       buildHash: currentBuildHash(),
@@ -190,10 +199,10 @@ function initializeAutoUpdater(): void {
   }
 
   autoUpdaterInitialized = true
-  autoUpdater.autoDownload = false
+  autoUpdater.autoDownload = getAppSettings().updates.autoDownload
   autoUpdater.autoInstallOnAppQuit = true
   autoUpdater.allowPrerelease = cachedReleaseInfo.currentBuild.channel === 'preview'
-  autoUpdater.channel = updaterChannelName(cachedReleaseInfo.currentBuild.channel)
+  autoUpdater.channel = updaterChannelName(cachedReleaseInfo.selectedChannel)
 
   autoUpdater.on('checking-for-update', () => {
     logInfo('app.updater.checking', 'Checking for app updates.', {

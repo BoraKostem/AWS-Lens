@@ -16,6 +16,7 @@ type SettingsPageProps = {
   settingsMessage: string
   onUpdateGeneralSettings: (update: AppSettings['general']) => void
   onUpdateToolchainSettings: (update: AppSettings['toolchain']) => void
+  onUpdatePreferences: (update: AppSettings['updates']) => void
   onCheckForUpdates: () => void
   onDownloadUpdate: () => void
   onInstallUpdate: () => void
@@ -29,6 +30,12 @@ const GENERAL_LAUNCH_SCREEN_OPTIONS: Array<{ value: AppSettings['general']['laun
   { value: 'session-hub', label: 'Session Hub' },
   { value: 'terraform', label: 'Terraform' },
   { value: 'overview', label: 'Overview' }
+]
+
+const RELEASE_CHANNEL_OPTIONS: Array<{ value: AppSettings['updates']['releaseChannel']; label: string }> = [
+  { value: 'system', label: 'System / build default' },
+  { value: 'stable', label: 'Stable' },
+  { value: 'preview', label: 'Preview' }
 ]
 
 function summarizeValue(value: string, fallback: string): string {
@@ -152,6 +159,7 @@ export function SettingsPage({
   settingsMessage,
   onUpdateGeneralSettings,
   onUpdateToolchainSettings,
+  onUpdatePreferences,
   onCheckForUpdates,
   onDownloadUpdate,
   onInstallUpdate,
@@ -174,6 +182,10 @@ export function SettingsPage({
     kubectlPathOverride: '',
     dockerPathOverride: ''
   })
+  const [updateDraft, setUpdateDraft] = useState<AppSettings['updates']>({
+    releaseChannel: 'system',
+    autoDownload: false
+  })
 
   useEffect(() => {
     if (!appSettings) {
@@ -189,6 +201,14 @@ export function SettingsPage({
     }
 
     setToolchainDraft(appSettings.toolchain)
+  }, [appSettings])
+
+  useEffect(() => {
+    if (!appSettings) {
+      return
+    }
+
+    setUpdateDraft(appSettings.updates)
   }, [appSettings])
 
   return (
@@ -445,8 +465,8 @@ export function SettingsPage({
             </span>
           </div>
           <div className="settings-info-grid">
-            <div className="settings-info-row"><span>Channel preference</span><strong>{appSettings?.updates.releaseChannel ?? 'system'}</strong></div>
-            <div className="settings-info-row"><span>Auto download</span><strong>{appSettings?.updates.autoDownload ? 'Enabled' : 'Disabled'}</strong></div>
+            <div className="settings-info-row"><span>Selected channel</span><strong>{releaseInfo?.selectedChannel ?? 'unknown'}</strong></div>
+            <div className="settings-info-row"><span>Auto download</span><strong>{releaseInfo?.autoDownloadEnabled ? 'Enabled' : 'Disabled'}</strong></div>
             <div className="settings-info-row"><span>Latest version</span><strong>{releaseInfo?.latestVersion ? `v${releaseInfo.latestVersion}` : 'Unavailable'}</strong></div>
             <div className="settings-info-row"><span>Release name</span><strong>{latestRelease?.name ?? 'Unavailable'}</strong></div>
             <div className="settings-info-row"><span>Published</span><strong>{latestRelease?.publishedAt ? new Date(latestRelease.publishedAt).toLocaleString() : 'Unavailable'}</strong></div>
@@ -469,6 +489,50 @@ export function SettingsPage({
           {releaseInfo?.error && <div className="error-banner">{releaseInfo.error}</div>}
         </section>
       </div>
+
+      <section className="settings-panel-card settings-panel-card-wide">
+        <div className="settings-panel-card__header">
+          <div>
+            <div className="eyebrow">Updates</div>
+            <h3>Channel and download preferences</h3>
+          </div>
+        </div>
+        <div className="settings-updates-form">
+          <label className="field compact">
+            <span>Release channel</span>
+            <select
+              value={updateDraft.releaseChannel}
+              onChange={(event) => setUpdateDraft((current) => ({
+                ...current,
+                releaseChannel: event.target.value as AppSettings['updates']['releaseChannel']
+              }))}
+              disabled={!appSettings}
+            >
+              {RELEASE_CHANNEL_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="settings-checkbox-row">
+            <input
+              type="checkbox"
+              checked={updateDraft.autoDownload}
+              onChange={(event) => setUpdateDraft((current) => ({ ...current, autoDownload: event.target.checked }))}
+              disabled={!appSettings}
+            />
+            <div>
+              <strong>Automatically download available updates</strong>
+              <p>Manual check remains available. This toggles whether packaged builds start download immediately after an update is found.</p>
+            </div>
+          </label>
+        </div>
+        <div className="settings-action-row">
+          <button type="button" className="accent" disabled={!appSettings} onClick={() => onUpdatePreferences(updateDraft)}>
+            Save update preferences
+          </button>
+        </div>
+      </section>
 
       <section className="settings-panel-card settings-panel-card-wide">
         <div className="settings-panel-card__header">

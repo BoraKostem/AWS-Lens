@@ -990,6 +990,19 @@ export function App() {
     }
   }
 
+  async function handleUpdatePreferences(update: AppSettings['updates']): Promise<void> {
+    setSettingsMessage('')
+    try {
+      const nextSettings = await updateAppSettings({ updates: update })
+      setAppSettings(nextSettings)
+      const nextReleaseInfo = await getAppReleaseInfo()
+      setReleaseInfo(nextReleaseInfo)
+      setSettingsMessage('Update preferences saved.')
+    } catch (err) {
+      setSettingsMessage(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   async function handleDownloadUpdate(): Promise<void> {
     setSettingsMessage('')
     try {
@@ -1299,6 +1312,7 @@ export function App() {
           settingsMessage={settingsMessage}
           onUpdateGeneralSettings={(update) => void handleUpdateGeneralSettings(update)}
           onUpdateToolchainSettings={(update) => void handleUpdateToolchainSettings(update)}
+          onUpdatePreferences={(update) => void handleUpdatePreferences(update)}
           onCheckForUpdates={() => void handleCheckForUpdates()}
           onDownloadUpdate={() => void handleDownloadUpdate()}
           onInstallUpdate={() => void handleInstallUpdate()}
