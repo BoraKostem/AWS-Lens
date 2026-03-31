@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import type {
   AppReleaseInfo,
@@ -12,6 +12,8 @@ import type {
   EnvironmentHealthReport,
   TerraformCliInfo
 } from '@shared/types'
+
+type SettingsTab = 'general' | 'terminal' | 'refresh' | 'toolchain' | 'updates' | 'security'
 
 type SettingsPageProps = {
   appSettings: AppSettings | null
@@ -51,6 +53,15 @@ type SettingsPageProps = {
   onRefreshEnvironment: () => void
 }
 
+const TAB_ITEMS: Array<{ id: SettingsTab; label: string }> = [
+  { id: 'general', label: 'App' },
+  { id: 'terminal', label: 'Terminal' },
+  { id: 'refresh', label: 'Refresh' },
+  { id: 'toolchain', label: 'Toolchain' },
+  { id: 'updates', label: 'Updates' },
+  { id: 'security', label: 'Security' }
+]
+
 const GENERAL_LAUNCH_SCREEN_OPTIONS: Array<{ value: AppSettings['general']['launchScreen']; label: string }> = [
   { value: 'profiles', label: 'Profile catalog' },
   { value: 'settings', label: 'Settings' },
@@ -74,118 +85,44 @@ const TERMINAL_SHELL_OPTIONS: Array<{ value: AppSettings['terminal']['shellPrefe
   { value: 'zsh', label: 'Zsh' }
 ]
 
-function summarizeValue(value: string, fallback: string): string {
-  return value.trim() ? value : fallback
-}
-
-function summarizeRefreshInterval(seconds: number): string {
-  if (seconds <= 0) {
-    return 'Disabled'
-  }
-
-  if (seconds < 60) {
-    return `${seconds}s`
-  }
-
-  if (seconds % 60 === 0) {
-    return `${seconds / 60}m`
-  }
-
+function formatRefreshInterval(seconds: number): string {
+  if (seconds <= 0) return 'Disabled'
+  if (seconds % 60 === 0) return `${seconds / 60}m`
   return `${seconds}s`
 }
 
-function summarizeToolchain(settings: AppSettings | null, toolchainInfo: TerraformCliInfo | null): Array<{ label: string; value: string; detail: string }> {
-  if (!settings) {
-    return [
-      { label: 'Preferred CLI', value: 'Loading', detail: 'Settings contract is ready. Toolchain controls land in the next slices.' },
-      { label: 'Path overrides', value: 'Pending', detail: 'Terraform, OpenTofu, kubectl, Docker, and AWS CLI overrides will be editable from here.' }
-    ]
-  }
-
-  const overrides = [
-    settings.toolchain.terraformPathOverride,
-    settings.toolchain.opentofuPathOverride,
-    settings.toolchain.awsCliPathOverride,
-    settings.toolchain.kubectlPathOverride,
-    settings.toolchain.dockerPathOverride
-  ].filter((value) => value.trim())
-
-  const rows = [
-    {
-      label: 'Preferred CLI',
-      value: settings.toolchain.preferredTerraformCliKind || 'Auto detect',
-      detail: 'Terraform family selection is now modeled centrally and can be bound to the existing CLI detection flow.'
-    },
-    {
-      label: 'Path overrides',
-      value: overrides.length > 0 ? `${overrides.length} configured` : 'None',
-      detail: 'Per-tool path overrides are prepared in state even before the edit controls are enabled.'
-    }
-  ]
-
-  rows.unshift({
-    label: 'Detected runtime',
-    value: toolchainInfo?.found ? `${toolchainInfo.label} ${toolchainInfo.version}` : 'No CLI detected',
-    detail: toolchainInfo?.found
-      ? `Current active CLI path: ${toolchainInfo.path || 'resolved by the runtime'}`
-      : (toolchainInfo?.error || 'Run a rescan after installing Terraform or OpenTofu.')
-  })
-
-  return rows
-}
-
-function summarizeSecurity(
-  securitySummary: AppSecuritySummary | null,
-  enterpriseSettings: EnterpriseSettings,
-  activeSessionLabel: string
-): Array<{ label: string; value: string; detail: string }> {
-  return [
-    {
-      label: 'Vault and secrets',
-      value: securitySummary ? `${securitySummary.vaultEntryCounts.all} stored` : 'Loading',
-      detail: securitySummary
-        ? `${securitySummary.vaultEntryCounts.awsProfiles} AWS profile, ${securitySummary.vaultEntryCounts.sshKeys} SSH key, ${securitySummary.vaultEntryCounts.pem} PEM, ${securitySummary.vaultEntryCounts.accessKeys} access key secret tracked in the local vault.`
-        : 'Loading local vault inventory.'
-    },
-    {
-      label: 'Access mode',
-      value: enterpriseSettings.accessMode === 'operator' ? 'Operator' : 'Read-only',
-      detail: activeSessionLabel
-        ? `Active session: ${activeSessionLabel}`
-        : 'No elevated session is currently pinned as the active workspace context.'
-    }
-  ]
-}
-
-function SummaryCard({
-  eyebrow,
+function SettingSection({
   title,
-  rows
+  children
 }: {
-  eyebrow: string
   title: string
-  rows: Array<{ label: string; value: string; detail?: string }>
+  children: ReactNode
 }): JSX.Element {
   return (
-    <section className="settings-panel-card">
-      <div className="settings-panel-card__header">
-        <div>
-          <div className="eyebrow">{eyebrow}</div>
-          <h3>{title}</h3>
-        </div>
-      </div>
-      <div className="settings-summary-list">
-        {rows.map((row) => (
-          <div key={row.label} className="settings-summary-row">
-            <div>
-              <strong>{row.label}</strong>
-              {row.detail && <p>{row.detail}</p>}
-            </div>
-            <span>{row.value}</span>
-          </div>
-        ))}
-      </div>
+    <section className="settings-tab-section">
+      <div className="settings-tab-section__title">{title}</div>
+      <div className="settings-tab-section__body">{children}</div>
     </section>
+  )
+}
+
+function SettingRow({
+  label,
+  description,
+  children
+}: {
+  label: string
+  description?: string
+  children: ReactNode
+}): JSX.Element {
+  return (
+    <div className="settings-row">
+      <div className="settings-row__copy">
+        <strong>{label}</strong>
+        {description && <p>{description}</p>}
+      </div>
+      <div className="settings-row__control">{children}</div>
+    </div>
   )
 }
 
@@ -222,13 +159,21 @@ export function SettingsPage({
   onOpenReleasePage,
   onRefreshEnvironment
 }: SettingsPageProps): JSX.Element {
-  const buildChannel = releaseInfo?.currentBuild.channel ?? 'unknown'
-  const latestRelease = releaseInfo?.latestRelease
-  const releaseNotesPreview = latestRelease?.notes?.trim() ?? ''
+  const [activeTab, setActiveTab] = useState<SettingsTab>('general')
   const [generalDraft, setGeneralDraft] = useState<AppSettings['general']>({
     defaultProfileName: '',
     defaultRegion: 'us-east-1',
     launchScreen: 'profiles'
+  })
+  const [terminalDraft, setTerminalDraft] = useState<AppSettings['terminal']>({
+    autoOpen: false,
+    defaultCommand: '',
+    fontSize: 13,
+    shellPreference: ''
+  })
+  const [refreshDraft, setRefreshDraft] = useState<AppSettings['refresh']>({
+    autoRefreshIntervalSeconds: 0,
+    heavyScreenMode: 'manual'
   })
   const [toolchainDraft, setToolchainDraft] = useState<AppSettings['toolchain']>({
     preferredTerraformCliKind: '',
@@ -242,83 +187,30 @@ export function SettingsPage({
     releaseChannel: 'system',
     autoDownload: false
   })
-  const [terminalDraft, setTerminalDraft] = useState<AppSettings['terminal']>({
-    autoOpen: false,
-    defaultCommand: '',
-    fontSize: 13,
-    shellPreference: ''
-  })
-  const [refreshDraft, setRefreshDraft] = useState<AppSettings['refresh']>({
-    autoRefreshIntervalSeconds: 0,
-    heavyScreenMode: 'manual'
-  })
 
   useEffect(() => {
-    if (!appSettings) {
-      return
-    }
-
+    if (!appSettings) return
     setGeneralDraft(appSettings.general)
-  }, [appSettings])
-
-  useEffect(() => {
-    if (!appSettings) {
-      return
-    }
-
+    setTerminalDraft(appSettings.terminal)
+    setRefreshDraft(appSettings.refresh)
     setToolchainDraft(appSettings.toolchain)
-  }, [appSettings])
-
-  useEffect(() => {
-    if (!appSettings) {
-      return
-    }
-
     setUpdateDraft(appSettings.updates)
   }, [appSettings])
 
-  useEffect(() => {
-    if (!appSettings) {
-      return
-    }
+  const releaseNotesPreview = releaseInfo?.latestRelease.notes?.trim() ?? ''
+  const selectedTabLabel = TAB_ITEMS.find((item) => item.id === activeTab)?.label ?? 'App'
 
-    setTerminalDraft(appSettings.terminal)
-  }, [appSettings])
+  const toolchainSummary = useMemo(() => {
+    if (!toolchainInfo) return 'CLI state loading'
+    if (!toolchainInfo.found) return toolchainInfo.error || 'No CLI detected'
+    return `${toolchainInfo.label} ${toolchainInfo.version}`
+  }, [toolchainInfo])
 
-  useEffect(() => {
-    if (!appSettings) {
-      return
-    }
-
-    setRefreshDraft(appSettings.refresh)
-  }, [appSettings])
-
-  return (
-    <section className="settings-page">
-      <div className="settings-page-header">
-        <div>
-          <div className="eyebrow">Settings</div>
-          <h2>Control Center</h2>
-          <p className="hero-path">Application behavior, toolchain defaults, update flow, and security posture now share one structured settings surface.</p>
-        </div>
-        <div className="settings-page-header__meta">
-          <span className={`settings-status-pill settings-status-pill-${buildChannel}`}>{buildChannel}</span>
-          <span className={`settings-status-pill ${releaseStateTone}`}>{releaseStateLabel}</span>
-        </div>
-      </div>
-
-      {settingsMessage && <div className="success-banner">{settingsMessage}</div>}
-
-      <section className="settings-panel-card settings-panel-card-wide">
-        <div className="settings-panel-card__header">
-          <div>
-            <div className="eyebrow">General</div>
-            <h3>Startup defaults</h3>
-          </div>
-        </div>
-        <div className="settings-general-form">
-          <label className="field compact">
-            <span>Default profile</span>
+  function renderGeneralTab(): JSX.Element {
+    return (
+      <>
+        <SettingSection title="Startup">
+          <SettingRow label="Default profile" description="Select the profile AWS Lens should prefer when no manual profile is pinned.">
             <select
               value={generalDraft.defaultProfileName}
               onChange={(event) => setGeneralDraft((current) => ({ ...current, defaultProfileName: event.target.value }))}
@@ -329,146 +221,70 @@ export function SettingsPage({
                 <option key={profile.name} value={profile.name}>{profile.name}</option>
               ))}
             </select>
-          </label>
-
-          <label className="field compact">
-            <span>Default region</span>
+          </SettingRow>
+          <SettingRow label="Default region" description="Used when the workspace starts without an explicit region context.">
             <select
               value={generalDraft.defaultRegion}
               onChange={(event) => setGeneralDraft((current) => ({ ...current, defaultRegion: event.target.value }))}
               disabled={!appSettings}
             >
               {regions.map((region) => (
-                <option key={region.id} value={region.id}>{region.id} · {region.name}</option>
+                <option key={region.id} value={region.id}>{region.id} - {region.name}</option>
               ))}
               {!regions.some((region) => region.id === generalDraft.defaultRegion) && (
                 <option value={generalDraft.defaultRegion}>{generalDraft.defaultRegion}</option>
               )}
             </select>
-          </label>
-
-          <label className="field compact">
-            <span>Launch screen</span>
+          </SettingRow>
+          <SettingRow label="Launch screen" description="Choose which workspace opens first after the shell loads.">
             <select
               value={generalDraft.launchScreen}
-              onChange={(event) => setGeneralDraft((current) => ({ ...current, launchScreen: event.target.value as AppSettings['general']['launchScreen'] }))}
+              onChange={(event) => setGeneralDraft((current) => ({
+                ...current,
+                launchScreen: event.target.value as AppSettings['general']['launchScreen']
+              }))}
               disabled={!appSettings}
             >
               {GENERAL_LAUNCH_SCREEN_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </select>
-          </label>
-        </div>
-        <div className="settings-action-row">
+          </SettingRow>
+        </SettingSection>
+
+        <div className="settings-tab-actions">
           <button type="button" className="accent" disabled={!appSettings} onClick={() => onUpdateGeneralSettings(generalDraft)}>
-            Save startup defaults
+            Save app preferences
           </button>
         </div>
-      </section>
+      </>
+    )
+  }
 
-      <div className="settings-section-grid">
-        <SummaryCard
-          eyebrow="General"
-          title="Workspace defaults"
-          rows={[
-            {
-              label: 'Default profile',
-              value: summarizeValue(appSettings?.general.defaultProfileName ?? '', 'Follow active selection'),
-              detail: 'Profile, region, and launch target are now grouped under one preference bucket.'
-            },
-            {
-              label: 'Default region',
-              value: summarizeValue(appSettings?.general.defaultRegion ?? '', 'us-east-1'),
-              detail: 'This will replace scattered startup defaults and local storage fallbacks.'
-            },
-            {
-              label: 'Launch screen',
-              value: appSettings?.general.launchScreen ?? 'profiles',
-              detail: 'The initial landing screen is modeled and ready to drive startup navigation.'
-            }
-          ]}
-        />
-
-        <SummaryCard
-          eyebrow="Terminal"
-          title="Operator shell behavior"
-          rows={[
-            {
-              label: 'Auto open',
-              value: appSettings?.terminal.autoOpen ? 'Enabled' : 'Disabled',
-              detail: 'Terminal launch behavior will move behind a first-class setting instead of ad hoc screen flows.'
-            },
-            {
-              label: 'Default command',
-              value: summarizeValue(appSettings?.terminal.defaultCommand ?? '', 'No preset'),
-              detail: 'Prepared for common bootstrap commands and shell-specific launch helpers.'
-            },
-            {
-              label: 'Shell / font',
-              value: `${appSettings?.terminal.shellPreference || 'system'} / ${appSettings?.terminal.fontSize ?? 13}px`,
-              detail: 'Shell preference and terminal readability controls are now part of the same contract.'
-            }
-          ]}
-        />
-
-        <SummaryCard
-          eyebrow="Refresh"
-          title="Data collection policy"
-          rows={[
-            {
-              label: 'Auto refresh',
-              value: summarizeRefreshInterval(appSettings?.refresh.autoRefreshIntervalSeconds ?? 0),
-              detail: 'Refresh cadence is prepared as an explicit preference rather than an implicit screen behavior.'
-            },
-            {
-              label: 'Heavy screens',
-              value: appSettings?.refresh.heavyScreenMode ?? 'manual',
-              detail: 'Manual versus automatic refresh for expensive consoles will hang off this switch.'
-            }
-          ]}
-        />
-
-        <SummaryCard
-          eyebrow="Toolchain"
-          title="CLI routing"
-          rows={summarizeToolchain(appSettings, toolchainInfo)}
-        />
-      </div>
-
-      <section className="settings-panel-card settings-panel-card-wide">
-        <div className="settings-panel-card__header">
-          <div>
-            <div className="eyebrow">Terminal</div>
-            <h3>Drawer behavior and defaults</h3>
-          </div>
-        </div>
-        <div className="settings-terminal-form">
-          <label className="settings-checkbox-row">
-            <input
-              type="checkbox"
-              checked={terminalDraft.autoOpen}
-              onChange={(event) => setTerminalDraft((current) => ({ ...current, autoOpen: event.target.checked }))}
-              disabled={!appSettings}
-            />
-            <div>
-              <strong>Automatically open terminal for operator sessions</strong>
-              <p>When a new operator-capable workspace context becomes active, open the terminal drawer automatically.</p>
-            </div>
-          </label>
-
-          <label className="field compact">
-            <span>Default command</span>
+  function renderTerminalTab(): JSX.Element {
+    return (
+      <>
+        <SettingSection title="Terminal">
+          <SettingRow label="Automatically open terminal" description="Open the terminal drawer automatically when an operator-capable session becomes active.">
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                checked={terminalDraft.autoOpen}
+                onChange={(event) => setTerminalDraft((current) => ({ ...current, autoOpen: event.target.checked }))}
+                disabled={!appSettings}
+              />
+              <span>{terminalDraft.autoOpen ? 'On' : 'Off'}</span>
+            </label>
+          </SettingRow>
+          <SettingRow label="Default command" description="Run this command when a fresh terminal tab opens. Leave empty to start idle.">
             <input
               value={terminalDraft.defaultCommand}
               onChange={(event) => setTerminalDraft((current) => ({ ...current, defaultCommand: event.target.value }))}
-              placeholder="Optional command to run when a new tab opens"
+              placeholder="Optional startup command"
               disabled={!appSettings}
             />
-          </label>
-
-          <label className="field compact">
-            <span>Font size</span>
+          </SettingRow>
+          <SettingRow label="Font size" description="Controls the xterm surface size used in the drawer.">
             <input
               type="number"
               min={10}
@@ -477,10 +293,8 @@ export function SettingsPage({
               onChange={(event) => setTerminalDraft((current) => ({ ...current, fontSize: Number(event.target.value) || 13 }))}
               disabled={!appSettings}
             />
-          </label>
-
-          <label className="field compact">
-            <span>Shell preference</span>
+          </SettingRow>
+          <SettingRow label="Shell preference" description="Stored now for shell routing. Current terminal execution still follows the existing runtime launch flow.">
             <select
               value={terminalDraft.shellPreference}
               onChange={(event) => setTerminalDraft((current) => ({
@@ -493,25 +307,23 @@ export function SettingsPage({
                 <option key={option.value || 'system'} value={option.value}>{option.label}</option>
               ))}
             </select>
-          </label>
-        </div>
-        <div className="settings-action-row">
+          </SettingRow>
+        </SettingSection>
+
+        <div className="settings-tab-actions">
           <button type="button" className="accent" disabled={!appSettings} onClick={() => onUpdateTerminalSettings(terminalDraft)}>
             Save terminal preferences
           </button>
         </div>
-      </section>
+      </>
+    )
+  }
 
-      <section className="settings-panel-card settings-panel-card-wide">
-        <div className="settings-panel-card__header">
-          <div>
-            <div className="eyebrow">Refresh</div>
-            <h3>Automatic refresh and heavy screen policy</h3>
-          </div>
-        </div>
-        <div className="settings-refresh-form">
-          <label className="field compact">
-            <span>Auto refresh interval (seconds)</span>
+  function renderRefreshTab(): JSX.Element {
+    return (
+      <>
+        <SettingSection title="Refresh Policy">
+          <SettingRow label="Automatic refresh interval" description="Set to 0 to disable background refresh entirely.">
             <input
               type="number"
               min={0}
@@ -523,10 +335,8 @@ export function SettingsPage({
               }))}
               disabled={!appSettings}
             />
-          </label>
-
-          <label className="field compact">
-            <span>Heavy screen refresh mode</span>
+          </SettingRow>
+          <SettingRow label="Heavy screen behavior" description="Choose whether expensive screens may refresh automatically.">
             <select
               value={refreshDraft.heavyScreenMode}
               onChange={(event) => setRefreshDraft((current) => ({
@@ -538,25 +348,32 @@ export function SettingsPage({
               <option value="manual">Manual only</option>
               <option value="automatic">Allow automatic refresh</option>
             </select>
-          </label>
-        </div>
-        <div className="settings-action-row">
+          </SettingRow>
+        </SettingSection>
+
+        <SettingSection title="Current State">
+          <SettingRow label="Saved interval">
+            <div className="settings-static-value">{formatRefreshInterval(appSettings?.refresh.autoRefreshIntervalSeconds ?? 0)}</div>
+          </SettingRow>
+          <SettingRow label="Heavy screens">
+            <div className="settings-static-value">{appSettings?.refresh.heavyScreenMode ?? 'manual'}</div>
+          </SettingRow>
+        </SettingSection>
+
+        <div className="settings-tab-actions">
           <button type="button" className="accent" disabled={!appSettings} onClick={() => onUpdateRefreshSettings(refreshDraft)}>
             Save refresh preferences
           </button>
         </div>
-      </section>
+      </>
+    )
+  }
 
-      <section className="settings-panel-card settings-panel-card-wide">
-        <div className="settings-panel-card__header">
-          <div>
-            <div className="eyebrow">Toolchain</div>
-            <h3>CLI preferences and overrides</h3>
-          </div>
-        </div>
-        <div className="settings-toolchain-form">
-          <label className="field compact">
-            <span>Preferred Terraform family</span>
+  function renderToolchainTab(): JSX.Element {
+    return (
+      <>
+        <SettingSection title="CLI Preferences">
+          <SettingRow label="Preferred Terraform family" description="Bind the existing Terraform/OpenTofu detection flow to a preferred runtime.">
             <select
               value={toolchainDraft.preferredTerraformCliKind}
               onChange={(event) => setToolchainDraft((current) => ({
@@ -569,130 +386,74 @@ export function SettingsPage({
               <option value="opentofu">OpenTofu</option>
               <option value="terraform">Terraform</option>
             </select>
-          </label>
-
-          <label className="field compact">
-            <span>Terraform path override</span>
+          </SettingRow>
+          <SettingRow label="Terraform path override">
             <input
               value={toolchainDraft.terraformPathOverride}
               onChange={(event) => setToolchainDraft((current) => ({ ...current, terraformPathOverride: event.target.value }))}
               placeholder="Optional executable path"
               disabled={!appSettings || toolchainBusy}
             />
-          </label>
-
-          <label className="field compact">
-            <span>OpenTofu path override</span>
+          </SettingRow>
+          <SettingRow label="OpenTofu path override">
             <input
               value={toolchainDraft.opentofuPathOverride}
               onChange={(event) => setToolchainDraft((current) => ({ ...current, opentofuPathOverride: event.target.value }))}
               placeholder="Optional executable path"
               disabled={!appSettings || toolchainBusy}
             />
-          </label>
-
-          <label className="field compact">
-            <span>AWS CLI path override</span>
+          </SettingRow>
+          <SettingRow label="AWS CLI path override">
             <input
               value={toolchainDraft.awsCliPathOverride}
               onChange={(event) => setToolchainDraft((current) => ({ ...current, awsCliPathOverride: event.target.value }))}
               placeholder="Optional executable path"
               disabled={!appSettings || toolchainBusy}
             />
-          </label>
-
-          <label className="field compact">
-            <span>kubectl path override</span>
+          </SettingRow>
+          <SettingRow label="kubectl path override">
             <input
               value={toolchainDraft.kubectlPathOverride}
               onChange={(event) => setToolchainDraft((current) => ({ ...current, kubectlPathOverride: event.target.value }))}
               placeholder="Optional executable path"
               disabled={!appSettings || toolchainBusy}
             />
-          </label>
-
-          <label className="field compact">
-            <span>Docker path override</span>
+          </SettingRow>
+          <SettingRow label="Docker path override">
             <input
               value={toolchainDraft.dockerPathOverride}
               onChange={(event) => setToolchainDraft((current) => ({ ...current, dockerPathOverride: event.target.value }))}
               placeholder="Optional executable path"
               disabled={!appSettings || toolchainBusy}
             />
-          </label>
-        </div>
-        <div className="settings-action-row">
+          </SettingRow>
+        </SettingSection>
+
+        <SettingSection title="Environment Checks">
+          <SettingRow label="Detected CLI" description={toolchainInfo?.found ? `Path: ${toolchainInfo.path || 'resolved by runtime'}` : (toolchainInfo?.error || 'No CLI detected yet.')}>
+            <div className="settings-static-value">{toolchainSummary}</div>
+          </SettingRow>
+          <SettingRow label="Machine validation" description={environmentHealth?.summary ?? 'Run a rescan to refresh tool and permission state.'}>
+            <button type="button" className="accent" disabled={environmentBusy} onClick={onRefreshEnvironment}>
+              {environmentBusy ? 'Refreshing...' : 'Rescan environment'}
+            </button>
+          </SettingRow>
+        </SettingSection>
+
+        <div className="settings-tab-actions">
           <button type="button" className="accent" disabled={!appSettings || toolchainBusy} onClick={() => onUpdateToolchainSettings(toolchainDraft)}>
             {toolchainBusy ? 'Saving...' : 'Save toolchain settings'}
           </button>
         </div>
-      </section>
+      </>
+    )
+  }
 
-      <div className="settings-panel-grid">
-        <section className="settings-panel-card">
-          <div className="settings-panel-card__header">
-            <div>
-              <div className="eyebrow">Build</div>
-              <h3>Current build</h3>
-            </div>
-            <span className={`settings-status-pill settings-status-pill-${buildChannel}`}>{buildChannel}</span>
-          </div>
-          <div className="settings-info-grid">
-            <div className="settings-info-row"><span>Version</span><strong>{releaseInfo?.currentVersion ? `v${releaseInfo.currentVersion}` : 'Unknown'}</strong></div>
-            <div className="settings-info-row"><span>Build hash</span><strong>{releaseInfo?.currentBuild.buildHash ?? 'Unavailable'}</strong></div>
-            <div className="settings-info-row"><span>Updater</span><strong>{releaseInfo?.supportsAutoUpdate ? 'Enabled in packaged app' : 'Available in packaged app only'}</strong></div>
-            <div className="settings-info-row"><span>Check status</span><strong>{releaseInfo?.checkStatus ?? 'idle'}</strong></div>
-            <div className="settings-info-row"><span>Update status</span><strong>{releaseInfo?.updateStatus ?? 'idle'}</strong></div>
-            <div className="settings-info-row"><span>Last checked</span><strong>{releaseInfo?.checkedAt ? new Date(releaseInfo.checkedAt).toLocaleString() : releaseInfo?.supportsAutoUpdate ? 'Not checked yet' : 'Disabled in dev build'}</strong></div>
-          </div>
-        </section>
-
-        <section className="settings-panel-card">
-          <div className="settings-panel-card__header">
-            <div>
-              <div className="eyebrow">Updates</div>
-              <h3>Release state</h3>
-            </div>
-            <span className={`settings-status-pill ${releaseStateTone}`}>
-              {releaseStateLabel}
-            </span>
-          </div>
-          <div className="settings-info-grid">
-            <div className="settings-info-row"><span>Selected channel</span><strong>{releaseInfo?.selectedChannel ?? 'unknown'}</strong></div>
-            <div className="settings-info-row"><span>Auto download</span><strong>{releaseInfo?.autoDownloadEnabled ? 'Enabled' : 'Disabled'}</strong></div>
-            <div className="settings-info-row"><span>Latest version</span><strong>{releaseInfo?.latestVersion ? `v${releaseInfo.latestVersion}` : 'Unavailable'}</strong></div>
-            <div className="settings-info-row"><span>Release name</span><strong>{latestRelease?.name ?? 'Unavailable'}</strong></div>
-            <div className="settings-info-row"><span>Published</span><strong>{latestRelease?.publishedAt ? new Date(latestRelease.publishedAt).toLocaleString() : 'Unavailable'}</strong></div>
-            <div className="settings-info-row"><span>Download progress</span><strong>{typeof releaseInfo?.downloadProgressPercent === 'number' ? `${Math.round(releaseInfo.downloadProgressPercent)}%` : 'Not downloading'}</strong></div>
-          </div>
-          <div className="settings-action-row">
-            <button type="button" className="accent" disabled={!releaseInfo?.canCheckForUpdates} onClick={onCheckForUpdates}>
-              {releaseInfo?.supportsAutoUpdate ? (releaseInfo?.checkStatus === 'checking' ? 'Checking...' : 'Check for updates') : 'Package app to enable'}
-            </button>
-            <button type="button" disabled={!releaseInfo?.canDownloadUpdate} onClick={onDownloadUpdate}>
-              {releaseInfo?.updateStatus === 'downloading' ? 'Downloading...' : 'Download update'}
-            </button>
-            <button type="button" disabled={!releaseInfo?.canInstallUpdate} onClick={onInstallUpdate}>
-              Install update
-            </button>
-            <button type="button" onClick={onOpenReleasePage}>
-              Open release page
-            </button>
-          </div>
-          {releaseInfo?.error && <div className="error-banner">{releaseInfo.error}</div>}
-        </section>
-      </div>
-
-      <section className="settings-panel-card settings-panel-card-wide">
-        <div className="settings-panel-card__header">
-          <div>
-            <div className="eyebrow">Updates</div>
-            <h3>Channel and download preferences</h3>
-          </div>
-        </div>
-        <div className="settings-updates-form">
-          <label className="field compact">
-            <span>Release channel</span>
+  function renderUpdatesTab(): JSX.Element {
+    return (
+      <>
+        <SettingSection title="Update Preferences">
+          <SettingRow label="Release channel" description="Stable and preview now map to the persisted app preference, while system follows build defaults.">
             <select
               value={updateDraft.releaseChannel}
               onChange={(event) => setUpdateDraft((current) => ({
@@ -705,232 +466,209 @@ export function SettingsPage({
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </select>
-          </label>
+          </SettingRow>
+          <SettingRow label="Automatically download updates" description="Controls whether packaged builds begin downloading immediately after an update is found.">
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                checked={updateDraft.autoDownload}
+                onChange={(event) => setUpdateDraft((current) => ({ ...current, autoDownload: event.target.checked }))}
+                disabled={!appSettings}
+              />
+              <span>{updateDraft.autoDownload ? 'On' : 'Off'}</span>
+            </label>
+          </SettingRow>
+        </SettingSection>
 
-          <label className="settings-checkbox-row">
-            <input
-              type="checkbox"
-              checked={updateDraft.autoDownload}
-              onChange={(event) => setUpdateDraft((current) => ({ ...current, autoDownload: event.target.checked }))}
-              disabled={!appSettings}
-            />
-            <div>
-              <strong>Automatically download available updates</strong>
-              <p>Manual check remains available. This toggles whether packaged builds start download immediately after an update is found.</p>
+        <SettingSection title="Release State">
+          <SettingRow label="Current version">
+            <div className="settings-static-value">{releaseInfo?.currentVersion ? `v${releaseInfo.currentVersion}` : 'Unknown'}</div>
+          </SettingRow>
+          <SettingRow label="Selected channel">
+            <div className="settings-static-value">{releaseInfo?.selectedChannel ?? 'unknown'}</div>
+          </SettingRow>
+          <SettingRow label="Latest release">
+            <div className="settings-static-value">{releaseInfo?.latestVersion ? `v${releaseInfo.latestVersion}` : 'Unavailable'}</div>
+          </SettingRow>
+          <SettingRow label="Last checked">
+            <div className="settings-static-value">
+              {releaseInfo?.checkedAt
+                ? new Date(releaseInfo.checkedAt).toLocaleString()
+                : releaseInfo?.supportsAutoUpdate
+                  ? 'Not checked yet'
+                  : 'Disabled in dev build'}
             </div>
-          </label>
-        </div>
-        <div className="settings-action-row">
+          </SettingRow>
+          <SettingRow label="Release actions" description={releaseInfo?.error ?? (releaseNotesPreview || 'No release notes are available yet.')}>
+            <div className="settings-inline-actions">
+              <button type="button" className="accent" disabled={!releaseInfo?.canCheckForUpdates} onClick={onCheckForUpdates}>
+                {releaseInfo?.checkStatus === 'checking' ? 'Checking...' : 'Check'}
+              </button>
+              <button type="button" disabled={!releaseInfo?.canDownloadUpdate} onClick={onDownloadUpdate}>
+                {releaseInfo?.updateStatus === 'downloading' ? 'Downloading...' : 'Download'}
+              </button>
+              <button type="button" disabled={!releaseInfo?.canInstallUpdate} onClick={onInstallUpdate}>
+                Install
+              </button>
+              <button type="button" onClick={onOpenReleasePage}>
+                Release page
+              </button>
+            </div>
+          </SettingRow>
+        </SettingSection>
+
+        <div className="settings-tab-actions">
           <button type="button" className="accent" disabled={!appSettings} onClick={() => onUpdatePreferences(updateDraft)}>
             Save update preferences
           </button>
         </div>
-      </section>
+      </>
+    )
+  }
 
-      <section className="settings-panel-card settings-panel-card-wide">
-        <div className="settings-panel-card__header">
-          <div>
-            <div className="eyebrow">Environment</div>
-            <h3>Machine validation</h3>
-          </div>
-          <div className="settings-action-row">
-            <button type="button" className="accent" disabled={environmentBusy} onClick={onRefreshEnvironment}>
-              {environmentBusy ? 'Refreshing...' : 'Refresh environment'}
+  function renderSecurityTab(): JSX.Element {
+    return (
+      <>
+        <SettingSection title="Access Mode">
+          <SettingRow label="Workspace mode" description="Read-only blocks mutations and command execution; operator enables critical actions and support workflows.">
+            <div className="settings-inline-actions">
+              <button
+                type="button"
+                className={enterpriseSettings.accessMode === 'read-only' ? 'accent' : ''}
+                disabled={enterpriseBusy}
+                onClick={() => onAccessModeChange('read-only')}
+              >
+                Read-only
+              </button>
+              <button
+                type="button"
+                className={enterpriseSettings.accessMode === 'operator' ? 'accent' : ''}
+                disabled={enterpriseBusy}
+                onClick={() => onAccessModeChange('operator')}
+              >
+                Operator
+              </button>
+            </div>
+          </SettingRow>
+          <SettingRow label="Updated">
+            <div className="settings-static-value">{enterpriseSettings.updatedAt ? new Date(enterpriseSettings.updatedAt).toLocaleString() : 'Not yet changed'}</div>
+          </SettingRow>
+        </SettingSection>
+
+        <SettingSection title="Vault and Session State">
+          <SettingRow label="Vault entries" description="Counts of encrypted local secrets tracked by AWS Lens.">
+            <div className="settings-static-value">{securitySummary ? `${securitySummary.vaultEntryCounts.all} total` : 'Loading'}</div>
+          </SettingRow>
+          <SettingRow label="Breakdown">
+            <div className="settings-security-inline">
+              <span>AWS {securitySummary?.vaultEntryCounts.awsProfiles ?? '-'}</span>
+              <span>SSH {securitySummary?.vaultEntryCounts.sshKeys ?? '-'}</span>
+              <span>PEM {securitySummary?.vaultEntryCounts.pem ?? '-'}</span>
+              <span>Keys {securitySummary?.vaultEntryCounts.accessKeys ?? '-'}</span>
+            </div>
+          </SettingRow>
+          <SettingRow label="Active session" description={activeSessionLabel || 'No active session pinned.'}>
+            <button type="button" disabled={!activeSessionLabel} onClick={onClearActiveSession}>
+              {activeSessionLabel ? 'Clear active session' : 'No active session'}
             </button>
-          </div>
-        </div>
-        <div className="settings-environment-summary">
-          <strong>{environmentHealth?.summary ?? 'Environment checks have not run yet.'}</strong>
-          <span>Status: {environmentHealth?.overallSeverity ?? 'idle'}</span>
-          <span>Checked: {environmentHealth?.checkedAt ? new Date(environmentHealth.checkedAt).toLocaleString() : 'Not checked yet'}</span>
-        </div>
-        <div className="settings-environment-grid">
-          <div className="settings-environment-section">
-            <div className="eyebrow">Tooling</div>
-            {environmentHealth?.tools.map((tool) => (
-              <div key={tool.id} className="settings-environment-row">
-                <div>
-                  <strong>{tool.label}</strong>
-                  <p>{tool.detail}</p>
-                  {tool.remediation && <small>{tool.remediation}</small>}
-                </div>
-                <div className="settings-environment-meta">
-                  <span className={`settings-status-pill settings-status-pill-${tool.status === 'available' ? 'stable' : tool.status === 'missing' ? 'preview' : 'unknown'}`}>{tool.status}</span>
-                  <code>{tool.version || 'not found'}</code>
-                </div>
+          </SettingRow>
+        </SettingSection>
+
+        <SettingSection title="Audit and Support">
+          <SettingRow label="Audit summary">
+            <div className="settings-security-inline">
+              <span>Total {auditSummary.total}</span>
+              <span>Blocked {auditSummary.blocked}</span>
+              <span>Failed {auditSummary.failed}</span>
+            </div>
+          </SettingRow>
+          <SettingRow label="Exports">
+            <div className="settings-inline-actions">
+              <button type="button" disabled={enterpriseBusy || auditEvents.length === 0} onClick={onAuditExport}>
+                Export audit
+              </button>
+              <button type="button" disabled={enterpriseBusy} onClick={onDiagnosticsExport}>
+                Diagnostics bundle
+              </button>
+            </div>
+          </SettingRow>
+          <div className="settings-audit-compact-list">
+            {auditEvents.slice(0, 6).map((event) => (
+              <div key={event.id} className={`settings-audit-compact-item ${event.outcome}`}>
+                <strong>{event.action}</strong>
+                <span>{new Date(event.happenedAt).toLocaleString()}</span>
               </div>
             ))}
-            {!environmentHealth && !environmentBusy && <div className="settings-release-notes"><p>No environment report loaded yet.</p></div>}
+            {auditEvents.length === 0 && <div className="settings-static-muted">No audit events yet.</div>}
           </div>
-          <div className="settings-environment-section">
-            <div className="eyebrow">Permissions</div>
-            {environmentHealth?.permissions.map((item) => (
-              <div key={item.id} className="settings-environment-row">
-                <div>
-                  <strong>{item.label}</strong>
-                  <p>{item.detail}</p>
-                  {item.remediation && <small>{item.remediation}</small>}
-                </div>
-                <div className="settings-environment-meta">
-                  <span className={`settings-status-pill settings-status-pill-${item.status === 'ok' ? 'stable' : item.status === 'error' ? 'preview' : 'unknown'}`}>{item.status}</span>
-                </div>
-              </div>
+        </SettingSection>
+      </>
+    )
+  }
+
+  function renderActiveTab(): JSX.Element {
+    switch (activeTab) {
+      case 'terminal':
+        return renderTerminalTab()
+      case 'refresh':
+        return renderRefreshTab()
+      case 'toolchain':
+        return renderToolchainTab()
+      case 'updates':
+        return renderUpdatesTab()
+      case 'security':
+        return renderSecurityTab()
+      case 'general':
+      default:
+        return renderGeneralTab()
+    }
+  }
+
+  return (
+    <section className="settings-page settings-page-minimal">
+      <div className="settings-minimal-shell">
+        <aside className="settings-sidebar">
+          <div className="settings-sidebar__title">Preferences</div>
+          <div className="settings-sidebar__list">
+            {TAB_ITEMS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`settings-sidebar__item ${activeTab === item.id ? 'active' : ''}`}
+                onClick={() => setActiveTab(item.id)}
+              >
+                {item.label}
+              </button>
             ))}
-            {!environmentHealth && !environmentBusy && <div className="settings-release-notes"><p>No permission report loaded yet.</p></div>}
           </div>
-        </div>
-      </section>
+          <div className="settings-sidebar__meta">
+            <span>Mode</span>
+            <strong>{enterpriseSettings.accessMode === 'operator' ? 'Operator' : 'Read-only'}</strong>
+            <span>Updater</span>
+            <strong>{releaseStateLabel}</strong>
+          </div>
+        </aside>
 
-      <div className="settings-section-grid">
-        <SummaryCard
-          eyebrow="Security"
-          title="Vault and access posture"
-          rows={summarizeSecurity(securitySummary, enterpriseSettings, activeSessionLabel)}
-        />
-
-        <section className="settings-panel-card">
-          <div className="settings-panel-card__header">
+        <div className="settings-content">
+          <div className="settings-content__header">
             <div>
-              <div className="eyebrow">Release Notes</div>
-              <h3>Latest published notes</h3>
+              <div className="eyebrow">Settings</div>
+              <h2>{selectedTabLabel}</h2>
+            </div>
+            <div className="settings-page-header__meta">
+              <span className={`settings-status-pill settings-status-pill-${releaseInfo?.currentBuild.channel ?? 'unknown'}`}>
+                {releaseInfo?.currentBuild.channel ?? 'unknown'}
+              </span>
+              <span className={`settings-status-pill ${releaseStateTone}`}>{releaseStateLabel}</span>
             </div>
           </div>
-          <div className="settings-release-notes">
-            {releaseNotesPreview
-              ? <pre>{releaseNotesPreview}</pre>
-              : <p>No release notes are available yet for the currently resolved release metadata.</p>}
-          </div>
-      </section>
 
-      <section className="settings-panel-card settings-panel-card-wide">
-        <div className="settings-panel-card__header">
-          <div>
-            <div className="eyebrow">Security</div>
-            <h3>Access mode, vault, and audit exports</h3>
+          {settingsMessage && <div className="success-banner">{settingsMessage}</div>}
+
+          <div className="settings-tab-content">
+            {renderActiveTab()}
           </div>
-          <span className={`enterprise-mode-pill ${enterpriseSettings.accessMode}`}>
-            {enterpriseSettings.accessMode === 'operator' ? 'Operator' : 'Read-only'}
-          </span>
         </div>
-        <div className="settings-security-grid">
-          <section className="settings-security-section">
-            <div className="settings-security-block">
-              <strong>Workspace access mode</strong>
-              <p>Read-only blocks AWS mutations and command execution flows. Operator mode enables critical actions and export workflows.</p>
-              <div className="settings-action-row">
-                <button
-                  type="button"
-                  className={enterpriseSettings.accessMode === 'read-only' ? 'accent' : ''}
-                  disabled={enterpriseBusy}
-                  onClick={() => onAccessModeChange('read-only')}
-                >
-                  Read-only
-                </button>
-                <button
-                  type="button"
-                  className={enterpriseSettings.accessMode === 'operator' ? 'accent' : ''}
-                  disabled={enterpriseBusy}
-                  onClick={() => onAccessModeChange('operator')}
-                >
-                  Operator
-                </button>
-              </div>
-              <div className="enterprise-inline-note">
-                <strong>Updated</strong>
-                <span>{enterpriseSettings.updatedAt ? new Date(enterpriseSettings.updatedAt).toLocaleString() : 'Not yet changed'}</span>
-              </div>
-            </div>
-
-            <div className="settings-security-block">
-              <strong>Local vault and session state</strong>
-              <p>
-                {securitySummary
-                  ? `${securitySummary.vaultEntryCounts.all} encrypted vault entries are available locally.`
-                  : 'Loading local vault state.'}
-              </p>
-              <div className="settings-security-metrics">
-                <span>AWS profiles: {securitySummary?.vaultEntryCounts.awsProfiles ?? '-'}</span>
-                <span>SSH keys: {securitySummary?.vaultEntryCounts.sshKeys ?? '-'}</span>
-                <span>PEM files: {securitySummary?.vaultEntryCounts.pem ?? '-'}</span>
-                <span>Access keys: {securitySummary?.vaultEntryCounts.accessKeys ?? '-'}</span>
-              </div>
-              <div className="settings-action-row">
-                <button type="button" disabled={!activeSessionLabel} onClick={onClearActiveSession}>
-                  {activeSessionLabel ? `Clear session: ${activeSessionLabel}` : 'No active session'}
-                </button>
-              </div>
-            </div>
-
-            <div className="settings-security-block">
-              <strong>Support exports</strong>
-              <p>Export audit history for security review or diagnostics bundles for support and recovery workflows.</p>
-              <div className="settings-action-row">
-                <button type="button" disabled={enterpriseBusy || auditEvents.length === 0} onClick={onAuditExport}>
-                  Export Audit JSON
-                </button>
-                <button type="button" disabled={enterpriseBusy} onClick={onDiagnosticsExport}>
-                  Export Diagnostics Bundle
-                </button>
-              </div>
-            </div>
-          </section>
-
-          <section className="settings-security-section">
-            <div className="settings-security-block">
-              <strong>Audit trail</strong>
-              <div className="enterprise-stats-row">
-                <div className="profile-catalog-stat">
-                  <span>Total</span>
-                  <strong>{auditSummary.total}</strong>
-                </div>
-                <div className="profile-catalog-stat">
-                  <span>Blocked</span>
-                  <strong>{auditSummary.blocked}</strong>
-                </div>
-                <div className="profile-catalog-stat">
-                  <span>Failed</span>
-                  <strong>{auditSummary.failed}</strong>
-                </div>
-              </div>
-              <div className="enterprise-audit-list">
-                {auditEvents.map((event) => (
-                  <div key={event.id} className={`enterprise-audit-item ${event.outcome}`}>
-                    <div className="enterprise-audit-item__header">
-                      <div className="enterprise-audit-item__title">
-                        <strong>{event.action}</strong>
-                        {event.outcome === 'blocked' && <span className="enterprise-audit-badge blocked">Blocked</span>}
-                        {event.outcome === 'failed' && <span className="enterprise-audit-badge failed">Failed</span>}
-                      </div>
-                      <span>{new Date(event.happenedAt).toLocaleString()}</span>
-                    </div>
-                    {event.outcome === 'blocked' && (
-                      <div className="enterprise-audit-item__reason">
-                        Blocked in read-only mode
-                        {event.resourceId ? ` for ${event.resourceId}` : ''}
-                      </div>
-                    )}
-                    <div className="enterprise-audit-item__meta">
-                      <span>{event.actorLabel || 'local-app'}</span>
-                      <span>{event.region || 'no-region'}</span>
-                      <span>{event.resourceId || event.channel}</span>
-                    </div>
-                    {event.summary && event.summary !== event.action && (
-                      <div className="enterprise-audit-item__summary">{event.summary}</div>
-                    )}
-                  </div>
-                ))}
-                {auditEvents.length === 0 && (
-                  <div className="profile-catalog-empty">
-                    <div className="eyebrow">Audit Trail</div>
-                    <h3>No audit events yet</h3>
-                    <p className="hero-path">Critical actions run in operator mode, or blocked in read-only mode, will appear here.</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </section>
-        </div>
-      </section>
       </div>
     </section>
   )
