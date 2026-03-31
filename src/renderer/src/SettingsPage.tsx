@@ -665,6 +665,18 @@ export function SettingsPage({
 
           {settingsMessage && <div className="success-banner">{settingsMessage}</div>}
 
+          <section className="settings-tab-section">
+            <div className="settings-tab-section__title">Quick Help</div>
+            <div className="settings-tab-section__body">
+              {activeTab === 'general' && <p>Set the default profile, region, and launch screen when you want AWS Lens to boot into a predictable operator context.</p>}
+              {activeTab === 'terminal' && <p>Terminal preferences control how the embedded shell opens after a session becomes active. Operator mode is still required for command execution.</p>}
+              {activeTab === 'refresh' && <p>Use refresh policy to decide whether heavy screens re-query automatically or only on demand. Conservative defaults reduce surprise AWS API traffic.</p>}
+              {activeTab === 'toolchain' && <p>Toolchain settings define which local CLI AWS Lens should prefer and let you override executable paths when workstation PATH state is inconsistent.</p>}
+              {activeTab === 'updates' && <p>Update preferences let you pin stable versus preview behavior, check release state manually, and decide whether packages download automatically.</p>}
+              {activeTab === 'security' && <p>Security is the operational control plane for workspace mode, vault summary, audit export, diagnostics export, and active session review.</p>}
+            </div>
+          </section>
+
           <div className="settings-tab-content">
             {renderActiveTab()}
           </div>

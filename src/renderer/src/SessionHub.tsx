@@ -490,6 +490,15 @@ export function SessionHub({
         </div>
       </section>
 
+      <section className="panel session-hub-compare-panel">
+        <div className="panel-header">
+          <h3>Quick Help</h3>
+        </div>
+        <div className="empty-state compact">
+          Start with a base profile, save repeatable assume-role targets, activate the temporary session you want, then open the terminal or Compare Workspace in that same context. Saved targets persist locally; temporary credentials stay in memory only.
+        </div>
+      </section>
+
       <div className="session-hub-shell-toolbar">
         <div className="session-hub-toolbar">
           <button
