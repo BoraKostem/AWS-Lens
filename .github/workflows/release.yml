@@ -226,6 +226,26 @@ jobs:
             throw "Expected a valid Authenticode signature, got: $($signature.Status)"
           }
 
+      - name: Validate updater metadata exists
+        shell: bash
+        run: |
+          shopt -s nullglob
+          metadata=(release/*.yml release/*.yaml release/*.blockmap)
+          if [ ${#metadata[@]} -eq 0 ]; then
+            echo "Expected updater metadata files in release/ but none were found." >&2
+            exit 1
+          fi
+
+      - name: Generate release manifest and checksums
+        shell: bash
+        run: |
+          node scripts/release-manifest.mjs generate \
+            release \
+            "${{ github.event.inputs.release_channel }}" \
+            "${{ matrix.platform }}" \
+            "${{ needs.prepare.outputs.full_version }}" \
+            "${{ github.sha }}"
+
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -278,6 +298,11 @@ jobs:
             exit 1
           fi
 
+      - name: Verify artifact checksums and manifest
+        shell: bash
+        run: |
+          node scripts/release-manifest.mjs verify-tree dist-artifacts
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
@@ -295,6 +320,71 @@ jobs:
             dist-artifacts/**/*.yml
             dist-artifacts/**/*.yaml
             dist-artifacts/**/*.blockmap
+            dist-artifacts/**/release-manifest-*.json
+            dist-artifacts/**/release-checksums-*.txt
+
+      - name: Smoke verify published release assets
+        uses: actions/github-script@v7
+        env:
+          RELEASE_TAG: v${{ needs.prepare.outputs.full_version }}
+          EXPECTED_PRERELEASE: ${{ needs.prepare.outputs.is_prerelease }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            function collectManifestFiles(rootDir) {
+              const entries = fs.readdirSync(rootDir, { withFileTypes: true });
+              const files = [];
+              for (const entry of entries) {
+                const fullPath = path.join(rootDir, entry.name);
+                if (entry.isDirectory()) {
+                  files.push(...collectManifestFiles(fullPath));
+                  continue;
+                }
+                if (entry.isFile() && entry.name === 'release-manifest.json') {
+                  files.push(fullPath);
+                }
+              }
+              return files;
+            }
+
+            const manifestPaths = collectManifestFiles(path.join(process.env.GITHUB_WORKSPACE, 'dist-artifacts'))
+              .filter((filePath) => /^release-manifest-.*\.json$/u.test(path.basename(filePath)));
+            if (manifestPaths.length === 0) {
+              core.setFailed('No release manifest files found after publish.');
+              return;
+            }
+
+            const expectedAssetNames = new Set();
+            for (const manifestPath of manifestPaths) {
+              const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+              for (const file of manifest.files) {
+                expectedAssetNames.add(path.basename(file.path));
+              }
+              expectedAssetNames.add(path.basename(manifestPath));
+              expectedAssetNames.add(`release-checksums-${manifest.platform}.txt`);
+            }
+
+            const { owner, repo } = context.repo;
+            const tag = process.env.RELEASE_TAG;
+            const release = await github.rest.repos.getReleaseByTag({ owner, repo, tag });
+            const assetNames = new Set(release.data.assets.map((asset) => asset.name));
+
+            for (const expectedName of expectedAssetNames) {
+              if (!assetNames.has(expectedName)) {
+                core.setFailed(`Published release is missing asset: ${expectedName}`);
+                return;
+              }
+            }
+
+            const expectedPrerelease = process.env.EXPECTED_PRERELEASE === 'true';
+            if (release.data.prerelease !== expectedPrerelease) {
+              core.setFailed(`Expected prerelease=${expectedPrerelease} but release was prerelease=${release.data.prerelease}`);
+              return;
+            }
+
+            core.info(`Verified ${expectedAssetNames.size} expected assets on release ${tag}.`);
 
   cleanup:
     name: Cleanup workflow artifacts
