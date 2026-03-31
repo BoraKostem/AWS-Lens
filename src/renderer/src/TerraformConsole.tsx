@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './terraform.css'
-import { SvcState } from './SvcState'
+import { SvcState, variantForError } from './SvcState'
 import { FreshnessIndicator, useFreshnessState } from './freshness'
 
 import type {
@@ -2682,7 +2682,7 @@ function DriftTab({
           </label>
         </div>
       </div>
-      {error && <div className="tf-section"><SvcState variant="error" error={error} /></div>}
+                {error && <div className="tf-section"><SvcState variant={variantForError(error)} error={error} /></div>}
       {!loading && !error && filteredItems.length === 0 && (
         <div className="tf-section"><SvcState variant="no-filter-matches" resourceName="drift items" /></div>
       )}

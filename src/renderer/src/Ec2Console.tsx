@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import './ec2.css'
-import { SvcState } from './SvcState'
+import { SvcState, variantForError } from './SvcState'
 import { FreshnessIndicator, useFreshnessState } from './freshness'
 
 import type {
@@ -2009,9 +2009,9 @@ export function Ec2Console({
                   </div>
                   {!selectedId && <SvcState variant="no-selection" resourceName="instance" message="Select an instance to view events." compact />}
                   {selectedId && timelineLoading && <SvcState variant="loading" resourceName="events" compact />}
-                  {selectedId && !timelineLoading && timelineError && (
-                    <SvcState variant="error" error={timelineError} compact />
-                  )}
+          {selectedId && !timelineLoading && timelineError && (
+            <SvcState variant={variantForError(timelineError)} error={timelineError} compact />
+          )}
                   {selectedId && !timelineLoading && !timelineError && timelineEvents.length === 0 && (
                     <SvcState variant="empty" resourceName="CloudTrail events" compact />
                   )}

@@ -19,6 +19,7 @@ import { registerServiceIpcHandlers } from './serviceIpc'
 import { registerSgIpcHandlers } from './sgIpc'
 import { registerTerminalIpcHandlers } from './terminalIpc'
 import { registerVpcIpcHandlers } from './vpcIpc'
+import { initializeObservability, logError, logInfo, logWarn } from './observability'
 import { startReleaseCheck } from './releaseCheck'
 import { hasActiveTerraformApplyOrDestroy } from './terraform'
 
@@ -60,6 +61,9 @@ ipcMain.handle = (channel: string, listener: (...args: any[]) => any) => {
     try {
       settings = assertEnterpriseAccess(channel, enterpriseArgs)
     } catch (error) {
+      logWarn('ipc.enterprise-blocked', `IPC call ${channel} was blocked before execution.`, {
+        channel
+      }, error)
       const fallbackSettings = { accessMode: 'read-only', updatedAt: '' } as const
       await recordEnterpriseAuditEvent(
         channel,
@@ -78,10 +82,12 @@ ipcMain.handle = (channel: string, listener: (...args: any[]) => any) => {
         try {
           const settled = await result
           pendingRequests.delete(result)
+          logInfo('ipc.async-success', `IPC call ${channel} completed.`, { channel })
           await recordEnterpriseAuditEvent(channel, enterpriseArgs, 'success', settings)
           return settled
         } catch (error) {
           pendingRequests.delete(result)
+          logError('ipc.async-failure', `IPC call ${channel} failed.`, { channel }, error)
           await recordEnterpriseAuditEvent(
             channel,
             enterpriseArgs,
@@ -93,9 +99,11 @@ ipcMain.handle = (channel: string, listener: (...args: any[]) => any) => {
         }
       }
 
+      logInfo('ipc.sync-success', `IPC call ${channel} completed synchronously.`, { channel })
       await recordEnterpriseAuditEvent(channel, enterpriseArgs, 'success', settings)
       return result
     } catch (error) {
+      logError('ipc.sync-failure', `IPC call ${channel} failed synchronously.`, { channel }, error)
       await recordEnterpriseAuditEvent(
         channel,
         enterpriseArgs,
@@ -107,6 +115,8 @@ ipcMain.handle = (channel: string, listener: (...args: any[]) => any) => {
     }
   })
 }
+
+initializeObservability()
 
 function resolvePreloadPath(): string {
   const candidates = [
@@ -198,6 +208,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  logInfo('app.ready', 'Electron app is ready.')
   Menu.setApplicationMenu(null)
   registerIpcHandlers(() => mainWindow)
   registerAwsIpcHandlers()

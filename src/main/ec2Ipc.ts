@@ -52,16 +52,11 @@ import {
   sendSsmCommand,
   startSsmSession
 } from './aws/ssm'
+import { createHandlerWrapper } from './operations'
 
 type HandlerResult<T> = { ok: true; data: T } | { ok: false; error: string }
-
-async function wrap<T>(fn: () => Promise<T> | T): Promise<HandlerResult<T>> {
-  try {
-    return { ok: true, data: await fn() }
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) }
-  }
-}
+const wrap: <T>(fn: () => Promise<T> | T, label?: string) => Promise<HandlerResult<T>> =
+  createHandlerWrapper('ec2-ipc', { timeoutMs: 120000 })
 
 export function registerEc2IpcHandlers(): void {
   ipcMain.handle('ec2:list', async (_event, connection: AwsConnection) =>

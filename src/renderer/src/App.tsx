@@ -16,6 +16,7 @@ import {
   chooseAndImportConfig,
   closeAwsTerminal,
   deleteProfile,
+  exportDiagnosticsBundle,
   exportEnterpriseAuditEvents,
   getAppReleaseInfo,
   getEnterpriseSettings,
@@ -790,6 +791,25 @@ export function App() {
     }
   }
 
+  async function handleDiagnosticsExport(): Promise<void> {
+    setEnterpriseBusy(true)
+    setProfileActionMsg('')
+    try {
+      const exported = await exportDiagnosticsBundle()
+      if (!exported.path) {
+        return
+      }
+
+      setProfileActionMsg(
+        `Exported diagnostics bundle with ${exported.bundleEntries} item${exported.bundleEntries === 1 ? '' : 's'} to ${exported.path}`
+      )
+    } catch (err) {
+      connectionState.setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setEnterpriseBusy(false)
+    }
+  }
+
   function renderScreenContent(targetScreen: Screen): React.ReactNode {
     const targetService = services.find((service) => service.id === targetScreen)
 
@@ -983,6 +1003,9 @@ export function App() {
               <div className="button-row">
                 <button type="button" disabled={enterpriseBusy || auditEvents.length === 0} onClick={() => void handleAuditExport()}>
                   Export Audit JSON
+                </button>
+                <button type="button" disabled={enterpriseBusy} onClick={() => void handleDiagnosticsExport()}>
+                  Export Diagnostics Bundle
                 </button>
               </div>
             </section>

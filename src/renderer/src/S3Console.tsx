@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import './s3.css'
-import { SvcState } from './SvcState'
+import { SvcState, variantForError } from './SvcState'
 
 import type {
   AwsConnection,
@@ -446,6 +446,8 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
       setGovernanceOverview(null)
       if (!isBucketInventoryPermissionError(e instanceof Error ? e.message : String(e))) {
         setError(e instanceof Error ? e.message : String(e))
+      } else {
+        setError('')
       }
     } finally {
       setGovernanceLoading(false)
@@ -498,6 +500,7 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
         replaceBuckets(loadStoredBuckets(connection))
         setGovernanceOverview(null)
         setInventoryMessage('This profile cannot list every bucket. Open a bucket directly by name, or pick one that was previously opened.')
+        setError('')
       } else {
         setError(message)
       }
@@ -841,7 +844,14 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
 
   return (
     <div className="s3-console">
-      {error && <SvcState variant="error" error={error} onDismiss={() => setError('')} />}
+      {inventoryMessage && (
+        <SvcState
+          variant="partial-data"
+          message={inventoryMessage}
+          onDismiss={() => setInventoryMessage('')}
+        />
+      )}
+      {error && <SvcState variant={variantForError(error)} error={error} onDismiss={() => setError('')} />}
       {msg && <div className="s3-msg s3-msg-ok">{msg}<button type="button" className="s3-msg-close" onClick={() => setMsg('')}>x</button></div>}
       <section className="s3-shell-hero">
         <div className="s3-shell-hero-copy">

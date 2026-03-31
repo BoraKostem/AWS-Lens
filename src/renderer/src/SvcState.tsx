@@ -1,4 +1,4 @@
-export type ErrorKind = 'permission' | 'throttle' | 'expired-token' | 'not-found' | 'generic'
+export type ErrorKind = 'permission' | 'throttle' | 'expired-token' | 'not-found' | 'timeout' | 'retryable' | 'generic'
 
 export type ClassifiedError = {
   kind: ErrorKind
@@ -11,6 +11,8 @@ const PERMISSION_PATTERNS = ['accessdenied', 'not authorized', 'unauthorizedacce
 const THROTTLE_PATTERNS = ['throttling', 'rate exceeded', 'too many requests', 'throttlingexception']
 const EXPIRED_PATTERNS = ['expiredtoken', 'expired token', 'token has expired', 'security token', 'invalidclienttokenid']
 const NOT_FOUND_PATTERNS = ['not found', 'does not exist', 'nosuch', 'resourcenotfoundexception']
+const TIMEOUT_PATTERNS = ['timed out', 'timeout', 'operationtimeouterror']
+const RETRYABLE_PATTERNS = ['econnreset', 'socket hang up', 'temporarily unavailable', 'network error', 'try again']
 
 export function classifyError(error: string): ClassifiedError {
   const lower = error.toLowerCase()
@@ -27,6 +29,12 @@ export function classifyError(error: string): ClassifiedError {
   if (NOT_FOUND_PATTERNS.some((p) => lower.includes(p))) {
     return { kind: 'not-found', original: error, title: 'Resource Not Found', guidance: 'The requested resource was not found. It may have been deleted or is in a different region.' }
   }
+  if (TIMEOUT_PATTERNS.some((p) => lower.includes(p))) {
+    return { kind: 'timeout', original: error, title: 'Operation Timed Out', guidance: 'The operation took too long to complete. Retry the action or narrow the scope to a smaller resource set.' }
+  }
+  if (RETRYABLE_PATTERNS.some((p) => lower.includes(p))) {
+    return { kind: 'retryable', original: error, title: 'Temporary Failure', guidance: 'This looks transient. Retry the operation, and export diagnostics if the failure keeps repeating.' }
+  }
   return { kind: 'generic', original: error, title: 'Error', guidance: '' }
 }
 
@@ -37,8 +45,21 @@ export type SvcStateVariant =
   | 'no-filter-matches'
   | 'permission-denied'
   | 'partial-data'
+  | 'retryable'
   | 'error'
   | 'unsupported'
+
+export function variantForError(error?: string, fallback: SvcStateVariant = 'error'): SvcStateVariant {
+  if (!error) return fallback
+  const classified = classifyError(error)
+  if (classified.kind === 'permission' || classified.kind === 'expired-token') {
+    return 'permission-denied'
+  }
+  if (classified.kind === 'throttle' || classified.kind === 'timeout' || classified.kind === 'retryable') {
+    return 'retryable'
+  }
+  return fallback
+}
 
 function article(word?: string): string {
   if (!word) return 'an'
@@ -139,6 +160,19 @@ export function SvcState({
 
   // variant === 'error' or 'permission-denied'
   const classified = error ? classifyError(error) : null
+
+  if (variant === 'retryable') {
+    const cls = classified ?? { title: 'Temporary Failure', guidance: 'Retry the operation in a moment.', original: error || '' }
+    return (
+      <div className={`${base} svc-state-partial`}>
+        {dismiss}
+        <span className="svc-state-title">{cls.title}</span>
+        {message || cls.guidance}
+        {cls.original && <code className="svc-state-code">{cls.original}</code>}
+        {timestamp}
+      </div>
+    )
+  }
 
   // Auto-upgrade error → permission-denied when detected
   if (variant === 'error' && classified && (classified.kind === 'permission' || classified.kind === 'expired-token')) {

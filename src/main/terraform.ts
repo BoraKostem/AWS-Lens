@@ -54,6 +54,7 @@ import type {
 } from '@shared/types'
 import { getPreferredTerraformCliKind, getProjects, setPreferredTerraformCliKind, setProjects } from './store'
 import { resolveTerraformSecretReference } from './aws/terraformInputs'
+import { executeOperation, OperationTimeoutError } from './operations'
 import { getConnectionEnv } from './sessionHub'
 import { saveRunRecord, updateRunRecord, redactArgs } from './terraformHistoryStore'
 import { invalidateTerraformDriftReports } from './terraformDrift'
@@ -2250,20 +2251,62 @@ async function runChildProcess(
   command: string,
   args: string[],
   env: Record<string, string>,
-  onChunk?: (chunk: string) => void
+  onChunk?: (chunk: string) => void,
+  options: {
+    timeoutMs?: number
+    operationName?: string
+    context?: Record<string, unknown>
+  } = {}
 ): Promise<{ output: string; exitCode: number }> {
-  return await new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, env, shell: false, windowsHide: true })
-    let output = ''
-    child.stdout.on('data', (buf) => {
-      const chunk = buf.toString(); output += chunk; onChunk?.(chunk)
-    })
-    child.stderr.on('data', (buf) => {
-      const chunk = buf.toString(); output += chunk; onChunk?.(chunk)
-    })
-    child.on('error', (err) => reject(err))
-    child.on('close', (code) => resolve({ output, exitCode: code ?? -1 }))
-  })
+  return await executeOperation(
+    options.operationName ?? 'terraform.child-process',
+    async () => await new Promise((resolve, reject) => {
+      const child = spawn(command, args, { cwd, env, shell: false, windowsHide: true })
+      let output = ''
+      let timedOut = false
+      const timer = options.timeoutMs && options.timeoutMs > 0
+        ? setTimeout(() => {
+            timedOut = true
+            child.kill()
+          }, options.timeoutMs)
+        : null
+
+      child.stdout.on('data', (buf) => {
+        const chunk = buf.toString()
+        output += chunk
+        onChunk?.(chunk)
+      })
+
+      child.stderr.on('data', (buf) => {
+        const chunk = buf.toString()
+        output += chunk
+        onChunk?.(chunk)
+      })
+
+      child.on('error', (err) => {
+        if (timer) clearTimeout(timer)
+        reject(err)
+      })
+
+      child.on('close', (code) => {
+        if (timer) clearTimeout(timer)
+        if (timedOut) {
+          reject(new OperationTimeoutError(`${command} ${args.join(' ')} timed out after ${options.timeoutMs}ms.`))
+          return
+        }
+
+        resolve({ output, exitCode: code ?? -1 })
+      })
+    }),
+    {
+      context: {
+        cwd,
+        command,
+        args: redactArgs(args),
+        ...(options.context ?? {})
+      }
+    }
+  )
 }
 
 /* ── Project Loading ──────────────────────────────────────── */
@@ -2746,6 +2789,30 @@ function parseProgressLine(raw: string): { address: string; status: string } | n
   return null
 }
 
+function commandTimeoutMs(command: TerraformCommandRequest['command']): number {
+  switch (command) {
+    case 'plan':
+      return 15 * 60 * 1000
+    case 'apply':
+    case 'destroy':
+      return 30 * 60 * 1000
+    case 'init':
+    case 'import':
+      return 10 * 60 * 1000
+    case 'state-list':
+    case 'state-pull':
+    case 'state-show':
+    case 'state-mv':
+    case 'state-rm':
+    case 'force-unlock':
+      return 2 * 60 * 1000
+    case 'version':
+      return 30 * 1000
+    default:
+      return 5 * 60 * 1000
+  }
+}
+
 export async function runProjectCommand(
   request: TerraformCommandRequest,
   window: BrowserWindow | null
@@ -2882,6 +2949,14 @@ export async function runProjectCommand(
             emit(window, { type: 'progress', projectId: request.projectId, address: '', status: line.trim(), raw: line.trim() })
           }
         }
+      }
+    }, {
+      timeoutMs: commandTimeoutMs(request.command),
+      operationName: `terraform.${request.command}`,
+      context: {
+        projectId: request.projectId,
+        projectName: project.name,
+        workspace: currentWorkspace
       }
     })
 

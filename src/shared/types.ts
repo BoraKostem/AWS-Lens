@@ -839,6 +839,12 @@ export type EnterpriseAuditExportResult = {
   rangeDays?: 1 | 7
 }
 
+export type AppDiagnosticsExportResult = {
+  path: string
+  bundleEntries: number
+  generatedAt: string
+}
+
 /* ── Navigation Focus ────────────────────────────────────── */
 
 export type NavigationFocus =

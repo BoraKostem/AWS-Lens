@@ -8,16 +8,11 @@ import {
   getRelationshipMap,
   searchByTag
 } from './aws/overview'
+import { createHandlerWrapper } from './operations'
 
 type HandlerResult<T> = { ok: true; data: T } | { ok: false; error: string }
-
-async function wrap<T>(fn: () => Promise<T> | T): Promise<HandlerResult<T>> {
-  try {
-    return { ok: true, data: await fn() }
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) }
-  }
-}
+const wrap: <T>(fn: () => Promise<T> | T, label?: string) => Promise<HandlerResult<T>> =
+  createHandlerWrapper('overview-ipc', { timeoutMs: 60000 })
 
 export function registerOverviewIpcHandlers(): void {
   ipcMain.handle('overview:metrics', async (_event, connection: AwsConnection, regions: string[]) =>

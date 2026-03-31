@@ -7,6 +7,7 @@ import type {
   AcmCertificateDetail,
   AcmCertificateSummary,
   AcmRequestCertificateInput,
+  AppDiagnosticsExportResult,
   AppReleaseInfo,
   AssumeRoleResult,
   AssumeRoleRequest,
@@ -140,6 +141,18 @@ import type {
 } from '@shared/types'
 
 type Wrapped<T> = { ok: true; data: T } | { ok: false; error: string }
+
+export class AwsLensApiError extends Error {
+  rawMessage: string
+  title: string
+
+  constructor(message: string, rawMessage: string, title = 'Operation Failed') {
+    super(message)
+    this.name = 'AwsLensApiError'
+    this.rawMessage = rawMessage
+    this.title = title
+  }
+}
 
 type ProjectEvent =
   | { type: 'started'; projectId: string; log: TerraformCommandLog }
@@ -617,12 +630,93 @@ export function trackedAwsBridge(): AwsLensBridge {
   return awsBridge()
 }
 
+function normalizeUserFacingError(rawError: string): AwsLensApiError {
+  const normalized = rawError.toLowerCase()
+
+  if (normalized.includes('read-only mode')) {
+    return new AwsLensApiError(
+      'This action is blocked in read-only mode. Switch to operator mode to make changes.',
+      rawError,
+      'Read-Only Mode'
+    )
+  }
+
+  if (normalized.includes('accessdenied') || normalized.includes('access denied') || normalized.includes('not authorized')) {
+    return new AwsLensApiError(
+      'AWS denied this request. Check the active IAM role or policy scope for the selected account and region.',
+      rawError,
+      'Access Denied'
+    )
+  }
+
+  if (normalized.includes('expired token') || normalized.includes('expiredtoken') || normalized.includes('security token')) {
+    return new AwsLensApiError(
+      'The current AWS session has expired. Refresh credentials or assume the role again, then retry.',
+      rawError,
+      'Session Expired'
+    )
+  }
+
+  if (normalized.includes('throttl') || normalized.includes('rate exceeded') || normalized.includes('too many requests')) {
+    return new AwsLensApiError(
+      'AWS is rate-limiting this operation. Retry in a moment or narrow the request scope.',
+      rawError,
+      'Request Throttled'
+    )
+  }
+
+  if (normalized.includes('timed out') || normalized.includes('timeout')) {
+    return new AwsLensApiError(
+      'The operation timed out before AWS or the local tool completed. Retry or reduce the amount of data being requested.',
+      rawError,
+      'Operation Timed Out'
+    )
+  }
+
+  if (normalized.includes('project not found')) {
+    return new AwsLensApiError(
+      'The selected Terraform project is no longer available. Refresh the project list and reselect the workspace.',
+      rawError,
+      'Project Missing'
+    )
+  }
+
+  if (normalized.includes('no terraform-compatible cli found') || normalized.includes('cli is not available on this machine')) {
+    return new AwsLensApiError(
+      'Terraform or OpenTofu is not available on this machine. Install a supported CLI and retry.',
+      rawError,
+      'CLI Missing'
+    )
+  }
+
+  if (normalized.includes('electron preload bridge did not load')) {
+    return new AwsLensApiError(
+      'The desktop bridge did not initialize correctly. Reload the app window and retry.',
+      rawError,
+      'Bridge Not Available'
+    )
+  }
+
+  if (normalized.includes('network error') || normalized.includes('econnreset') || normalized.includes('socket hang up')) {
+    return new AwsLensApiError(
+      'A temporary network failure interrupted the operation. Retry, and export diagnostics if it keeps happening.',
+      rawError,
+      'Temporary Network Failure'
+    )
+  }
+
+  return new AwsLensApiError(
+    'The operation failed. Review the current context and export diagnostics if the problem persists.',
+    rawError
+  )
+}
+
 function unwrap<T>(result: Wrapped<T>): T {
   if (!result.ok) {
     if (typeof window !== 'undefined' && result.error.includes('read-only mode')) {
       window.dispatchEvent(new CustomEvent('aws-lens:blocked-action', { detail: result.error }))
     }
-    throw new Error(result.error)
+    throw normalizeUserFacingError(result.error)
   }
   return result.data
 }
@@ -765,6 +859,10 @@ export async function exportEnterpriseAuditEvents(): Promise<EnterpriseAuditExpo
 
 export async function getAppReleaseInfo(): Promise<AppReleaseInfo> {
   return unwrap((await rawAwsBridge().getReleaseInfo()) as Wrapped<AppReleaseInfo>)
+}
+
+export async function exportDiagnosticsBundle(): Promise<AppDiagnosticsExportResult> {
+  return unwrap((await rawAwsBridge().exportDiagnosticsBundle()) as Wrapped<AppDiagnosticsExportResult>)
 }
 
 export async function openPath(targetPath: string): Promise<void> {

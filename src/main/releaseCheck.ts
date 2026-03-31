@@ -1,6 +1,7 @@
 import { app } from 'electron'
 
 import type { AppReleaseInfo } from '@shared/types'
+import { executeOperation } from './operations'
 
 const RELEASES_URL = 'https://github.com/BoraKostem/AWS-Lens/releases/'
 const LATEST_RELEASE_API_URL = 'https://api.github.com/repos/BoraKostem/AWS-Lens/releases/latest'
@@ -40,10 +41,17 @@ async function fetchLatestReleaseInfo(): Promise<AppReleaseInfo> {
   const currentVersion = app.getVersion()
 
   try {
-    const response = await fetch(LATEST_RELEASE_API_URL, {
-      headers: {
-        Accept: 'application/vnd.github+json',
-        'User-Agent': 'AWS-Lens'
+    const response = await executeOperation('release-check.fetch-latest', async () =>
+      await fetch(LATEST_RELEASE_API_URL, {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'AWS-Lens'
+        }
+      }), {
+      timeoutMs: 12000,
+      retries: 1,
+      context: {
+        currentVersion
       }
     })
 

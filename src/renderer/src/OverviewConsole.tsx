@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { AwsConnection, CostBreakdown, InsightItem, OverviewMetrics, OverviewStatistics, RegionMetric, RegionalSignal, RelationshipMap, ServiceId, ServiceRelationship, TagSearchResult } from '@shared/types'
 import { useAwsPageConnection } from './AwsPage'
 import { getCostBreakdown, getOverviewMetrics, getOverviewStatistics, getRelationshipMap, searchByTag } from './api'
-import { SvcState } from './SvcState'
+import { SvcState, variantForError } from './SvcState'
 
 type OverviewTab = 'overview' | 'relationships' | 'statistics' | 'tags'
 type RelFilterType = 'all' | string
@@ -197,7 +197,12 @@ export function OverviewConsole({
 
   const content = (
     <>
-      {(connectionState.error || pageError) && <SvcState variant="error" error={(connectionState.error || pageError)!} />}
+      {(connectionState.error || pageError) && (
+        <SvcState
+          variant={variantForError(connectionState.error || pageError)}
+          error={(connectionState.error || pageError)!}
+        />
+      )}
       {!connectionState.connection || !connectionState.connected ? (
         <section className="empty-hero">
           <div>
