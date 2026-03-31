@@ -4,8 +4,134 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AWS Lens</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background:
+          radial-gradient(circle at top left, rgba(255, 143, 61, 0.16), transparent 28%),
+          radial-gradient(circle at top right, rgba(82, 133, 214, 0.16), transparent 24%),
+          linear-gradient(180deg, #08111a 0%, #071019 56%, #060d15 100%);
+        font-family: "Segoe UI", sans-serif;
+      }
+
+      body {
+        min-height: 100vh;
+      }
+
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: 2rem;
+        z-index: 9999;
+      }
+
+      #boot-splash.is-hidden {
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 180ms ease;
+      }
+
+      .boot-splash-card {
+        width: min(100%, 520px);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.9rem;
+        padding: 2rem 2.1rem;
+        border-radius: 28px;
+        border: 1px solid rgba(145, 176, 207, 0.14);
+        background:
+          linear-gradient(180deg, rgba(14, 24, 36, 0.96), rgba(9, 16, 26, 0.96)),
+          radial-gradient(circle at top right, rgba(255, 143, 61, 0.1), transparent 28%);
+        box-shadow: 0 32px 80px rgba(0, 0, 0, 0.34);
+        text-align: center;
+        color: #edf4fb;
+      }
+
+      .boot-splash-mark {
+        width: 72px;
+        height: 72px;
+        border-radius: 18px;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(135deg, rgba(255, 143, 61, 0.92), rgba(82, 133, 214, 0.88));
+        box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+        font-size: 1.8rem;
+        font-weight: 800;
+        letter-spacing: -0.04em;
+      }
+
+      .boot-splash-eyebrow {
+        font-size: 0.8rem;
+        font-weight: 800;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: #ffb67f;
+      }
+
+      .boot-splash-card h1 {
+        margin: 0;
+        font-size: clamp(1.8rem, 3vw, 2.4rem);
+        letter-spacing: -0.04em;
+      }
+
+      .boot-splash-card p {
+        margin: 0;
+        max-width: 36ch;
+        color: #9fb3c7;
+        line-height: 1.55;
+      }
+
+      .boot-splash-progress {
+        position: relative;
+        width: min(100%, 280px);
+        height: 8px;
+        margin-top: 0.35rem;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.06);
+        overflow: hidden;
+      }
+
+      .boot-splash-progress span {
+        position: absolute;
+        inset: 0;
+        width: 38%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, rgba(255, 143, 61, 0.92), rgba(255, 188, 109, 0.96));
+        box-shadow: 0 0 18px rgba(255, 143, 61, 0.34);
+        animation: boot-splash-progress 1.2s ease-in-out infinite;
+      }
+
+      @keyframes boot-splash-progress {
+        0% {
+          transform: translateX(-115%);
+        }
+        100% {
+          transform: translateX(290%);
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="boot-splash" aria-live="polite" aria-busy="true">
+      <div class="boot-splash-card">
+        <div class="boot-splash-mark">A</div>
+        <div class="boot-splash-eyebrow">AWS Lens</div>
+        <h1>AWS Lens is loading</h1>
+        <p>Initializing workspace shell, settings, and service catalog.</p>
+        <div class="boot-splash-progress" aria-hidden="true">
+          <span></span>
+        </div>
+      </div>
+    </div>
     <div id="root"></div>
     <script type="module" src="./src/main.tsx"></script>
   </body>

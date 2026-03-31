@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 import type {
+  AppSettings,
   ComparisonRequest,
   AssumeRoleRequest,
   AwsAssumeRoleTarget,
@@ -44,6 +45,10 @@ const awsLensApi = {
   assumeSavedRoleTarget: (targetId: string) => ipcRenderer.invoke('session-hub:assume-target', targetId),
   listServices: () => ipcRenderer.invoke('services:list'),
   getReleaseInfo: () => ipcRenderer.invoke('app:release-info'),
+  getAppSettings: () => ipcRenderer.invoke('app:settings:get'),
+  updateAppSettings: (update: Partial<AppSettings>) => ipcRenderer.invoke('app:settings:update', update),
+  resetAppSettings: () => ipcRenderer.invoke('app:settings:reset'),
+  getAppSecuritySummary: () => ipcRenderer.invoke('app:security-summary'),
   getEnvironmentHealth: () => ipcRenderer.invoke('app:environment-health'),
   checkForAppUpdates: () => ipcRenderer.invoke('app:update:check'),
   downloadAppUpdate: () => ipcRenderer.invoke('app:update:download'),

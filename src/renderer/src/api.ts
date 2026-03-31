@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import type {
+  AppSettings,
   ComparisonRequest,
   ComparisonResult,
   AccessKeyOwnership,
@@ -10,6 +11,7 @@ import type {
   AppDiagnosticsExportResult,
   EnvironmentHealthReport,
   AppReleaseInfo,
+  AppSecuritySummary,
   AssumeRoleResult,
   AssumeRoleRequest,
   AwsAssumeRoleTarget,
@@ -108,6 +110,7 @@ import type {
   StsDecodedAuthorizationMessage,
   TerraformCommandLog,
   TerraformCommandRequest,
+  TerraformCliInfo,
   TerraformDriftReport,
   TerraformInputConfiguration,
   TerraformProject,
@@ -862,6 +865,22 @@ export async function getAppReleaseInfo(): Promise<AppReleaseInfo> {
   return unwrap((await rawAwsBridge().getReleaseInfo()) as Wrapped<AppReleaseInfo>)
 }
 
+export async function getAppSettings(): Promise<AppSettings> {
+  return unwrap((await rawAwsBridge().getAppSettings()) as Wrapped<AppSettings>)
+}
+
+export async function getAppSecuritySummary(): Promise<AppSecuritySummary> {
+  return unwrap((await rawAwsBridge().getAppSecuritySummary()) as Wrapped<AppSecuritySummary>)
+}
+
+export async function updateAppSettings(update: Partial<AppSettings>): Promise<AppSettings> {
+  return unwrap((await rawAwsBridge().updateAppSettings(update)) as Wrapped<AppSettings>)
+}
+
+export async function resetAppSettings(): Promise<AppSettings> {
+  return unwrap((await rawAwsBridge().resetAppSettings()) as Wrapped<AppSettings>)
+}
+
 export async function getEnvironmentHealth(): Promise<EnvironmentHealthReport> {
   return unwrap((await rawAwsBridge().getEnvironmentHealth()) as Wrapped<EnvironmentHealthReport>)
 }
@@ -1452,6 +1471,18 @@ export async function deleteLoadBalancer(connection: AwsConnection, loadBalancer
 
 export async function listProjects(profileName: string): Promise<TerraformProjectListItem[]> {
   return unwrap((await terraformBridge().listProjects(profileName)) as Wrapped<TerraformProjectListItem[]>)
+}
+
+export async function detectTerraformCli(): Promise<TerraformCliInfo> {
+  return unwrap((await terraformBridge().detectCli()) as Wrapped<TerraformCliInfo>)
+}
+
+export async function getTerraformCliInfo(): Promise<TerraformCliInfo> {
+  return unwrap((await terraformBridge().getCliInfo()) as Wrapped<TerraformCliInfo>)
+}
+
+export async function setTerraformCliKind(kind: 'terraform' | 'opentofu'): Promise<TerraformCliInfo> {
+  return unwrap((await terraformBridge().setCliKind(kind)) as Wrapped<TerraformCliInfo>)
 }
 
 export async function getProject(profileName: string, projectId: string): Promise<TerraformProject> {

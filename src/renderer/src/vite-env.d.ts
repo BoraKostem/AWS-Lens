@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import type {
+  AppSettings,
   ComparisonRequest,
   AssumeRoleRequest,
   AwsAssumeRoleTarget,
@@ -35,6 +36,10 @@ declare global {
       assumeSavedRoleTarget: (targetId: string) => Promise<unknown>
       listServices: () => Promise<unknown>
       getReleaseInfo: () => Promise<unknown>
+      getAppSettings: () => Promise<unknown>
+      updateAppSettings: (update: Partial<AppSettings>) => Promise<unknown>
+      resetAppSettings: () => Promise<unknown>
+      getAppSecuritySummary: () => Promise<unknown>
       getEnvironmentHealth: () => Promise<unknown>
       checkForAppUpdates: () => Promise<unknown>
       downloadAppUpdate: () => Promise<unknown>
@@ -359,6 +364,9 @@ declare global {
       getIamCredentialReport: (c: AwsConnection) => Promise<unknown>
     }
     terraformWorkspace: {
+      detectCli: () => Promise<unknown>
+      getCliInfo: () => Promise<unknown>
+      setCliKind: (kind: 'terraform' | 'opentofu') => Promise<unknown>
       listProjects: (profileName: string, connection?: AwsConnection) => Promise<unknown>
       getProject: (profileName: string, projectId: string, connection?: AwsConnection) => Promise<unknown>
       getDrift: (profileName: string, projectId: string, connection: AwsConnection, options?: { forceRefresh?: boolean }) => Promise<unknown>

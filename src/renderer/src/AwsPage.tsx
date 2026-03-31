@@ -16,6 +16,14 @@ function readStoredValue(key: string, fallback: string): string {
   return window.localStorage.getItem(key) ?? fallback
 }
 
+function hasStoredValue(key: string): boolean {
+  if (typeof window === 'undefined') {
+    return false
+  }
+
+  return window.localStorage.getItem(key) !== null
+}
+
 function readStoredList(key: string): string[] {
   if (typeof window === 'undefined') {
     return []
@@ -34,6 +42,11 @@ function writeStoredValue(key: string, value: string): void {
     return
   }
 
+  if (!value) {
+    window.localStorage.removeItem(key)
+    return
+  }
+
   window.localStorage.setItem(key, value)
 }
 
@@ -49,10 +62,10 @@ export function formatDateTime(value?: string): string {
   return value ? new Date(value).toLocaleString() : '-'
 }
 
-export function useAwsPageConnection(defaultRegion = 'eu-central-1') {
+export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProfileName = '', defaultsHydrated = false) {
   const [profiles, setProfiles] = useState<AwsProfile[]>([])
   const [regions, setRegions] = useState<AwsRegionOption[]>([])
-  const [profile, setProfile] = useState('')
+  const [profile, setProfile] = useState(() => readStoredValue(PROFILE_STORAGE_KEY, ''))
   const [region, setRegion] = useState(() => readStoredValue(REGION_STORAGE_KEY, defaultRegion))
   const [pinnedProfileNames, setPinnedProfileNames] = useState<string[]>(() => readStoredList(PINNED_PROFILES_STORAGE_KEY))
   const [targets, setTargets] = useState<AwsAssumeRoleTarget[]>([])
@@ -62,6 +75,7 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1') {
   const [connected, setConnected] = useState(false)
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState('')
+  const appliedDefaultRegionRef = useRef('')
 
   useEffect(() => {
     void (async () => {
@@ -103,6 +117,45 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1') {
   }
 
   // Profile is only set by explicit user selection — no auto-select
+
+  useEffect(() => {
+    if (!defaultsHydrated || activeSessionId || !defaultRegion) {
+      return
+    }
+
+    if (appliedDefaultRegionRef.current === defaultRegion) {
+      return
+    }
+
+    if (region !== defaultRegion) {
+      setRegion(defaultRegion)
+    }
+
+    appliedDefaultRegionRef.current = defaultRegion
+  }, [activeSessionId, defaultRegion, defaultsHydrated, region])
+
+  useEffect(() => {
+    if (hasStoredValue(PROFILE_STORAGE_KEY) || activeSessionId || profile || !defaultProfileName) {
+      return
+    }
+
+    const match = profiles.find((entry) => entry.name === defaultProfileName)
+    if (!match) {
+      return
+    }
+
+    setProfile(match.name)
+    if (!hasStoredValue(REGION_STORAGE_KEY)) {
+      if (defaultRegion) {
+        setRegion(defaultRegion)
+        return
+      }
+
+      if (match.region) {
+        setRegion(match.region)
+      }
+    }
+  }, [activeSessionId, defaultProfileName, defaultRegion, profile, profiles])
 
   const activeSession = useMemo(
     () => sessions.find((entry) => entry.id === activeSessionId) ?? null,

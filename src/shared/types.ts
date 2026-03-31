@@ -275,8 +275,79 @@ export type AppReleaseInfo = {
   canDownloadUpdate: boolean
   canInstallUpdate: boolean
   downloadProgressPercent: number | null
+  selectedChannel: AppReleaseChannel
+  autoDownloadEnabled: boolean
   currentBuild: AppReleaseBuildInfo
   latestRelease: AppReleaseArtifactInfo
+}
+
+export type AppSettingsLaunchScreen =
+  | 'profiles'
+  | 'settings'
+  | 'overview'
+  | 'session-hub'
+  | 'terraform'
+
+export type AppSettingsTerminalShellPreference =
+  | ''
+  | 'powershell'
+  | 'pwsh'
+  | 'cmd'
+  | 'bash'
+  | 'zsh'
+
+export type AppSettingsRefreshMode = 'manual' | 'automatic'
+
+export type AppSettingsReleaseChannelPreference = 'system' | 'stable' | 'preview'
+
+export type AppSettingsGeneral = {
+  defaultProfileName: string
+  defaultRegion: string
+  launchScreen: AppSettingsLaunchScreen
+}
+
+export type AppSettingsTerminal = {
+  autoOpen: boolean
+  defaultCommand: string
+  fontSize: number
+  shellPreference: AppSettingsTerminalShellPreference
+}
+
+export type AppSettingsRefresh = {
+  autoRefreshIntervalSeconds: number
+  heavyScreenMode: AppSettingsRefreshMode
+}
+
+export type AppSettingsToolchain = {
+  preferredTerraformCliKind: TerraformCliKind | ''
+  terraformPathOverride: string
+  opentofuPathOverride: string
+  awsCliPathOverride: string
+  kubectlPathOverride: string
+  dockerPathOverride: string
+}
+
+export type AppSettingsUpdates = {
+  releaseChannel: AppSettingsReleaseChannelPreference
+  autoDownload: boolean
+}
+
+export type AppSettings = {
+  general: AppSettingsGeneral
+  terminal: AppSettingsTerminal
+  refresh: AppSettingsRefresh
+  toolchain: AppSettingsToolchain
+  updates: AppSettingsUpdates
+}
+
+export type AppSecuritySummary = {
+  vaultEntryCounts: {
+    all: number
+    awsProfiles: number
+    sshKeys: number
+    pem: number
+    accessKeys: number
+  }
 }
 
 export type EnvironmentToolId =

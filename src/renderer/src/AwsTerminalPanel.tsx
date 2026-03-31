@@ -54,6 +54,7 @@ function TerminalTabSurface({
   tab,
   active,
   drawerOpen,
+  fontSize,
   initialCommand,
   onInitialCommandHandled,
   onExited
@@ -61,6 +62,7 @@ function TerminalTabSurface({
   tab: TerminalTab
   active: boolean
   drawerOpen: boolean
+  fontSize: number
   initialCommand?: string
   onInitialCommandHandled: () => void
   onExited: (sessionId: string, code: number | null) => void
@@ -88,7 +90,7 @@ function TerminalTabSurface({
     const term = new Terminal({
       cursorBlink: true,
       fontFamily: '"IBM Plex Mono", "Consolas", monospace',
-      fontSize: 13,
+      fontSize,
       lineHeight: 1.25,
       theme: {
         background: '#000000',
@@ -167,7 +169,7 @@ function TerminalTabSurface({
       term.dispose()
       bundleRef.current = null
     }
-  }, [tab.connection, tab.id])
+  }, [fontSize, tab.connection, tab.id])
 
   useEffect(() => {
     if (!active || !drawerOpen || !bundleRef.current) {
@@ -186,12 +188,16 @@ export function AwsTerminalPanel({
   connection,
   open,
   onClose,
+  defaultCommand,
+  fontSize = 13,
   commandToRun,
   onCommandHandled
 }: {
   connection: AwsConnection | null
   open: boolean
   onClose: () => void
+  defaultCommand?: string
+  fontSize?: number
   commandToRun: { id: number; command: string } | null
   onCommandHandled: (id: number) => void
 }) {
@@ -222,9 +228,9 @@ export function AwsTerminalPanel({
       return
     }
 
-    const tabId = createTab(connection)
+    const tabId = createTab(connection, defaultCommand)
     setActiveTabId(tabId)
-  }, [commandToRun, connection, open])
+  }, [commandToRun, connection, defaultCommand, open])
 
   useEffect(() => {
     if (!open || !connection) {
@@ -456,6 +462,7 @@ export function AwsTerminalPanel({
               tab={tab}
               active={tab.id === activeTabId}
               drawerOpen={open}
+              fontSize={fontSize}
               initialCommand={initialCommandByTab[tab.id]}
               onInitialCommandHandled={() => handleInitialCommandHandled(tab.id)}
               onExited={handleExited}

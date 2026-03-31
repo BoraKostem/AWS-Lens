@@ -25,6 +25,22 @@ export type AwsProfileVaultSecret = {
   secretAccessKey: string
 }
 
+export function getVaultEntryCounts(): {
+  all: number
+  awsProfiles: number
+  sshKeys: number
+  pem: number
+  accessKeys: number
+} {
+  return {
+    all: listVaultEntries().length,
+    awsProfiles: listVaultEntries('aws-profile').length,
+    sshKeys: listVaultEntries('ssh-key').length,
+    pem: listVaultEntries('pem').length,
+    accessKeys: listVaultEntries('access-key').length
+  }
+}
+
 function vaultPath(): string {
   return path.join(app.getPath('userData'), 'local-vault.json')
 }

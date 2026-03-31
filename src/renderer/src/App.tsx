@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import appLogoUrl from '../../../assets/aws-lens-logo.png'
 import type {
   AppReleaseInfo,
+  AppSecuritySummary,
+  AppSettings,
   ComparisonRequest,
   EnvironmentHealthReport,
   EnterpriseAccessMode,
@@ -11,6 +13,7 @@ import type {
   ServiceDescriptor,
   ServiceId,
   ServiceMaturity,
+  TerraformCliInfo,
   TokenizedFocus
 } from '@shared/types'
 import {
@@ -22,8 +25,11 @@ import {
   exportDiagnosticsBundle,
   exportEnterpriseAuditEvents,
   getAppReleaseInfo,
+  getAppSecuritySummary,
+  getAppSettings,
   getEnvironmentHealth,
   getEnterpriseSettings,
+  getTerraformCliInfo,
   invalidateAllPageCaches,
   invalidatePageCache,
   installAppUpdate,
@@ -31,7 +37,9 @@ import {
   listServices,
   openExternalUrl,
   saveCredentials,
+  setTerraformCliKind,
   setEnterpriseAccessMode,
+  updateAppSettings,
   useAwsActivity,
   useEnterpriseSettings,
   type CacheTag
@@ -61,6 +69,7 @@ import { Route53Console } from './Route53Console'
 import { S3Console } from './S3Console'
 import { SecretsManagerConsole } from './SecretsManagerConsole'
 import { SecurityGroupsConsole } from './SecurityGroupsConsole'
+import { SettingsPage } from './SettingsPage'
 import { SnsConsole } from './SnsConsole'
 import { SqsConsole } from './SqsConsole'
 import { SessionHub } from './SessionHub'
@@ -281,6 +290,22 @@ function PlaceholderScreen({ service }: { service: ServiceDescriptor }) {
   )
 }
 
+function InitialLoadingScreen(): JSX.Element {
+  return (
+    <section className="initial-loading-shell" aria-live="polite" aria-busy="true">
+      <div className="initial-loading-card">
+        <img src={appLogoUrl} alt="AWS Lens" className="initial-loading-logo" />
+        <div className="eyebrow">AWS Lens</div>
+        <h1>AWS Lens is loading</h1>
+        <p>Initializing workspace shell, settings, and service catalog.</p>
+        <div className="initial-loading-progress" aria-hidden="true">
+          <span />
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function screenCacheTag(screen: Screen): CacheTag | null {
   switch (screen) {
     case 'overview':
@@ -336,6 +361,9 @@ function refreshTagsForScreen(screen: Screen): CacheTag[] {
 
 export function App() {
   const [releaseInfo, setReleaseInfo] = useState<AppReleaseInfo | null>(null)
+  const [appSettings, setAppSettings] = useState<AppSettings | null>(null)
+  const [servicesHydrated, setServicesHydrated] = useState(false)
+  const [settingsHydrated, setSettingsHydrated] = useState(false)
   const [screen, setScreen] = useState<Screen>('profiles')
   const [navOpen, setNavOpen] = useState(true)
   const [visitedScreens, setVisitedScreens] = useState<Screen[]>(['profiles'])
@@ -358,6 +386,9 @@ export function App() {
   const [settingsMessage, setSettingsMessage] = useState('')
   const [environmentHealth, setEnvironmentHealth] = useState<EnvironmentHealthReport | null>(null)
   const [environmentBusy, setEnvironmentBusy] = useState(false)
+  const [toolchainInfo, setToolchainInfo] = useState<TerraformCliInfo | null>(null)
+  const [toolchainBusy, setToolchainBusy] = useState(false)
+  const [securitySummary, setSecuritySummary] = useState<AppSecuritySummary | null>(null)
   const [showEnvironmentOnboarding, setShowEnvironmentOnboarding] = useState(false)
   const [globalWarning, setGlobalWarning] = useState('')
   const [focusMap, setFocusMap] = useState<FocusMap>({})
@@ -365,16 +396,25 @@ export function App() {
   const [profileContextMenu, setProfileContextMenu] = useState<ProfileContextMenuState>(null)
   const [auditEvents, setAuditEvents] = useState<EnterpriseAuditEvent[]>([])
   const [enterpriseBusy, setEnterpriseBusy] = useState(false)
-  const connectionState = useAwsPageConnection('us-east-1')
+  const connectionState = useAwsPageConnection(
+    appSettings?.general.defaultRegion ?? 'us-east-1',
+    appSettings?.general.defaultProfileName ?? '',
+    Boolean(appSettings)
+  )
   const awsActivity = useAwsActivity()
   const enterpriseSettings = useEnterpriseSettings()
+  const launchScreenInitializedRef = useRef(false)
+  const terminalAutoOpenedScopeRef = useRef('')
 
   useEffect(() => {
-    void listServices().then((loadedServices) => {
-      setServices(loadedServices)
-    }).catch((error) => {
-      setCatalogError(error instanceof Error ? error.message : String(error))
-    })
+    void listServices()
+      .then((loadedServices) => {
+        setServices(loadedServices)
+      })
+      .catch((error) => {
+        setCatalogError(error instanceof Error ? error.message : String(error))
+      })
+      .finally(() => setServicesHydrated(true))
   }, [])
 
   useEffect(() => {
@@ -382,6 +422,56 @@ export function App() {
       // Ignore release check failures in the UI.
     })
   }, [])
+
+  useEffect(() => {
+    void getAppSettings()
+      .then(setAppSettings)
+      .catch(() => {
+        // Ignore settings hydration failures until the settings surface is opened.
+      })
+      .finally(() => setSettingsHydrated(true))
+  }, [])
+
+  const showInitialLoadingScreen = !servicesHydrated || !settingsHydrated
+
+  useEffect(() => {
+    void getTerraformCliInfo().then(setToolchainInfo).catch(() => {
+      // Ignore toolchain hydration failures until the settings surface is opened.
+    })
+  }, [])
+
+  useEffect(() => {
+    void getAppSecuritySummary().then(setSecuritySummary).catch(() => {
+      // Ignore security summary hydration failures until the settings surface is opened.
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!appSettings || launchScreenInitializedRef.current) {
+      return
+    }
+
+    const targetScreen = appSettings.general.launchScreen
+    if (targetScreen === 'profiles') {
+      launchScreenInitializedRef.current = true
+      return
+    }
+
+    if (targetScreen === 'settings' || targetScreen === 'session-hub' || targetScreen === 'terraform') {
+      launchScreenInitializedRef.current = true
+      setScreen(targetScreen)
+      return
+    }
+
+    if (targetScreen === 'overview') {
+      if (connectionState.profile || connectionState.activeSession || !appSettings.general.defaultProfileName) {
+        launchScreenInitializedRef.current = true
+        if (connectionState.profile || connectionState.activeSession) {
+          setScreen('overview')
+        }
+      }
+    }
+  }, [appSettings, connectionState.activeSession, connectionState.profile])
 
   useEffect(() => {
     void getEnterpriseSettings().catch(() => {
@@ -699,6 +789,23 @@ export function App() {
   }, [enterpriseSettings.accessMode, terminalOpen])
 
   useEffect(() => {
+    if (!appSettings?.terminal.autoOpen || enterpriseSettings.accessMode !== 'operator') {
+      return
+    }
+
+    if (!connectionState.connected || !connectionState.connection) {
+      return
+    }
+
+    if (terminalAutoOpenedScopeRef.current === connectionScopeKey) {
+      return
+    }
+
+    terminalAutoOpenedScopeRef.current = connectionScopeKey
+    setTerminalOpen(true)
+  }, [appSettings?.terminal.autoOpen, connectionScopeKey, connectionState.connected, connectionState.connection, enterpriseSettings.accessMode])
+
+  useEffect(() => {
     function handleBlockedAction(event: Event): void {
       const detail = event instanceof CustomEvent && typeof event.detail === 'string'
         ? event.detail
@@ -740,6 +847,49 @@ export function App() {
       return current.sawPending ? null : current
     })
   }, [awsActivity.pendingCount])
+
+  useEffect(() => {
+    const refreshSettings = appSettings?.refresh
+    if (!refreshSettings || refreshSettings.autoRefreshIntervalSeconds <= 0) {
+      return
+    }
+
+    if (!connectionState.connected || !connectionState.connection || !activeCacheTag) {
+      return
+    }
+
+    if (screen === 'profiles' || screen === 'settings' || screen === 'session-hub' || screen === 'direct-access') {
+      return
+    }
+
+    if (refreshSettings.heavyScreenMode !== 'automatic' && SOFT_REFRESH_SCREENS.has(screen)) {
+      return
+    }
+
+    const timerId = window.setInterval(() => {
+      const refreshTags = refreshTagsForScreen(screen)
+      if (refreshTags.length === 0) {
+        return
+      }
+
+      setRefreshState({ screen, sawPending: false })
+      for (const tag of refreshTags) {
+        invalidatePageCache(tag)
+      }
+      setPageRefreshNonceByScreen((current) => ({
+        ...current,
+        [screen]: (current[screen] ?? 0) + 1
+      }))
+    }, refreshSettings.autoRefreshIntervalSeconds * 1000)
+
+    return () => window.clearInterval(timerId)
+  }, [
+    activeCacheTag,
+    appSettings?.refresh,
+    connectionState.connected,
+    connectionState.connection,
+    screen
+  ])
 
   function handlePageRefresh(): void {
     const refreshTags = refreshTagsForScreen(screen)
@@ -834,16 +984,16 @@ export function App() {
 
   async function handleAccessModeChange(accessMode: EnterpriseAccessMode): Promise<void> {
     setEnterpriseBusy(true)
-    setProfileActionMsg('')
+    setSettingsMessage('')
     try {
       await setEnterpriseAccessMode(accessMode)
-      setProfileActionMsg(
+      setSettingsMessage(
         accessMode === 'operator'
           ? 'Operator mode enabled. Mutating actions and command execution are available.'
           : 'Read-only mode enabled. AWS Lens will block mutating and command execution flows.'
       )
     } catch (err) {
-      connectionState.setError(err instanceof Error ? err.message : String(err))
+      setSettingsMessage(err instanceof Error ? err.message : String(err))
     } finally {
       setEnterpriseBusy(false)
     }
@@ -851,7 +1001,7 @@ export function App() {
 
   async function handleAuditExport(): Promise<void> {
     setEnterpriseBusy(true)
-    setProfileActionMsg('')
+    setSettingsMessage('')
     try {
       const exported = await exportEnterpriseAuditEvents()
       if (!exported.path) {
@@ -859,11 +1009,11 @@ export function App() {
       }
 
       const rangeLabel = exported.rangeDays === 1 ? 'last 1 day' : 'last 7 days'
-      setProfileActionMsg(
+      setSettingsMessage(
         `Exported ${exported.eventCount} audit event${exported.eventCount === 1 ? '' : 's'} from the ${rangeLabel} to ${exported.path}`
       )
     } catch (err) {
-      connectionState.setError(err instanceof Error ? err.message : String(err))
+      setSettingsMessage(err instanceof Error ? err.message : String(err))
     } finally {
       setEnterpriseBusy(false)
     }
@@ -871,18 +1021,18 @@ export function App() {
 
   async function handleDiagnosticsExport(): Promise<void> {
     setEnterpriseBusy(true)
-    setProfileActionMsg('')
+    setSettingsMessage('')
     try {
       const exported = await exportDiagnosticsBundle()
       if (!exported.path) {
         return
       }
 
-      setProfileActionMsg(
+      setSettingsMessage(
         `Exported diagnostics bundle with ${exported.bundleEntries} item${exported.bundleEntries === 1 ? '' : 's'} to ${exported.path}`
       )
     } catch (err) {
-      connectionState.setError(err instanceof Error ? err.message : String(err))
+      setSettingsMessage(err instanceof Error ? err.message : String(err))
     } finally {
       setEnterpriseBusy(false)
     }
@@ -898,6 +1048,75 @@ export function App() {
           ? `Update v${nextInfo.latestVersion ?? ''} is available on the ${nextInfo.currentBuild.channel} channel.`
           : `No newer update is currently available for the ${nextInfo.currentBuild.channel} channel.`
       )
+    } catch (err) {
+      setSettingsMessage(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleUpdateGeneralSettings(update: AppSettings['general']): Promise<void> {
+    setSettingsMessage('')
+    try {
+      const nextSettings = await updateAppSettings({ general: update })
+      setAppSettings(nextSettings)
+      setSettingsMessage('Startup defaults saved.')
+    } catch (err) {
+      setSettingsMessage(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleUpdateToolchainSettings(update: AppSettings['toolchain']): Promise<void> {
+    setToolchainBusy(true)
+    setSettingsMessage('')
+    try {
+      const nextSettings = await updateAppSettings({ toolchain: update })
+      setAppSettings(nextSettings)
+
+      if (update.preferredTerraformCliKind) {
+        const cliInfo = await setTerraformCliKind(update.preferredTerraformCliKind)
+        setToolchainInfo(cliInfo)
+      } else {
+        const cliInfo = await getTerraformCliInfo()
+        setToolchainInfo(cliInfo)
+      }
+
+      setSettingsMessage('Toolchain preferences saved.')
+    } catch (err) {
+      setSettingsMessage(err instanceof Error ? err.message : String(err))
+    } finally {
+      setToolchainBusy(false)
+    }
+  }
+
+  async function handleUpdatePreferences(update: AppSettings['updates']): Promise<void> {
+    setSettingsMessage('')
+    try {
+      const nextSettings = await updateAppSettings({ updates: update })
+      setAppSettings(nextSettings)
+      const nextReleaseInfo = await getAppReleaseInfo()
+      setReleaseInfo(nextReleaseInfo)
+      setSettingsMessage('Update preferences saved.')
+    } catch (err) {
+      setSettingsMessage(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleUpdateTerminalSettings(update: AppSettings['terminal']): Promise<void> {
+    setSettingsMessage('')
+    try {
+      const nextSettings = await updateAppSettings({ terminal: update })
+      setAppSettings(nextSettings)
+      setSettingsMessage('Terminal preferences saved.')
+    } catch (err) {
+      setSettingsMessage(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleUpdateRefreshSettings(update: AppSettings['refresh']): Promise<void> {
+    setSettingsMessage('')
+    try {
+      const nextSettings = await updateAppSettings({ refresh: update })
+      setAppSettings(nextSettings)
+      setSettingsMessage('Refresh preferences saved.')
     } catch (err) {
       setSettingsMessage(err instanceof Error ? err.message : String(err))
     }
@@ -931,15 +1150,18 @@ export function App() {
 
   async function handleRefreshEnvironmentHealth(): Promise<void> {
     setEnvironmentBusy(true)
+    setToolchainBusy(true)
     setSettingsMessage('')
     try {
-      const report = await getEnvironmentHealth()
+      const [report, cliInfo] = await Promise.all([getEnvironmentHealth(), getTerraformCliInfo()])
       setEnvironmentHealth(report)
+      setToolchainInfo(cliInfo)
       setSettingsMessage(report.summary)
     } catch (err) {
       setSettingsMessage(err instanceof Error ? err.message : String(err))
     } finally {
       setEnvironmentBusy(false)
+      setToolchainBusy(false)
     }
   }
 
@@ -968,7 +1190,7 @@ export function App() {
               <h2>Switch accounts without losing context.</h2>
               <p className="hero-path">
                 Pinned profiles stay in the rail, region stays global, and every workspace uses the same active AWS context.
-                Enterprise mode, audit history, service maturity, and support guidance are managed here.
+                Security posture, audit history, and support exports now live in Settings.
               </p>
             </div>
             <div className="profile-catalog-stats" aria-label="Profile catalog summary">
@@ -1053,109 +1275,6 @@ export function App() {
             )}
           </div>
           </div>
-          <div className="enterprise-panel-grid enterprise-panel-grid-bottom">
-            <section className="panel stack enterprise-panel">
-              <div className="panel-header">
-                <div>
-                  <div className="eyebrow">Access Mode</div>
-                  <h3>Separate read-only and operator access</h3>
-                </div>
-                <span className={`enterprise-mode-pill ${enterpriseSettings.accessMode}`}>
-                  {enterpriseSettings.accessMode === 'operator' ? 'Operator' : 'Read-only'}
-                </span>
-              </div>
-              <p className="hero-path">
-                Read-only mode blocks AWS mutations and command execution flows. Operator mode enables critical actions and audit export.
-              </p>
-              <div className="button-row">
-                <button
-                  type="button"
-                  className={enterpriseSettings.accessMode === 'read-only' ? 'accent' : ''}
-                  disabled={enterpriseBusy}
-                  onClick={() => void handleAccessModeChange('read-only')}
-                >
-                  Read-only
-                </button>
-                <button
-                  type="button"
-                  className={enterpriseSettings.accessMode === 'operator' ? 'accent' : ''}
-                  disabled={enterpriseBusy}
-                  onClick={() => void handleAccessModeChange('operator')}
-                >
-                  Operator
-                </button>
-              </div>
-              <div className="enterprise-inline-note">
-                <strong>Updated</strong>
-                <span>{enterpriseSettings.updatedAt ? new Date(enterpriseSettings.updatedAt).toLocaleString() : 'Not yet changed'}</span>
-              </div>
-            </section>
-            <section className="panel stack enterprise-panel">
-              <div className="panel-header">
-                <div>
-                  <div className="eyebrow">Audit Trail</div>
-                  <h3>Critical action history</h3>
-                </div>
-              </div>
-              <div className="enterprise-stats-row">
-                <div className="profile-catalog-stat">
-                  <span>Total</span>
-                  <strong>{auditSummary.total}</strong>
-                </div>
-                <div className="profile-catalog-stat">
-                  <span>Blocked</span>
-                  <strong>{auditSummary.blocked}</strong>
-                </div>
-                <div className="profile-catalog-stat">
-                  <span>Failed</span>
-                  <strong>{auditSummary.failed}</strong>
-                </div>
-              </div>
-              <div className="enterprise-audit-list">
-                {auditEvents.map((event) => (
-                  <div key={event.id} className={`enterprise-audit-item ${event.outcome}`}>
-                    <div className="enterprise-audit-item__header">
-                      <div className="enterprise-audit-item__title">
-                        <strong>{event.action}</strong>
-                        {event.outcome === 'blocked' && <span className="enterprise-audit-badge blocked">Blocked</span>}
-                        {event.outcome === 'failed' && <span className="enterprise-audit-badge failed">Failed</span>}
-                      </div>
-                      <span>{new Date(event.happenedAt).toLocaleString()}</span>
-                    </div>
-                    {event.outcome === 'blocked' && (
-                      <div className="enterprise-audit-item__reason">
-                        Blocked in read-only mode
-                        {event.resourceId ? ` for ${event.resourceId}` : ''}
-                      </div>
-                    )}
-                    <div className="enterprise-audit-item__meta">
-                      <span>{event.actorLabel || 'local-app'}</span>
-                      <span>{event.region || 'no-region'}</span>
-                      <span>{event.resourceId || event.channel}</span>
-                    </div>
-                    {event.summary && event.summary !== event.action && (
-                      <div className="enterprise-audit-item__summary">{event.summary}</div>
-                    )}
-                  </div>
-                ))}
-                {auditEvents.length === 0 && (
-                  <div className="profile-catalog-empty">
-                    <div className="eyebrow">Audit Trail</div>
-                    <h3>No audit events yet</h3>
-                    <p className="hero-path">Critical actions run in operator mode, or blocked in read-only mode, will appear here.</p>
-                  </div>
-                )}
-              </div>
-              <div className="button-row">
-                <button type="button" disabled={enterpriseBusy || auditEvents.length === 0} onClick={() => void handleAuditExport()}>
-                  Export Audit JSON
-                </button>
-                <button type="button" disabled={enterpriseBusy} onClick={() => void handleDiagnosticsExport()}>
-                  Export Diagnostics Bundle
-                </button>
-              </div>
-            </section>
-          </div>
         </section>
       )
     }
@@ -1194,143 +1313,40 @@ export function App() {
     }
 
     if (targetScreen === 'settings') {
-      const buildChannel = releaseInfo?.currentBuild.channel ?? 'unknown'
-      const latestRelease = releaseInfo?.latestRelease
-      const releaseNotesPreview = latestRelease?.notes?.trim() ?? ''
-
       return (
-        <section className="settings-page">
-          <div className="settings-page-header">
-            <div>
-              <div className="eyebrow">Settings</div>
-              <h2>App Info</h2>
-              <p className="hero-path">Application metadata, release channel state, and update actions will live here as the settings surface grows.</p>
-            </div>
-          </div>
-
-          {settingsMessage && <div className="success-banner">{settingsMessage}</div>}
-
-          <div className="settings-panel-grid">
-            <section className="settings-panel-card">
-              <div className="settings-panel-card__header">
-                <div>
-                  <div className="eyebrow">Build</div>
-                  <h3>Current build</h3>
-                </div>
-                <span className={`settings-status-pill settings-status-pill-${buildChannel}`}>{buildChannel}</span>
-              </div>
-              <div className="settings-info-grid">
-                <div className="settings-info-row"><span>Version</span><strong>{releaseInfo?.currentVersion ? `v${releaseInfo.currentVersion}` : 'Unknown'}</strong></div>
-                <div className="settings-info-row"><span>Build hash</span><strong>{releaseInfo?.currentBuild.buildHash ?? 'Unavailable'}</strong></div>
-                <div className="settings-info-row"><span>Updater</span><strong>{releaseInfo?.supportsAutoUpdate ? 'Enabled in packaged app' : 'Available in packaged app only'}</strong></div>
-                <div className="settings-info-row"><span>Check status</span><strong>{releaseInfo?.checkStatus ?? 'idle'}</strong></div>
-                <div className="settings-info-row"><span>Update status</span><strong>{releaseInfo?.updateStatus ?? 'idle'}</strong></div>
-                <div className="settings-info-row"><span>Last checked</span><strong>{releaseInfo?.checkedAt ? new Date(releaseInfo.checkedAt).toLocaleString() : releaseInfo?.supportsAutoUpdate ? 'Not checked yet' : 'Disabled in dev build'}</strong></div>
-              </div>
-            </section>
-
-            <section className="settings-panel-card">
-              <div className="settings-panel-card__header">
-                <div>
-                  <div className="eyebrow">Updates</div>
-                  <h3>Release state</h3>
-                </div>
-                <span className={`settings-status-pill ${releaseStateTone}`}>
-                  {releaseStateLabel}
-                </span>
-              </div>
-              <div className="settings-info-grid">
-                <div className="settings-info-row"><span>Latest version</span><strong>{releaseInfo?.latestVersion ? `v${releaseInfo.latestVersion}` : 'Unavailable'}</strong></div>
-                <div className="settings-info-row"><span>Release name</span><strong>{latestRelease?.name ?? 'Unavailable'}</strong></div>
-                <div className="settings-info-row"><span>Published</span><strong>{latestRelease?.publishedAt ? new Date(latestRelease.publishedAt).toLocaleString() : 'Unavailable'}</strong></div>
-                <div className="settings-info-row"><span>Download progress</span><strong>{typeof releaseInfo?.downloadProgressPercent === 'number' ? `${Math.round(releaseInfo.downloadProgressPercent)}%` : 'Not downloading'}</strong></div>
-              </div>
-              <div className="settings-action-row">
-                <button type="button" className="accent" disabled={!releaseInfo?.canCheckForUpdates} onClick={() => void handleCheckForUpdates()}>
-                  {releaseInfo?.supportsAutoUpdate ? (releaseInfo?.checkStatus === 'checking' ? 'Checking...' : 'Check for updates') : 'Package app to enable'}
-                </button>
-                <button type="button" disabled={!releaseInfo?.canDownloadUpdate} onClick={() => void handleDownloadUpdate()}>
-                  {releaseInfo?.updateStatus === 'downloading' ? 'Downloading...' : 'Download update'}
-                </button>
-                <button type="button" disabled={!releaseInfo?.canInstallUpdate} onClick={() => void handleInstallUpdate()}>
-                  Install update
-                </button>
-                <button type="button" onClick={() => void openExternalUrl(releaseInfo?.latestRelease.url || releaseInfo?.releaseUrl || 'https://github.com/BoraKostem/AWS-Lens/releases/')}>
-                  Open release page
-                </button>
-              </div>
-              {releaseInfo?.error && <div className="error-banner">{releaseInfo.error}</div>}
-            </section>
-          </div>
-
-          <section className="settings-panel-card settings-panel-card-wide">
-            <div className="settings-panel-card__header">
-              <div>
-                <div className="eyebrow">Environment</div>
-                <h3>Machine validation</h3>
-              </div>
-              <div className="settings-action-row">
-                <button type="button" className="accent" disabled={environmentBusy} onClick={() => void handleRefreshEnvironmentHealth()}>
-                  {environmentBusy ? 'Refreshing...' : 'Refresh environment'}
-                </button>
-              </div>
-            </div>
-            <div className="settings-environment-summary">
-              <strong>{environmentHealth?.summary ?? 'Environment checks have not run yet.'}</strong>
-              <span>Status: {environmentHealth?.overallSeverity ?? 'idle'}</span>
-              <span>Checked: {environmentHealth?.checkedAt ? new Date(environmentHealth.checkedAt).toLocaleString() : 'Not checked yet'}</span>
-            </div>
-            <div className="settings-environment-grid">
-              <div className="settings-environment-section">
-                <div className="eyebrow">Tooling</div>
-                {environmentHealth?.tools.map((tool) => (
-                  <div key={tool.id} className="settings-environment-row">
-                    <div>
-                      <strong>{tool.label}</strong>
-                      <p>{tool.detail}</p>
-                      {tool.remediation && <small>{tool.remediation}</small>}
-                    </div>
-                    <div className="settings-environment-meta">
-                      <span className={`settings-status-pill settings-status-pill-${tool.status === 'available' ? 'stable' : tool.status === 'missing' ? 'preview' : 'unknown'}`}>{tool.status}</span>
-                      <code>{tool.version || 'not found'}</code>
-                    </div>
-                  </div>
-                ))}
-                {!environmentHealth && !environmentBusy && <div className="settings-release-notes"><p>No environment report loaded yet.</p></div>}
-              </div>
-              <div className="settings-environment-section">
-                <div className="eyebrow">Permissions</div>
-                {environmentHealth?.permissions.map((item) => (
-                  <div key={item.id} className="settings-environment-row">
-                    <div>
-                      <strong>{item.label}</strong>
-                      <p>{item.detail}</p>
-                      {item.remediation && <small>{item.remediation}</small>}
-                    </div>
-                    <div className="settings-environment-meta">
-                      <span className={`settings-status-pill settings-status-pill-${item.status === 'ok' ? 'stable' : item.status === 'error' ? 'preview' : 'unknown'}`}>{item.status}</span>
-                    </div>
-                  </div>
-                ))}
-                {!environmentHealth && !environmentBusy && <div className="settings-release-notes"><p>No permission report loaded yet.</p></div>}
-              </div>
-            </div>
-          </section>
-
-          <section className="settings-panel-card settings-panel-card-wide">
-            <div className="settings-panel-card__header">
-              <div>
-                <div className="eyebrow">Release Notes</div>
-                <h3>Latest published notes</h3>
-              </div>
-            </div>
-            <div className="settings-release-notes">
-              {releaseNotesPreview
-                ? <pre>{releaseNotesPreview}</pre>
-                : <p>No release notes are available yet for the currently resolved release metadata.</p>}
-            </div>
-          </section>
-        </section>
+        <SettingsPage
+          appSettings={appSettings}
+          profiles={connectionState.profiles}
+          regions={connectionState.regions}
+          toolchainInfo={toolchainInfo}
+          securitySummary={securitySummary}
+          enterpriseSettings={enterpriseSettings}
+          auditSummary={auditSummary}
+          auditEvents={auditEvents}
+          activeSessionLabel={connectionState.activeSession?.label ?? ''}
+          releaseInfo={releaseInfo}
+          releaseStateLabel={releaseStateLabel}
+          releaseStateTone={releaseStateTone}
+          environmentHealth={environmentHealth}
+          environmentBusy={environmentBusy}
+          toolchainBusy={toolchainBusy}
+          enterpriseBusy={enterpriseBusy}
+          settingsMessage={settingsMessage}
+          onUpdateGeneralSettings={(update) => void handleUpdateGeneralSettings(update)}
+          onUpdateTerminalSettings={(update) => void handleUpdateTerminalSettings(update)}
+          onUpdateRefreshSettings={(update) => void handleUpdateRefreshSettings(update)}
+          onUpdateToolchainSettings={(update) => void handleUpdateToolchainSettings(update)}
+          onUpdatePreferences={(update) => void handleUpdatePreferences(update)}
+          onAccessModeChange={(mode) => void handleAccessModeChange(mode)}
+          onAuditExport={() => void handleAuditExport()}
+          onDiagnosticsExport={() => void handleDiagnosticsExport()}
+          onClearActiveSession={() => connectionState.clearActiveSession()}
+          onCheckForUpdates={() => void handleCheckForUpdates()}
+          onDownloadUpdate={() => void handleDownloadUpdate()}
+          onInstallUpdate={() => void handleInstallUpdate()}
+          onOpenReleasePage={() => void openExternalUrl(releaseInfo?.latestRelease.url || releaseInfo?.releaseUrl || 'https://github.com/BoraKostem/AWS-Lens/releases/')}
+          onRefreshEnvironment={() => void handleRefreshEnvironmentHealth()}
+        />
       )
     }
 
@@ -1457,7 +1473,9 @@ export function App() {
     return null
   }
 
-  return (
+  return showInitialLoadingScreen ? (
+    <InitialLoadingScreen />
+  ) : (
     <div className="catalog-shell-frame">
       <div className={`catalog-shell ${navOpen ? '' : 'nav-collapsed'}`}>
       <aside className="profile-rail">
@@ -1987,6 +2005,8 @@ export function App() {
         connection={connectionState.connection}
         open={terminalOpen}
         onClose={() => setTerminalOpen(false)}
+        defaultCommand={appSettings?.terminal.defaultCommand}
+        fontSize={appSettings?.terminal.fontSize ?? 13}
         commandToRun={pendingTerminalCommand}
         onCommandHandled={(id) => {
           setPendingTerminalCommand((current) => (current?.id === id ? null : current))
