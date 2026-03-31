@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
 import './direct-resource.css'
 import { FreshnessIndicator, useFreshnessState } from './freshness'
+import { CollapsibleInfoPanel } from './CollapsibleInfoPanel'
 import { SvcState } from './SvcState'
 
-import type { AwsConnection, WafScope } from '@shared/types'
+import type { AwsConnection, NavigationFocus, WafScope } from '@shared/types'
 import {
   describeAcmCertificate,
   describeEcsService,
@@ -61,6 +62,12 @@ type DirectServiceDefinition = {
 type ResultSection = {
   title: string
   data: unknown
+}
+
+type DirectConsoleLink = {
+  label: string
+  description: string
+  focus: NavigationFocus
 }
 
 const SERVICE_DEFINITIONS: DirectServiceDefinition[] = [
@@ -252,7 +259,13 @@ function summarizeSectionData(data: unknown): string {
   return typeof data
 }
 
-export function DirectResourceConsole({ connection }: { connection: AwsConnection }) {
+export function DirectResourceConsole({
+  connection,
+  onNavigate
+}: {
+  connection: AwsConnection
+  onNavigate: (focus: NavigationFocus) => void
+}) {
   const [selectedService, setSelectedService] = useState<DirectServiceKey>('s3')
   const [form, setForm] = useState<Record<string, string>>(INITIAL_FORM)
   const [loading, setLoading] = useState(false)
@@ -276,6 +289,44 @@ export function DirectResourceConsole({ connection }: { connection: AwsConnectio
   const requiredCount = requiredFieldCount(definition)
   const connectionLabel = connection.kind === 'profile' ? connection.profile : connection.label
   const connectionMode = connection.kind === 'profile' ? 'Profile' : 'Assumed role'
+  const suggestedLinks = useMemo<DirectConsoleLink[]>(() => {
+    switch (selectedService) {
+      case 'lambda':
+        return form.functionName.trim()
+          ? [{
+              label: 'Open Lambda console',
+              description: 'Continue in the main Lambda workspace with focus applied.',
+              focus: { service: 'lambda', functionName: form.functionName.trim() }
+            }]
+          : []
+      case 'ecs':
+        return form.clusterArn.trim() && form.serviceName.trim()
+          ? [{
+              label: 'Open ECS service',
+              description: 'Jump into ECS with the selected cluster and service.',
+              focus: { service: 'ecs', clusterArn: form.clusterArn.trim(), serviceName: form.serviceName.trim() }
+            }]
+          : []
+      case 'eks':
+        return form.clusterName.trim()
+          ? [{
+              label: 'Open EKS cluster',
+              description: 'Continue in the EKS workspace with the cluster preselected.',
+              focus: { service: 'eks', clusterName: form.clusterName.trim() }
+            }]
+          : []
+      case 'waf':
+        return form.name.trim()
+          ? [{
+              label: 'Open WAF console',
+              description: 'Review the Web ACL inside the main WAF workspace.',
+              focus: { service: 'waf', webAclName: form.name.trim() }
+            }]
+          : []
+      default:
+        return []
+    }
+  }, [form.clusterArn, form.clusterName, form.functionName, form.name, form.serviceName, selectedService])
 
   function updateField(key: string, value: string): void {
     setForm((current) => ({ ...current, [key]: value }))
@@ -549,6 +600,29 @@ export function DirectResourceConsole({ connection }: { connection: AwsConnectio
         </div>
       </div>
 
+      <CollapsibleInfoPanel title="When to use direct access" eyebrow="Example workflows" className="direct-section direct-info-panel">
+        <div className="info-card-grid">
+          <article className="info-card">
+            <div className="info-card__copy">
+              <strong>Known resource, limited list permissions</strong>
+              <p>Open a Lambda, ECS service, or secret directly when broad inventory listing is blocked but you already know the identifier.</p>
+            </div>
+          </article>
+          <article className="info-card">
+            <div className="info-card__copy">
+              <strong>Incident triage from an ARN or URL</strong>
+              <p>Paste the resource identifier from a ticket, alert, or audit finding and inspect the payload before jumping into the full console.</p>
+            </div>
+          </article>
+          <article className="info-card">
+            <div className="info-card__copy">
+              <strong>Fast handoff into a deeper workspace</strong>
+              <p>Use the routed next actions below to move from a one-off lookup into the main service console with focus applied.</p>
+            </div>
+          </article>
+        </div>
+      </CollapsibleInfoPanel>
+
       {error && <SvcState variant="error" error={error} />}
 
       <div className="direct-main-layout">
@@ -660,6 +734,31 @@ export function DirectResourceConsole({ connection }: { connection: AwsConnectio
               ))}
             </div>
           </section>
+
+          <CollapsibleInfoPanel title="Continue in a service console" eyebrow="Next actions" className="direct-section direct-info-panel">
+            {suggestedLinks.length > 0 ? (
+              <div className="info-card-grid">
+                {suggestedLinks.map((link) => (
+                  <article key={`${link.label}:${link.focus.service}`} className="info-card info-card-action">
+                    <div className="info-card__copy">
+                      <strong>{link.label}</strong>
+                      <p>{link.description}</p>
+                    </div>
+                    <div className="button-row">
+                      <button type="button" className="accent" onClick={() => onNavigate(link.focus)}>
+                        Open
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <SvcState
+                variant="empty"
+                message="Open a supported direct lookup to unlock a routed next action into the main console."
+              />
+            )}
+          </CollapsibleInfoPanel>
 
           <section className="direct-section">
             <div className="direct-section-head">

@@ -73,6 +73,7 @@ import { SettingsPage } from './SettingsPage'
 import { SnsConsole } from './SnsConsole'
 import { SqsConsole } from './SqsConsole'
 import { SessionHub } from './SessionHub'
+import { SvcState } from './SvcState'
 import { StsConsole } from './StsConsole'
 import { TerraformConsole } from './TerraformConsole'
 import { VpcWorkspace } from './VpcWorkspace'
@@ -92,8 +93,14 @@ type AuditSummary = {
 }
 const PINNED_SERVICES_STORAGE_KEY = 'aws-lens:pinned-services'
 const ENVIRONMENT_ONBOARDING_STORAGE_KEY = 'aws-lens:environment-onboarding-v1'
+type EnvironmentOnboardingStep = 'profile' | 'region' | 'tooling' | 'access'
+type EnvironmentOnboardingState = {
+  dismissed: boolean
+  lastStep: EnvironmentOnboardingStep
+}
 type FocusMap = Partial<Record<NavigationFocus['service'], TokenizedFocus>>
 const NAV_HIDDEN_SERVICE_IDS = new Set<ServiceId>(['overview', 'session-hub', 'compare'])
+const ENVIRONMENT_ONBOARDING_STEPS: EnvironmentOnboardingStep[] = ['profile', 'region', 'tooling', 'access']
 
 const SERVICE_CATEGORY_ORDER = [
   'Infrastructure',
@@ -210,8 +217,12 @@ function ConnectedServiceScreen({
         <section className={hideHero ? 'empty-hero empty-hero-compact' : 'empty-hero'}>
           <div>
             <div className="eyebrow">{service.label}</div>
-            <h2>Select a profile to load {service.label}</h2>
-            <p>{SERVICE_DESCRIPTIONS[service.id]}</p>
+            <h2>{service.label} needs an active AWS context</h2>
+            <SvcState
+              variant="no-selection"
+              resourceName="profile"
+              message={`Select a profile from the catalog to open ${service.label}. ${SERVICE_DESCRIPTIONS[service.id]}`}
+            />
           </div>
         </section>
       )}
@@ -306,6 +317,48 @@ function InitialLoadingScreen(): JSX.Element {
   )
 }
 
+function readEnvironmentOnboardingState(): EnvironmentOnboardingState {
+  try {
+    const raw = window.localStorage.getItem(ENVIRONMENT_ONBOARDING_STORAGE_KEY)
+    if (!raw) {
+      return {
+        dismissed: false,
+        lastStep: 'profile'
+      }
+    }
+
+    if (raw === 'dismissed') {
+      return {
+        dismissed: true,
+        lastStep: 'access'
+      }
+    }
+
+    const parsed = JSON.parse(raw) as Partial<EnvironmentOnboardingState>
+    const lastStep = ENVIRONMENT_ONBOARDING_STEPS.includes(parsed.lastStep as EnvironmentOnboardingStep)
+      ? parsed.lastStep as EnvironmentOnboardingStep
+      : 'profile'
+
+    return {
+      dismissed: parsed.dismissed === true,
+      lastStep
+    }
+  } catch {
+    return {
+      dismissed: false,
+      lastStep: 'profile'
+    }
+  }
+}
+
+function writeEnvironmentOnboardingState(state: EnvironmentOnboardingState): void {
+  try {
+    window.localStorage.setItem(ENVIRONMENT_ONBOARDING_STORAGE_KEY, JSON.stringify(state))
+  } catch {
+    // Ignore onboarding persistence failures and keep the current in-memory flow.
+  }
+}
+
 function screenCacheTag(screen: Screen): CacheTag | null {
   switch (screen) {
     case 'overview':
@@ -390,6 +443,7 @@ export function App() {
   const [toolchainBusy, setToolchainBusy] = useState(false)
   const [securitySummary, setSecuritySummary] = useState<AppSecuritySummary | null>(null)
   const [showEnvironmentOnboarding, setShowEnvironmentOnboarding] = useState(false)
+  const [environmentOnboardingStep, setEnvironmentOnboardingStep] = useState<EnvironmentOnboardingStep>('profile')
   const [globalWarning, setGlobalWarning] = useState('')
   const [focusMap, setFocusMap] = useState<FocusMap>({})
   const [compareSeed, setCompareSeed] = useState<CompareSeed>(null)
@@ -501,12 +555,9 @@ export function App() {
   }, [environmentBusy, environmentHealth, screen])
 
   useEffect(() => {
-    try {
-      const dismissed = window.localStorage.getItem(ENVIRONMENT_ONBOARDING_STORAGE_KEY)
-      if (!dismissed) {
-        setShowEnvironmentOnboarding(true)
-      }
-    } catch {
+    const onboardingState = readEnvironmentOnboardingState()
+    setEnvironmentOnboardingStep(onboardingState.lastStep)
+    if (!onboardingState.dismissed) {
       setShowEnvironmentOnboarding(true)
     }
   }, [])
@@ -524,6 +575,17 @@ export function App() {
       })
       .finally(() => setEnvironmentBusy(false))
   }, [environmentBusy, environmentHealth, showEnvironmentOnboarding])
+
+  useEffect(() => {
+    if (!showEnvironmentOnboarding) {
+      return
+    }
+
+    writeEnvironmentOnboardingState({
+      dismissed: false,
+      lastStep: environmentOnboardingStep
+    })
+  }, [environmentOnboardingStep, showEnvironmentOnboarding])
 
   useEffect(() => {
     if (screen !== 'profiles') {
@@ -657,6 +719,10 @@ export function App() {
     const permissionIssues = environmentHealth.permissions.filter((item) => item.status !== 'ok').length
     return toolIssues + permissionIssues
   }, [environmentHealth])
+  const selectedProfileCount = connectionState.pinnedProfileNames.length
+  const onboardingStepIndex = ENVIRONMENT_ONBOARDING_STEPS.indexOf(environmentOnboardingStep)
+  const onboardingBackEnabled = onboardingStepIndex > 0
+  const onboardingNextLabel = onboardingStepIndex === ENVIRONMENT_ONBOARDING_STEPS.length - 1 ? 'Finish onboarding' : 'Next step'
 
   function togglePinnedService(serviceId: ServiceId) {
     setPinnedServiceIds((current) =>
@@ -1166,16 +1232,213 @@ export function App() {
   }
 
   function dismissEnvironmentOnboarding(nextScreen?: Screen): void {
-    try {
-      window.localStorage.setItem(ENVIRONMENT_ONBOARDING_STORAGE_KEY, 'dismissed')
-    } catch {
-      // Ignore persistence failures and still continue into the app shell.
-    }
-
+    writeEnvironmentOnboardingState({
+      dismissed: true,
+      lastStep: environmentOnboardingStep
+    })
     setShowEnvironmentOnboarding(false)
     if (nextScreen) {
       setScreen(nextScreen)
     }
+  }
+
+  function setEnvironmentOnboardingStepSafe(step: EnvironmentOnboardingStep): void {
+    if (!ENVIRONMENT_ONBOARDING_STEPS.includes(step)) {
+      return
+    }
+
+    setEnvironmentOnboardingStep(step)
+  }
+
+  function handleEnvironmentOnboardingNext(): void {
+    const nextStep = ENVIRONMENT_ONBOARDING_STEPS[onboardingStepIndex + 1]
+    if (!nextStep) {
+      dismissEnvironmentOnboarding()
+      return
+    }
+
+    setEnvironmentOnboardingStepSafe(nextStep)
+  }
+
+  function handleEnvironmentOnboardingBack(): void {
+    const previousStep = ENVIRONMENT_ONBOARDING_STEPS[onboardingStepIndex - 1]
+    if (!previousStep) {
+      return
+    }
+
+    setEnvironmentOnboardingStepSafe(previousStep)
+  }
+
+  let onboardingTitle = 'Connect a profile before you explore AWS workflows.'
+  let onboardingDescription = 'AWS Lens keeps one active account and region context across the shell, service consoles, and embedded terminal.'
+  let onboardingSummary = `Detected ${connectionState.profiles.length} local AWS profile${connectionState.profiles.length === 1 ? '' : 's'}. ${connectionState.selectedProfile?.name ? `Current selection: ${connectionState.selectedProfile.name}.` : 'No profile is selected yet.'}`
+  let onboardingPrimaryActionLabel = 'Open profile catalog'
+  let onboardingPrimaryAction: (() => void) | null = () => setScreen('profiles')
+  let onboardingSecondaryActionLabel = 'Continue here'
+  let onboardingSecondaryAction: (() => void) | null = null
+  let onboardingDetailContent: React.ReactNode = null
+
+  if (environmentOnboardingStep === 'region') {
+    onboardingTitle = 'Confirm the region and launch defaults for this workspace.'
+    onboardingDescription = 'Region choice is global inside the shell. It affects overview, service consoles, direct access, compare, and assumed sessions.'
+    onboardingSummary = `Current region: ${connectionState.region}. Saved default: ${appSettings?.general.defaultRegion ?? 'us-east-1'}. Launch screen: ${appSettings?.general.launchScreen ?? 'profiles'}.`
+    onboardingPrimaryActionLabel = 'Open settings'
+    onboardingPrimaryAction = () => dismissEnvironmentOnboarding('settings')
+    onboardingSecondaryActionLabel = 'Go to overview'
+    onboardingSecondaryAction = connectionState.connected ? () => setScreen('overview') : null
+    onboardingDetailContent = (
+      <div className="environment-onboarding-grid">
+        <section className="environment-onboarding-section">
+          <div className="eyebrow">Region Model</div>
+          <div className="settings-environment-row">
+            <div>
+              <strong>Shell-wide region context</strong>
+              <p>Switching region in the sidebar updates the context used by overview, deep links, and new service loads.</p>
+            </div>
+            <div className="settings-environment-meta">
+              <code>{connectionState.region}</code>
+            </div>
+          </div>
+          <div className="settings-environment-row">
+            <div>
+              <strong>Saved startup defaults</strong>
+              <p>Settings already support default profile, default region, and launch screen. Use them if you want AWS Lens to boot into a predictable operator context.</p>
+            </div>
+            <div className="settings-environment-meta">
+              <span className="settings-status-pill settings-status-pill-stable">{appSettings?.general.launchScreen ?? 'profiles'}</span>
+            </div>
+          </div>
+        </section>
+      </div>
+    )
+  } else if (environmentOnboardingStep === 'tooling') {
+    onboardingTitle = 'Validate local tooling before operator flows start.'
+    onboardingDescription = 'AWS Lens depends on local CLIs and writable paths for shell actions, Terraform, EKS helpers, and support exports.'
+    onboardingSummary = environmentHealth?.summary ?? 'Running environment checks for this machine.'
+    onboardingPrimaryActionLabel = environmentBusy ? 'Refreshing...' : 'Run checks again'
+    onboardingPrimaryAction = environmentBusy ? null : () => void handleRefreshEnvironmentHealth()
+    onboardingSecondaryActionLabel = 'Open settings'
+    onboardingSecondaryAction = () => dismissEnvironmentOnboarding('settings')
+    onboardingDetailContent = (
+      <div className="environment-onboarding-grid">
+        <section className="environment-onboarding-section">
+          <div className="eyebrow">Tooling</div>
+          {environmentHealth?.tools.map((tool) => (
+            <div key={tool.id} className="settings-environment-row">
+              <div>
+                <strong>{tool.label}</strong>
+                <p>{tool.detail}</p>
+                {tool.remediation && <small>{tool.remediation}</small>}
+              </div>
+              <div className="settings-environment-meta">
+                <span className={`settings-status-pill settings-status-pill-${tool.status === 'available' ? 'stable' : tool.status === 'missing' ? 'preview' : 'unknown'}`}>{tool.status}</span>
+                <code>{tool.version || 'not found'}</code>
+              </div>
+            </div>
+          ))}
+          {!environmentHealth && (
+            <div className="settings-release-notes">
+              <p>{environmentBusy ? 'Inspecting installed CLIs and local dependencies.' : 'No tooling report loaded yet.'}</p>
+            </div>
+          )}
+        </section>
+
+        <section className="environment-onboarding-section">
+          <div className="eyebrow">Permissions</div>
+          {environmentHealth?.permissions.map((item) => (
+            <div key={item.id} className="settings-environment-row">
+              <div>
+                <strong>{item.label}</strong>
+                <p>{item.detail}</p>
+                {item.remediation && <small>{item.remediation}</small>}
+              </div>
+              <div className="settings-environment-meta">
+                <span className={`settings-status-pill settings-status-pill-${item.status === 'ok' ? 'stable' : item.status === 'error' ? 'preview' : 'unknown'}`}>{item.status}</span>
+              </div>
+            </div>
+          ))}
+          {!environmentHealth && (
+            <div className="settings-release-notes">
+              <p>{environmentBusy ? 'Checking file-system access for local AWS Lens state.' : 'No permission report loaded yet.'}</p>
+            </div>
+          )}
+        </section>
+      </div>
+    )
+  } else if (environmentOnboardingStep === 'access') {
+    onboardingTitle = 'Choose the right operating mode before you mutate infrastructure.'
+    onboardingDescription = 'AWS Lens enforces read-only vs operator mode at the IPC boundary. The same rule applies to resource mutations, command execution, and Terraform state-changing actions.'
+    onboardingSummary = enterpriseSettings.accessMode === 'operator'
+      ? 'Operator mode is active. Mutating actions and terminal-backed workflows are enabled.'
+      : 'Read-only mode is active. AWS Lens will block writes and command execution until you switch modes.'
+    onboardingPrimaryActionLabel = 'Review security settings'
+    onboardingPrimaryAction = () => dismissEnvironmentOnboarding('settings')
+    onboardingSecondaryActionLabel = 'Open session hub'
+    onboardingSecondaryAction = connectionState.connected ? () => setScreen('session-hub') : null
+    onboardingDetailContent = (
+      <div className="environment-onboarding-grid">
+        <section className="environment-onboarding-section">
+          <div className="eyebrow">Current Mode</div>
+          <div className="settings-environment-row">
+            <div>
+              <strong>{enterpriseSettings.accessMode === 'operator' ? 'Operator mode' : 'Read-only mode'}</strong>
+              <p>
+                {enterpriseSettings.accessMode === 'operator'
+                  ? 'Use this when you intend to run terminal commands, Terraform applies, or resource mutations.'
+                  : 'Use this when the goal is inspection, diagnostics, compliance review, or safe handoff.'}
+              </p>
+            </div>
+            <div className="settings-environment-meta">
+              <span className={`settings-status-pill settings-status-pill-${enterpriseSettings.accessMode === 'operator' ? 'stable' : 'unknown'}`}>{enterpriseSettings.accessMode}</span>
+            </div>
+          </div>
+          <div className="settings-environment-row">
+            <div>
+              <strong>Audit and recovery surfaces</strong>
+              <p>Security settings already expose audit export, diagnostics export, vault summary, and current session state. That should be the first stop before enabling operator privileges on a machine.</p>
+            </div>
+            <div className="settings-environment-meta">
+              <code>{auditSummary.total} events</code>
+            </div>
+          </div>
+        </section>
+      </div>
+    )
+  } else {
+    onboardingDetailContent = (
+      <div className="environment-onboarding-grid">
+        <section className="environment-onboarding-section">
+          <div className="eyebrow">Profile Catalog</div>
+          <div className="settings-environment-row">
+            <div>
+              <strong>Import or select a base profile</strong>
+              <p>Profiles are loaded from local AWS config files or created inside the app. The selected profile becomes the source context for overview, service consoles, Session Hub, and terminal flows.</p>
+            </div>
+            <div className="settings-environment-meta">
+              <code>{connectionState.profiles.length} discovered</code>
+            </div>
+          </div>
+          <div className="settings-environment-row">
+            <div>
+              <strong>Pinned profile rail</strong>
+              <p>Once you pin frequently used profiles they stay in the left rail, so switching account context does not require reopening the full catalog.</p>
+            </div>
+            <div className="settings-environment-meta">
+              <code>{selectedProfileCount} pinned</code>
+            </div>
+          </div>
+          <div className="settings-environment-row">
+            <div>
+              <strong>Current selection</strong>
+              <p>{connectionState.selectedProfile?.name ? `AWS Lens is currently scoped to ${connectionState.selectedProfile.name}.` : 'No profile is selected yet. Open the catalog and choose a base profile before loading service data.'}</p>
+            </div>
+            <div className="settings-environment-meta">
+              <span className={`settings-status-pill settings-status-pill-${connectionState.selectedProfile ? 'stable' : 'unknown'}`}>{connectionState.selectedProfile ? 'selected' : 'pending'}</span>
+            </div>
+          </div>
+        </section>
+      </div>
+    )
   }
 
   function renderScreenContent(targetScreen: Screen): React.ReactNode {
@@ -1390,13 +1653,20 @@ export function App() {
       return (
         <section className="panel stack">
           {connectionState.connection && connectionState.connected ? (
-            <DirectResourceConsole connection={connectionState.connection} />
+            <DirectResourceConsole
+              connection={connectionState.connection}
+              onNavigate={(focus) => navigateWithFocus(focus)}
+            />
           ) : (
             <section className="empty-hero">
               <div>
                 <div className="eyebrow">Access</div>
-                <h2>Select a profile to use direct resource access</h2>
-                <p>Known resource identifiers still require an active AWS connection.</p>
+                <h2>Direct resource access needs an active AWS context</h2>
+                <SvcState
+                  variant="no-selection"
+                  resourceName="profile"
+                  message="Select a profile from the catalog before you jump directly to a known resource identifier."
+                />
               </div>
             </section>
           )}
@@ -1661,82 +1931,41 @@ export function App() {
               <div className="environment-onboarding-hero">
                 <div>
                   <div className="eyebrow">First Run</div>
-                  <h2>Validate this machine before opening AWS workflows.</h2>
-                  <p className="hero-path">
-                    AWS Lens depends on local CLIs and a few writable paths. This check gives you a clean starting point before you connect profiles or run operator flows.
-                  </p>
+                  <h2>{onboardingTitle}</h2>
+                  <p className="hero-path">{onboardingDescription}</p>
                 </div>
                 <span className={`settings-status-pill settings-status-pill-${environmentHealth ? (environmentIssueCount > 0 ? 'preview' : 'stable') : 'unknown'}`}>
-                  {environmentHealth
-                    ? environmentIssueCount > 0
-                      ? `${environmentIssueCount} issue${environmentIssueCount === 1 ? '' : 's'} found`
-                      : 'Environment ready'
-                    : environmentBusy
-                      ? 'Checking environment'
-                      : 'Check pending'}
+                  Step {onboardingStepIndex + 1} / {ENVIRONMENT_ONBOARDING_STEPS.length}
                 </span>
               </div>
 
               <div className="environment-onboarding-summary">
-                <strong>{environmentHealth?.summary ?? 'Running environment checks for this machine.'}</strong>
-                <span>Status: {environmentHealth?.overallSeverity ?? (environmentBusy ? 'checking' : 'idle')}</span>
+                <strong>{onboardingSummary}</strong>
+                <span>Environment: {environmentHealth?.overallSeverity ?? (environmentBusy ? 'checking' : 'idle')}</span>
                 <span>Checked: {environmentHealth?.checkedAt ? new Date(environmentHealth.checkedAt).toLocaleString() : environmentBusy ? 'Running now' : 'Not checked yet'}</span>
               </div>
 
-              <div className="environment-onboarding-grid">
-                <section className="environment-onboarding-section">
-                  <div className="eyebrow">Tooling</div>
-                  {environmentHealth?.tools.map((tool) => (
-                    <div key={tool.id} className="settings-environment-row">
-                      <div>
-                        <strong>{tool.label}</strong>
-                        <p>{tool.detail}</p>
-                        {tool.remediation && <small>{tool.remediation}</small>}
-                      </div>
-                      <div className="settings-environment-meta">
-                        <span className={`settings-status-pill settings-status-pill-${tool.status === 'available' ? 'stable' : tool.status === 'missing' ? 'preview' : 'unknown'}`}>{tool.status}</span>
-                        <code>{tool.version || 'not found'}</code>
-                      </div>
-                    </div>
-                  ))}
-                  {!environmentHealth && (
-                    <div className="settings-release-notes">
-                      <p>{environmentBusy ? 'Inspecting installed CLIs and local dependencies.' : 'No tooling report loaded yet.'}</p>
-                    </div>
-                  )}
-                </section>
-
-                <section className="environment-onboarding-section">
-                  <div className="eyebrow">Permissions</div>
-                  {environmentHealth?.permissions.map((item) => (
-                    <div key={item.id} className="settings-environment-row">
-                      <div>
-                        <strong>{item.label}</strong>
-                        <p>{item.detail}</p>
-                        {item.remediation && <small>{item.remediation}</small>}
-                      </div>
-                      <div className="settings-environment-meta">
-                        <span className={`settings-status-pill settings-status-pill-${item.status === 'ok' ? 'stable' : item.status === 'error' ? 'preview' : 'unknown'}`}>{item.status}</span>
-                      </div>
-                    </div>
-                  ))}
-                  {!environmentHealth && (
-                    <div className="settings-release-notes">
-                      <p>{environmentBusy ? 'Checking file-system access for local AWS Lens state.' : 'No permission report loaded yet.'}</p>
-                    </div>
-                  )}
-                </section>
-              </div>
+              {onboardingDetailContent}
 
               <div className="environment-onboarding-actions">
-                <button type="button" className="accent" disabled={environmentBusy} onClick={() => void handleRefreshEnvironmentHealth()}>
-                  {environmentBusy ? 'Refreshing...' : 'Run checks again'}
+                <button type="button" disabled={!onboardingBackEnabled} onClick={handleEnvironmentOnboardingBack}>
+                  Back
                 </button>
-                <button type="button" onClick={() => dismissEnvironmentOnboarding('settings')}>
-                  Open settings
+                {onboardingPrimaryAction && (
+                  <button type="button" className="accent" disabled={environmentBusy && environmentOnboardingStep === 'tooling'} onClick={onboardingPrimaryAction}>
+                    {onboardingPrimaryActionLabel}
+                  </button>
+                )}
+                {onboardingSecondaryAction && (
+                  <button type="button" onClick={onboardingSecondaryAction}>
+                    {onboardingSecondaryActionLabel}
+                  </button>
+                )}
+                <button type="button" onClick={handleEnvironmentOnboardingNext}>
+                  {onboardingNextLabel}
                 </button>
                 <button type="button" onClick={() => dismissEnvironmentOnboarding()}>
-                  Continue to app
+                  Skip for now
                 </button>
               </div>
             </div>

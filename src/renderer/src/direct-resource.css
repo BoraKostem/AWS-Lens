@@ -358,6 +358,19 @@
   background: linear-gradient(180deg, rgba(18, 25, 35, 0.96), rgba(11, 17, 25, 0.96));
 }
 
+.direct-info-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.direct-info-panel .info-disclosure__summary {
+  padding: 1rem 1rem 0.9rem;
+}
+
+.direct-info-panel .info-disclosure__body {
+  padding: 0 1rem 1rem;
+}
+
 .direct-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

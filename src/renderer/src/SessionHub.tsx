@@ -9,6 +9,7 @@ import {
   listIamRoles,
   saveAssumeRoleTarget
 } from './api'
+import { CollapsibleInfoPanel } from './CollapsibleInfoPanel'
 import { FreshnessIndicator, useFreshnessState } from './freshness'
 
 type ConnectionState = {
@@ -490,6 +491,12 @@ export function SessionHub({
         </div>
       </section>
 
+      <CollapsibleInfoPanel title="Quick Help" className="panel session-hub-compare-panel">
+        <div className="empty-state compact session-hub-inline-help">
+          Start with a base profile, save repeatable assume-role targets, activate the temporary session you want, then open the terminal or Compare Workspace in that same context. Saved targets persist locally; temporary credentials stay in memory only.
+        </div>
+      </CollapsibleInfoPanel>
+
       <div className="session-hub-shell-toolbar">
         <div className="session-hub-toolbar">
           <button
@@ -719,6 +726,79 @@ export function SessionHub({
         </div>
         <div className="empty-state compact">Diff Mode opens a dedicated workspace with inventory, posture, ownership, cost, and risk-focused comparisons.</div>
       </section>
+
+      <CollapsibleInfoPanel title="Recommended Next Actions" className="panel session-hub-compare-panel">
+        <div className="info-card-grid info-card-grid-3">
+          <article className="info-card">
+            <div className="info-card__copy">
+              <strong>Validate credentials in the terminal</strong>
+              <p>Open a shell in the current base profile or assumed session when you need to confirm identity, CLI auth, or quick AWS commands.</p>
+            </div>
+            <div className="button-row">
+              <button
+                type="button"
+                className="accent"
+                disabled={!connectionState.connection}
+                onClick={() => {
+                  const currentConnection = connectionState.connection
+                  if (currentConnection) {
+                    onOpenTerminal(currentConnection)
+                  }
+                }}
+              >
+                Open Terminal
+              </button>
+            </div>
+          </article>
+
+          <article className="info-card">
+            <div className="info-card__copy">
+              <strong>Compare two active contexts</strong>
+              <p>Use Diff Mode when you need to inspect inventory, posture, or ownership differences across profiles or assumed-role sessions.</p>
+            </div>
+            <div className="button-row">
+              <button type="button" className="accent" onClick={handleCompareLaunch}>
+                Open Compare Workspace
+              </button>
+            </div>
+          </article>
+
+          <article className="info-card">
+            <div className="info-card__copy">
+              <strong>Revert back to the base profile</strong>
+              <p>Drop the temporary assumed-role context before switching to broad inventory browsing or before handing the machine to another operator.</p>
+            </div>
+            <div className="button-row">
+              <button type="button" disabled={!connectionState.activeSession} onClick={() => connectionState.clearActiveSession()}>
+                Revert To Base Profile
+              </button>
+            </div>
+          </article>
+        </div>
+      </CollapsibleInfoPanel>
+
+      <CollapsibleInfoPanel title="Example Workflows" className="panel session-hub-compare-panel">
+        <div className="info-card-grid info-card-grid-3">
+          <article className="info-card">
+            <div className="info-card__copy">
+              <strong>Cross-account production inspection</strong>
+              <p>Select a base profile, assume a production read role, inspect inventory, then revert back to the base profile when the review is finished.</p>
+            </div>
+          </article>
+          <article className="info-card">
+            <div className="info-card__copy">
+              <strong>Compare staging and production posture</strong>
+              <p>Assume or activate both contexts, launch Compare Workspace, and inspect posture or ownership differences without rewriting local AWS config.</p>
+            </div>
+          </article>
+          <article className="info-card">
+            <div className="info-card__copy">
+              <strong>Validate an assumed role in the terminal</strong>
+              <p>Open a shell from the active session to run `aws sts get-caller-identity`, targeted CLI checks, or emergency diagnostics in the same temporary context.</p>
+            </div>
+          </article>
+        </div>
+      </CollapsibleInfoPanel>
     </div>
   )
 }

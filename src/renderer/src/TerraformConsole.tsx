@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './terraform.css'
+import { CollapsibleInfoPanel } from './CollapsibleInfoPanel'
 import { SvcState, variantForError } from './SvcState'
 import { FreshnessIndicator, useFreshnessState } from './freshness'
 
@@ -3995,6 +3996,12 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
           {detailTab === 'drift' && <FreshnessIndicator freshness={driftFreshness} label="Drift last updated" staleLabel="Re-scan drift" />}
         </div>
       </div>
+
+      <CollapsibleInfoPanel title="Quick Help" className="tf-info-panel">
+        <div className="tf-section-hint">
+          Track a project, confirm the active workspace and CLI, review inputs before plan/apply, then use drift, governance, state operations, and run history as follow-up surfaces instead of leaving the shell.
+        </div>
+      </CollapsibleInfoPanel>
 
       {msg && <div className={`tf-msg ${msg.toLowerCase().includes('error') || msg.toLowerCase().includes('not found') ? 'error' : ''}`}>{msg}</div>}
 
