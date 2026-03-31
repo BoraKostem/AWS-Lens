@@ -24,6 +24,10 @@ import type {
   SsmSessionSummary,
   SsmStartSessionRequest,
   ComplianceReport,
+  EnterpriseAccessMode,
+  EnterpriseAuditEvent,
+  EnterpriseAuditExportResult,
+  EnterpriseSettings,
   ServiceDescriptor,
   CloudWatchLogEventSummary,
   CloudWatchLogGroupSummary,
@@ -194,12 +198,17 @@ type CacheEntry = {
 }
 
 const awsActivityListeners = new Set<(state: AwsActivityState) => void>()
+const enterpriseListeners = new Set<(settings: EnterpriseSettings) => void>()
 const awsBridgeCache = new WeakMap<AwsLensBridge, AwsLensBridge>()
 const pageCache = new Map<string, CacheEntry>()
 let pageCacheVersion = 0
 let awsActivityState: AwsActivityState = {
   pendingCount: 0,
   lastCompletedAt: null
+}
+let enterpriseSettingsState: EnterpriseSettings = {
+  accessMode: 'read-only',
+  updatedAt: ''
 }
 
 const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
@@ -483,6 +492,22 @@ function getAwsActivityState(): AwsActivityState {
   return awsActivityState
 }
 
+function notifyEnterpriseSettings(): void {
+  for (const listener of enterpriseListeners) {
+    listener(enterpriseSettingsState)
+  }
+}
+
+function setEnterpriseSettingsState(settings: EnterpriseSettings): EnterpriseSettings {
+  enterpriseSettingsState = settings
+  notifyEnterpriseSettings()
+  return settings
+}
+
+function getEnterpriseSettingsState(): EnterpriseSettings {
+  return enterpriseSettingsState
+}
+
 function cacheKey(tag: CacheTag, method: string, args: unknown[]): string {
   return `${tag}:${method}:${JSON.stringify(args)}`
 }
@@ -564,12 +589,13 @@ function awsBridge(): AwsLensBridge {
         }
         const invokeWithoutActivity = () => Promise.resolve(value.apply(bridge, args))
         const loader = BACKGROUND_METHODS.has(method) ? invokeWithoutActivity : invoke
+        const isMutatingMethod = MUTATING_METHODS.has(method)
 
         if (!tag) {
           return loader()
         }
 
-        if (MUTATING_METHODS.has(method)) {
+        if (isMutatingMethod) {
           return invoke().then((result) => {
             invalidatePageCache(tag)
             return result
@@ -593,6 +619,9 @@ export function trackedAwsBridge(): AwsLensBridge {
 
 function unwrap<T>(result: Wrapped<T>): T {
   if (!result.ok) {
+    if (typeof window !== 'undefined' && result.error.includes('read-only mode')) {
+      window.dispatchEvent(new CustomEvent('aws-lens:blocked-action', { detail: result.error }))
+    }
     throw new Error(result.error)
   }
   return result.data
@@ -700,8 +729,46 @@ export async function listServices(): Promise<ServiceDescriptor[]> {
   return unwrap((await awsBridge().listServices()) as Wrapped<ServiceDescriptor[]>)
 }
 
+export function subscribeToEnterpriseSettings(listener: (settings: EnterpriseSettings) => void): () => void {
+  enterpriseListeners.add(listener)
+  listener(getEnterpriseSettingsState())
+  return () => {
+    enterpriseListeners.delete(listener)
+  }
+}
+
+export function useEnterpriseSettings(): EnterpriseSettings {
+  const [state, setState] = useState<EnterpriseSettings>(() => getEnterpriseSettingsState())
+
+  useEffect(() => subscribeToEnterpriseSettings(setState), [])
+
+  return state
+}
+
+export async function getEnterpriseSettings(): Promise<EnterpriseSettings> {
+  return setEnterpriseSettingsState(unwrap((await rawAwsBridge().getEnterpriseSettings()) as Wrapped<EnterpriseSettings>))
+}
+
+export async function setEnterpriseAccessMode(accessMode: EnterpriseAccessMode): Promise<EnterpriseSettings> {
+  return setEnterpriseSettingsState(
+    unwrap((await rawAwsBridge().setEnterpriseAccessMode(accessMode)) as Wrapped<EnterpriseSettings>)
+  )
+}
+
+export async function listEnterpriseAuditEvents(): Promise<EnterpriseAuditEvent[]> {
+  return unwrap((await rawAwsBridge().listEnterpriseAuditEvents()) as Wrapped<EnterpriseAuditEvent[]>)
+}
+
+export async function exportEnterpriseAuditEvents(): Promise<EnterpriseAuditExportResult> {
+  return unwrap((await rawAwsBridge().exportEnterpriseAuditEvents()) as Wrapped<EnterpriseAuditExportResult>)
+}
+
 export async function getAppReleaseInfo(): Promise<AppReleaseInfo> {
   return unwrap((await rawAwsBridge().getReleaseInfo()) as Wrapped<AppReleaseInfo>)
+}
+
+export async function openPath(targetPath: string): Promise<void> {
+  await rawAwsBridge().openPath(targetPath)
 }
 
 export async function getCallerIdentity(connection: AwsConnection): Promise<CallerIdentity> {

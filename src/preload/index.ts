@@ -157,7 +157,12 @@ const awsLensApi = {
   getCostBreakdown: (connection: AwsConnection) =>
     ipcRenderer.invoke('overview:cost-breakdown', connection),
   openExternalUrl: (url: string) => ipcRenderer.invoke('shell:open-external', url),
+  openPath: (targetPath: string) => ipcRenderer.invoke('shell:open-path', targetPath),
   chooseEc2SshKey: () => ipcRenderer.invoke('ec2:ssh:choose-key'),
+  getEnterpriseSettings: () => ipcRenderer.invoke('enterprise:get-settings'),
+  setEnterpriseAccessMode: (accessMode: 'read-only' | 'operator') => ipcRenderer.invoke('enterprise:set-access-mode', accessMode),
+  listEnterpriseAuditEvents: () => ipcRenderer.invoke('enterprise:audit:list'),
+  exportEnterpriseAuditEvents: () => ipcRenderer.invoke('enterprise:audit:export'),
 
   /* EKS */
   listEksClusters: (connection: AwsConnection) => ipcRenderer.invoke('eks:list-clusters', connection),

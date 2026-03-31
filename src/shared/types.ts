@@ -798,11 +798,45 @@ export type ServiceId =
   | 'kms'
   | 'waf'
 
+export type ServiceMaturity = 'production-ready' | 'beta' | 'experimental'
+
 export type ServiceDescriptor = {
   id: ServiceId
   label: string
   category: string
   migrated: boolean
+  maturity: ServiceMaturity
+}
+
+export type EnterpriseAccessMode = 'read-only' | 'operator'
+
+export type EnterpriseSettings = {
+  accessMode: EnterpriseAccessMode
+  updatedAt: string
+}
+
+export type EnterpriseAuditOutcome = 'success' | 'blocked' | 'failed'
+
+export type EnterpriseAuditEvent = {
+  id: string
+  happenedAt: string
+  accessMode: EnterpriseAccessMode
+  outcome: EnterpriseAuditOutcome
+  action: string
+  channel: string
+  summary: string
+  actorLabel: string
+  accountId: string
+  region: string
+  serviceId: ServiceId | ''
+  resourceId: string
+  details: string[]
+}
+
+export type EnterpriseAuditExportResult = {
+  path: string
+  eventCount: number
+  rangeDays?: 1 | 7
 }
 
 /* ── Navigation Focus ────────────────────────────────────── */

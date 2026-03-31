@@ -9,6 +9,7 @@ import { registerAwsIpcHandlers } from './awsIpc'
 import { registerCompareIpcHandlers } from './compareIpc'
 import { registerComplianceIpcHandlers } from './complianceIpc'
 import { registerEc2IpcHandlers } from './ec2Ipc'
+import { assertEnterpriseAccess, recordEnterpriseAuditEvent } from './enterprise'
 import { registerEcrIpcHandlers } from './ecrIpc'
 import { registerEksIpcHandlers } from './eksIpc'
 import { registerIpcHandlers } from './ipc'
@@ -41,17 +42,69 @@ function showTerraformCloseWarning(owner?: BrowserWindow): number {
 
 /* ── Graceful shutdown: track in-flight IPC requests ─────── */
 const pendingRequests = new Set<Promise<unknown>>()
+type HandlerFailure = { ok: false; error: string }
+
+function asHandlerFailure(error: unknown): HandlerFailure {
+  return {
+    ok: false,
+    error: error instanceof Error ? error.message : String(error)
+  }
+}
 
 const originalHandle = ipcMain.handle.bind(ipcMain)
 ipcMain.handle = (channel: string, listener: (...args: any[]) => any) => {
-  originalHandle(channel, (...args: any[]) => {
-    const result = listener(...args)
-    if (result && typeof result.then === 'function') {
-      pendingRequests.add(result)
-      const cleanup = () => { pendingRequests.delete(result) }
-      result.then(cleanup, cleanup)
+  originalHandle(channel, async (...args: any[]) => {
+    const enterpriseArgs = args.slice(1)
+    let settings
+
+    try {
+      settings = assertEnterpriseAccess(channel, enterpriseArgs)
+    } catch (error) {
+      const fallbackSettings = { accessMode: 'read-only', updatedAt: '' } as const
+      await recordEnterpriseAuditEvent(
+        channel,
+        enterpriseArgs,
+        error instanceof Error && error.message.includes('read-only mode') ? 'blocked' : 'failed',
+        fallbackSettings,
+        error instanceof Error ? error.message : String(error)
+      )
+      return asHandlerFailure(error)
     }
-    return result
+
+    try {
+      const result = listener(...args)
+      if (result && typeof result.then === 'function') {
+        pendingRequests.add(result)
+        try {
+          const settled = await result
+          pendingRequests.delete(result)
+          await recordEnterpriseAuditEvent(channel, enterpriseArgs, 'success', settings)
+          return settled
+        } catch (error) {
+          pendingRequests.delete(result)
+          await recordEnterpriseAuditEvent(
+            channel,
+            enterpriseArgs,
+            error instanceof Error && error.message.includes('read-only mode') ? 'blocked' : 'failed',
+            settings,
+            error instanceof Error ? error.message : String(error)
+          )
+          return asHandlerFailure(error)
+        }
+      }
+
+      await recordEnterpriseAuditEvent(channel, enterpriseArgs, 'success', settings)
+      return result
+    } catch (error) {
+      await recordEnterpriseAuditEvent(
+        channel,
+        enterpriseArgs,
+        'failed',
+        settings,
+        error instanceof Error ? error.message : String(error)
+      )
+      return asHandlerFailure(error)
+    }
   })
 }
 

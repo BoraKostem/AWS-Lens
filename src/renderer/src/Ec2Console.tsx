@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import './ec2.css'
 import { SvcState } from './SvcState'
 import { FreshnessIndicator, useFreshnessState } from './freshness'
@@ -423,6 +423,7 @@ export function Ec2Console({
   const [volumeTagKey, setVolumeTagKey] = useState('')
   const [volumeTagValue, setVolumeTagValue] = useState('')
   const [volumeAttachInstanceId, setVolumeAttachInstanceId] = useState('')
+  const volumeDetailNameRef = useRef<string>('')
   const [volumeAttachDevice, setVolumeAttachDevice] = useState('/dev/sdf')
   const [volumeModifySize, setVolumeModifySize] = useState('')
   const [volumeModifyType, setVolumeModifyType] = useState('')
@@ -596,18 +597,22 @@ export function Ec2Console({
     }
   }, [appliedFocusToken, focusInstance, instances])
 
+  useEffect(() => {
+    volumeDetailNameRef.current = volumeDetail?.name ?? ''
+  }, [volumeDetail?.name])
+
   useEffect(() => subscribeToTempVolumeProgress((progress) => {
     setVolumeWorkflowStatus((current) => ({
       mode: progress.mode,
       volumeId: progress.volumeId,
-      volumeName: current?.volumeId === progress.volumeId ? current.volumeName : volumeDetail?.name ?? progress.volumeId,
+      volumeName: current?.volumeId === progress.volumeId ? current.volumeName : volumeDetailNameRef.current || progress.volumeId,
       tempUuid: progress.tempUuid,
       instanceId: progress.instanceId,
       stage: progress.stage,
       message: progress.message,
       error: progress.error
     }))
-  }), [volumeDetail?.name])
+  }), [])
 
   async function loadSsmForInstance(instanceId: string, reason: 'selection' | 'background' | 'manual' = 'selection'): Promise<void> {
     if (!instanceId) {
@@ -691,11 +696,21 @@ export function Ec2Console({
   }
 
   /* ── Action handlers ─────────────────────────────────────── */
+  async function runEc2Mutation(work: () => Promise<void>): Promise<void> {
+    try {
+      await work()
+    } catch (error) {
+      setMsg(error instanceof Error ? error.message : String(error))
+    }
+  }
+
   async function doAction(action: Ec2InstanceAction) {
     if (!selectedId) return
-    await runEc2InstanceAction(connection, selectedId, action)
-    setMsg(`${action} sent`)
-    await reload()
+    await runEc2Mutation(async () => {
+      await runEc2InstanceAction(connection, selectedId, action)
+      setMsg(`${action} sent`)
+      await reload()
+    })
   }
 
   async function doDescribe() {
@@ -707,9 +722,11 @@ export function Ec2Console({
 
   async function doTerminate() {
     if (!selectedId) return
-    await terminateEc2Instance(connection, selectedId)
-    setMsg('Terminate sent')
-    await reload()
+    await runEc2Mutation(async () => {
+      await terminateEc2Instance(connection, selectedId)
+      setMsg('Terminate sent')
+      await reload()
+    })
   }
 
   async function doResize() {
@@ -729,44 +746,56 @@ export function Ec2Console({
 
   async function doAttachIam() {
     if (!selectedId || !iamName) return
-    await attachIamProfile(connection, selectedId, iamName)
-    setMsg('IAM profile attached')
-    setIamAssoc(await getIamAssociation(connection, selectedId))
+    await runEc2Mutation(async () => {
+      await attachIamProfile(connection, selectedId, iamName)
+      setMsg('IAM profile attached')
+      setIamAssoc(await getIamAssociation(connection, selectedId))
+    })
   }
 
   async function doReplaceIam() {
     if (!iamAssoc || !iamName) return
-    await replaceIamProfile(connection, iamAssoc.associationId, iamName)
-    setMsg('IAM profile replaced')
-    setIamAssoc(await getIamAssociation(connection, selectedId))
+    await runEc2Mutation(async () => {
+      await replaceIamProfile(connection, iamAssoc.associationId, iamName)
+      setMsg('IAM profile replaced')
+      setIamAssoc(await getIamAssociation(connection, selectedId))
+    })
   }
 
   async function doRemoveIam() {
     if (!iamAssoc) return
-    await removeIamProfile(connection, iamAssoc.associationId)
-    setMsg('IAM profile removed')
-    setIamAssoc(null)
+    await runEc2Mutation(async () => {
+      await removeIamProfile(connection, iamAssoc.associationId)
+      setMsg('IAM profile removed')
+      setIamAssoc(null)
+    })
   }
 
   async function doCreateSnap() {
     if (!snapVolume) return
-    const id = await createEc2Snapshot(connection, snapVolume, snapDesc)
-    setMsg(`Snapshot ${id} created`)
-    setSnapshots(await listEc2Snapshots(connection))
+    await runEc2Mutation(async () => {
+      const id = await createEc2Snapshot(connection, snapVolume, snapDesc)
+      setMsg(`Snapshot ${id} created`)
+      setSnapshots(await listEc2Snapshots(connection))
+    })
   }
 
   async function doDeleteSnap() {
     if (!selectedSnapId) return
-    await deleteEc2Snapshot(connection, selectedSnapId)
-    setMsg(`Snapshot ${selectedSnapId} deleted`)
-    setSnapshots(await listEc2Snapshots(connection))
+    await runEc2Mutation(async () => {
+      await deleteEc2Snapshot(connection, selectedSnapId)
+      setMsg(`Snapshot ${selectedSnapId} deleted`)
+      setSnapshots(await listEc2Snapshots(connection))
+    })
   }
 
   async function doTagSnap() {
     if (!selectedSnapId || !tagKey) return
-    await tagEc2Snapshot(connection, selectedSnapId, { [tagKey]: tagValue })
-    setMsg(`Tag applied`)
-    setSnapshots(await listEc2Snapshots(connection))
+    await runEc2Mutation(async () => {
+      await tagEc2Snapshot(connection, selectedSnapId, { [tagKey]: tagValue })
+      setMsg('Tag applied')
+      setSnapshots(await listEc2Snapshots(connection))
+    })
   }
 
   async function refreshSelectedVolume(): Promise<void> {
@@ -782,20 +811,24 @@ export function Ec2Console({
     if (!volumeDetail || !volumeTagKey.trim()) {
       return
     }
-    await tagEbsVolume(connection, volumeDetail.volumeId, { [volumeTagKey.trim()]: volumeTagValue })
-    setVolumeTagKey('')
-    setVolumeTagValue('')
-    setMsg(`Tag ${volumeTagKey.trim()} applied to ${volumeDetail.volumeId}`)
-    await refreshSelectedVolume()
+    await runEc2Mutation(async () => {
+      await tagEbsVolume(connection, volumeDetail.volumeId, { [volumeTagKey.trim()]: volumeTagValue })
+      setVolumeTagKey('')
+      setVolumeTagValue('')
+      setMsg(`Tag ${volumeTagKey.trim()} applied to ${volumeDetail.volumeId}`)
+      await refreshSelectedVolume()
+    })
   }
 
   async function doUntagVolume(tagKeyToRemove: string) {
     if (!volumeDetail || !tagKeyToRemove) {
       return
     }
-    await untagEbsVolume(connection, volumeDetail.volumeId, [tagKeyToRemove])
-    setMsg(`Tag ${tagKeyToRemove} removed from ${volumeDetail.volumeId}`)
-    await refreshSelectedVolume()
+    await runEc2Mutation(async () => {
+      await untagEbsVolume(connection, volumeDetail.volumeId, [tagKeyToRemove])
+      setMsg(`Tag ${tagKeyToRemove} removed from ${volumeDetail.volumeId}`)
+      await refreshSelectedVolume()
+    })
   }
 
   async function doAttachVolume() {
@@ -803,32 +836,38 @@ export function Ec2Console({
       setMsg('Enter an instance ID and device name.')
       return
     }
-    await attachEbsVolume(connection, volumeDetail.volumeId, {
-      instanceId: volumeAttachInstanceId.trim(),
-      device: volumeAttachDevice.trim()
+    await runEc2Mutation(async () => {
+      await attachEbsVolume(connection, volumeDetail.volumeId, {
+        instanceId: volumeAttachInstanceId.trim(),
+        device: volumeAttachDevice.trim()
+      })
+      setMsg(`Attach requested for ${volumeDetail.volumeId}`)
+      await refreshSelectedVolume()
     })
-    setMsg(`Attach requested for ${volumeDetail.volumeId}`)
-    await refreshSelectedVolume()
   }
 
   async function doDetachVolume(attachment?: EbsVolumeDetail['attachments'][number]) {
     if (!volumeDetail) {
       return
     }
-    await detachEbsVolume(connection, volumeDetail.volumeId, attachment
-      ? { instanceId: attachment.instanceId, device: attachment.device }
-      : undefined)
-    setMsg(`Detach requested for ${volumeDetail.volumeId}`)
-    await refreshSelectedVolume()
+    await runEc2Mutation(async () => {
+      await detachEbsVolume(connection, volumeDetail.volumeId, attachment
+        ? { instanceId: attachment.instanceId, device: attachment.device }
+        : undefined)
+      setMsg(`Detach requested for ${volumeDetail.volumeId}`)
+      await refreshSelectedVolume()
+    })
   }
 
   async function doDeleteVolume() {
     if (!volumeDetail) {
       return
     }
-    await deleteEbsVolume(connection, volumeDetail.volumeId)
-    setMsg(`Volume ${volumeDetail.volumeId} deleted`)
-    await reload()
+    await runEc2Mutation(async () => {
+      await deleteEbsVolume(connection, volumeDetail.volumeId)
+      setMsg(`Volume ${volumeDetail.volumeId} deleted`)
+      await reload()
+    })
   }
 
   async function doModifyVolume() {
@@ -853,14 +892,16 @@ export function Ec2Console({
       return
     }
 
-    await modifyEbsVolume(connection, volumeDetail.volumeId, {
-      sizeGiB,
-      type: volumeModifyType.trim() || undefined,
-      iops,
-      throughput
+    await runEc2Mutation(async () => {
+      await modifyEbsVolume(connection, volumeDetail.volumeId, {
+        sizeGiB,
+        type: volumeModifyType.trim() || undefined,
+        iops,
+        throughput
+      })
+      setMsg(`Modify requested for ${volumeDetail.volumeId}`)
+      await refreshSelectedVolume()
     })
-    setMsg(`Modify requested for ${volumeDetail.volumeId}`)
-    await refreshSelectedVolume()
   }
 
   function openVolumeFromSnapshot(volumeId: string) {

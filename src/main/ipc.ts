@@ -8,6 +8,7 @@ import { dialog, ipcMain, shell, app, type BrowserWindow, type OpenDialogOptions
 import type { AwsConnection, TerraformCommandRequest, TerraformInputConfiguration, TerraformRunHistoryFilter } from '@shared/types'
 import { importAwsConfigFile } from './aws/profiles'
 import { SERVICE_CATALOG } from './catalog'
+import { exportEnterpriseAuditEvents, getEnterpriseSettings, listEnterpriseAuditEvents, setEnterpriseAccessMode } from './enterprise'
 import { getReleaseInfo } from './releaseCheck'
 import { getSelectedProjectId, setSelectedProjectId } from './store'
 import {
@@ -237,7 +238,14 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   )
   ipcMain.handle('terraform:governance:get-report', async (_event, projectId: string) => wrap(() => getGovernanceReport(projectId)))
   ipcMain.handle('shell:open-external', async (_event, url: string) => wrap(() => shell.openExternal(url)))
+  ipcMain.handle('shell:open-path', async (_event, targetPath: string) => wrap(() => shell.openPath(targetPath)))
   ipcMain.handle('app:release-info', async () => wrap(() => getReleaseInfo()))
+  ipcMain.handle('enterprise:get-settings', async () => wrap(() => getEnterpriseSettings()))
+  ipcMain.handle('enterprise:set-access-mode', async (_event, accessMode: 'read-only' | 'operator') =>
+    wrap(() => setEnterpriseAccessMode(accessMode))
+  )
+  ipcMain.handle('enterprise:audit:list', async () => wrap(() => listEnterpriseAuditEvents()))
+  ipcMain.handle('enterprise:audit:export', async () => wrap(() => exportEnterpriseAuditEvents(getWindow())))
 
   /* ── AWS profile import ─────────────────────────────────── */
   ipcMain.handle('profiles:choose-and-import', async () =>

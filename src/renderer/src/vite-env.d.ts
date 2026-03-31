@@ -97,7 +97,12 @@ declare global {
       searchByTag: (connection: AwsConnection, tagKey: string, tagValue?: string) => Promise<unknown>
       getCostBreakdown: (connection: AwsConnection) => Promise<unknown>
       openExternalUrl: (url: string) => Promise<unknown>
+      openPath: (targetPath: string) => Promise<unknown>
       chooseEc2SshKey: () => Promise<unknown>
+      getEnterpriseSettings: () => Promise<unknown>
+      setEnterpriseAccessMode: (accessMode: 'read-only' | 'operator') => Promise<unknown>
+      listEnterpriseAuditEvents: () => Promise<unknown>
+      exportEnterpriseAuditEvents: () => Promise<unknown>
       listEksClusters: (connection: AwsConnection) => Promise<unknown>
       describeEksCluster: (connection: AwsConnection, clusterName: string) => Promise<unknown>
       listEksNodegroups: (connection: AwsConnection, clusterName: string) => Promise<unknown>

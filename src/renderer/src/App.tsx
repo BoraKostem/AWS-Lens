@@ -1,8 +1,35 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import appLogoUrl from '../../../assets/aws-lens-logo.png'
-import type { AppReleaseInfo, ComparisonRequest, NavigationFocus, ServiceDescriptor, ServiceId, TokenizedFocus } from '@shared/types'
-import { chooseAndImportConfig, closeAwsTerminal, deleteProfile, getAppReleaseInfo, invalidateAllPageCaches, invalidatePageCache, listServices, openExternalUrl, saveCredentials, useAwsActivity, type CacheTag } from './api'
+import type {
+  AppReleaseInfo,
+  ComparisonRequest,
+  EnterpriseAccessMode,
+  EnterpriseAuditEvent,
+  NavigationFocus,
+  ServiceDescriptor,
+  ServiceId,
+  ServiceMaturity,
+  TokenizedFocus
+} from '@shared/types'
+import {
+  chooseAndImportConfig,
+  closeAwsTerminal,
+  deleteProfile,
+  exportEnterpriseAuditEvents,
+  getAppReleaseInfo,
+  getEnterpriseSettings,
+  invalidateAllPageCaches,
+  invalidatePageCache,
+  listEnterpriseAuditEvents,
+  listServices,
+  openExternalUrl,
+  saveCredentials,
+  setEnterpriseAccessMode,
+  useAwsActivity,
+  useEnterpriseSettings,
+  type CacheTag
+} from './api'
 import { AcmConsole } from './AcmConsole'
 import { AutoScalingConsole } from './AutoScalingConsole'
 import { AwsTerminalPanel } from './AwsTerminalPanel'
@@ -43,6 +70,11 @@ type RefreshState = { screen: Screen; sawPending: boolean } | null
 type FabMode = 'closed' | 'menu' | 'credentials'
 type CompareSeed = { token: number; request: ComparisonRequest } | null
 type ProfileContextMenuState = { profileName: string; x: number; y: number } | null
+type AuditSummary = {
+  total: number
+  blocked: number
+  failed: number
+}
 const PINNED_SERVICES_STORAGE_KEY = 'aws-lens:pinned-services'
 type FocusMap = Partial<Record<NavigationFocus['service'], TokenizedFocus>>
 const NAV_HIDDEN_SERVICE_IDS = new Set<ServiceId>(['overview', 'session-hub', 'compare'])
@@ -90,6 +122,12 @@ const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   sts: 'Caller identity, auth decoding, access key lookup, and assume-role credentials.',
   kms: 'Key inventory, key detail panel, and ciphertext blob decryption.',
   waf: 'Web ACL inventory, rule editing, associations, and scope switching.'
+}
+
+const SERVICE_MATURITY_LABELS: Record<ServiceMaturity, string> = {
+  'production-ready': 'Production-ready',
+  beta: 'Beta',
+  experimental: 'Experimental'
 }
 
 const IMPLEMENTED_SCREENS = new Set<ServiceId>([
@@ -219,6 +257,10 @@ function PlaceholderScreen({ service }: { service: ServiceDescriptor }) {
             <span>Category</span>
             <strong>{service.category || 'General'}</strong>
           </div>
+          <div className="connection-summary">
+            <span>Maturity</span>
+            <strong>{SERVICE_MATURITY_LABELS[service.maturity]}</strong>
+          </div>
         </div>
       </section>
       <section className="empty-hero">
@@ -306,11 +348,15 @@ export function App() {
   const [credSaving, setCredSaving] = useState(false)
   const [credError, setCredError] = useState('')
   const [profileActionMsg, setProfileActionMsg] = useState('')
+  const [globalWarning, setGlobalWarning] = useState('')
   const [focusMap, setFocusMap] = useState<FocusMap>({})
   const [compareSeed, setCompareSeed] = useState<CompareSeed>(null)
   const [profileContextMenu, setProfileContextMenu] = useState<ProfileContextMenuState>(null)
+  const [auditEvents, setAuditEvents] = useState<EnterpriseAuditEvent[]>([])
+  const [enterpriseBusy, setEnterpriseBusy] = useState(false)
   const connectionState = useAwsPageConnection('us-east-1')
   const awsActivity = useAwsActivity()
+  const enterpriseSettings = useEnterpriseSettings()
 
   useEffect(() => {
     void listServices().then((loadedServices) => {
@@ -325,6 +371,25 @@ export function App() {
       // Ignore release check failures in the UI.
     })
   }, [])
+
+  useEffect(() => {
+    void getEnterpriseSettings().catch(() => {
+      // Keep local default when enterprise settings are unavailable.
+    })
+    void listEnterpriseAuditEvents().then(setAuditEvents).catch(() => {
+      // Ignore audit hydration failures in the catalog shell.
+    })
+  }, [])
+
+  useEffect(() => {
+    if (screen !== 'profiles') {
+      return
+    }
+
+    void listEnterpriseAuditEvents().then(setAuditEvents).catch(() => {
+      // Ignore audit refresh failures in the catalog shell.
+    })
+  }, [awsActivity.lastCompletedAt, profileActionMsg, screen])
 
   useEffect(() => {
     try {
@@ -358,7 +423,11 @@ export function App() {
   const totalProfiles = connectionState.profiles.length
   const totalPinnedProfiles = connectionState.pinnedProfileNames.length
   const totalVisibleServices = services.filter((service) => !NAV_HIDDEN_SERVICE_IDS.has(service.id)).length
-
+  const auditSummary = useMemo<AuditSummary>(() => ({
+    total: auditEvents.length,
+    blocked: auditEvents.filter((event) => event.outcome === 'blocked').length,
+    failed: auditEvents.filter((event) => event.outcome === 'failed').length
+  }), [auditEvents])
   const groupedServices = useMemo(() => {
     const grouped = new Map<string, ServiceDescriptor[]>()
     const pinnedIds = new Set(pinnedServiceIds)
@@ -545,6 +614,24 @@ export function App() {
   }, [fabMode, showCatalogFab])
 
   useEffect(() => {
+    if (enterpriseSettings.accessMode !== 'operator' && terminalOpen) {
+      setTerminalOpen(false)
+    }
+  }, [enterpriseSettings.accessMode, terminalOpen])
+
+  useEffect(() => {
+    function handleBlockedAction(event: Event): void {
+      const detail = event instanceof CustomEvent && typeof event.detail === 'string'
+        ? event.detail
+        : 'AWS Lens blocked the action because the app is in read-only mode.'
+      setGlobalWarning(detail)
+    }
+
+    window.addEventListener('aws-lens:blocked-action', handleBlockedAction)
+    return () => window.removeEventListener('aws-lens:blocked-action', handleBlockedAction)
+  }, [])
+
+  useEffect(() => {
     setVisitedScreens((current) => (current.includes(screen) ? current : [...current, screen]))
   }, [screen])
 
@@ -666,6 +753,43 @@ export function App() {
     }
   }
 
+  async function handleAccessModeChange(accessMode: EnterpriseAccessMode): Promise<void> {
+    setEnterpriseBusy(true)
+    setProfileActionMsg('')
+    try {
+      await setEnterpriseAccessMode(accessMode)
+      setProfileActionMsg(
+        accessMode === 'operator'
+          ? 'Operator mode enabled. Mutating actions and command execution are available.'
+          : 'Read-only mode enabled. AWS Lens will block mutating and command execution flows.'
+      )
+    } catch (err) {
+      connectionState.setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setEnterpriseBusy(false)
+    }
+  }
+
+  async function handleAuditExport(): Promise<void> {
+    setEnterpriseBusy(true)
+    setProfileActionMsg('')
+    try {
+      const exported = await exportEnterpriseAuditEvents()
+      if (!exported.path) {
+        return
+      }
+
+      const rangeLabel = exported.rangeDays === 1 ? 'last 1 day' : 'last 7 days'
+      setProfileActionMsg(
+        `Exported ${exported.eventCount} audit event${exported.eventCount === 1 ? '' : 's'} from the ${rangeLabel} to ${exported.path}`
+      )
+    } catch (err) {
+      connectionState.setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setEnterpriseBusy(false)
+    }
+  }
+
   function renderScreenContent(targetScreen: Screen): React.ReactNode {
     const targetService = services.find((service) => service.id === targetScreen)
 
@@ -676,7 +800,10 @@ export function App() {
             <div className="profile-catalog-hero-copy">
               <div className="eyebrow">Profile Catalog</div>
               <h2>Switch accounts without losing context.</h2>
-              <p className="hero-path">Pinned profiles stay in the rail, region stays global, and every workspace uses the same active AWS context.</p>
+              <p className="hero-path">
+                Pinned profiles stay in the rail, region stays global, and every workspace uses the same active AWS context.
+                Enterprise mode, audit history, service maturity, and support guidance are managed here.
+              </p>
             </div>
             <div className="profile-catalog-stats" aria-label="Profile catalog summary">
               <div className="profile-catalog-stat">
@@ -725,7 +852,12 @@ export function App() {
                   </div>
                   <div className="profile-catalog-status">
                     <span>{connectionState.profile === entry.name ? 'Active context' : 'Available'}</span>
-                    {connectionState.pinnedProfileNames.includes(entry.name) && <strong>Pinned</strong>}
+                    <div className="enterprise-card-status">
+                      <span className={`enterprise-mode-pill ${entry.managedByApp ? 'operator' : 'read-only'}`}>
+                        {entry.managedByApp ? 'Vault' : 'External'}
+                      </span>
+                      {connectionState.pinnedProfileNames.includes(entry.name) && <strong>Pinned</strong>}
+                    </div>
                   </div>
                   <div className="button-row profile-catalog-actions">
                     <button type="button" className="accent" onClick={() => { connectionState.selectProfile(entry.name) }}>
@@ -735,7 +867,11 @@ export function App() {
                       {connectionState.pinnedProfileNames.includes(entry.name) ? 'Unpin' : 'Pin'}
                     </button>
                     {entry.managedByApp && (
-                      <button type="button" onClick={() => void handleDeleteProfile(entry.name)}>
+                      <button
+                        type="button"
+                        disabled={enterpriseSettings.accessMode !== 'operator'}
+                        onClick={() => void handleDeleteProfile(entry.name)}
+                      >
                         Delete
                       </button>
                     )}
@@ -750,6 +886,106 @@ export function App() {
               </div>
             )}
           </div>
+          </div>
+          <div className="enterprise-panel-grid enterprise-panel-grid-bottom">
+            <section className="panel stack enterprise-panel">
+              <div className="panel-header">
+                <div>
+                  <div className="eyebrow">Access Mode</div>
+                  <h3>Separate read-only and operator access</h3>
+                </div>
+                <span className={`enterprise-mode-pill ${enterpriseSettings.accessMode}`}>
+                  {enterpriseSettings.accessMode === 'operator' ? 'Operator' : 'Read-only'}
+                </span>
+              </div>
+              <p className="hero-path">
+                Read-only mode blocks AWS mutations and command execution flows. Operator mode enables critical actions and audit export.
+              </p>
+              <div className="button-row">
+                <button
+                  type="button"
+                  className={enterpriseSettings.accessMode === 'read-only' ? 'accent' : ''}
+                  disabled={enterpriseBusy}
+                  onClick={() => void handleAccessModeChange('read-only')}
+                >
+                  Read-only
+                </button>
+                <button
+                  type="button"
+                  className={enterpriseSettings.accessMode === 'operator' ? 'accent' : ''}
+                  disabled={enterpriseBusy}
+                  onClick={() => void handleAccessModeChange('operator')}
+                >
+                  Operator
+                </button>
+              </div>
+              <div className="enterprise-inline-note">
+                <strong>Updated</strong>
+                <span>{enterpriseSettings.updatedAt ? new Date(enterpriseSettings.updatedAt).toLocaleString() : 'Not yet changed'}</span>
+              </div>
+            </section>
+            <section className="panel stack enterprise-panel">
+              <div className="panel-header">
+                <div>
+                  <div className="eyebrow">Audit Trail</div>
+                  <h3>Critical action history</h3>
+                </div>
+              </div>
+              <div className="enterprise-stats-row">
+                <div className="profile-catalog-stat">
+                  <span>Total</span>
+                  <strong>{auditSummary.total}</strong>
+                </div>
+                <div className="profile-catalog-stat">
+                  <span>Blocked</span>
+                  <strong>{auditSummary.blocked}</strong>
+                </div>
+                <div className="profile-catalog-stat">
+                  <span>Failed</span>
+                  <strong>{auditSummary.failed}</strong>
+                </div>
+              </div>
+              <div className="enterprise-audit-list">
+                {auditEvents.map((event) => (
+                  <div key={event.id} className={`enterprise-audit-item ${event.outcome}`}>
+                    <div className="enterprise-audit-item__header">
+                      <div className="enterprise-audit-item__title">
+                        <strong>{event.action}</strong>
+                        {event.outcome === 'blocked' && <span className="enterprise-audit-badge blocked">Blocked</span>}
+                        {event.outcome === 'failed' && <span className="enterprise-audit-badge failed">Failed</span>}
+                      </div>
+                      <span>{new Date(event.happenedAt).toLocaleString()}</span>
+                    </div>
+                    {event.outcome === 'blocked' && (
+                      <div className="enterprise-audit-item__reason">
+                        Blocked in read-only mode
+                        {event.resourceId ? ` for ${event.resourceId}` : ''}
+                      </div>
+                    )}
+                    <div className="enterprise-audit-item__meta">
+                      <span>{event.actorLabel || 'local-app'}</span>
+                      <span>{event.region || 'no-region'}</span>
+                      <span>{event.resourceId || event.channel}</span>
+                    </div>
+                    {event.summary && event.summary !== event.action && (
+                      <div className="enterprise-audit-item__summary">{event.summary}</div>
+                    )}
+                  </div>
+                ))}
+                {auditEvents.length === 0 && (
+                  <div className="profile-catalog-empty">
+                    <div className="eyebrow">Audit Trail</div>
+                    <h3>No audit events yet</h3>
+                    <p className="hero-path">Critical actions run in operator mode, or blocked in read-only mode, will appear here.</p>
+                  </div>
+                )}
+              </div>
+              <div className="button-row">
+                <button type="button" disabled={enterpriseBusy || auditEvents.length === 0} onClick={() => void handleAuditExport()}>
+                  Export Audit JSON
+                </button>
+              </div>
+            </section>
           </div>
         </section>
       )
@@ -991,6 +1227,15 @@ export function App() {
                 ))}
               </select>
             </label>
+            <div className="enterprise-sidebar-note">
+              <span>Mode</span>
+              <strong>{enterpriseSettings.accessMode === 'operator' ? 'Operator' : 'Read-only'}</strong>
+              <small>
+                {enterpriseSettings.accessMode === 'operator'
+                  ? 'Writes and terminal access enabled.'
+                  : 'Writes and terminal blocked.'}
+              </small>
+            </div>
             <button
               type="button"
               className="sidebar-refresh-button"
@@ -1079,8 +1324,8 @@ export function App() {
       </nav>
 
       <main className="catalog-main">
-        {(catalogError || connectionState.error) && <div className="error-banner">{catalogError || connectionState.error}</div>}
-        {profileActionMsg && <div className="success-banner">{profileActionMsg}</div>}
+        {(globalWarning || catalogError || connectionState.error) && <div className="error-banner">{globalWarning || catalogError || connectionState.error}</div>}
+        {screen === 'profiles' && profileActionMsg && <div className="success-banner">{profileActionMsg}</div>}
         {visitedScreens.map((visitedScreen) => {
           const shouldSoftRefresh = SOFT_REFRESH_SCREENS.has(visitedScreen)
           const sectionKey = shouldSoftRefresh
@@ -1327,16 +1572,18 @@ export function App() {
               : 'Select an AWS profile and region to enable CLI context.'}
           </span>
         </div>
-        <button
-          type="button"
-          className="accent footer-terminal-toggle"
-          onClick={() => setTerminalOpen((current) => !current)}
-          disabled={!connectionState.connected}
-          aria-label={terminalOpen ? 'Hide terminal' : 'Open terminal'}
-          title={terminalOpen ? 'Hide terminal' : 'Open terminal'}
-        >
-          <span className="footer-terminal-icon">{terminalOpen ? '[_]' : '>_'}</span>
-        </button>
+        {enterpriseSettings.accessMode === 'operator' && (
+          <button
+            type="button"
+            className="accent footer-terminal-toggle"
+            onClick={() => setTerminalOpen((current) => !current)}
+            disabled={!connectionState.connected}
+            aria-label={terminalOpen ? 'Hide terminal' : 'Open terminal'}
+            title={terminalOpen ? 'Hide terminal' : 'Open terminal'}
+          >
+            <span className="footer-terminal-icon">{terminalOpen ? '[_]' : '>_'}</span>
+          </button>
+        )}
       </footer>
       <AwsTerminalPanel
         connection={connectionState.connection}
@@ -1353,10 +1600,20 @@ export function App() {
       <div className="fab-container">
         {fabMode === 'menu' && (
           <div className="fab-menu">
-            <button type="button" className="fab-menu-item" onClick={() => void handleLoadAwsConfig()}>
+            <button
+              type="button"
+              className="fab-menu-item"
+              disabled={enterpriseSettings.accessMode !== 'operator'}
+              onClick={() => void handleLoadAwsConfig()}
+            >
               Load AWS Config
             </button>
-            <button type="button" className="fab-menu-item" onClick={() => { setCredError(''); setFabMode('credentials') }}>
+            <button
+              type="button"
+              className="fab-menu-item"
+              disabled={enterpriseSettings.accessMode !== 'operator'}
+              onClick={() => { setCredError(''); setFabMode('credentials') }}
+            >
               Add with Credentials
             </button>
           </div>
@@ -1367,6 +1624,7 @@ export function App() {
           onClick={() => setFabMode(fabMode === 'closed' ? 'menu' : 'closed')}
           aria-label="Add profile"
           title="Add profile"
+          disabled={enterpriseSettings.accessMode !== 'operator'}
         >
           <span className="fab-icon">+</span>
         </button>
@@ -1402,7 +1660,7 @@ export function App() {
               <button
                 type="button"
                 className="accent"
-                disabled={credSaving || !credName.trim() || !credKeyId.trim() || !credSecret.trim()}
+                disabled={enterpriseSettings.accessMode !== 'operator' || credSaving || !credName.trim() || !credKeyId.trim() || !credSecret.trim()}
                 onClick={() => void handleSaveCredentials()}
               >
                 {credSaving ? 'Saving...' : 'Save'}
