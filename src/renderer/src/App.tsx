@@ -73,6 +73,7 @@ import { SettingsPage } from './SettingsPage'
 import { SnsConsole } from './SnsConsole'
 import { SqsConsole } from './SqsConsole'
 import { SessionHub } from './SessionHub'
+import { SvcState } from './SvcState'
 import { StsConsole } from './StsConsole'
 import { TerraformConsole } from './TerraformConsole'
 import { VpcWorkspace } from './VpcWorkspace'
@@ -216,8 +217,12 @@ function ConnectedServiceScreen({
         <section className={hideHero ? 'empty-hero empty-hero-compact' : 'empty-hero'}>
           <div>
             <div className="eyebrow">{service.label}</div>
-            <h2>Select a profile to load {service.label}</h2>
-            <p>{SERVICE_DESCRIPTIONS[service.id]}</p>
+            <h2>{service.label} needs an active AWS context</h2>
+            <SvcState
+              variant="no-selection"
+              resourceName="profile"
+              message={`Select a profile from the catalog to open ${service.label}. ${SERVICE_DESCRIPTIONS[service.id]}`}
+            />
           </div>
         </section>
       )}
@@ -1653,8 +1658,12 @@ export function App() {
             <section className="empty-hero">
               <div>
                 <div className="eyebrow">Access</div>
-                <h2>Select a profile to use direct resource access</h2>
-                <p>Known resource identifiers still require an active AWS connection.</p>
+                <h2>Direct resource access needs an active AWS context</h2>
+                <SvcState
+                  variant="no-selection"
+                  resourceName="profile"
+                  message="Select a profile from the catalog before you jump directly to a known resource identifier."
+                />
               </div>
             </section>
           )}

@@ -18,7 +18,12 @@ export function classifyError(error: string): ClassifiedError {
   const lower = error.toLowerCase()
 
   if (PERMISSION_PATTERNS.some((p) => lower.includes(p))) {
-    return { kind: 'permission', original: error, title: 'Access Denied', guidance: 'The current IAM identity lacks the required permissions for this operation. Check the IAM policies attached to your role or user.' }
+    return {
+      kind: 'permission',
+      original: error,
+      title: 'Access Denied',
+      guidance: 'The current IAM identity lacks the required permissions for this operation. Check the IAM policies attached to your role or user.'
+    }
   }
   if (THROTTLE_PATTERNS.some((p) => lower.includes(p))) {
     return { kind: 'throttle', original: error, title: 'Request Throttled', guidance: 'AWS is rate-limiting requests. Wait a moment and try again.' }
@@ -104,7 +109,7 @@ export function SvcState({
     return (
       <div className={`${base} svc-state-loading`}>
         <span className="svc-state-spinner" />
-        {message || `Loading ${resourceName || 'data'}…`}
+        {message || `Loading ${resourceName || 'workspace'}...`}
         {timestamp}
       </div>
     )
@@ -113,7 +118,7 @@ export function SvcState({
   if (variant === 'empty') {
     return (
       <div className={`${base} svc-state-empty`}>
-        {message || `No ${resourceName || 'items'} found.`}
+        {message || `No ${resourceName || 'results'} are available yet.`}
         {timestamp}
       </div>
     )
@@ -122,7 +127,7 @@ export function SvcState({
   if (variant === 'no-selection') {
     return (
       <div className={`${base} svc-state-empty`}>
-        {message || `Select ${article(resourceName)} ${resourceName || 'item'} to view details.`}
+        {message || `Select ${article(resourceName)} ${resourceName || 'item'} to continue.`}
         {timestamp}
       </div>
     )
@@ -158,7 +163,6 @@ export function SvcState({
     )
   }
 
-  // variant === 'error' or 'permission-denied'
   const classified = error ? classifyError(error) : null
 
   if (variant === 'retryable') {
@@ -174,7 +178,6 @@ export function SvcState({
     )
   }
 
-  // Auto-upgrade error → permission-denied when detected
   if (variant === 'error' && classified && (classified.kind === 'permission' || classified.kind === 'expired-token')) {
     return (
       <div className={`${base} svc-state-permission`}>
@@ -188,7 +191,11 @@ export function SvcState({
   }
 
   if (variant === 'permission-denied') {
-    const cls = classified ?? { title: 'Access Denied', guidance: 'Check the IAM policies attached to your role or user.', original: error || '' }
+    const cls = classified ?? {
+      title: 'Access Denied',
+      guidance: 'The current AWS identity or workspace mode does not allow this action. Check IAM permissions or switch to operator mode when appropriate.',
+      original: error || ''
+    }
     return (
       <div className={`${base} svc-state-permission`}>
         {dismiss}
@@ -200,7 +207,6 @@ export function SvcState({
     )
   }
 
-  // Generic or classified error
   return (
     <div className={`${base} svc-state-error`}>
       {dismiss}
