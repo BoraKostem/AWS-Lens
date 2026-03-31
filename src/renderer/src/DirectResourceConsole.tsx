@@ -3,7 +3,7 @@ import './direct-resource.css'
 import { FreshnessIndicator, useFreshnessState } from './freshness'
 import { SvcState } from './SvcState'
 
-import type { AwsConnection, WafScope } from '@shared/types'
+import type { AwsConnection, NavigationFocus, WafScope } from '@shared/types'
 import {
   describeAcmCertificate,
   describeEcsService,
@@ -61,6 +61,12 @@ type DirectServiceDefinition = {
 type ResultSection = {
   title: string
   data: unknown
+}
+
+type DirectConsoleLink = {
+  label: string
+  description: string
+  focus: NavigationFocus
 }
 
 const SERVICE_DEFINITIONS: DirectServiceDefinition[] = [
@@ -252,7 +258,13 @@ function summarizeSectionData(data: unknown): string {
   return typeof data
 }
 
-export function DirectResourceConsole({ connection }: { connection: AwsConnection }) {
+export function DirectResourceConsole({
+  connection,
+  onNavigate
+}: {
+  connection: AwsConnection
+  onNavigate: (focus: NavigationFocus) => void
+}) {
   const [selectedService, setSelectedService] = useState<DirectServiceKey>('s3')
   const [form, setForm] = useState<Record<string, string>>(INITIAL_FORM)
   const [loading, setLoading] = useState(false)
@@ -276,6 +288,44 @@ export function DirectResourceConsole({ connection }: { connection: AwsConnectio
   const requiredCount = requiredFieldCount(definition)
   const connectionLabel = connection.kind === 'profile' ? connection.profile : connection.label
   const connectionMode = connection.kind === 'profile' ? 'Profile' : 'Assumed role'
+  const suggestedLinks = useMemo<DirectConsoleLink[]>(() => {
+    switch (selectedService) {
+      case 'lambda':
+        return form.functionName.trim()
+          ? [{
+              label: 'Open Lambda console',
+              description: 'Continue in the main Lambda workspace with focus applied.',
+              focus: { service: 'lambda', functionName: form.functionName.trim() }
+            }]
+          : []
+      case 'ecs':
+        return form.clusterArn.trim() && form.serviceName.trim()
+          ? [{
+              label: 'Open ECS service',
+              description: 'Jump into ECS with the selected cluster and service.',
+              focus: { service: 'ecs', clusterArn: form.clusterArn.trim(), serviceName: form.serviceName.trim() }
+            }]
+          : []
+      case 'eks':
+        return form.clusterName.trim()
+          ? [{
+              label: 'Open EKS cluster',
+              description: 'Continue in the EKS workspace with the cluster preselected.',
+              focus: { service: 'eks', clusterName: form.clusterName.trim() }
+            }]
+          : []
+      case 'waf':
+        return form.name.trim()
+          ? [{
+              label: 'Open WAF console',
+              description: 'Review the Web ACL inside the main WAF workspace.',
+              focus: { service: 'waf', webAclName: form.name.trim() }
+            }]
+          : []
+      default:
+        return []
+    }
+  }, [form.clusterArn, form.clusterName, form.functionName, form.name, form.serviceName, selectedService])
 
   function updateField(key: string, value: string): void {
     setForm((current) => ({ ...current, [key]: value }))
@@ -659,6 +709,35 @@ export function DirectResourceConsole({ connection }: { connection: AwsConnectio
                 </label>
               ))}
             </div>
+          </section>
+
+          <section className="direct-section">
+            <div className="direct-section-head">
+              <div>
+                <span className="direct-pane-kicker">Next actions</span>
+                <h3>Continue in a service console</h3>
+              </div>
+            </div>
+            {suggestedLinks.length > 0 ? (
+              <div className="direct-result-list">
+                {suggestedLinks.map((link) => (
+                  <button
+                    key={`${link.label}:${link.focus.service}`}
+                    type="button"
+                    className="direct-result-row"
+                    onClick={() => onNavigate(link.focus)}
+                  >
+                    <strong>{link.label}</strong>
+                    <span>{link.description}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <SvcState
+                variant="empty"
+                message="Open a supported direct lookup to unlock a routed next action into the main console."
+              />
+            )}
           </section>
 
           <section className="direct-section">

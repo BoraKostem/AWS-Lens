@@ -719,6 +719,66 @@ export function SessionHub({
         </div>
         <div className="empty-state compact">Diff Mode opens a dedicated workspace with inventory, posture, ownership, cost, and risk-focused comparisons.</div>
       </section>
+
+      <div className="overview-section-title">Recommended Next Actions</div>
+      <section className="panel session-hub-compare-panel">
+        <div className="panel-header">
+          <h3>Continue From Session Hub</h3>
+        </div>
+        <div className="session-hub-target-list">
+          <article className="session-hub-target-card">
+            <div className="session-hub-target-head">
+              <div>
+                <strong>Validate credentials in the terminal</strong>
+                <p>Open a shell in the current base profile or assumed session when you need to confirm identity, CLI auth, or quick AWS commands.</p>
+              </div>
+            </div>
+            <div className="button-row">
+              <button
+                type="button"
+                className="accent"
+                disabled={!connectionState.connection}
+                onClick={() => {
+                  const currentConnection = connectionState.connection
+                  if (currentConnection) {
+                    onOpenTerminal(currentConnection)
+                  }
+                }}
+              >
+                Open Terminal
+              </button>
+            </div>
+          </article>
+
+          <article className="session-hub-target-card">
+            <div className="session-hub-target-head">
+              <div>
+                <strong>Compare two active contexts</strong>
+                <p>Use Diff Mode when you need to inspect inventory, posture, or ownership differences across profiles or assumed-role sessions.</p>
+              </div>
+            </div>
+            <div className="button-row">
+              <button type="button" className="accent" onClick={handleCompareLaunch}>
+                Open Compare Workspace
+              </button>
+            </div>
+          </article>
+
+          <article className="session-hub-target-card">
+            <div className="session-hub-target-head">
+              <div>
+                <strong>Revert back to the base profile</strong>
+                <p>Drop the temporary assumed-role context before switching to broad inventory browsing or before handing the machine to another operator.</p>
+              </div>
+            </div>
+            <div className="button-row">
+              <button type="button" disabled={!connectionState.activeSession} onClick={() => connectionState.clearActiveSession()}>
+                Revert To Base Profile
+              </button>
+            </div>
+          </article>
+        </div>
+      </section>
     </div>
   )
 }

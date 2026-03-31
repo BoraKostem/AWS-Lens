@@ -1653,7 +1653,10 @@ export function App() {
       return (
         <section className="panel stack">
           {connectionState.connection && connectionState.connected ? (
-            <DirectResourceConsole connection={connectionState.connection} />
+            <DirectResourceConsole
+              connection={connectionState.connection}
+              onNavigate={(focus) => navigateWithFocus(focus)}
+            />
           ) : (
             <section className="empty-hero">
               <div>
