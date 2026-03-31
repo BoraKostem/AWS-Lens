@@ -1,0 +1,4465 @@
+[
+  {
+    "id": "0dd85d82-1608-4d80-ac1f-a7042415c378",
+    "projectId": "4e16855b-2116-467f-be97-ffd5877be890",
+    "projectName": "dev-ecs-eks-rds",
+    "command": "plan",
+    "args": [
+      "plan",
+      "-input=false",
+      "-no-color",
+      "-detailed-exitcode",
+      "-out",
+      ".terraform-workspace.tfplan",
+      "-var-file",
+      "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\terraform-workspace.auto.tfvars.json"
+    ],
+    "workspace": "dev",
+    "region": "eu-central-1",
+    "connectionLabel": "bora2",
+    "backendType": "local",
+    "stateSource": "workspace:dev",
+    "startedAt": "2026-03-31T12:05:35.272Z",
+    "finishedAt": "2026-03-31T12:05:38.394Z",
+    "exitCode": 2,
+    "success": true,
+    "planSummary": {
+      "create": 43,
+      "update": 0,
+      "delete": 0,
+      "replace": 0,
+      "noop": 0,
+      "hasChanges": true,
+      "affectedResources": 43,
+      "affectedModules": [
+        "module.platform_stack"
+      ],
+      "affectedProviders": [
+        "hashicorp/aws"
+      ],
+      "affectedServices": [
+        "aws",
+        "ec2",
+        "ecs",
+        "eks",
+        "elasticloadbalancing",
+        "iam",
+        "logs",
+        "rds"
+      ],
+      "groups": {
+        "byModule": [
+          {
+            "key": "module.platform_stack",
+            "label": "module.platform_stack",
+            "kind": "module",
+            "count": 43,
+            "summary": {
+              "create": 43,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_cloudwatch_log_group.ecs",
+              "module.platform_stack.aws_db_instance.postgres",
+              "module.platform_stack.aws_db_subnet_group.main",
+              "module.platform_stack.aws_ecs_cluster.main",
+              "module.platform_stack.aws_ecs_cluster_capacity_providers.main",
+              "module.platform_stack.aws_ecs_service.frontend",
+              "module.platform_stack.aws_ecs_task_definition.frontend",
+              "module.platform_stack.aws_eip.nat",
+              "module.platform_stack.aws_eks_cluster.main",
+              "module.platform_stack.aws_eks_node_group.main",
+              "module.platform_stack.aws_iam_role.ecs_task_execution",
+              "module.platform_stack.aws_iam_role.eks_cluster",
+              "module.platform_stack.aws_iam_role.eks_nodes",
+              "module.platform_stack.aws_iam_role_policy_attachment.ecs_task_execution",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_cluster_policy",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_cni",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_ecr",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_worker",
+              "module.platform_stack.aws_internet_gateway.main",
+              "module.platform_stack.aws_lb.ecs",
+              "module.platform_stack.aws_lb_listener.ecs_http",
+              "module.platform_stack.aws_lb_target_group.ecs",
+              "module.platform_stack.aws_nat_gateway.main",
+              "module.platform_stack.aws_rds_cluster.aurora",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[0]",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[1]",
+              "module.platform_stack.aws_route_table.private",
+              "module.platform_stack.aws_route_table.public",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_security_group.ecs_alb",
+              "module.platform_stack.aws_security_group.ecs_tasks",
+              "module.platform_stack.aws_security_group.eks_cluster",
+              "module.platform_stack.aws_security_group.eks_nodes",
+              "module.platform_stack.aws_security_group.rds",
+              "module.platform_stack.aws_security_group_rule.eks_cluster_from_nodes",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_vpc.main"
+            ]
+          }
+        ],
+        "byAction": [
+          {
+            "key": "create",
+            "label": "create",
+            "kind": "action",
+            "count": 43,
+            "summary": {
+              "create": 43,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_cloudwatch_log_group.ecs",
+              "module.platform_stack.aws_db_instance.postgres",
+              "module.platform_stack.aws_db_subnet_group.main",
+              "module.platform_stack.aws_ecs_cluster.main",
+              "module.platform_stack.aws_ecs_cluster_capacity_providers.main",
+              "module.platform_stack.aws_ecs_service.frontend",
+              "module.platform_stack.aws_ecs_task_definition.frontend",
+              "module.platform_stack.aws_eip.nat",
+              "module.platform_stack.aws_eks_cluster.main",
+              "module.platform_stack.aws_eks_node_group.main",
+              "module.platform_stack.aws_iam_role.ecs_task_execution",
+              "module.platform_stack.aws_iam_role.eks_cluster",
+              "module.platform_stack.aws_iam_role.eks_nodes",
+              "module.platform_stack.aws_iam_role_policy_attachment.ecs_task_execution",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_cluster_policy",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_cni",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_ecr",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_worker",
+              "module.platform_stack.aws_internet_gateway.main",
+              "module.platform_stack.aws_lb.ecs",
+              "module.platform_stack.aws_lb_listener.ecs_http",
+              "module.platform_stack.aws_lb_target_group.ecs",
+              "module.platform_stack.aws_nat_gateway.main",
+              "module.platform_stack.aws_rds_cluster.aurora",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[0]",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[1]",
+              "module.platform_stack.aws_route_table.private",
+              "module.platform_stack.aws_route_table.public",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_security_group.ecs_alb",
+              "module.platform_stack.aws_security_group.ecs_tasks",
+              "module.platform_stack.aws_security_group.eks_cluster",
+              "module.platform_stack.aws_security_group.eks_nodes",
+              "module.platform_stack.aws_security_group.rds",
+              "module.platform_stack.aws_security_group_rule.eks_cluster_from_nodes",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_vpc.main"
+            ]
+          }
+        ],
+        "byResourceType": [
+          {
+            "key": "aws_iam_role_policy_attachment",
+            "label": "aws_iam_role_policy_attachment",
+            "kind": "resource-type",
+            "count": 5,
+            "summary": {
+              "create": 5,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_iam_role_policy_attachment.ecs_task_execution",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_cluster_policy",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_cni",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_ecr",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_worker"
+            ]
+          },
+          {
+            "key": "aws_security_group",
+            "label": "aws_security_group",
+            "kind": "resource-type",
+            "count": 5,
+            "summary": {
+              "create": 5,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_security_group.ecs_alb",
+              "module.platform_stack.aws_security_group.ecs_tasks",
+              "module.platform_stack.aws_security_group.eks_cluster",
+              "module.platform_stack.aws_security_group.eks_nodes",
+              "module.platform_stack.aws_security_group.rds"
+            ]
+          },
+          {
+            "key": "aws_route_table_association",
+            "label": "aws_route_table_association",
+            "kind": "resource-type",
+            "count": 4,
+            "summary": {
+              "create": 4,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1b\"]"
+            ]
+          },
+          {
+            "key": "aws_subnet",
+            "label": "aws_subnet",
+            "kind": "resource-type",
+            "count": 4,
+            "summary": {
+              "create": 4,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_subnet.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1b\"]"
+            ]
+          },
+          {
+            "key": "aws_iam_role",
+            "label": "aws_iam_role",
+            "kind": "resource-type",
+            "count": 3,
+            "summary": {
+              "create": 3,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_iam_role.ecs_task_execution",
+              "module.platform_stack.aws_iam_role.eks_cluster",
+              "module.platform_stack.aws_iam_role.eks_nodes"
+            ]
+          },
+          {
+            "key": "aws_rds_cluster_instance",
+            "label": "aws_rds_cluster_instance",
+            "kind": "resource-type",
+            "count": 2,
+            "summary": {
+              "create": 2,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_rds_cluster_instance.aurora[0]",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[1]"
+            ]
+          },
+          {
+            "key": "aws_route_table",
+            "label": "aws_route_table",
+            "kind": "resource-type",
+            "count": 2,
+            "summary": {
+              "create": 2,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_route_table.private",
+              "module.platform_stack.aws_route_table.public"
+            ]
+          },
+          {
+            "key": "aws_cloudwatch_log_group",
+            "label": "aws_cloudwatch_log_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_cloudwatch_log_group.ecs"
+            ]
+          },
+          {
+            "key": "aws_db_instance",
+            "label": "aws_db_instance",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_db_instance.postgres"
+            ]
+          },
+          {
+            "key": "aws_db_subnet_group",
+            "label": "aws_db_subnet_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_db_subnet_group.main"
+            ]
+          },
+          {
+            "key": "aws_ecs_cluster",
+            "label": "aws_ecs_cluster",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_cluster.main"
+            ]
+          },
+          {
+            "key": "aws_ecs_cluster_capacity_providers",
+            "label": "aws_ecs_cluster_capacity_providers",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_cluster_capacity_providers.main"
+            ]
+          },
+          {
+            "key": "aws_ecs_service",
+            "label": "aws_ecs_service",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_service.frontend"
+            ]
+          },
+          {
+            "key": "aws_ecs_task_definition",
+            "label": "aws_ecs_task_definition",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_task_definition.frontend"
+            ]
+          },
+          {
+            "key": "aws_eip",
+            "label": "aws_eip",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_eip.nat"
+            ]
+          },
+          {
+            "key": "aws_eks_cluster",
+            "label": "aws_eks_cluster",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_eks_cluster.main"
+            ]
+          },
+          {
+            "key": "aws_eks_node_group",
+            "label": "aws_eks_node_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_eks_node_group.main"
+            ]
+          },
+          {
+            "key": "aws_internet_gateway",
+            "label": "aws_internet_gateway",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_internet_gateway.main"
+            ]
+          },
+          {
+            "key": "aws_lb",
+            "label": "aws_lb",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_lb.ecs"
+            ]
+          },
+          {
+            "key": "aws_lb_listener",
+            "label": "aws_lb_listener",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_lb_listener.ecs_http"
+            ]
+          },
+          {
+            "key": "aws_lb_target_group",
+            "label": "aws_lb_target_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_lb_target_group.ecs"
+            ]
+          },
+          {
+            "key": "aws_nat_gateway",
+            "label": "aws_nat_gateway",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_nat_gateway.main"
+            ]
+          },
+          {
+            "key": "aws_rds_cluster",
+            "label": "aws_rds_cluster",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_rds_cluster.aurora"
+            ]
+          },
+          {
+            "key": "aws_security_group_rule",
+            "label": "aws_security_group_rule",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_security_group_rule.eks_cluster_from_nodes"
+            ]
+          },
+          {
+            "key": "aws_vpc",
+            "label": "aws_vpc",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_vpc.main"
+            ]
+          }
+        ]
+      },
+      "jsonFieldsUsed": [
+        "resource_changes[].address",
+        "resource_changes[].type",
+        "resource_changes[].name",
+        "resource_changes[].mode",
+        "resource_changes[].module_address",
+        "resource_changes[].provider_name",
+        "resource_changes[].action_reason",
+        "resource_changes[].change.actions",
+        "resource_changes[].change.before",
+        "resource_changes[].change.after",
+        "resource_changes[].change.after_unknown",
+        "resource_changes[].change.before_sensitive",
+        "resource_changes[].change.after_sensitive",
+        "resource_changes[].change.replace_paths"
+      ],
+      "heuristicNotes": [
+        "Affected services are inferred from Terraform resource types and provider names.",
+        "Delete-heavy highlighting is based on action totals, not cloud-provider impact.",
+        "Attribute summaries collapse nested structures and unknown values for readability.",
+        "Physical identity previews are inferred from common fields such as arn, id, and name."
+      ],
+      "hasDestructiveChanges": false,
+      "hasReplacementChanges": false,
+      "isDeleteHeavy": false,
+      "request": {
+        "mode": "standard",
+        "targets": [],
+        "replaceAddresses": []
+      }
+    },
+    "planJsonPath": "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\.terraform-workspace.tfplan.json",
+    "backupPath": "",
+    "backupCreatedAt": "",
+    "stateOperationSummary": "",
+    "git": {
+      "repoRoot": "C:/Users/bora_/Desktop/Projects/aws_lens",
+      "branch": "main",
+      "commitSha": "296bdfcdbe346be61cd7cd0f7e00d80123c3943f",
+      "shortCommitSha": "296bdfcd",
+      "isDetached": false,
+      "isDirty": true
+    }
+  },
+  {
+    "id": "d43980a7-1c80-43f5-abfc-5014d5bc2ed7",
+    "projectId": "4e16855b-2116-467f-be97-ffd5877be890",
+    "projectName": "dev-ecs-eks-rds",
+    "command": "destroy",
+    "args": [
+      "destroy",
+      "-input=false",
+      "-no-color",
+      "-auto-approve",
+      "-var-file",
+      "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\terraform-workspace.auto.tfvars.json"
+    ],
+    "workspace": "dev",
+    "region": "us-east-1",
+    "connectionLabel": "bora2",
+    "backendType": "local",
+    "stateSource": "workspace:dev",
+    "startedAt": "2026-03-31T10:27:12.942Z",
+    "finishedAt": "2026-03-31T10:36:22.627Z",
+    "exitCode": 0,
+    "success": true,
+    "planSummary": null,
+    "planJsonPath": "",
+    "backupPath": "",
+    "backupCreatedAt": "",
+    "stateOperationSummary": "",
+    "git": {
+      "repoRoot": "C:/Users/bora_/Desktop/Projects/aws_lens",
+      "branch": "main",
+      "commitSha": "296bdfcdbe346be61cd7cd0f7e00d80123c3943f",
+      "shortCommitSha": "296bdfcd",
+      "isDetached": false,
+      "isDirty": true
+    }
+  },
+  {
+    "id": "45b340e4-4a46-45db-8be4-70b6d2f45af9",
+    "projectId": "4e16855b-2116-467f-be97-ffd5877be890",
+    "projectName": "dev-ecs-eks-rds",
+    "command": "plan",
+    "args": [
+      "plan",
+      "-input=false",
+      "-no-color",
+      "-detailed-exitcode",
+      "-out",
+      ".terraform-workspace.tfplan",
+      "-var-file",
+      "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\terraform-workspace.auto.tfvars.json"
+    ],
+    "workspace": "dev",
+    "region": "us-east-1",
+    "connectionLabel": "bora2",
+    "backendType": "local",
+    "stateSource": "workspace:dev",
+    "startedAt": "2026-03-31T10:26:54.572Z",
+    "finishedAt": "2026-03-31T10:26:59.578Z",
+    "exitCode": 0,
+    "success": true,
+    "planSummary": null,
+    "planJsonPath": "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\.terraform-workspace.tfplan.json",
+    "backupPath": "",
+    "backupCreatedAt": "",
+    "stateOperationSummary": "",
+    "git": {
+      "repoRoot": "C:/Users/bora_/Desktop/Projects/aws_lens",
+      "branch": "main",
+      "commitSha": "296bdfcdbe346be61cd7cd0f7e00d80123c3943f",
+      "shortCommitSha": "296bdfcd",
+      "isDetached": false,
+      "isDirty": true
+    }
+  },
+  {
+    "id": "7c4a83fc-57d7-44fa-b9fe-c5ab480da75a",
+    "projectId": "4e16855b-2116-467f-be97-ffd5877be890",
+    "projectName": "dev-ecs-eks-rds",
+    "command": "apply",
+    "args": [
+      "apply",
+      "-input=false",
+      "-no-color",
+      "-auto-approve",
+      ".terraform-workspace.tfplan"
+    ],
+    "workspace": "dev",
+    "region": "us-east-1",
+    "connectionLabel": "bora2",
+    "backendType": "local",
+    "stateSource": "workspace:dev",
+    "startedAt": "2026-03-31T10:15:36.949Z",
+    "finishedAt": "2026-03-31T10:26:27.596Z",
+    "exitCode": 0,
+    "success": true,
+    "planSummary": null,
+    "planJsonPath": "",
+    "backupPath": "",
+    "backupCreatedAt": "",
+    "stateOperationSummary": "",
+    "git": {
+      "repoRoot": "C:/Users/bora_/Desktop/Projects/aws_lens",
+      "branch": "main",
+      "commitSha": "296bdfcdbe346be61cd7cd0f7e00d80123c3943f",
+      "shortCommitSha": "296bdfcd",
+      "isDetached": false,
+      "isDirty": true
+    }
+  },
+  {
+    "id": "9a640d32-84f7-47a0-9374-53209fa1c8b2",
+    "projectId": "4e16855b-2116-467f-be97-ffd5877be890",
+    "projectName": "dev-ecs-eks-rds",
+    "command": "plan",
+    "args": [
+      "plan",
+      "-input=false",
+      "-no-color",
+      "-detailed-exitcode",
+      "-out",
+      ".terraform-workspace.tfplan",
+      "-var-file",
+      "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\terraform-workspace.auto.tfvars.json"
+    ],
+    "workspace": "dev",
+    "region": "us-east-1",
+    "connectionLabel": "bora2",
+    "backendType": "local",
+    "stateSource": "workspace:dev",
+    "startedAt": "2026-03-31T10:13:19.526Z",
+    "finishedAt": "2026-03-31T10:13:24.179Z",
+    "exitCode": 2,
+    "success": true,
+    "planSummary": {
+      "create": 43,
+      "update": 0,
+      "delete": 0,
+      "replace": 0,
+      "noop": 0,
+      "hasChanges": true,
+      "affectedResources": 43,
+      "affectedModules": [
+        "module.platform_stack"
+      ],
+      "affectedProviders": [
+        "hashicorp/aws"
+      ],
+      "affectedServices": [
+        "aws",
+        "ec2",
+        "ecs",
+        "eks",
+        "elasticloadbalancing",
+        "iam",
+        "logs",
+        "rds"
+      ],
+      "groups": {
+        "byModule": [
+          {
+            "key": "module.platform_stack",
+            "label": "module.platform_stack",
+            "kind": "module",
+            "count": 43,
+            "summary": {
+              "create": 43,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_cloudwatch_log_group.ecs",
+              "module.platform_stack.aws_db_instance.postgres",
+              "module.platform_stack.aws_db_subnet_group.main",
+              "module.platform_stack.aws_ecs_cluster.main",
+              "module.platform_stack.aws_ecs_cluster_capacity_providers.main",
+              "module.platform_stack.aws_ecs_service.frontend",
+              "module.platform_stack.aws_ecs_task_definition.frontend",
+              "module.platform_stack.aws_eip.nat",
+              "module.platform_stack.aws_eks_cluster.main",
+              "module.platform_stack.aws_eks_node_group.main",
+              "module.platform_stack.aws_iam_role.ecs_task_execution",
+              "module.platform_stack.aws_iam_role.eks_cluster",
+              "module.platform_stack.aws_iam_role.eks_nodes",
+              "module.platform_stack.aws_iam_role_policy_attachment.ecs_task_execution",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_cluster_policy",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_cni",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_ecr",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_worker",
+              "module.platform_stack.aws_internet_gateway.main",
+              "module.platform_stack.aws_lb.ecs",
+              "module.platform_stack.aws_lb_listener.ecs_http",
+              "module.platform_stack.aws_lb_target_group.ecs",
+              "module.platform_stack.aws_nat_gateway.main",
+              "module.platform_stack.aws_rds_cluster.aurora",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[0]",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[1]",
+              "module.platform_stack.aws_route_table.private",
+              "module.platform_stack.aws_route_table.public",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_security_group.ecs_alb",
+              "module.platform_stack.aws_security_group.ecs_tasks",
+              "module.platform_stack.aws_security_group.eks_cluster",
+              "module.platform_stack.aws_security_group.eks_nodes",
+              "module.platform_stack.aws_security_group.rds",
+              "module.platform_stack.aws_security_group_rule.eks_cluster_from_nodes",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_vpc.main"
+            ]
+          }
+        ],
+        "byAction": [
+          {
+            "key": "create",
+            "label": "create",
+            "kind": "action",
+            "count": 43,
+            "summary": {
+              "create": 43,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_cloudwatch_log_group.ecs",
+              "module.platform_stack.aws_db_instance.postgres",
+              "module.platform_stack.aws_db_subnet_group.main",
+              "module.platform_stack.aws_ecs_cluster.main",
+              "module.platform_stack.aws_ecs_cluster_capacity_providers.main",
+              "module.platform_stack.aws_ecs_service.frontend",
+              "module.platform_stack.aws_ecs_task_definition.frontend",
+              "module.platform_stack.aws_eip.nat",
+              "module.platform_stack.aws_eks_cluster.main",
+              "module.platform_stack.aws_eks_node_group.main",
+              "module.platform_stack.aws_iam_role.ecs_task_execution",
+              "module.platform_stack.aws_iam_role.eks_cluster",
+              "module.platform_stack.aws_iam_role.eks_nodes",
+              "module.platform_stack.aws_iam_role_policy_attachment.ecs_task_execution",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_cluster_policy",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_cni",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_ecr",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_worker",
+              "module.platform_stack.aws_internet_gateway.main",
+              "module.platform_stack.aws_lb.ecs",
+              "module.platform_stack.aws_lb_listener.ecs_http",
+              "module.platform_stack.aws_lb_target_group.ecs",
+              "module.platform_stack.aws_nat_gateway.main",
+              "module.platform_stack.aws_rds_cluster.aurora",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[0]",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[1]",
+              "module.platform_stack.aws_route_table.private",
+              "module.platform_stack.aws_route_table.public",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_security_group.ecs_alb",
+              "module.platform_stack.aws_security_group.ecs_tasks",
+              "module.platform_stack.aws_security_group.eks_cluster",
+              "module.platform_stack.aws_security_group.eks_nodes",
+              "module.platform_stack.aws_security_group.rds",
+              "module.platform_stack.aws_security_group_rule.eks_cluster_from_nodes",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_vpc.main"
+            ]
+          }
+        ],
+        "byResourceType": [
+          {
+            "key": "aws_iam_role_policy_attachment",
+            "label": "aws_iam_role_policy_attachment",
+            "kind": "resource-type",
+            "count": 5,
+            "summary": {
+              "create": 5,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_iam_role_policy_attachment.ecs_task_execution",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_cluster_policy",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_cni",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_ecr",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_worker"
+            ]
+          },
+          {
+            "key": "aws_security_group",
+            "label": "aws_security_group",
+            "kind": "resource-type",
+            "count": 5,
+            "summary": {
+              "create": 5,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_security_group.ecs_alb",
+              "module.platform_stack.aws_security_group.ecs_tasks",
+              "module.platform_stack.aws_security_group.eks_cluster",
+              "module.platform_stack.aws_security_group.eks_nodes",
+              "module.platform_stack.aws_security_group.rds"
+            ]
+          },
+          {
+            "key": "aws_route_table_association",
+            "label": "aws_route_table_association",
+            "kind": "resource-type",
+            "count": 4,
+            "summary": {
+              "create": 4,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1b\"]"
+            ]
+          },
+          {
+            "key": "aws_subnet",
+            "label": "aws_subnet",
+            "kind": "resource-type",
+            "count": 4,
+            "summary": {
+              "create": 4,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_subnet.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1b\"]"
+            ]
+          },
+          {
+            "key": "aws_iam_role",
+            "label": "aws_iam_role",
+            "kind": "resource-type",
+            "count": 3,
+            "summary": {
+              "create": 3,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_iam_role.ecs_task_execution",
+              "module.platform_stack.aws_iam_role.eks_cluster",
+              "module.platform_stack.aws_iam_role.eks_nodes"
+            ]
+          },
+          {
+            "key": "aws_rds_cluster_instance",
+            "label": "aws_rds_cluster_instance",
+            "kind": "resource-type",
+            "count": 2,
+            "summary": {
+              "create": 2,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_rds_cluster_instance.aurora[0]",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[1]"
+            ]
+          },
+          {
+            "key": "aws_route_table",
+            "label": "aws_route_table",
+            "kind": "resource-type",
+            "count": 2,
+            "summary": {
+              "create": 2,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_route_table.private",
+              "module.platform_stack.aws_route_table.public"
+            ]
+          },
+          {
+            "key": "aws_cloudwatch_log_group",
+            "label": "aws_cloudwatch_log_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_cloudwatch_log_group.ecs"
+            ]
+          },
+          {
+            "key": "aws_db_instance",
+            "label": "aws_db_instance",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_db_instance.postgres"
+            ]
+          },
+          {
+            "key": "aws_db_subnet_group",
+            "label": "aws_db_subnet_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_db_subnet_group.main"
+            ]
+          },
+          {
+            "key": "aws_ecs_cluster",
+            "label": "aws_ecs_cluster",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_cluster.main"
+            ]
+          },
+          {
+            "key": "aws_ecs_cluster_capacity_providers",
+            "label": "aws_ecs_cluster_capacity_providers",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_cluster_capacity_providers.main"
+            ]
+          },
+          {
+            "key": "aws_ecs_service",
+            "label": "aws_ecs_service",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_service.frontend"
+            ]
+          },
+          {
+            "key": "aws_ecs_task_definition",
+            "label": "aws_ecs_task_definition",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_task_definition.frontend"
+            ]
+          },
+          {
+            "key": "aws_eip",
+            "label": "aws_eip",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_eip.nat"
+            ]
+          },
+          {
+            "key": "aws_eks_cluster",
+            "label": "aws_eks_cluster",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_eks_cluster.main"
+            ]
+          },
+          {
+            "key": "aws_eks_node_group",
+            "label": "aws_eks_node_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_eks_node_group.main"
+            ]
+          },
+          {
+            "key": "aws_internet_gateway",
+            "label": "aws_internet_gateway",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_internet_gateway.main"
+            ]
+          },
+          {
+            "key": "aws_lb",
+            "label": "aws_lb",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_lb.ecs"
+            ]
+          },
+          {
+            "key": "aws_lb_listener",
+            "label": "aws_lb_listener",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_lb_listener.ecs_http"
+            ]
+          },
+          {
+            "key": "aws_lb_target_group",
+            "label": "aws_lb_target_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_lb_target_group.ecs"
+            ]
+          },
+          {
+            "key": "aws_nat_gateway",
+            "label": "aws_nat_gateway",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_nat_gateway.main"
+            ]
+          },
+          {
+            "key": "aws_rds_cluster",
+            "label": "aws_rds_cluster",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_rds_cluster.aurora"
+            ]
+          },
+          {
+            "key": "aws_security_group_rule",
+            "label": "aws_security_group_rule",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_security_group_rule.eks_cluster_from_nodes"
+            ]
+          },
+          {
+            "key": "aws_vpc",
+            "label": "aws_vpc",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_vpc.main"
+            ]
+          }
+        ]
+      },
+      "jsonFieldsUsed": [
+        "resource_changes[].address",
+        "resource_changes[].type",
+        "resource_changes[].name",
+        "resource_changes[].mode",
+        "resource_changes[].module_address",
+        "resource_changes[].provider_name",
+        "resource_changes[].action_reason",
+        "resource_changes[].change.actions",
+        "resource_changes[].change.before",
+        "resource_changes[].change.after",
+        "resource_changes[].change.after_unknown",
+        "resource_changes[].change.before_sensitive",
+        "resource_changes[].change.after_sensitive",
+        "resource_changes[].change.replace_paths"
+      ],
+      "heuristicNotes": [
+        "Affected services are inferred from Terraform resource types and provider names.",
+        "Delete-heavy highlighting is based on action totals, not cloud-provider impact.",
+        "Attribute summaries collapse nested structures and unknown values for readability.",
+        "Physical identity previews are inferred from common fields such as arn, id, and name."
+      ],
+      "hasDestructiveChanges": false,
+      "hasReplacementChanges": false,
+      "isDeleteHeavy": false,
+      "request": {
+        "mode": "standard",
+        "targets": [],
+        "replaceAddresses": []
+      }
+    },
+    "planJsonPath": "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\.terraform-workspace.tfplan.json",
+    "backupPath": "",
+    "backupCreatedAt": "",
+    "stateOperationSummary": "",
+    "git": {
+      "repoRoot": "C:/Users/bora_/Desktop/Projects/aws_lens",
+      "branch": "main",
+      "commitSha": "296bdfcdbe346be61cd7cd0f7e00d80123c3943f",
+      "shortCommitSha": "296bdfcd",
+      "isDetached": false,
+      "isDirty": true
+    }
+  },
+  {
+    "id": "04c444f3-9f46-43c9-9bf5-09dc84312724",
+    "projectId": "4e16855b-2116-467f-be97-ffd5877be890",
+    "projectName": "dev-ecs-eks-rds",
+    "command": "destroy",
+    "args": [
+      "destroy",
+      "-input=false",
+      "-no-color",
+      "-auto-approve",
+      "-var-file",
+      "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\terraform-workspace.auto.tfvars.json"
+    ],
+    "workspace": "dev",
+    "region": "eu-central-1",
+    "connectionLabel": "bora2",
+    "backendType": "local",
+    "stateSource": "workspace:dev",
+    "startedAt": "2026-03-30T22:10:19.230Z",
+    "finishedAt": "2026-03-30T22:22:32.476Z",
+    "exitCode": 0,
+    "success": true,
+    "planSummary": null,
+    "planJsonPath": "",
+    "backupPath": "",
+    "backupCreatedAt": "",
+    "stateOperationSummary": "",
+    "git": {
+      "repoRoot": "C:/Users/bora_/Desktop/Projects/aws_lens",
+      "branch": "main",
+      "commitSha": "296bdfcdbe346be61cd7cd0f7e00d80123c3943f",
+      "shortCommitSha": "296bdfcd",
+      "isDetached": false,
+      "isDirty": true
+    }
+  },
+  {
+    "id": "f5f710b2-d8aa-4a33-a840-6effc01e64a8",
+    "projectId": "4e16855b-2116-467f-be97-ffd5877be890",
+    "projectName": "dev-ecs-eks-rds",
+    "command": "plan",
+    "args": [
+      "plan",
+      "-input=false",
+      "-no-color",
+      "-detailed-exitcode",
+      "-out",
+      ".terraform-workspace.tfplan",
+      "-var-file",
+      "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\terraform-workspace.auto.tfvars.json"
+    ],
+    "workspace": "dev",
+    "region": "eu-central-1",
+    "connectionLabel": "bora2",
+    "backendType": "local",
+    "stateSource": "workspace:dev",
+    "startedAt": "2026-03-30T22:09:38.164Z",
+    "finishedAt": "2026-03-30T22:09:44.433Z",
+    "exitCode": 0,
+    "success": true,
+    "planSummary": null,
+    "planJsonPath": "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\.terraform-workspace.tfplan.json",
+    "backupPath": "",
+    "backupCreatedAt": "",
+    "stateOperationSummary": "",
+    "git": {
+      "repoRoot": "C:/Users/bora_/Desktop/Projects/aws_lens",
+      "branch": "main",
+      "commitSha": "296bdfcdbe346be61cd7cd0f7e00d80123c3943f",
+      "shortCommitSha": "296bdfcd",
+      "isDetached": false,
+      "isDirty": true
+    }
+  },
+  {
+    "id": "adeb72ad-179e-4f14-8c4b-3fb0c70631ab",
+    "projectId": "4e16855b-2116-467f-be97-ffd5877be890",
+    "projectName": "dev-ecs-eks-rds",
+    "command": "apply",
+    "args": [
+      "apply",
+      "-input=false",
+      "-no-color",
+      "-auto-approve",
+      ".terraform-workspace.tfplan"
+    ],
+    "workspace": "dev",
+    "region": "eu-central-1",
+    "connectionLabel": "bora2",
+    "backendType": "local",
+    "stateSource": "workspace:dev",
+    "startedAt": "2026-03-30T21:19:09.932Z",
+    "finishedAt": "2026-03-30T21:29:59.700Z",
+    "exitCode": 0,
+    "success": true,
+    "planSummary": null,
+    "planJsonPath": "",
+    "backupPath": "",
+    "backupCreatedAt": "",
+    "stateOperationSummary": "",
+    "git": {
+      "repoRoot": "C:/Users/bora_/Desktop/Projects/aws_lens",
+      "branch": "main",
+      "commitSha": "296bdfcdbe346be61cd7cd0f7e00d80123c3943f",
+      "shortCommitSha": "296bdfcd",
+      "isDetached": false,
+      "isDirty": true
+    }
+  },
+  {
+    "id": "8f8a6f73-badd-493c-be6d-b9561f3946b6",
+    "projectId": "4e16855b-2116-467f-be97-ffd5877be890",
+    "projectName": "dev-ecs-eks-rds",
+    "command": "plan",
+    "args": [
+      "plan",
+      "-input=false",
+      "-no-color",
+      "-detailed-exitcode",
+      "-out",
+      ".terraform-workspace.tfplan",
+      "-var-file",
+      "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\terraform-workspace.auto.tfvars.json"
+    ],
+    "workspace": "dev",
+    "region": "eu-central-1",
+    "connectionLabel": "bora2",
+    "backendType": "local",
+    "stateSource": "workspace:dev",
+    "startedAt": "2026-03-30T21:18:37.065Z",
+    "finishedAt": "2026-03-30T21:18:40.310Z",
+    "exitCode": 2,
+    "success": true,
+    "planSummary": {
+      "create": 43,
+      "update": 0,
+      "delete": 0,
+      "replace": 0,
+      "noop": 0,
+      "hasChanges": true,
+      "affectedResources": 43,
+      "affectedModules": [
+        "module.platform_stack"
+      ],
+      "affectedProviders": [
+        "hashicorp/aws"
+      ],
+      "affectedServices": [
+        "aws",
+        "ec2",
+        "ecs",
+        "eks",
+        "elasticloadbalancing",
+        "iam",
+        "logs",
+        "rds"
+      ],
+      "groups": {
+        "byModule": [
+          {
+            "key": "module.platform_stack",
+            "label": "module.platform_stack",
+            "kind": "module",
+            "count": 43,
+            "summary": {
+              "create": 43,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_cloudwatch_log_group.ecs",
+              "module.platform_stack.aws_db_instance.postgres",
+              "module.platform_stack.aws_db_subnet_group.main",
+              "module.platform_stack.aws_ecs_cluster.main",
+              "module.platform_stack.aws_ecs_cluster_capacity_providers.main",
+              "module.platform_stack.aws_ecs_service.frontend",
+              "module.platform_stack.aws_ecs_task_definition.frontend",
+              "module.platform_stack.aws_eip.nat",
+              "module.platform_stack.aws_eks_cluster.main",
+              "module.platform_stack.aws_eks_node_group.main",
+              "module.platform_stack.aws_iam_role.ecs_task_execution",
+              "module.platform_stack.aws_iam_role.eks_cluster",
+              "module.platform_stack.aws_iam_role.eks_nodes",
+              "module.platform_stack.aws_iam_role_policy_attachment.ecs_task_execution",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_cluster_policy",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_cni",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_ecr",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_worker",
+              "module.platform_stack.aws_internet_gateway.main",
+              "module.platform_stack.aws_lb.ecs",
+              "module.platform_stack.aws_lb_listener.ecs_http",
+              "module.platform_stack.aws_lb_target_group.ecs",
+              "module.platform_stack.aws_nat_gateway.main",
+              "module.platform_stack.aws_rds_cluster.aurora",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[0]",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[1]",
+              "module.platform_stack.aws_route_table.private",
+              "module.platform_stack.aws_route_table.public",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_security_group.ecs_alb",
+              "module.platform_stack.aws_security_group.ecs_tasks",
+              "module.platform_stack.aws_security_group.eks_cluster",
+              "module.platform_stack.aws_security_group.eks_nodes",
+              "module.platform_stack.aws_security_group.rds",
+              "module.platform_stack.aws_security_group_rule.eks_cluster_from_nodes",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_vpc.main"
+            ]
+          }
+        ],
+        "byAction": [
+          {
+            "key": "create",
+            "label": "create",
+            "kind": "action",
+            "count": 43,
+            "summary": {
+              "create": 43,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_cloudwatch_log_group.ecs",
+              "module.platform_stack.aws_db_instance.postgres",
+              "module.platform_stack.aws_db_subnet_group.main",
+              "module.platform_stack.aws_ecs_cluster.main",
+              "module.platform_stack.aws_ecs_cluster_capacity_providers.main",
+              "module.platform_stack.aws_ecs_service.frontend",
+              "module.platform_stack.aws_ecs_task_definition.frontend",
+              "module.platform_stack.aws_eip.nat",
+              "module.platform_stack.aws_eks_cluster.main",
+              "module.platform_stack.aws_eks_node_group.main",
+              "module.platform_stack.aws_iam_role.ecs_task_execution",
+              "module.platform_stack.aws_iam_role.eks_cluster",
+              "module.platform_stack.aws_iam_role.eks_nodes",
+              "module.platform_stack.aws_iam_role_policy_attachment.ecs_task_execution",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_cluster_policy",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_cni",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_ecr",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_worker",
+              "module.platform_stack.aws_internet_gateway.main",
+              "module.platform_stack.aws_lb.ecs",
+              "module.platform_stack.aws_lb_listener.ecs_http",
+              "module.platform_stack.aws_lb_target_group.ecs",
+              "module.platform_stack.aws_nat_gateway.main",
+              "module.platform_stack.aws_rds_cluster.aurora",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[0]",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[1]",
+              "module.platform_stack.aws_route_table.private",
+              "module.platform_stack.aws_route_table.public",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_security_group.ecs_alb",
+              "module.platform_stack.aws_security_group.ecs_tasks",
+              "module.platform_stack.aws_security_group.eks_cluster",
+              "module.platform_stack.aws_security_group.eks_nodes",
+              "module.platform_stack.aws_security_group.rds",
+              "module.platform_stack.aws_security_group_rule.eks_cluster_from_nodes",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_vpc.main"
+            ]
+          }
+        ],
+        "byResourceType": [
+          {
+            "key": "aws_iam_role_policy_attachment",
+            "label": "aws_iam_role_policy_attachment",
+            "kind": "resource-type",
+            "count": 5,
+            "summary": {
+              "create": 5,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_iam_role_policy_attachment.ecs_task_execution",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_cluster_policy",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_cni",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_ecr",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_worker"
+            ]
+          },
+          {
+            "key": "aws_security_group",
+            "label": "aws_security_group",
+            "kind": "resource-type",
+            "count": 5,
+            "summary": {
+              "create": 5,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_security_group.ecs_alb",
+              "module.platform_stack.aws_security_group.ecs_tasks",
+              "module.platform_stack.aws_security_group.eks_cluster",
+              "module.platform_stack.aws_security_group.eks_nodes",
+              "module.platform_stack.aws_security_group.rds"
+            ]
+          },
+          {
+            "key": "aws_route_table_association",
+            "label": "aws_route_table_association",
+            "kind": "resource-type",
+            "count": 4,
+            "summary": {
+              "create": 4,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1b\"]"
+            ]
+          },
+          {
+            "key": "aws_subnet",
+            "label": "aws_subnet",
+            "kind": "resource-type",
+            "count": 4,
+            "summary": {
+              "create": 4,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_subnet.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1b\"]"
+            ]
+          },
+          {
+            "key": "aws_iam_role",
+            "label": "aws_iam_role",
+            "kind": "resource-type",
+            "count": 3,
+            "summary": {
+              "create": 3,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_iam_role.ecs_task_execution",
+              "module.platform_stack.aws_iam_role.eks_cluster",
+              "module.platform_stack.aws_iam_role.eks_nodes"
+            ]
+          },
+          {
+            "key": "aws_rds_cluster_instance",
+            "label": "aws_rds_cluster_instance",
+            "kind": "resource-type",
+            "count": 2,
+            "summary": {
+              "create": 2,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_rds_cluster_instance.aurora[0]",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[1]"
+            ]
+          },
+          {
+            "key": "aws_route_table",
+            "label": "aws_route_table",
+            "kind": "resource-type",
+            "count": 2,
+            "summary": {
+              "create": 2,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_route_table.private",
+              "module.platform_stack.aws_route_table.public"
+            ]
+          },
+          {
+            "key": "aws_cloudwatch_log_group",
+            "label": "aws_cloudwatch_log_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_cloudwatch_log_group.ecs"
+            ]
+          },
+          {
+            "key": "aws_db_instance",
+            "label": "aws_db_instance",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_db_instance.postgres"
+            ]
+          },
+          {
+            "key": "aws_db_subnet_group",
+            "label": "aws_db_subnet_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_db_subnet_group.main"
+            ]
+          },
+          {
+            "key": "aws_ecs_cluster",
+            "label": "aws_ecs_cluster",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_cluster.main"
+            ]
+          },
+          {
+            "key": "aws_ecs_cluster_capacity_providers",
+            "label": "aws_ecs_cluster_capacity_providers",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_cluster_capacity_providers.main"
+            ]
+          },
+          {
+            "key": "aws_ecs_service",
+            "label": "aws_ecs_service",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_service.frontend"
+            ]
+          },
+          {
+            "key": "aws_ecs_task_definition",
+            "label": "aws_ecs_task_definition",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_task_definition.frontend"
+            ]
+          },
+          {
+            "key": "aws_eip",
+            "label": "aws_eip",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_eip.nat"
+            ]
+          },
+          {
+            "key": "aws_eks_cluster",
+            "label": "aws_eks_cluster",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_eks_cluster.main"
+            ]
+          },
+          {
+            "key": "aws_eks_node_group",
+            "label": "aws_eks_node_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_eks_node_group.main"
+            ]
+          },
+          {
+            "key": "aws_internet_gateway",
+            "label": "aws_internet_gateway",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_internet_gateway.main"
+            ]
+          },
+          {
+            "key": "aws_lb",
+            "label": "aws_lb",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_lb.ecs"
+            ]
+          },
+          {
+            "key": "aws_lb_listener",
+            "label": "aws_lb_listener",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_lb_listener.ecs_http"
+            ]
+          },
+          {
+            "key": "aws_lb_target_group",
+            "label": "aws_lb_target_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_lb_target_group.ecs"
+            ]
+          },
+          {
+            "key": "aws_nat_gateway",
+            "label": "aws_nat_gateway",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_nat_gateway.main"
+            ]
+          },
+          {
+            "key": "aws_rds_cluster",
+            "label": "aws_rds_cluster",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_rds_cluster.aurora"
+            ]
+          },
+          {
+            "key": "aws_security_group_rule",
+            "label": "aws_security_group_rule",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_security_group_rule.eks_cluster_from_nodes"
+            ]
+          },
+          {
+            "key": "aws_vpc",
+            "label": "aws_vpc",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_vpc.main"
+            ]
+          }
+        ]
+      },
+      "jsonFieldsUsed": [
+        "resource_changes[].address",
+        "resource_changes[].type",
+        "resource_changes[].name",
+        "resource_changes[].mode",
+        "resource_changes[].module_address",
+        "resource_changes[].provider_name",
+        "resource_changes[].action_reason",
+        "resource_changes[].change.actions",
+        "resource_changes[].change.before",
+        "resource_changes[].change.after",
+        "resource_changes[].change.after_unknown",
+        "resource_changes[].change.before_sensitive",
+        "resource_changes[].change.after_sensitive",
+        "resource_changes[].change.replace_paths"
+      ],
+      "heuristicNotes": [
+        "Affected services are inferred from Terraform resource types and provider names.",
+        "Delete-heavy highlighting is based on action totals, not cloud-provider impact.",
+        "Attribute summaries collapse nested structures and unknown values for readability.",
+        "Physical identity previews are inferred from common fields such as arn, id, and name."
+      ],
+      "hasDestructiveChanges": false,
+      "hasReplacementChanges": false,
+      "isDeleteHeavy": false,
+      "request": {
+        "mode": "standard",
+        "targets": [],
+        "replaceAddresses": []
+      }
+    },
+    "planJsonPath": "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\.terraform-workspace.tfplan.json",
+    "backupPath": "",
+    "backupCreatedAt": "",
+    "stateOperationSummary": "",
+    "git": {
+      "repoRoot": "C:/Users/bora_/Desktop/Projects/aws_lens",
+      "branch": "main",
+      "commitSha": "296bdfcdbe346be61cd7cd0f7e00d80123c3943f",
+      "shortCommitSha": "296bdfcd",
+      "isDetached": false,
+      "isDirty": true
+    }
+  },
+  {
+    "id": "04f0250c-a6b3-4497-98b8-bcae60f95d67",
+    "projectId": "4e16855b-2116-467f-be97-ffd5877be890",
+    "projectName": "dev-ecs-eks-rds",
+    "command": "destroy",
+    "args": [
+      "destroy",
+      "-input=false",
+      "-no-color",
+      "-auto-approve",
+      "-var-file",
+      "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\terraform-workspace.auto.tfvars.json"
+    ],
+    "workspace": "dev",
+    "region": "us-east-1",
+    "connectionLabel": "bora2",
+    "backendType": "local",
+    "stateSource": "workspace:dev",
+    "startedAt": "2026-03-30T14:42:36.311Z",
+    "finishedAt": "2026-03-30T14:53:48.486Z",
+    "exitCode": 0,
+    "success": true,
+    "planSummary": null,
+    "planJsonPath": "",
+    "backupPath": "",
+    "backupCreatedAt": "",
+    "stateOperationSummary": "",
+    "git": {
+      "repoRoot": "C:/Users/bora_/Desktop/Projects/aws_lens",
+      "branch": "main",
+      "commitSha": "296bdfcdbe346be61cd7cd0f7e00d80123c3943f",
+      "shortCommitSha": "296bdfcd",
+      "isDetached": false,
+      "isDirty": true
+    }
+  },
+  {
+    "id": "d7e7a119-443e-4964-8890-d3c6fb4ebdff",
+    "projectId": "4e16855b-2116-467f-be97-ffd5877be890",
+    "projectName": "dev-ecs-eks-rds",
+    "command": "plan",
+    "args": [
+      "plan",
+      "-input=false",
+      "-no-color",
+      "-detailed-exitcode",
+      "-out",
+      ".terraform-workspace.tfplan",
+      "-var-file",
+      "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\terraform-workspace.auto.tfvars.json"
+    ],
+    "workspace": "dev",
+    "region": "us-east-1",
+    "connectionLabel": "bora2",
+    "backendType": "local",
+    "stateSource": "workspace:dev",
+    "startedAt": "2026-03-30T14:34:20.690Z",
+    "finishedAt": "2026-03-30T14:34:26.790Z",
+    "exitCode": 0,
+    "success": true,
+    "planSummary": null,
+    "planJsonPath": "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\.terraform-workspace.tfplan.json",
+    "backupPath": "",
+    "backupCreatedAt": "",
+    "stateOperationSummary": "",
+    "git": {
+      "repoRoot": "C:/Users/bora_/Desktop/Projects/aws_lens",
+      "branch": "main",
+      "commitSha": "296bdfcdbe346be61cd7cd0f7e00d80123c3943f",
+      "shortCommitSha": "296bdfcd",
+      "isDetached": false,
+      "isDirty": true
+    }
+  },
+  {
+    "id": "a67c0d52-9ed6-4d74-8b3e-9ba7c8a0a7b8",
+    "projectId": "4e16855b-2116-467f-be97-ffd5877be890",
+    "projectName": "dev-ecs-eks-rds",
+    "command": "apply",
+    "args": [
+      "apply",
+      "-input=false",
+      "-no-color",
+      "-auto-approve",
+      ".terraform-workspace.tfplan"
+    ],
+    "workspace": "dev",
+    "region": "us-east-1",
+    "connectionLabel": "bora2",
+    "backendType": "local",
+    "stateSource": "workspace:dev",
+    "startedAt": "2026-03-30T14:22:57.062Z",
+    "finishedAt": "2026-03-30T14:33:48.015Z",
+    "exitCode": 0,
+    "success": true,
+    "planSummary": null,
+    "planJsonPath": "",
+    "backupPath": "",
+    "backupCreatedAt": "",
+    "stateOperationSummary": "",
+    "git": {
+      "repoRoot": "C:/Users/bora_/Desktop/Projects/aws_lens",
+      "branch": "main",
+      "commitSha": "296bdfcdbe346be61cd7cd0f7e00d80123c3943f",
+      "shortCommitSha": "296bdfcd",
+      "isDetached": false,
+      "isDirty": true
+    }
+  },
+  {
+    "id": "4b8bf9bb-4c70-4a86-bb9a-25c42bed6807",
+    "projectId": "4e16855b-2116-467f-be97-ffd5877be890",
+    "projectName": "dev-ecs-eks-rds",
+    "command": "plan",
+    "args": [
+      "plan",
+      "-input=false",
+      "-no-color",
+      "-detailed-exitcode",
+      "-out",
+      ".terraform-workspace.tfplan",
+      "-var-file",
+      "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\terraform-workspace.auto.tfvars.json"
+    ],
+    "workspace": "dev",
+    "region": "us-east-1",
+    "connectionLabel": "bora2",
+    "backendType": "local",
+    "stateSource": "workspace:dev",
+    "startedAt": "2026-03-30T14:20:56.060Z",
+    "finishedAt": "2026-03-30T14:21:00.555Z",
+    "exitCode": 2,
+    "success": true,
+    "planSummary": {
+      "create": 43,
+      "update": 0,
+      "delete": 0,
+      "replace": 0,
+      "noop": 0,
+      "hasChanges": true,
+      "affectedResources": 43,
+      "affectedModules": [
+        "module.platform_stack"
+      ],
+      "affectedProviders": [
+        "hashicorp/aws"
+      ],
+      "affectedServices": [
+        "aws",
+        "ec2",
+        "ecs",
+        "eks",
+        "elasticloadbalancing",
+        "iam",
+        "logs",
+        "rds"
+      ],
+      "groups": {
+        "byModule": [
+          {
+            "key": "module.platform_stack",
+            "label": "module.platform_stack",
+            "kind": "module",
+            "count": 43,
+            "summary": {
+              "create": 43,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_cloudwatch_log_group.ecs",
+              "module.platform_stack.aws_db_instance.postgres",
+              "module.platform_stack.aws_db_subnet_group.main",
+              "module.platform_stack.aws_ecs_cluster.main",
+              "module.platform_stack.aws_ecs_cluster_capacity_providers.main",
+              "module.platform_stack.aws_ecs_service.frontend",
+              "module.platform_stack.aws_ecs_task_definition.frontend",
+              "module.platform_stack.aws_eip.nat",
+              "module.platform_stack.aws_eks_cluster.main",
+              "module.platform_stack.aws_eks_node_group.main",
+              "module.platform_stack.aws_iam_role.ecs_task_execution",
+              "module.platform_stack.aws_iam_role.eks_cluster",
+              "module.platform_stack.aws_iam_role.eks_nodes",
+              "module.platform_stack.aws_iam_role_policy_attachment.ecs_task_execution",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_cluster_policy",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_cni",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_ecr",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_worker",
+              "module.platform_stack.aws_internet_gateway.main",
+              "module.platform_stack.aws_lb.ecs",
+              "module.platform_stack.aws_lb_listener.ecs_http",
+              "module.platform_stack.aws_lb_target_group.ecs",
+              "module.platform_stack.aws_nat_gateway.main",
+              "module.platform_stack.aws_rds_cluster.aurora",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[0]",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[1]",
+              "module.platform_stack.aws_route_table.private",
+              "module.platform_stack.aws_route_table.public",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_security_group.ecs_alb",
+              "module.platform_stack.aws_security_group.ecs_tasks",
+              "module.platform_stack.aws_security_group.eks_cluster",
+              "module.platform_stack.aws_security_group.eks_nodes",
+              "module.platform_stack.aws_security_group.rds",
+              "module.platform_stack.aws_security_group_rule.eks_cluster_from_nodes",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_vpc.main"
+            ]
+          }
+        ],
+        "byAction": [
+          {
+            "key": "create",
+            "label": "create",
+            "kind": "action",
+            "count": 43,
+            "summary": {
+              "create": 43,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_cloudwatch_log_group.ecs",
+              "module.platform_stack.aws_db_instance.postgres",
+              "module.platform_stack.aws_db_subnet_group.main",
+              "module.platform_stack.aws_ecs_cluster.main",
+              "module.platform_stack.aws_ecs_cluster_capacity_providers.main",
+              "module.platform_stack.aws_ecs_service.frontend",
+              "module.platform_stack.aws_ecs_task_definition.frontend",
+              "module.platform_stack.aws_eip.nat",
+              "module.platform_stack.aws_eks_cluster.main",
+              "module.platform_stack.aws_eks_node_group.main",
+              "module.platform_stack.aws_iam_role.ecs_task_execution",
+              "module.platform_stack.aws_iam_role.eks_cluster",
+              "module.platform_stack.aws_iam_role.eks_nodes",
+              "module.platform_stack.aws_iam_role_policy_attachment.ecs_task_execution",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_cluster_policy",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_cni",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_ecr",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_worker",
+              "module.platform_stack.aws_internet_gateway.main",
+              "module.platform_stack.aws_lb.ecs",
+              "module.platform_stack.aws_lb_listener.ecs_http",
+              "module.platform_stack.aws_lb_target_group.ecs",
+              "module.platform_stack.aws_nat_gateway.main",
+              "module.platform_stack.aws_rds_cluster.aurora",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[0]",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[1]",
+              "module.platform_stack.aws_route_table.private",
+              "module.platform_stack.aws_route_table.public",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_security_group.ecs_alb",
+              "module.platform_stack.aws_security_group.ecs_tasks",
+              "module.platform_stack.aws_security_group.eks_cluster",
+              "module.platform_stack.aws_security_group.eks_nodes",
+              "module.platform_stack.aws_security_group.rds",
+              "module.platform_stack.aws_security_group_rule.eks_cluster_from_nodes",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_vpc.main"
+            ]
+          }
+        ],
+        "byResourceType": [
+          {
+            "key": "aws_iam_role_policy_attachment",
+            "label": "aws_iam_role_policy_attachment",
+            "kind": "resource-type",
+            "count": 5,
+            "summary": {
+              "create": 5,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_iam_role_policy_attachment.ecs_task_execution",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_cluster_policy",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_cni",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_ecr",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_worker"
+            ]
+          },
+          {
+            "key": "aws_security_group",
+            "label": "aws_security_group",
+            "kind": "resource-type",
+            "count": 5,
+            "summary": {
+              "create": 5,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_security_group.ecs_alb",
+              "module.platform_stack.aws_security_group.ecs_tasks",
+              "module.platform_stack.aws_security_group.eks_cluster",
+              "module.platform_stack.aws_security_group.eks_nodes",
+              "module.platform_stack.aws_security_group.rds"
+            ]
+          },
+          {
+            "key": "aws_route_table_association",
+            "label": "aws_route_table_association",
+            "kind": "resource-type",
+            "count": 4,
+            "summary": {
+              "create": 4,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1b\"]"
+            ]
+          },
+          {
+            "key": "aws_subnet",
+            "label": "aws_subnet",
+            "kind": "resource-type",
+            "count": 4,
+            "summary": {
+              "create": 4,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_subnet.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1b\"]"
+            ]
+          },
+          {
+            "key": "aws_iam_role",
+            "label": "aws_iam_role",
+            "kind": "resource-type",
+            "count": 3,
+            "summary": {
+              "create": 3,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_iam_role.ecs_task_execution",
+              "module.platform_stack.aws_iam_role.eks_cluster",
+              "module.platform_stack.aws_iam_role.eks_nodes"
+            ]
+          },
+          {
+            "key": "aws_rds_cluster_instance",
+            "label": "aws_rds_cluster_instance",
+            "kind": "resource-type",
+            "count": 2,
+            "summary": {
+              "create": 2,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_rds_cluster_instance.aurora[0]",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[1]"
+            ]
+          },
+          {
+            "key": "aws_route_table",
+            "label": "aws_route_table",
+            "kind": "resource-type",
+            "count": 2,
+            "summary": {
+              "create": 2,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_route_table.private",
+              "module.platform_stack.aws_route_table.public"
+            ]
+          },
+          {
+            "key": "aws_cloudwatch_log_group",
+            "label": "aws_cloudwatch_log_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_cloudwatch_log_group.ecs"
+            ]
+          },
+          {
+            "key": "aws_db_instance",
+            "label": "aws_db_instance",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_db_instance.postgres"
+            ]
+          },
+          {
+            "key": "aws_db_subnet_group",
+            "label": "aws_db_subnet_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_db_subnet_group.main"
+            ]
+          },
+          {
+            "key": "aws_ecs_cluster",
+            "label": "aws_ecs_cluster",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_cluster.main"
+            ]
+          },
+          {
+            "key": "aws_ecs_cluster_capacity_providers",
+            "label": "aws_ecs_cluster_capacity_providers",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_cluster_capacity_providers.main"
+            ]
+          },
+          {
+            "key": "aws_ecs_service",
+            "label": "aws_ecs_service",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_service.frontend"
+            ]
+          },
+          {
+            "key": "aws_ecs_task_definition",
+            "label": "aws_ecs_task_definition",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_task_definition.frontend"
+            ]
+          },
+          {
+            "key": "aws_eip",
+            "label": "aws_eip",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_eip.nat"
+            ]
+          },
+          {
+            "key": "aws_eks_cluster",
+            "label": "aws_eks_cluster",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_eks_cluster.main"
+            ]
+          },
+          {
+            "key": "aws_eks_node_group",
+            "label": "aws_eks_node_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_eks_node_group.main"
+            ]
+          },
+          {
+            "key": "aws_internet_gateway",
+            "label": "aws_internet_gateway",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_internet_gateway.main"
+            ]
+          },
+          {
+            "key": "aws_lb",
+            "label": "aws_lb",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_lb.ecs"
+            ]
+          },
+          {
+            "key": "aws_lb_listener",
+            "label": "aws_lb_listener",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_lb_listener.ecs_http"
+            ]
+          },
+          {
+            "key": "aws_lb_target_group",
+            "label": "aws_lb_target_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_lb_target_group.ecs"
+            ]
+          },
+          {
+            "key": "aws_nat_gateway",
+            "label": "aws_nat_gateway",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_nat_gateway.main"
+            ]
+          },
+          {
+            "key": "aws_rds_cluster",
+            "label": "aws_rds_cluster",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_rds_cluster.aurora"
+            ]
+          },
+          {
+            "key": "aws_security_group_rule",
+            "label": "aws_security_group_rule",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_security_group_rule.eks_cluster_from_nodes"
+            ]
+          },
+          {
+            "key": "aws_vpc",
+            "label": "aws_vpc",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_vpc.main"
+            ]
+          }
+        ]
+      },
+      "jsonFieldsUsed": [
+        "resource_changes[].address",
+        "resource_changes[].type",
+        "resource_changes[].name",
+        "resource_changes[].mode",
+        "resource_changes[].module_address",
+        "resource_changes[].provider_name",
+        "resource_changes[].action_reason",
+        "resource_changes[].change.actions",
+        "resource_changes[].change.before",
+        "resource_changes[].change.after",
+        "resource_changes[].change.after_unknown",
+        "resource_changes[].change.before_sensitive",
+        "resource_changes[].change.after_sensitive",
+        "resource_changes[].change.replace_paths"
+      ],
+      "heuristicNotes": [
+        "Affected services are inferred from Terraform resource types and provider names.",
+        "Delete-heavy highlighting is based on action totals, not cloud-provider impact.",
+        "Attribute summaries collapse nested structures and unknown values for readability.",
+        "Physical identity previews are inferred from common fields such as arn, id, and name."
+      ],
+      "hasDestructiveChanges": false,
+      "hasReplacementChanges": false,
+      "isDeleteHeavy": false,
+      "request": {
+        "mode": "standard",
+        "targets": [],
+        "replaceAddresses": []
+      }
+    },
+    "planJsonPath": "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\.terraform-workspace.tfplan.json",
+    "backupPath": "",
+    "backupCreatedAt": "",
+    "stateOperationSummary": "",
+    "git": {
+      "repoRoot": "C:/Users/bora_/Desktop/Projects/aws_lens",
+      "branch": "main",
+      "commitSha": "296bdfcdbe346be61cd7cd0f7e00d80123c3943f",
+      "shortCommitSha": "296bdfcd",
+      "isDetached": false,
+      "isDirty": true
+    }
+  },
+  {
+    "id": "346db7fc-ba9a-4784-87fc-3484256a9ef4",
+    "projectId": "4e16855b-2116-467f-be97-ffd5877be890",
+    "projectName": "dev-ecs-eks-rds",
+    "command": "plan",
+    "args": [
+      "plan",
+      "-input=false",
+      "-no-color",
+      "-detailed-exitcode",
+      "-out",
+      ".terraform-workspace.tfplan",
+      "-var-file",
+      "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\terraform-workspace.auto.tfvars.json"
+    ],
+    "workspace": "dev",
+    "region": "eu-central-1",
+    "connectionLabel": "bora2",
+    "backendType": "local",
+    "stateSource": "workspace:dev",
+    "startedAt": "2026-03-29T11:36:09.286Z",
+    "finishedAt": "2026-03-29T11:36:12.978Z",
+    "exitCode": 2,
+    "success": true,
+    "planSummary": {
+      "create": 43,
+      "update": 0,
+      "delete": 0,
+      "replace": 0,
+      "noop": 0,
+      "hasChanges": true,
+      "affectedResources": 43,
+      "affectedModules": [
+        "module.platform_stack"
+      ],
+      "affectedProviders": [
+        "hashicorp/aws"
+      ],
+      "affectedServices": [
+        "aws",
+        "ec2",
+        "ecs",
+        "eks",
+        "elasticloadbalancing",
+        "iam",
+        "logs",
+        "rds"
+      ],
+      "groups": {
+        "byModule": [
+          {
+            "key": "module.platform_stack",
+            "label": "module.platform_stack",
+            "kind": "module",
+            "count": 43,
+            "summary": {
+              "create": 43,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_cloudwatch_log_group.ecs",
+              "module.platform_stack.aws_db_instance.postgres",
+              "module.platform_stack.aws_db_subnet_group.main",
+              "module.platform_stack.aws_ecs_cluster.main",
+              "module.platform_stack.aws_ecs_cluster_capacity_providers.main",
+              "module.platform_stack.aws_ecs_service.frontend",
+              "module.platform_stack.aws_ecs_task_definition.frontend",
+              "module.platform_stack.aws_eip.nat",
+              "module.platform_stack.aws_eks_cluster.main",
+              "module.platform_stack.aws_eks_node_group.main",
+              "module.platform_stack.aws_iam_role.ecs_task_execution",
+              "module.platform_stack.aws_iam_role.eks_cluster",
+              "module.platform_stack.aws_iam_role.eks_nodes",
+              "module.platform_stack.aws_iam_role_policy_attachment.ecs_task_execution",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_cluster_policy",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_cni",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_ecr",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_worker",
+              "module.platform_stack.aws_internet_gateway.main",
+              "module.platform_stack.aws_lb.ecs",
+              "module.platform_stack.aws_lb_listener.ecs_http",
+              "module.platform_stack.aws_lb_target_group.ecs",
+              "module.platform_stack.aws_nat_gateway.main",
+              "module.platform_stack.aws_rds_cluster.aurora",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[0]",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[1]",
+              "module.platform_stack.aws_route_table.private",
+              "module.platform_stack.aws_route_table.public",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_security_group.ecs_alb",
+              "module.platform_stack.aws_security_group.ecs_tasks",
+              "module.platform_stack.aws_security_group.eks_cluster",
+              "module.platform_stack.aws_security_group.eks_nodes",
+              "module.platform_stack.aws_security_group.rds",
+              "module.platform_stack.aws_security_group_rule.eks_cluster_from_nodes",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_vpc.main"
+            ]
+          }
+        ],
+        "byAction": [
+          {
+            "key": "create",
+            "label": "create",
+            "kind": "action",
+            "count": 43,
+            "summary": {
+              "create": 43,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_cloudwatch_log_group.ecs",
+              "module.platform_stack.aws_db_instance.postgres",
+              "module.platform_stack.aws_db_subnet_group.main",
+              "module.platform_stack.aws_ecs_cluster.main",
+              "module.platform_stack.aws_ecs_cluster_capacity_providers.main",
+              "module.platform_stack.aws_ecs_service.frontend",
+              "module.platform_stack.aws_ecs_task_definition.frontend",
+              "module.platform_stack.aws_eip.nat",
+              "module.platform_stack.aws_eks_cluster.main",
+              "module.platform_stack.aws_eks_node_group.main",
+              "module.platform_stack.aws_iam_role.ecs_task_execution",
+              "module.platform_stack.aws_iam_role.eks_cluster",
+              "module.platform_stack.aws_iam_role.eks_nodes",
+              "module.platform_stack.aws_iam_role_policy_attachment.ecs_task_execution",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_cluster_policy",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_cni",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_ecr",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_worker",
+              "module.platform_stack.aws_internet_gateway.main",
+              "module.platform_stack.aws_lb.ecs",
+              "module.platform_stack.aws_lb_listener.ecs_http",
+              "module.platform_stack.aws_lb_target_group.ecs",
+              "module.platform_stack.aws_nat_gateway.main",
+              "module.platform_stack.aws_rds_cluster.aurora",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[0]",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[1]",
+              "module.platform_stack.aws_route_table.private",
+              "module.platform_stack.aws_route_table.public",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_security_group.ecs_alb",
+              "module.platform_stack.aws_security_group.ecs_tasks",
+              "module.platform_stack.aws_security_group.eks_cluster",
+              "module.platform_stack.aws_security_group.eks_nodes",
+              "module.platform_stack.aws_security_group.rds",
+              "module.platform_stack.aws_security_group_rule.eks_cluster_from_nodes",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_vpc.main"
+            ]
+          }
+        ],
+        "byResourceType": [
+          {
+            "key": "aws_iam_role_policy_attachment",
+            "label": "aws_iam_role_policy_attachment",
+            "kind": "resource-type",
+            "count": 5,
+            "summary": {
+              "create": 5,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_iam_role_policy_attachment.ecs_task_execution",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_cluster_policy",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_cni",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_ecr",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_worker"
+            ]
+          },
+          {
+            "key": "aws_security_group",
+            "label": "aws_security_group",
+            "kind": "resource-type",
+            "count": 5,
+            "summary": {
+              "create": 5,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_security_group.ecs_alb",
+              "module.platform_stack.aws_security_group.ecs_tasks",
+              "module.platform_stack.aws_security_group.eks_cluster",
+              "module.platform_stack.aws_security_group.eks_nodes",
+              "module.platform_stack.aws_security_group.rds"
+            ]
+          },
+          {
+            "key": "aws_route_table_association",
+            "label": "aws_route_table_association",
+            "kind": "resource-type",
+            "count": 4,
+            "summary": {
+              "create": 4,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1b\"]"
+            ]
+          },
+          {
+            "key": "aws_subnet",
+            "label": "aws_subnet",
+            "kind": "resource-type",
+            "count": 4,
+            "summary": {
+              "create": 4,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_subnet.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1b\"]"
+            ]
+          },
+          {
+            "key": "aws_iam_role",
+            "label": "aws_iam_role",
+            "kind": "resource-type",
+            "count": 3,
+            "summary": {
+              "create": 3,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_iam_role.ecs_task_execution",
+              "module.platform_stack.aws_iam_role.eks_cluster",
+              "module.platform_stack.aws_iam_role.eks_nodes"
+            ]
+          },
+          {
+            "key": "aws_rds_cluster_instance",
+            "label": "aws_rds_cluster_instance",
+            "kind": "resource-type",
+            "count": 2,
+            "summary": {
+              "create": 2,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_rds_cluster_instance.aurora[0]",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[1]"
+            ]
+          },
+          {
+            "key": "aws_route_table",
+            "label": "aws_route_table",
+            "kind": "resource-type",
+            "count": 2,
+            "summary": {
+              "create": 2,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_route_table.private",
+              "module.platform_stack.aws_route_table.public"
+            ]
+          },
+          {
+            "key": "aws_cloudwatch_log_group",
+            "label": "aws_cloudwatch_log_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_cloudwatch_log_group.ecs"
+            ]
+          },
+          {
+            "key": "aws_db_instance",
+            "label": "aws_db_instance",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_db_instance.postgres"
+            ]
+          },
+          {
+            "key": "aws_db_subnet_group",
+            "label": "aws_db_subnet_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_db_subnet_group.main"
+            ]
+          },
+          {
+            "key": "aws_ecs_cluster",
+            "label": "aws_ecs_cluster",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_cluster.main"
+            ]
+          },
+          {
+            "key": "aws_ecs_cluster_capacity_providers",
+            "label": "aws_ecs_cluster_capacity_providers",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_cluster_capacity_providers.main"
+            ]
+          },
+          {
+            "key": "aws_ecs_service",
+            "label": "aws_ecs_service",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_service.frontend"
+            ]
+          },
+          {
+            "key": "aws_ecs_task_definition",
+            "label": "aws_ecs_task_definition",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_task_definition.frontend"
+            ]
+          },
+          {
+            "key": "aws_eip",
+            "label": "aws_eip",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_eip.nat"
+            ]
+          },
+          {
+            "key": "aws_eks_cluster",
+            "label": "aws_eks_cluster",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_eks_cluster.main"
+            ]
+          },
+          {
+            "key": "aws_eks_node_group",
+            "label": "aws_eks_node_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_eks_node_group.main"
+            ]
+          },
+          {
+            "key": "aws_internet_gateway",
+            "label": "aws_internet_gateway",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_internet_gateway.main"
+            ]
+          },
+          {
+            "key": "aws_lb",
+            "label": "aws_lb",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_lb.ecs"
+            ]
+          },
+          {
+            "key": "aws_lb_listener",
+            "label": "aws_lb_listener",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_lb_listener.ecs_http"
+            ]
+          },
+          {
+            "key": "aws_lb_target_group",
+            "label": "aws_lb_target_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_lb_target_group.ecs"
+            ]
+          },
+          {
+            "key": "aws_nat_gateway",
+            "label": "aws_nat_gateway",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_nat_gateway.main"
+            ]
+          },
+          {
+            "key": "aws_rds_cluster",
+            "label": "aws_rds_cluster",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_rds_cluster.aurora"
+            ]
+          },
+          {
+            "key": "aws_security_group_rule",
+            "label": "aws_security_group_rule",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_security_group_rule.eks_cluster_from_nodes"
+            ]
+          },
+          {
+            "key": "aws_vpc",
+            "label": "aws_vpc",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_vpc.main"
+            ]
+          }
+        ]
+      },
+      "jsonFieldsUsed": [
+        "resource_changes[].address",
+        "resource_changes[].type",
+        "resource_changes[].name",
+        "resource_changes[].mode",
+        "resource_changes[].module_address",
+        "resource_changes[].provider_name",
+        "resource_changes[].action_reason",
+        "resource_changes[].change.actions",
+        "resource_changes[].change.before",
+        "resource_changes[].change.after",
+        "resource_changes[].change.after_unknown",
+        "resource_changes[].change.before_sensitive",
+        "resource_changes[].change.after_sensitive",
+        "resource_changes[].change.replace_paths"
+      ],
+      "heuristicNotes": [
+        "Affected services are inferred from Terraform resource types and provider names.",
+        "Delete-heavy highlighting is based on action totals, not cloud-provider impact.",
+        "Attribute summaries collapse nested structures and unknown values for readability.",
+        "Physical identity previews are inferred from common fields such as arn, id, and name."
+      ],
+      "hasDestructiveChanges": false,
+      "hasReplacementChanges": false,
+      "isDeleteHeavy": false,
+      "request": {
+        "mode": "standard",
+        "targets": [],
+        "replaceAddresses": []
+      }
+    },
+    "planJsonPath": "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\.terraform-workspace.tfplan.json",
+    "backupPath": "",
+    "backupCreatedAt": "",
+    "stateOperationSummary": "",
+    "git": {
+      "repoRoot": "C:/Users/bora_/Desktop/Projects/aws_lens",
+      "branch": "main",
+      "commitSha": "296bdfcdbe346be61cd7cd0f7e00d80123c3943f",
+      "shortCommitSha": "296bdfcd",
+      "isDetached": false,
+      "isDirty": true
+    }
+  },
+  {
+    "id": "3202fd2f-2116-4386-9eae-b6e78392c203",
+    "projectId": "4e16855b-2116-467f-be97-ffd5877be890",
+    "projectName": "dev-ecs-eks-rds",
+    "command": "destroy",
+    "args": [
+      "destroy",
+      "-input=false",
+      "-no-color",
+      "-auto-approve",
+      "-var-file",
+      "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\terraform-workspace.auto.tfvars.json"
+    ],
+    "workspace": "dev",
+    "region": "eu-central-1",
+    "connectionLabel": "bora2",
+    "backendType": "local",
+    "stateSource": "workspace:dev",
+    "startedAt": "2026-03-29T11:26:20.933Z",
+    "finishedAt": "2026-03-29T11:35:35.732Z",
+    "exitCode": 0,
+    "success": true,
+    "planSummary": null,
+    "planJsonPath": "",
+    "backupPath": "",
+    "backupCreatedAt": "",
+    "stateOperationSummary": "",
+    "git": {
+      "repoRoot": "C:/Users/bora_/Desktop/Projects/aws_lens",
+      "branch": "main",
+      "commitSha": "296bdfcdbe346be61cd7cd0f7e00d80123c3943f",
+      "shortCommitSha": "296bdfcd",
+      "isDetached": false,
+      "isDirty": true
+    }
+  },
+  {
+    "id": "9e28fd64-f618-4319-9015-09adde4fb864",
+    "projectId": "4e16855b-2116-467f-be97-ffd5877be890",
+    "projectName": "dev-ecs-eks-rds",
+    "command": "plan",
+    "args": [
+      "plan",
+      "-input=false",
+      "-no-color",
+      "-detailed-exitcode",
+      "-out",
+      ".terraform-workspace.tfplan",
+      "-var-file",
+      "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\terraform-workspace.auto.tfvars.json"
+    ],
+    "workspace": "dev",
+    "region": "eu-central-1",
+    "connectionLabel": "bora2",
+    "backendType": "local",
+    "stateSource": "workspace:dev",
+    "startedAt": "2026-03-29T11:25:54.636Z",
+    "finishedAt": "2026-03-29T11:26:01.261Z",
+    "exitCode": 0,
+    "success": true,
+    "planSummary": null,
+    "planJsonPath": "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\.terraform-workspace.tfplan.json",
+    "backupPath": "",
+    "backupCreatedAt": "",
+    "stateOperationSummary": "",
+    "git": {
+      "repoRoot": "C:/Users/bora_/Desktop/Projects/aws_lens",
+      "branch": "main",
+      "commitSha": "296bdfcdbe346be61cd7cd0f7e00d80123c3943f",
+      "shortCommitSha": "296bdfcd",
+      "isDetached": false,
+      "isDirty": true
+    }
+  },
+  {
+    "id": "cbc84fdb-6058-42ab-80a9-f4a482fa1df7",
+    "projectId": "4e16855b-2116-467f-be97-ffd5877be890",
+    "projectName": "dev-ecs-eks-rds",
+    "command": "apply",
+    "args": [
+      "apply",
+      "-input=false",
+      "-no-color",
+      "-auto-approve",
+      ".terraform-workspace.tfplan"
+    ],
+    "workspace": "dev",
+    "region": "us-east-1",
+    "connectionLabel": "bora2",
+    "backendType": "local",
+    "stateSource": "workspace:dev",
+    "startedAt": "2026-03-29T11:15:21.271Z",
+    "finishedAt": "2026-03-29T11:17:52.773Z",
+    "exitCode": 0,
+    "success": true,
+    "planSummary": null,
+    "planJsonPath": "",
+    "backupPath": "",
+    "backupCreatedAt": "",
+    "stateOperationSummary": "",
+    "git": {
+      "repoRoot": "C:/Users/bora_/Desktop/Projects/aws_lens",
+      "branch": "main",
+      "commitSha": "296bdfcdbe346be61cd7cd0f7e00d80123c3943f",
+      "shortCommitSha": "296bdfcd",
+      "isDetached": false,
+      "isDirty": true
+    }
+  },
+  {
+    "id": "37ed133d-200a-457f-929e-b0d513c74093",
+    "projectId": "4e16855b-2116-467f-be97-ffd5877be890",
+    "projectName": "dev-ecs-eks-rds",
+    "command": "plan",
+    "args": [
+      "plan",
+      "-input=false",
+      "-no-color",
+      "-detailed-exitcode",
+      "-out",
+      ".terraform-workspace.tfplan",
+      "-var-file",
+      "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\terraform-workspace.auto.tfvars.json"
+    ],
+    "workspace": "dev",
+    "region": "eu-central-1",
+    "connectionLabel": "bora2",
+    "backendType": "local",
+    "stateSource": "workspace:dev",
+    "startedAt": "2026-03-29T10:42:43.743Z",
+    "finishedAt": "2026-03-29T10:42:48.875Z",
+    "exitCode": 2,
+    "success": true,
+    "planSummary": {
+      "create": 9,
+      "update": 1,
+      "delete": 0,
+      "replace": 0,
+      "noop": 33,
+      "hasChanges": true,
+      "affectedResources": 10,
+      "affectedModules": [
+        "module.platform_stack"
+      ],
+      "affectedProviders": [
+        "hashicorp/aws"
+      ],
+      "affectedServices": [
+        "ec2",
+        "ecs",
+        "elasticloadbalancing",
+        "iam",
+        "logs"
+      ],
+      "groups": {
+        "byModule": [
+          {
+            "key": "module.platform_stack",
+            "label": "module.platform_stack",
+            "kind": "module",
+            "count": 10,
+            "summary": {
+              "create": 9,
+              "update": 1,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_cloudwatch_log_group.ecs",
+              "module.platform_stack.aws_ecs_service.frontend",
+              "module.platform_stack.aws_ecs_task_definition.frontend",
+              "module.platform_stack.aws_iam_role.ecs_task_execution",
+              "module.platform_stack.aws_iam_role_policy_attachment.ecs_task_execution",
+              "module.platform_stack.aws_lb.ecs",
+              "module.platform_stack.aws_lb_listener.ecs_http",
+              "module.platform_stack.aws_lb_target_group.ecs",
+              "module.platform_stack.aws_security_group.ecs_alb",
+              "module.platform_stack.aws_security_group.ecs_tasks"
+            ]
+          }
+        ],
+        "byAction": [
+          {
+            "key": "create",
+            "label": "create",
+            "kind": "action",
+            "count": 9,
+            "summary": {
+              "create": 9,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_cloudwatch_log_group.ecs",
+              "module.platform_stack.aws_ecs_service.frontend",
+              "module.platform_stack.aws_ecs_task_definition.frontend",
+              "module.platform_stack.aws_iam_role.ecs_task_execution",
+              "module.platform_stack.aws_iam_role_policy_attachment.ecs_task_execution",
+              "module.platform_stack.aws_lb.ecs",
+              "module.platform_stack.aws_lb_listener.ecs_http",
+              "module.platform_stack.aws_lb_target_group.ecs",
+              "module.platform_stack.aws_security_group.ecs_alb"
+            ]
+          },
+          {
+            "key": "update",
+            "label": "update",
+            "kind": "action",
+            "count": 1,
+            "summary": {
+              "create": 0,
+              "update": 1,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_security_group.ecs_tasks"
+            ]
+          }
+        ],
+        "byResourceType": [
+          {
+            "key": "aws_security_group",
+            "label": "aws_security_group",
+            "kind": "resource-type",
+            "count": 2,
+            "summary": {
+              "create": 1,
+              "update": 1,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_security_group.ecs_alb",
+              "module.platform_stack.aws_security_group.ecs_tasks"
+            ]
+          },
+          {
+            "key": "aws_cloudwatch_log_group",
+            "label": "aws_cloudwatch_log_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_cloudwatch_log_group.ecs"
+            ]
+          },
+          {
+            "key": "aws_ecs_service",
+            "label": "aws_ecs_service",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_service.frontend"
+            ]
+          },
+          {
+            "key": "aws_ecs_task_definition",
+            "label": "aws_ecs_task_definition",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_task_definition.frontend"
+            ]
+          },
+          {
+            "key": "aws_iam_role",
+            "label": "aws_iam_role",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_iam_role.ecs_task_execution"
+            ]
+          },
+          {
+            "key": "aws_iam_role_policy_attachment",
+            "label": "aws_iam_role_policy_attachment",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_iam_role_policy_attachment.ecs_task_execution"
+            ]
+          },
+          {
+            "key": "aws_lb",
+            "label": "aws_lb",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_lb.ecs"
+            ]
+          },
+          {
+            "key": "aws_lb_listener",
+            "label": "aws_lb_listener",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_lb_listener.ecs_http"
+            ]
+          },
+          {
+            "key": "aws_lb_target_group",
+            "label": "aws_lb_target_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_lb_target_group.ecs"
+            ]
+          }
+        ]
+      },
+      "jsonFieldsUsed": [
+        "resource_changes[].address",
+        "resource_changes[].type",
+        "resource_changes[].name",
+        "resource_changes[].mode",
+        "resource_changes[].module_address",
+        "resource_changes[].provider_name",
+        "resource_changes[].action_reason",
+        "resource_changes[].change.actions",
+        "resource_changes[].change.before",
+        "resource_changes[].change.after",
+        "resource_changes[].change.after_unknown",
+        "resource_changes[].change.before_sensitive",
+        "resource_changes[].change.after_sensitive",
+        "resource_changes[].change.replace_paths"
+      ],
+      "heuristicNotes": [
+        "Affected services are inferred from Terraform resource types and provider names.",
+        "Delete-heavy highlighting is based on action totals, not cloud-provider impact.",
+        "Attribute summaries collapse nested structures and unknown values for readability.",
+        "Physical identity previews are inferred from common fields such as arn, id, and name."
+      ],
+      "hasDestructiveChanges": false,
+      "hasReplacementChanges": false,
+      "isDeleteHeavy": false,
+      "request": {
+        "mode": "standard",
+        "targets": [],
+        "replaceAddresses": []
+      }
+    },
+    "planJsonPath": "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\.terraform-workspace.tfplan.json",
+    "backupPath": "",
+    "backupCreatedAt": "",
+    "stateOperationSummary": "",
+    "git": {
+      "repoRoot": "C:/Users/bora_/Desktop/Projects/aws_lens",
+      "branch": "main",
+      "commitSha": "296bdfcdbe346be61cd7cd0f7e00d80123c3943f",
+      "shortCommitSha": "296bdfcd",
+      "isDetached": false,
+      "isDirty": true
+    }
+  },
+  {
+    "id": "0bd4a6aa-3a5d-4ec8-b0c9-4ca76defdedd",
+    "projectId": "4e16855b-2116-467f-be97-ffd5877be890",
+    "projectName": "dev-ecs-eks-rds",
+    "command": "apply",
+    "args": [
+      "apply",
+      "-input=false",
+      "-no-color",
+      "-auto-approve",
+      ".terraform-workspace.tfplan"
+    ],
+    "workspace": "dev",
+    "region": "eu-central-1",
+    "connectionLabel": "bora2",
+    "backendType": "local",
+    "stateSource": "workspace:dev",
+    "startedAt": "2026-03-29T10:27:04.849Z",
+    "finishedAt": "2026-03-29T10:40:27.291Z",
+    "exitCode": 0,
+    "success": true,
+    "planSummary": null,
+    "planJsonPath": "",
+    "backupPath": "",
+    "backupCreatedAt": "",
+    "stateOperationSummary": "",
+    "git": {
+      "repoRoot": "C:/Users/bora_/Desktop/Projects/aws_lens",
+      "branch": "main",
+      "commitSha": "296bdfcdbe346be61cd7cd0f7e00d80123c3943f",
+      "shortCommitSha": "296bdfcd",
+      "isDetached": false,
+      "isDirty": true
+    }
+  },
+  {
+    "id": "99dfbc00-2d4a-43be-86ec-16a9998cdbfd",
+    "projectId": "4e16855b-2116-467f-be97-ffd5877be890",
+    "projectName": "dev-ecs-eks-rds",
+    "command": "plan",
+    "args": [
+      "plan",
+      "-input=false",
+      "-no-color",
+      "-detailed-exitcode",
+      "-out",
+      ".terraform-workspace.tfplan",
+      "-var-file",
+      "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\terraform-workspace.auto.tfvars.json"
+    ],
+    "workspace": "dev",
+    "region": "eu-central-1",
+    "connectionLabel": "bora2",
+    "backendType": "local",
+    "stateSource": "none",
+    "startedAt": "2026-03-29T10:25:08.984Z",
+    "finishedAt": "2026-03-29T10:25:11.699Z",
+    "exitCode": 2,
+    "success": true,
+    "planSummary": {
+      "create": 34,
+      "update": 0,
+      "delete": 0,
+      "replace": 0,
+      "noop": 0,
+      "hasChanges": true,
+      "affectedResources": 34,
+      "affectedModules": [
+        "module.platform_stack"
+      ],
+      "affectedProviders": [
+        "hashicorp/aws"
+      ],
+      "affectedServices": [
+        "aws",
+        "ec2",
+        "ecs",
+        "eks",
+        "iam",
+        "rds"
+      ],
+      "groups": {
+        "byModule": [
+          {
+            "key": "module.platform_stack",
+            "label": "module.platform_stack",
+            "kind": "module",
+            "count": 34,
+            "summary": {
+              "create": 34,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_db_instance.postgres",
+              "module.platform_stack.aws_db_subnet_group.main",
+              "module.platform_stack.aws_ecs_cluster.main",
+              "module.platform_stack.aws_ecs_cluster_capacity_providers.main",
+              "module.platform_stack.aws_eip.nat",
+              "module.platform_stack.aws_eks_cluster.main",
+              "module.platform_stack.aws_eks_node_group.main",
+              "module.platform_stack.aws_iam_role.eks_cluster",
+              "module.platform_stack.aws_iam_role.eks_nodes",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_cluster_policy",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_cni",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_ecr",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_worker",
+              "module.platform_stack.aws_internet_gateway.main",
+              "module.platform_stack.aws_nat_gateway.main",
+              "module.platform_stack.aws_rds_cluster.aurora",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[0]",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[1]",
+              "module.platform_stack.aws_route_table.private",
+              "module.platform_stack.aws_route_table.public",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_security_group.ecs_tasks",
+              "module.platform_stack.aws_security_group.eks_cluster",
+              "module.platform_stack.aws_security_group.eks_nodes",
+              "module.platform_stack.aws_security_group.rds",
+              "module.platform_stack.aws_security_group_rule.eks_cluster_from_nodes",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_vpc.main"
+            ]
+          }
+        ],
+        "byAction": [
+          {
+            "key": "create",
+            "label": "create",
+            "kind": "action",
+            "count": 34,
+            "summary": {
+              "create": 34,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_db_instance.postgres",
+              "module.platform_stack.aws_db_subnet_group.main",
+              "module.platform_stack.aws_ecs_cluster.main",
+              "module.platform_stack.aws_ecs_cluster_capacity_providers.main",
+              "module.platform_stack.aws_eip.nat",
+              "module.platform_stack.aws_eks_cluster.main",
+              "module.platform_stack.aws_eks_node_group.main",
+              "module.platform_stack.aws_iam_role.eks_cluster",
+              "module.platform_stack.aws_iam_role.eks_nodes",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_cluster_policy",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_cni",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_ecr",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_worker",
+              "module.platform_stack.aws_internet_gateway.main",
+              "module.platform_stack.aws_nat_gateway.main",
+              "module.platform_stack.aws_rds_cluster.aurora",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[0]",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[1]",
+              "module.platform_stack.aws_route_table.private",
+              "module.platform_stack.aws_route_table.public",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_security_group.ecs_tasks",
+              "module.platform_stack.aws_security_group.eks_cluster",
+              "module.platform_stack.aws_security_group.eks_nodes",
+              "module.platform_stack.aws_security_group.rds",
+              "module.platform_stack.aws_security_group_rule.eks_cluster_from_nodes",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1b\"]",
+              "module.platform_stack.aws_vpc.main"
+            ]
+          }
+        ],
+        "byResourceType": [
+          {
+            "key": "aws_iam_role_policy_attachment",
+            "label": "aws_iam_role_policy_attachment",
+            "kind": "resource-type",
+            "count": 4,
+            "summary": {
+              "create": 4,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_cluster_policy",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_cni",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_ecr",
+              "module.platform_stack.aws_iam_role_policy_attachment.eks_nodes_worker"
+            ]
+          },
+          {
+            "key": "aws_route_table_association",
+            "label": "aws_route_table_association",
+            "kind": "resource-type",
+            "count": 4,
+            "summary": {
+              "create": 4,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_route_table_association.public[\"eu-central-1b\"]"
+            ]
+          },
+          {
+            "key": "aws_security_group",
+            "label": "aws_security_group",
+            "kind": "resource-type",
+            "count": 4,
+            "summary": {
+              "create": 4,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_security_group.ecs_tasks",
+              "module.platform_stack.aws_security_group.eks_cluster",
+              "module.platform_stack.aws_security_group.eks_nodes",
+              "module.platform_stack.aws_security_group.rds"
+            ]
+          },
+          {
+            "key": "aws_subnet",
+            "label": "aws_subnet",
+            "kind": "resource-type",
+            "count": 4,
+            "summary": {
+              "create": 4,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_subnet.private[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.private[\"eu-central-1b\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1a\"]",
+              "module.platform_stack.aws_subnet.public[\"eu-central-1b\"]"
+            ]
+          },
+          {
+            "key": "aws_iam_role",
+            "label": "aws_iam_role",
+            "kind": "resource-type",
+            "count": 2,
+            "summary": {
+              "create": 2,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_iam_role.eks_cluster",
+              "module.platform_stack.aws_iam_role.eks_nodes"
+            ]
+          },
+          {
+            "key": "aws_rds_cluster_instance",
+            "label": "aws_rds_cluster_instance",
+            "kind": "resource-type",
+            "count": 2,
+            "summary": {
+              "create": 2,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_rds_cluster_instance.aurora[0]",
+              "module.platform_stack.aws_rds_cluster_instance.aurora[1]"
+            ]
+          },
+          {
+            "key": "aws_route_table",
+            "label": "aws_route_table",
+            "kind": "resource-type",
+            "count": 2,
+            "summary": {
+              "create": 2,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_route_table.private",
+              "module.platform_stack.aws_route_table.public"
+            ]
+          },
+          {
+            "key": "aws_db_instance",
+            "label": "aws_db_instance",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_db_instance.postgres"
+            ]
+          },
+          {
+            "key": "aws_db_subnet_group",
+            "label": "aws_db_subnet_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_db_subnet_group.main"
+            ]
+          },
+          {
+            "key": "aws_ecs_cluster",
+            "label": "aws_ecs_cluster",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_cluster.main"
+            ]
+          },
+          {
+            "key": "aws_ecs_cluster_capacity_providers",
+            "label": "aws_ecs_cluster_capacity_providers",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_ecs_cluster_capacity_providers.main"
+            ]
+          },
+          {
+            "key": "aws_eip",
+            "label": "aws_eip",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_eip.nat"
+            ]
+          },
+          {
+            "key": "aws_eks_cluster",
+            "label": "aws_eks_cluster",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_eks_cluster.main"
+            ]
+          },
+          {
+            "key": "aws_eks_node_group",
+            "label": "aws_eks_node_group",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_eks_node_group.main"
+            ]
+          },
+          {
+            "key": "aws_internet_gateway",
+            "label": "aws_internet_gateway",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_internet_gateway.main"
+            ]
+          },
+          {
+            "key": "aws_nat_gateway",
+            "label": "aws_nat_gateway",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_nat_gateway.main"
+            ]
+          },
+          {
+            "key": "aws_rds_cluster",
+            "label": "aws_rds_cluster",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_rds_cluster.aurora"
+            ]
+          },
+          {
+            "key": "aws_security_group_rule",
+            "label": "aws_security_group_rule",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_security_group_rule.eks_cluster_from_nodes"
+            ]
+          },
+          {
+            "key": "aws_vpc",
+            "label": "aws_vpc",
+            "kind": "resource-type",
+            "count": 1,
+            "summary": {
+              "create": 1,
+              "update": 0,
+              "delete": 0,
+              "replace": 0,
+              "noop": 0
+            },
+            "resources": [
+              "module.platform_stack.aws_vpc.main"
+            ]
+          }
+        ]
+      },
+      "jsonFieldsUsed": [
+        "resource_changes[].address",
+        "resource_changes[].type",
+        "resource_changes[].name",
+        "resource_changes[].mode",
+        "resource_changes[].module_address",
+        "resource_changes[].provider_name",
+        "resource_changes[].action_reason",
+        "resource_changes[].change.actions",
+        "resource_changes[].change.before",
+        "resource_changes[].change.after",
+        "resource_changes[].change.after_unknown",
+        "resource_changes[].change.before_sensitive",
+        "resource_changes[].change.after_sensitive",
+        "resource_changes[].change.replace_paths"
+      ],
+      "heuristicNotes": [
+        "Affected services are inferred from Terraform resource types and provider names.",
+        "Delete-heavy highlighting is based on action totals, not cloud-provider impact.",
+        "Attribute summaries collapse nested structures and unknown values for readability.",
+        "Physical identity previews are inferred from common fields such as arn, id, and name."
+      ],
+      "hasDestructiveChanges": false,
+      "hasReplacementChanges": false,
+      "isDeleteHeavy": false,
+      "request": {
+        "mode": "standard",
+        "targets": [],
+        "replaceAddresses": []
+      }
+    },
+    "planJsonPath": "C:\\Users\\bora_\\Desktop\\Projects\\aws_lens\\terraform\\terraform-main\\.terraform-workspace.tfplan.json",
+    "backupPath": "",
+    "backupCreatedAt": "",
+    "stateOperationSummary": "",
+    "git": {
+      "repoRoot": "C:/Users/bora_/Desktop/Projects/aws_lens",
+      "branch": "main",
+      "commitSha": "296bdfcdbe346be61cd7cd0f7e00d80123c3943f",
+      "shortCommitSha": "296bdfcd",
+      "isDetached": false,
+      "isDirty": true
+    }
+  }
+]

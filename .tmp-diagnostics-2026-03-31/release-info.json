@@ -1,0 +1,28 @@
+{
+  "currentVersion": "0.11.0",
+  "latestVersion": "1.0.0",
+  "updateAvailable": true,
+  "releaseUrl": "https://github.com/BoraKostem/AWS-Lens/releases/",
+  "checkedAt": "2026-03-31T17:25:17.292Z",
+  "error": "Cannot download \"https://github.com/BoraKostem/AWS-Lens/releases/download/v1.0.0/AWS-Lens-Setup-1.0.0.exe\", status 404: ",
+  "checkStatus": "error",
+  "updateMechanism": "electron-updater",
+  "updateStatus": "error",
+  "supportsAutoUpdate": true,
+  "canCheckForUpdates": true,
+  "canDownloadUpdate": false,
+  "canInstallUpdate": false,
+  "downloadProgressPercent": 0,
+  "currentBuild": {
+    "version": "0.11.0",
+    "buildHash": "42265e742ca1",
+    "channel": "stable"
+  },
+  "latestRelease": {
+    "version": "1.0.0",
+    "name": "v1.0.0",
+    "notes": "<h2>What's Changed</h2>\n<ul>\n<li>Feature/settings v1 preferences hub by <a class=\"user-mention notranslate\" data-hovercard-type=\"user\" data-hovercard-url=\"/users/BoraKostem/hovercard\" data-octo-click=\"hovercard-link-click\" data-octo-dimensions=\"link_type:self\" href=\"https://github.com/BoraKostem\">@BoraKostem</a> in <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"4180637736\" data-permission-text=\"Title is private\" data-url=\"https://github.com/BoraKostem/AWS-Lens/issues/30\" data-hovercard-type=\"pull_request\" data-hovercard-url=\"/BoraKostem/AWS-Lens/pull/30/hovercard\" href=\"https://github.com/BoraKostem/AWS-Lens/pull/30\">#30</a></li>\n<li>Feature/onboarding ux by <a class=\"user-mention notranslate\" data-hovercard-type=\"user\" data-hovercard-url=\"/users/BoraKostem/hovercard\" data-octo-click=\"hovercard-link-click\" data-octo-dimensions=\"link_type:self\" href=\"https://github.com/BoraKostem\">@BoraKostem</a> in <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"4180922184\" data-permission-text=\"Title is private\" data-url=\"https://github.com/BoraKostem/AWS-Lens/issues/31\" data-hovercard-type=\"pull_request\" data-hovercard-url=\"/BoraKostem/AWS-Lens/pull/31/hovercard\" href=\"https://github.com/BoraKostem/AWS-Lens/pull/31\">#31</a></li>\n</ul>\n<p><strong>Full Changelog</strong>: <a class=\"commit-link\" href=\"https://github.com/BoraKostem/AWS-Lens/compare/v0.11.0...v1.0.0\"><tt>v0.11.0...v1.0.0</tt></a></p>",
+    "publishedAt": "2026-03-31T17:22:58.920Z",
+    "url": "https://github.com/BoraKostem/AWS-Lens/releases/"
+  }
+}

@@ -236,6 +236,9 @@ jobs:
             exit 1
           fi
 
+      - name: Validate updater metadata references built files
+        run: node scripts/validate-updater-metadata.mjs release
+
       - name: Generate release manifest and checksums
         shell: bash
         run: |

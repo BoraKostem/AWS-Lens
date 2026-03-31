@@ -1,0 +1,80 @@
+{
+  "generatedAt": "2026-03-31T17:25:26.484Z",
+  "app": {
+    "name": "aws-lens",
+    "version": "0.11.0",
+    "isPackaged": true
+  },
+  "environment": {
+    "platform": "win32",
+    "arch": "x64",
+    "nodeVersion": "v22.16.0",
+    "electronVersion": "35.7.5",
+    "chromeVersion": "134.0.6998.205",
+    "hostname": "bora",
+    "release": "10.0.26200",
+    "appPath": "C:\\Users\\bora_\\AppData\\Local\\Programs\\AWS Lens\\resources\\app.asar",
+    "userDataPath": "C:\\Users\\bora_\\AppData\\Roaming\\aws-lens",
+    "tempPath": "C:\\Users\\bora_\\AppData\\Local\\Temp",
+    "documentsPath": "C:\\Users\\bora_\\Documents"
+  },
+  "structuredLog": {
+    "path": "C:\\Users\\bora_\\AppData\\Roaming\\aws-lens\\logs\\app.log",
+    "exists": true,
+    "sizeBytes": 644943,
+    "modifiedAt": "2026-03-31T17:25:22.853Z"
+  },
+  "secureStores": {
+    "vaultEntryCounts": {
+      "all": 0,
+      "awsProfiles": 0,
+      "sshKeys": 0,
+      "pem": 0,
+      "accessKeys": 0
+    },
+    "files": [
+      {
+        "path": "C:\\Users\\bora_\\AppData\\Roaming\\aws-lens\\local-vault.json",
+        "exists": false,
+        "sizeBytes": 0,
+        "modifiedAt": ""
+      },
+      {
+        "path": "C:\\Users\\bora_\\AppData\\Roaming\\aws-lens\\session-hub.json",
+        "exists": true,
+        "sizeBytes": 19,
+        "modifiedAt": "2026-03-27T08:09:04.519Z"
+      },
+      {
+        "path": "C:\\Users\\bora_\\AppData\\Roaming\\aws-lens\\profile-registry.json",
+        "exists": true,
+        "sizeBytes": 27,
+        "modifiedAt": "2026-03-26T13:47:47.606Z"
+      },
+      {
+        "path": "C:\\Users\\bora_\\AppData\\Roaming\\aws-lens\\terraform-workspace-state.json",
+        "exists": true,
+        "sizeBytes": 2344,
+        "modifiedAt": "2026-03-31T17:09:54.894Z"
+      },
+      {
+        "path": "C:\\Users\\bora_\\AppData\\Roaming\\aws-lens\\terraform-run-history.json",
+        "exists": true,
+        "sizeBytes": 155160,
+        "modifiedAt": "2026-03-31T12:05:41.277Z"
+      },
+      {
+        "path": "C:\\Users\\bora_\\AppData\\Roaming\\aws-lens\\enterprise-settings.json",
+        "exists": true,
+        "sizeBytes": 148,
+        "modifiedAt": "2026-03-31T15:54:31.783Z"
+      },
+      {
+        "path": "C:\\Users\\bora_\\AppData\\Roaming\\aws-lens\\enterprise-audit-log.json",
+        "exists": true,
+        "sizeBytes": 12320,
+        "modifiedAt": "2026-03-31T15:52:19.739Z"
+      }
+    ]
+  }
+}

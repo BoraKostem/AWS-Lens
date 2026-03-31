@@ -21,6 +21,7 @@ publish:
   repo: AWS-Lens
 
 win:
+  artifactName: AWS-Lens-Setup-${version}.${ext}
   target:
     - nsis
   icon: assets/aws-lens-logo.ico
@@ -34,6 +35,7 @@ nsis:
   createStartMenuShortcut: true
 
 mac:
+  artifactName: AWS-Lens-${version}-${arch}.${ext}
   category: public.app-category.developer-tools
   target:
     - dmg
@@ -46,6 +48,7 @@ mac:
   notarize: true
 
 linux:
+  artifactName: aws-lens_${version}_${arch}.${ext}
   category: Development
   maintainer: Bora Kostem <BoraKostem@users.noreply.github.com>
   target:
