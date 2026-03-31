@@ -157,6 +157,8 @@ function baseReleaseInfo(): AppReleaseInfo {
 
   return {
     ...base,
+    checkedAt: supportsAutoUpdate() ? base.checkedAt : null,
+    error: supportsAutoUpdate() ? base.error : null,
     ...updateActionState(base)
   }
 }
@@ -443,6 +445,11 @@ async function fetchLatestReleaseInfo(): Promise<AppReleaseInfo> {
 }
 
 export function startReleaseCheck(): void {
+  if (!supportsAutoUpdate()) {
+    cachedReleaseInfo = baseReleaseInfo()
+    return
+  }
+
   commitReleaseInfo({
     ...baseReleaseInfo(),
     checkStatus: 'checking',
@@ -467,6 +474,15 @@ export async function getReleaseInfo(): Promise<AppReleaseInfo> {
 }
 
 export async function checkForAppUpdates(): Promise<AppReleaseInfo> {
+  if (!supportsAutoUpdate()) {
+    return commitReleaseInfo({
+      checkStatus: 'idle',
+      updateStatus: 'idle',
+      error: null,
+      checkedAt: null
+    })
+  }
+
   if (startupReleaseCheckPromise) {
     return startupReleaseCheckPromise
   }
@@ -480,7 +496,9 @@ export async function checkForAppUpdates(): Promise<AppReleaseInfo> {
 
 export async function downloadAppUpdate(): Promise<AppReleaseInfo> {
   if (!supportsAutoUpdate()) {
-    return cachedReleaseInfo
+    return commitReleaseInfo({
+      error: null
+    })
   }
 
   initializeAutoUpdater()

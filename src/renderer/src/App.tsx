@@ -515,6 +515,22 @@ export function App() {
     ? `${connectionState.connection.sessionId}:${connectionState.connection.region}`
     : 'disconnected'
   const versionLabel = releaseInfo?.currentVersion ?? ''
+  const releaseStateLabel = !releaseInfo?.supportsAutoUpdate
+    ? 'Unavailable in dev build'
+    : releaseInfo?.updateStatus === 'available'
+      ? 'Update available'
+      : releaseInfo?.updateStatus === 'downloaded'
+        ? 'Ready to install'
+        : releaseInfo?.updateStatus === 'downloading'
+          ? 'Downloading'
+          : releaseInfo?.updateStatus === 'error'
+            ? 'Needs attention'
+            : 'Up to date'
+  const releaseStateTone = !releaseInfo?.supportsAutoUpdate
+    ? 'settings-status-pill-unknown'
+    : releaseInfo?.updateStatus === 'available' || releaseInfo?.updateStatus === 'downloaded' || releaseInfo?.updateStatus === 'error'
+      ? 'settings-status-pill-preview'
+      : 'settings-status-pill-stable'
 
   function togglePinnedService(serviceId: ServiceId) {
     setPinnedServiceIds((current) =>
@@ -1157,10 +1173,10 @@ export function App() {
               <div className="settings-info-grid">
                 <div className="settings-info-row"><span>Version</span><strong>{releaseInfo?.currentVersion ? `v${releaseInfo.currentVersion}` : 'Unknown'}</strong></div>
                 <div className="settings-info-row"><span>Build hash</span><strong>{releaseInfo?.currentBuild.buildHash ?? 'Unavailable'}</strong></div>
-                <div className="settings-info-row"><span>Updater</span><strong>{releaseInfo?.supportsAutoUpdate ? 'Enabled in packaged app' : 'GitHub release check fallback'}</strong></div>
+                <div className="settings-info-row"><span>Updater</span><strong>{releaseInfo?.supportsAutoUpdate ? 'Enabled in packaged app' : 'Available in packaged app only'}</strong></div>
                 <div className="settings-info-row"><span>Check status</span><strong>{releaseInfo?.checkStatus ?? 'idle'}</strong></div>
                 <div className="settings-info-row"><span>Update status</span><strong>{releaseInfo?.updateStatus ?? 'idle'}</strong></div>
-                <div className="settings-info-row"><span>Last checked</span><strong>{releaseInfo?.checkedAt ? new Date(releaseInfo.checkedAt).toLocaleString() : 'Not checked yet'}</strong></div>
+                <div className="settings-info-row"><span>Last checked</span><strong>{releaseInfo?.checkedAt ? new Date(releaseInfo.checkedAt).toLocaleString() : releaseInfo?.supportsAutoUpdate ? 'Not checked yet' : 'Disabled in dev build'}</strong></div>
               </div>
             </section>
 
@@ -1170,8 +1186,8 @@ export function App() {
                   <div className="eyebrow">Updates</div>
                   <h3>Release state</h3>
                 </div>
-                <span className={`settings-status-pill ${releaseInfo?.updateAvailable ? 'settings-status-pill-preview' : 'settings-status-pill-stable'}`}>
-                  {releaseInfo?.updateAvailable ? 'Update available' : 'Up to date'}
+                <span className={`settings-status-pill ${releaseStateTone}`}>
+                  {releaseStateLabel}
                 </span>
               </div>
               <div className="settings-info-grid">
@@ -1182,7 +1198,7 @@ export function App() {
               </div>
               <div className="settings-action-row">
                 <button type="button" className="accent" disabled={!releaseInfo?.canCheckForUpdates} onClick={() => void handleCheckForUpdates()}>
-                  {releaseInfo?.checkStatus === 'checking' ? 'Checking...' : 'Check for updates'}
+                  {releaseInfo?.supportsAutoUpdate ? (releaseInfo?.checkStatus === 'checking' ? 'Checking...' : 'Check for updates') : 'Package app to enable'}
                 </button>
                 <button type="button" disabled={!releaseInfo?.canDownloadUpdate} onClick={() => void handleDownloadUpdate()}>
                   {releaseInfo?.updateStatus === 'downloading' ? 'Downloading...' : 'Download update'}
