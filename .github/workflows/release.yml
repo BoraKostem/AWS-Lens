@@ -252,6 +252,7 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_glob }}
           if-no-files-found: error
+          include-hidden-files: true
 
   publish:
     name: Publish GitHub release
@@ -345,7 +346,7 @@ jobs:
                   files.push(...collectManifestFiles(fullPath));
                   continue;
                 }
-                if (entry.isFile() && entry.name === 'release-manifest.json') {
+                if (entry.isFile() && /^release-manifest-.*\.json$/u.test(entry.name)) {
                   files.push(fullPath);
                 }
               }
