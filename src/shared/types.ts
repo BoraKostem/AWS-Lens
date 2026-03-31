@@ -231,6 +231,26 @@ export type CallerIdentity = {
   userId: string
 }
 
+export type AppReleaseChannel = 'stable' | 'preview' | 'unknown'
+
+export type AppReleaseCheckStatus = 'idle' | 'checking' | 'ready' | 'error'
+
+export type AppReleaseMechanism = 'github-release-check'
+
+export type AppReleaseBuildInfo = {
+  version: string
+  buildHash: string | null
+  channel: AppReleaseChannel
+}
+
+export type AppReleaseArtifactInfo = {
+  version: string | null
+  name: string | null
+  notes: string | null
+  publishedAt: string | null
+  url: string
+}
+
 export type AppReleaseInfo = {
   currentVersion: string
   latestVersion: string | null
@@ -238,6 +258,10 @@ export type AppReleaseInfo = {
   releaseUrl: string
   checkedAt: string | null
   error: string | null
+  checkStatus: AppReleaseCheckStatus
+  updateMechanism: AppReleaseMechanism
+  currentBuild: AppReleaseBuildInfo
+  latestRelease: AppReleaseArtifactInfo
 }
 
 export type Ec2SsmStatus = 'managed-online' | 'managed-offline' | 'not-managed'
