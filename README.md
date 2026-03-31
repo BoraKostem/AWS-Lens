@@ -142,6 +142,7 @@ Beyond Terraform, AWS Lens provides a full operator workspace for common AWS ser
 - Reads AWS profiles from `~/.aws/config` and `~/.aws/credentials`
 - Searchable profile catalog with import and creation support
 - Create app-managed credential profiles directly from the desktop UI
+- App-managed credentials are stored in an encrypted local vault under Electron `userData`, not written back to `~/.aws/credentials`
 - Pin frequently used services in the sidebar for faster switching
 - Region-aware service navigation with context kept in sync across all screens
 - Refresh the active screen without losing the selected account or region context
@@ -170,6 +171,7 @@ Cross-account session management for assume-role workflows:
 - Assume roles through STS on demand with session tracking
 - Activate assumed sessions as the active app context
 - Temporary credentials held in memory only, never written to AWS config files
+- Saved assume-role targets are persisted under Electron `userData` using encrypted local storage
 
 ![AWS Lens Session Hub](images/session-hub.png)
 
@@ -282,15 +284,28 @@ Reads from:
 - `~/.aws/config`
 - `~/.aws/credentials`
 
+Also supports:
+- App-managed credential profiles stored in an encrypted local vault under Electron `userData`
+
 Stores app data under Electron `userData`:
-- `terraform-workspace-state.json` -- project list, workspace selections, variable sets
+- `local-vault.json` -- encrypted local vault for app-managed credentials and future local secrets
+- `terraform-workspace-state.json` -- encrypted project list, workspace selections, and variable set metadata
 - `terraform-state-backups/` -- automated state backup snapshots
-- `session-hub.json` -- saved assume-role targets
+- `session-hub.json` -- encrypted saved assume-role targets
+- `profile-registry.json` -- encrypted registry of profiles managed by AWS Lens
 
 Terraform artifacts stored per project:
 - `.terraform-workspace.auto.tfvars.json` -- managed variable inputs
 - `.terraform-workspace.tfplan` / `.tfplan.json` / `.tfplan.meta.json` -- plan artifacts
 - `.terraform-workspace.state.json` -- cached state
+
+### Security Model
+
+- App-created long-lived AWS credentials are stored in an encrypted local vault backed by Electron `safeStorage`
+- Imported AWS config and credentials files continue to work as standard shared-credentials sources
+- Temporary assumed-role credentials remain memory-only and are not persisted to disk
+- Session Hub state and Terraform workspace metadata stored under Electron `userData` are encrypted
+- Destructive actions use a shared confirmation flow with contextual summaries, and selected high-impact deletes require typed confirmation
 
 ---
 
@@ -332,7 +347,9 @@ Packaged artifacts are written to `release/`. `node-pty` is unpacked from ASAR f
 
 - Renderer code should use the preload bridge rather than direct Node access
 - AWS-facing actions live in the Electron main process
+- App-managed credentials should go through the encrypted local vault, not direct writes to `~/.aws/credentials`
 - Temporary assumed-role credentials are not persisted to AWS config files
+- Session Hub state and Terraform workspace metadata stored under Electron `userData` are encrypted
 - Terraform support is local-workspace oriented, not remote-service oriented
 - The app blocks accidental shutdown while Terraform apply/destroy is active
 

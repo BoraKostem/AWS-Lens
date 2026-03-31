@@ -1,9 +1,7 @@
-import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 
 import { STSClient, AssumeRoleCommand, GetCallerIdentityCommand } from '@aws-sdk/client-sts'
-import { fromIni } from '@aws-sdk/credential-provider-ini'
 import { app } from 'electron'
 
 import type {
@@ -15,6 +13,8 @@ import type {
   AwsSessionSummary,
   SessionHubState
 } from '@shared/types'
+import { createProfileCredentialsProvider } from './aws/profileCredentials'
+import { readSecureJsonFile, writeSecureJsonFile } from './secureJson'
 
 type PersistedState = {
   targets: AwsAssumeRoleTarget[]
@@ -59,19 +59,17 @@ function sessionHubPath(): string {
 }
 
 function readPersistedState(): PersistedState {
-  try {
-    const raw = fs.readFileSync(sessionHubPath(), 'utf-8')
-    const parsed = JSON.parse(raw) as Partial<PersistedState>
-    return {
-      targets: Array.isArray(parsed.targets) ? parsed.targets.filter(isAssumeRoleTarget) : []
-    }
-  } catch {
-    return { targets: [] }
+  const parsed = readSecureJsonFile<Partial<PersistedState>>(sessionHubPath(), {
+    fallback: { targets: [] },
+    fileLabel: 'Session Hub state'
+  })
+  return {
+    targets: Array.isArray(parsed.targets) ? parsed.targets.filter(isAssumeRoleTarget) : []
   }
 }
 
 function writePersistedState(state: PersistedState): void {
-  fs.writeFileSync(sessionHubPath(), JSON.stringify(state, null, 2), 'utf-8')
+  writeSecureJsonFile(sessionHubPath(), state, 'Session Hub state')
 }
 
 function isAssumeRoleTarget(value: unknown): value is AwsAssumeRoleTarget {
@@ -127,7 +125,7 @@ function isExpired(expiration: string): boolean {
 }
 
 function createBaseCredentials(profile: string) {
-  return fromIni({ profile })
+  return createProfileCredentialsProvider(profile)
 }
 
 export function createBaseConnection(profile: string, region: string): AwsConnection {

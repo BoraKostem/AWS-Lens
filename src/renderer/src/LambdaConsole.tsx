@@ -333,7 +333,21 @@ export function LambdaConsole({
                       <button type="button" className="lambda-toolbar-btn accent" onClick={() => setView('create')}>Create Function</button>
                       <button type="button" className="lambda-toolbar-btn" onClick={() => { setDetailTab('code'); void ensureCodeLoaded() }}>Open Source</button>
                       <button type="button" className="lambda-toolbar-btn" onClick={() => setDetailTab('invoke')}>Invoke Function</button>
-                      <ConfirmButton className="lambda-toolbar-btn danger" onConfirm={() => void handleDelete()}>Delete</ConfirmButton>
+                      <ConfirmButton
+                        className="lambda-toolbar-btn danger"
+                        onConfirm={() => void handleDelete()}
+                        modalTitle="Delete Lambda function"
+                        modalBody="Deleting the function removes the deployed code and breaks any callers that still invoke it."
+                        summaryItems={[
+                          `Function: ${detail.functionName}`,
+                          `Runtime: ${detail.runtime}`,
+                          `Region: ${connection.region}`
+                        ]}
+                        confirmPhrase={detail.functionName}
+                        confirmButtonLabel="Delete function"
+                      >
+                        Delete
+                      </ConfirmButton>
                     </div>
                   </section>
                   <section className="lambda-section">

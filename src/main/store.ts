@@ -1,4 +1,3 @@
-import fs from 'node:fs'
 import path from 'node:path'
 
 import { app } from 'electron'
@@ -10,6 +9,7 @@ import type {
   TerraformVariableLayer,
   TerraformVariableSet
 } from '@shared/types'
+import { readSecureJsonFile, writeSecureJsonFile } from './secureJson'
 
 type StoredProject = {
   id: string
@@ -149,9 +149,10 @@ function sanitizeEnvironment(raw: Record<string, unknown>): TerraformProjectEnvi
 }
 
 function read(): StoreData {
-  try {
-    const raw = fs.readFileSync(filePath(), 'utf-8')
-    const parsed = JSON.parse(raw) as Record<string, unknown>
+  const parsed = readSecureJsonFile<Record<string, unknown>>(filePath(), {
+    fallback: {},
+    fileLabel: 'Terraform workspace state'
+  })
 
     // Migrate old flat format → profile-scoped format
     if (Array.isArray(parsed.projects) && !parsed.profiles) {
@@ -188,13 +189,10 @@ function read(): StoreData {
           ? parsed.preferredTerraformCliKind
           : ''
     }
-  } catch {
-    return { profiles: {}, preferredTerraformCliKind: '' }
-  }
 }
 
 function write(data: StoreData): void {
-  fs.writeFileSync(filePath(), JSON.stringify(data, null, 2), 'utf-8')
+  writeSecureJsonFile(filePath(), data, 'Terraform workspace state')
 }
 
 function getProfileData(profileName: string): ProfileData {

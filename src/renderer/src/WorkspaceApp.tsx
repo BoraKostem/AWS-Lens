@@ -312,7 +312,21 @@ export function WorkspaceApp({
                   <section className="tf-section">
                     <div className="lbw-section-head"><div><span className="lbw-pane-kicker">Action</span><h3>Mutation controls</h3></div></div>
                     <div className="lbw-action-row">
-                      <ConfirmButton className="tf-toolbar-btn danger" onConfirm={() => void doDelete()}>Delete load balancer</ConfirmButton>
+                      <ConfirmButton
+                        className="tf-toolbar-btn danger"
+                        onConfirm={() => void doDelete()}
+                        modalTitle="Delete load balancer"
+                        modalBody="This removes the selected load balancer from AWS and can immediately impact live traffic."
+                        summaryItems={[
+                          `Load balancer: ${selected.summary.name}`,
+                          `ARN: ${selected.summary.arn}`,
+                          `Region: ${connection.region}`
+                        ]}
+                        confirmPhrase={selected.summary.name}
+                        confirmButtonLabel="Delete load balancer"
+                      >
+                        Delete load balancer
+                      </ConfirmButton>
                     </div>
                   </section>
                   <section className="tf-section">

@@ -304,7 +304,21 @@ export function AutoScalingConsole({ connection }: { connection: AwsConnection }
                   <div className="svc-btn-row">
                     <button type="button" className="svc-btn primary" onClick={() => void doApply()}>Apply capacity</button>
                     <button type="button" className="svc-btn muted" onClick={() => void doRefresh()}>Start refresh</button>
-                    <ConfirmButton className="svc-btn danger" onConfirm={() => void doDelete()}>Delete group</ConfirmButton>
+                    <ConfirmButton
+                      className="svc-btn danger"
+                      onConfirm={() => void doDelete()}
+                      modalTitle="Delete Auto Scaling group"
+                      modalBody="Deleting the group can terminate managed instances and stop future scaling activity."
+                      summaryItems={selectedGroup ? [
+                        `Group: ${selectedGroup.name}`,
+                        `Desired capacity: ${selectedGroup.desired}`,
+                        `Region: ${connection.region}`
+                      ] : [`Region: ${connection.region}`]}
+                      confirmPhrase={selectedGroup?.name ?? ''}
+                      confirmButtonLabel="Delete group"
+                    >
+                      Delete group
+                    </ConfirmButton>
                   </div>
                 </section>
 

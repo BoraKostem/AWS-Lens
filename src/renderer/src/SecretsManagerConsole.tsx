@@ -556,7 +556,22 @@ export function SecretsManagerConsole({
                   {detail?.deletedDate ? (
                     <button className="svc-btn warn" type="button" onClick={() => void doRestore()}>Restore</button>
                   ) : (
-                    <ConfirmButton className="svc-btn danger" onConfirm={() => void doDelete()} confirmLabel="Confirm Delete?">Delete</ConfirmButton>
+                    <ConfirmButton
+                      className="svc-btn danger"
+                      onConfirm={() => void doDelete()}
+                      confirmLabel="Confirm Delete?"
+                      modalTitle="Delete secret"
+                      modalBody="This schedules the selected secret for deletion. Dependent services may fail if they still reference it."
+                      summaryItems={detail ? [
+                        `Secret: ${detail.name}`,
+                        `ARN: ${detail.arn}`,
+                        `Rotation: ${detail.rotationEnabled ? 'enabled' : 'disabled'}`
+                      ] : []}
+                      confirmPhrase={detail?.name ?? ''}
+                      confirmButtonLabel="Delete secret"
+                    >
+                      Delete
+                    </ConfirmButton>
                   )}
                 </div>
               </div>

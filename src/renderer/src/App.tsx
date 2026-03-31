@@ -627,7 +627,7 @@ export function App() {
       setCredKeyId('')
       setCredSecret('')
       setFabMode('closed')
-      setProfileActionMsg(`Profile "${credName}" saved`)
+      setProfileActionMsg(`Profile "${credName}" saved to the encrypted local vault`)
     } catch (err) {
       setCredError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -636,7 +636,7 @@ export function App() {
   }
 
   async function handleDeleteProfile(profileName: string): Promise<void> {
-    const confirmed = window.confirm(`Delete AWS profile "${profileName}" from your local AWS config/credentials files?`)
+    const confirmed = window.confirm(`Delete AWS profile "${profileName}" from AWS Lens local storage and related AWS config entries?`)
     if (!confirmed) {
       return
     }
@@ -1381,6 +1381,9 @@ export function App() {
         <div className="fab-modal-overlay" onClick={() => setFabMode('closed')}>
           <div className="fab-modal" onClick={(e) => e.stopPropagation()}>
             <div className="fab-modal-title">Add AWS Credentials</div>
+            <p className="hero-path" style={{ marginTop: 0 }}>
+              Credentials added here are stored in the app&apos;s encrypted local vault instead of being written to <code>~/.aws/credentials</code>.
+            </p>
             <label className="field">
               <span>Profile Name</span>
               <input value={credName} onChange={(e) => setCredName(e.target.value)} placeholder="e.g. my-project" autoFocus />

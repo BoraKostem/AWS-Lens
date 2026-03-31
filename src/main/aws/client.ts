@@ -1,9 +1,13 @@
-import { fromIni } from '@aws-sdk/credential-provider-ini'
-
 import type { AwsConnection } from '@shared/types'
 import { getSessionCredentials } from '../sessionHub'
+import { createProfileCredentialsProvider } from './profileCredentials'
 
-type AwsCredentialsProvider = ReturnType<typeof fromIni>
+type AwsCredentialsProvider = () => Promise<{
+  accessKeyId: string
+  secretAccessKey: string
+  sessionToken?: string
+  expiration?: Date
+}>
 
 const credentialProviders = new Map<string, AwsCredentialsProvider>()
 const pendingCredentialLoads = new Set<Promise<unknown>>()
@@ -17,13 +21,13 @@ function trackCredentialLoad<T>(promise: Promise<T>): Promise<T> {
   return promise
 }
 
-function getCredentialsProvider(profile: string): AwsCredentialsProvider {
+export function getProfileCredentialsProvider(profile: string): AwsCredentialsProvider {
   const cached = credentialProviders.get(profile)
   if (cached) {
     return cached
   }
 
-  const baseProvider = fromIni({ profile })
+  const baseProvider = createProfileCredentialsProvider(profile)
   const trackedProvider: AwsCredentialsProvider = async () =>
     trackCredentialLoad(baseProvider())
 
@@ -51,7 +55,7 @@ export function awsClientConfig(connection: AwsConnection) {
           expiration: new Date(snapshot.expiration)
         }
       })()
-    : getCredentialsProvider(connection.profile)
+    : getProfileCredentialsProvider(connection.profile)
 
   return {
     region: connection.region,

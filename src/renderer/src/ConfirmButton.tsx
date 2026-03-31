@@ -7,6 +7,9 @@ export function ConfirmButton({
   confirmLabel = 'Confirm?',
   modalTitle,
   modalBody,
+  confirmPhrase,
+  summaryItems = [],
+  confirmButtonLabel = 'Yes, proceed',
   ...rest
 }: {
   children: React.ReactNode
@@ -15,9 +18,13 @@ export function ConfirmButton({
   confirmLabel?: string
   modalTitle?: string
   modalBody?: string
+  confirmPhrase?: string
+  summaryItems?: string[]
+  confirmButtonLabel?: string
 } & Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'onClick'>) {
   const [confirming, setConfirming] = useState(false)
   const [showModal, setShowModal] = useState(false)
+  const [typedConfirmation, setTypedConfirmation] = useState('')
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   function handleClick() {
@@ -33,16 +40,20 @@ export function ConfirmButton({
 
   function handleModalConfirm() {
     setShowModal(false)
+    setTypedConfirmation('')
     onConfirm()
   }
 
   function handleModalCancel() {
     setShowModal(false)
+    setTypedConfirmation('')
   }
 
   useEffect(() => () => clearTimeout(timer.current), [])
 
   const title = modalTitle ?? (typeof children === 'string' ? children : 'Action')
+  const requiresTypedConfirmation = Boolean(confirmPhrase?.trim())
+  const isTypedConfirmationValid = !requiresTypedConfirmation || typedConfirmation.trim() === confirmPhrase?.trim()
 
   return (
     <>
@@ -59,9 +70,22 @@ export function ConfirmButton({
           <div className="confirm-modal" onClick={(e) => e.stopPropagation()}>
             <h3>Are you sure?</h3>
             <p>{modalBody ?? `You are about to perform: ${title}. This action may not be reversible.`}</p>
+            {summaryItems.length > 0 && (
+              <div className="confirm-modal-summary">
+                {summaryItems.map((item) => (
+                  <div key={item} className="confirm-modal-summary-row">{item}</div>
+                ))}
+              </div>
+            )}
+            {requiresTypedConfirmation && (
+              <label className="field">
+                <span>Type <code>{confirmPhrase}</code> to continue</span>
+                <input value={typedConfirmation} onChange={(event) => setTypedConfirmation(event.target.value)} autoFocus />
+              </label>
+            )}
             <div className="confirm-modal-actions">
               <button type="button" className="confirm-modal-cancel" onClick={handleModalCancel}>Cancel</button>
-              <button type="button" className="confirm-modal-yes" onClick={handleModalConfirm}>Yes, proceed</button>
+              <button type="button" className="confirm-modal-yes" onClick={handleModalConfirm} disabled={!isTypedConfirmationValid}>{confirmButtonLabel}</button>
             </div>
           </div>
         </div>

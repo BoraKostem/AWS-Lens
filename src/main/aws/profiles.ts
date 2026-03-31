@@ -4,6 +4,8 @@ import path from 'node:path'
 import { app } from 'electron'
 
 import type { AwsProfile } from '@shared/types'
+import { deleteAwsProfileVaultSecret, getAwsProfileVaultSecret, listAwsProfileVaultSecrets, setAwsProfileVaultSecret } from '../localVault'
+import { readSecureJsonFile, writeSecureJsonFile } from '../secureJson'
 import { clearCredentialsProviderCache } from './client'
 
 type ProfileRegistry = {
@@ -15,27 +17,19 @@ function appProfileRegistryPath(): string {
 }
 
 function readProfileRegistry(): ProfileRegistry {
-  const filePath = appProfileRegistryPath()
-  if (!fs.existsSync(filePath)) {
-    return { manualProfiles: [] }
-  }
-
-  try {
-    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8')) as Partial<ProfileRegistry>
-    return {
-      manualProfiles: Array.isArray(parsed.manualProfiles)
-        ? parsed.manualProfiles.filter((entry): entry is string => typeof entry === 'string')
-        : []
-    }
-  } catch {
-    return { manualProfiles: [] }
+  const parsed = readSecureJsonFile<Partial<ProfileRegistry>>(appProfileRegistryPath(), {
+    fallback: { manualProfiles: [] },
+    fileLabel: 'AWS profile registry'
+  })
+  return {
+    manualProfiles: Array.isArray(parsed.manualProfiles)
+      ? parsed.manualProfiles.filter((entry): entry is string => typeof entry === 'string')
+      : []
   }
 }
 
 function writeProfileRegistry(registry: ProfileRegistry): void {
-  const filePath = appProfileRegistryPath()
-  fs.mkdirSync(path.dirname(filePath), { recursive: true })
-  fs.writeFileSync(filePath, `${JSON.stringify(registry, null, 2)}\n`, 'utf8')
+  writeSecureJsonFile(appProfileRegistryPath(), registry, 'AWS profile registry')
 }
 
 function markProfileAsManual(profileName: string): void {
@@ -166,6 +160,47 @@ function parseIniFile(filePath: string): Map<string, Map<string, string>> {
   return sections
 }
 
+function migrateLegacyManualProfilesToVault(): void {
+  const manualProfiles = readProfileRegistry().manualProfiles
+  if (manualProfiles.length === 0) {
+    return
+  }
+
+  const credentialsPath = path.join(os.homedir(), '.aws', 'credentials')
+  const credentialSections = parseIniFile(credentialsPath)
+  let mutated = false
+
+  for (const profileName of manualProfiles) {
+    if (getAwsProfileVaultSecret(profileName)) {
+      continue
+    }
+
+    const section = credentialSections.get(profileName)
+    const accessKeyId = section?.get('aws_access_key_id')?.trim() ?? ''
+    const secretAccessKey = section?.get('aws_secret_access_key')?.trim() ?? ''
+    if (!accessKeyId || !secretAccessKey) {
+      continue
+    }
+
+    setAwsProfileVaultSecret(profileName, { accessKeyId, secretAccessKey })
+    mutated = true
+  }
+
+  if (!mutated) {
+    return
+  }
+
+  let nextContent = fs.existsSync(credentialsPath) ? fs.readFileSync(credentialsPath, 'utf8') : ''
+  for (const profileName of manualProfiles) {
+    if (!getAwsProfileVaultSecret(profileName)) {
+      continue
+    }
+    nextContent = removeSection(nextContent, [new RegExp(`^\\[${escapeRegExp(profileName)}\\]$`)])
+  }
+  writeOrDeleteFile(credentialsPath, nextContent)
+  clearCredentialsProviderCache()
+}
+
 export function importAwsConfigFile(filePath: string): string[] {
   const sections = parseIniFile(filePath)
   if (sections.size === 0) {
@@ -207,6 +242,7 @@ export function importAwsConfigFile(filePath: string): string[] {
 }
 
 export function saveAwsCredentials(profileName: string, accessKeyId: string, secretAccessKey: string): void {
+  migrateLegacyManualProfilesToVault()
   if (!profileName.trim()) {
     throw new Error('Profile name is required.')
   }
@@ -217,22 +253,19 @@ export function saveAwsCredentials(profileName: string, accessKeyId: string, sec
     throw new Error('Secret Access Key is required.')
   }
 
-  const awsDir = path.join(os.homedir(), '.aws')
-  if (!fs.existsSync(awsDir)) {
-    fs.mkdirSync(awsDir, { recursive: true })
-  }
-
-  const credentialsPath = path.join(awsDir, 'credentials')
   const trimmedProfileName = profileName.trim()
-  appendCredentialSection(credentialsPath, trimmedProfileName, {
-    aws_access_key_id: accessKeyId.trim(),
-    aws_secret_access_key: secretAccessKey.trim()
+  const credentialsPath = path.join(os.homedir(), '.aws', 'credentials')
+  setAwsProfileVaultSecret(trimmedProfileName, {
+    accessKeyId: accessKeyId.trim(),
+    secretAccessKey: secretAccessKey.trim()
   })
+  removeCredentialSection(credentialsPath, trimmedProfileName)
   markProfileAsManual(trimmedProfileName)
   clearCredentialsProviderCache(trimmedProfileName)
 }
 
 export function deleteAwsProfile(profileName: string): void {
+  migrateLegacyManualProfilesToVault()
   const trimmed = profileName.trim()
   if (!trimmed) {
     throw new Error('Profile name is required.')
@@ -247,6 +280,7 @@ export function deleteAwsProfile(profileName: string): void {
 
   removeCredentialSection(credentialsPath, trimmed)
   removeConfigSection(configPath, trimmed)
+  deleteAwsProfileVaultSecret(trimmed)
   unmarkProfileAsManual(trimmed)
   clearCredentialsProviderCache(trimmed)
 }
@@ -333,11 +367,13 @@ function writeOrDeleteFile(filePath: string, content: string): void {
 }
 
 export function listAwsProfiles(): AwsProfile[] {
+  migrateLegacyManualProfilesToVault()
   const awsDir = path.join(os.homedir(), '.aws')
   const configPath = path.join(awsDir, 'config')
   const credentialsPath = path.join(awsDir, 'credentials')
   const configProfiles = parseIniSections(configPath)
   const credentialProfiles = parseIniSections(credentialsPath)
+  const vaultProfiles = listAwsProfileVaultSecrets()
   const regions = parseConfigRegions(configPath)
   const manualProfiles = new Set(readProfileRegistry().manualProfiles)
 
@@ -369,6 +405,16 @@ export function listAwsProfiles(): AwsProfile[] {
         })
       }
     }
+  }
+
+  for (const name of vaultProfiles) {
+    const existing = merged.get(name)
+    merged.set(name, {
+      name,
+      source: existing?.source ?? 'credentials',
+      region: regions.get(name) ?? existing?.region ?? 'us-east-1',
+      managedByApp: true
+    })
   }
 
   return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name))
