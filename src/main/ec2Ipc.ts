@@ -1,8 +1,10 @@
+import { promises as fs } from 'node:fs'
 import { ipcMain } from 'electron'
 
 import type {
   AwsConnection,
   BastionLaunchConfig,
+  Ec2BulkInstanceAction,
   EbsVolumeAttachRequest,
   EbsVolumeDetachRequest,
   EbsVolumeModifyRequest,
@@ -37,6 +39,7 @@ import {
   removeIamProfile,
   replaceIamProfile,
   resizeEc2Instance,
+  runEc2BulkInstanceAction,
   runEc2InstanceAction,
   getEc2Recommendations,
   sendSshPublicKey,
@@ -57,6 +60,49 @@ import { createHandlerWrapper } from './operations'
 type HandlerResult<T> = { ok: true; data: T } | { ok: false; error: string }
 const wrap: <T>(fn: () => Promise<T> | T, label?: string) => Promise<HandlerResult<T>> =
   createHandlerWrapper('ec2-ipc', { timeoutMs: 120000 })
+
+const SSH_PUBLIC_KEY_PREFIXES = ['ssh-rsa', 'ssh-ed25519', 'ecdsa-sha2-', 'sk-ssh-', 'sk-ecdsa-']
+
+function looksLikeInlinePublicKey(value: string): boolean {
+  const trimmed = value.trim()
+
+  return SSH_PUBLIC_KEY_PREFIXES.some((prefix) => trimmed.startsWith(prefix))
+}
+
+async function resolveSshPublicKey(publicKeyOrPath: string): Promise<string> {
+  const trimmed = publicKeyOrPath.trim()
+
+  if (!trimmed) {
+    throw new Error('Provide a public key or choose a private key with a matching .pub file.')
+  }
+
+  if (looksLikeInlinePublicKey(trimmed)) {
+    return trimmed
+  }
+
+  try {
+    const stat = await fs.stat(trimmed)
+
+    if (!stat.isFile()) {
+      throw new Error('Selected SSH key is not a file.')
+    }
+
+    const publicKeyPath = trimmed.endsWith('.pub') ? trimmed : `${trimmed}.pub`
+    const publicKey = await fs.readFile(publicKeyPath, 'utf8')
+
+    if (!looksLikeInlinePublicKey(publicKey)) {
+      throw new Error('The matching .pub file does not contain a valid SSH public key.')
+    }
+
+    return publicKey.trim()
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('.pub')) {
+      throw error
+    }
+
+    throw new Error('Unable to resolve a matching SSH public key. Choose a private key with a .pub sibling or paste the public key directly.')
+  }
+}
 
 export function registerEc2IpcHandlers(): void {
   ipcMain.handle('ec2:list', async (_event, connection: AwsConnection) =>
@@ -100,8 +146,16 @@ export function registerEc2IpcHandlers(): void {
     async (_event, connection: AwsConnection, instanceId: string, action: 'start' | 'stop' | 'reboot') =>
       wrap(() => runEc2InstanceAction(connection, instanceId, action))
   )
+  ipcMain.handle(
+    'ec2:action-bulk',
+    async (_event, connection: AwsConnection, instanceIds: string[], action: Ec2BulkInstanceAction) =>
+      wrap(() => runEc2BulkInstanceAction(connection, instanceIds, action))
+  )
   ipcMain.handle('ec2:terminate', async (_event, connection: AwsConnection, instanceId: string) =>
     wrap(() => terminateEc2Instance(connection, instanceId))
+  )
+  ipcMain.handle('ec2:terminate-bulk', async (_event, connection: AwsConnection, instanceIds: string[]) =>
+    wrap(() => runEc2BulkInstanceAction(connection, instanceIds, 'terminate'))
   )
   ipcMain.handle('ec2:resize', async (_event, connection: AwsConnection, instanceId: string, instanceType: string) =>
     wrap(() => resizeEc2Instance(connection, instanceId, instanceType))
@@ -187,7 +241,7 @@ export function registerEc2IpcHandlers(): void {
       osUser: string,
       publicKey: string,
       availabilityZone: string
-    ) => wrap(() => sendSshPublicKey(connection, instanceId, osUser, publicKey, availabilityZone))
+    ) => wrap(async () => sendSshPublicKey(connection, instanceId, osUser, await resolveSshPublicKey(publicKey), availabilityZone))
   )
   ipcMain.handle('ec2:recommendations', async (_event, connection: AwsConnection) =>
     wrap(() => getEc2Recommendations(connection))

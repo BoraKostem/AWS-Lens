@@ -544,6 +544,33 @@ export type Ec2InstanceDetail = {
 
 export type Ec2InstanceAction = 'start' | 'stop' | 'reboot'
 
+export type Ec2BulkInstanceAction = Ec2InstanceAction | 'terminate'
+
+export type Ec2BulkInstanceActionItemResult = {
+  instanceId: string
+  name: string
+  action: Ec2BulkInstanceAction
+  status: 'success' | 'failed'
+  detail: string
+}
+
+export type Ec2BulkInstanceActionResult = {
+  action: Ec2BulkInstanceAction
+  attempted: number
+  succeeded: number
+  failed: number
+  results: Ec2BulkInstanceActionItemResult[]
+}
+
+export type Ec2SshKeySuggestion = {
+  privateKeyPath: string
+  publicKeyPath: string
+  label: string
+  source: 'matched-key-name' | 'discovered'
+  keyNameMatch: boolean
+  hasPublicKey: boolean
+}
+
 export type Ec2SnapshotSummary = {
   snapshotId: string
   volumeId: string

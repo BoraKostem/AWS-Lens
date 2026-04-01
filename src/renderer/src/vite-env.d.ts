@@ -13,6 +13,7 @@ import type {
   CloudWatchSavedQueryInput,
   DbConnectionPresetFilter,
   DbConnectionPresetInput,
+  Ec2BulkInstanceAction,
   Ec2InstanceAction,
   EbsTempInspectionProgress,
   EcsFargateServiceConfig,
@@ -76,7 +77,9 @@ declare global {
       deleteEbsVolume: (connection: AwsConnection, volumeId: string) => Promise<unknown>
       modifyEbsVolume: (connection: AwsConnection, volumeId: string, request: unknown) => Promise<unknown>
       runEc2InstanceAction: (connection: AwsConnection, instanceId: string, action: Ec2InstanceAction) => Promise<unknown>
+      runEc2BulkInstanceAction: (connection: AwsConnection, instanceIds: string[], action: Ec2BulkInstanceAction) => Promise<unknown>
       terminateEc2Instance: (connection: AwsConnection, instanceId: string) => Promise<unknown>
+      terminateEc2Instances: (connection: AwsConnection, instanceIds: string[]) => Promise<unknown>
       resizeEc2Instance: (connection: AwsConnection, instanceId: string, instanceType: string) => Promise<unknown>
       listInstanceTypes: (connection: AwsConnection, architecture?: string, currentGenerationOnly?: boolean) => Promise<unknown>
       listEc2Snapshots: (connection: AwsConnection) => Promise<unknown>
@@ -128,6 +131,7 @@ declare global {
       openExternalUrl: (url: string) => Promise<unknown>
       openPath: (targetPath: string) => Promise<unknown>
       chooseEc2SshKey: () => Promise<unknown>
+      listEc2SshKeySuggestions: (preferredKeyName?: string) => Promise<unknown>
       getEnterpriseSettings: () => Promise<unknown>
       setEnterpriseAccessMode: (accessMode: 'read-only' | 'operator') => Promise<unknown>
       listEnterpriseAuditEvents: () => Promise<unknown>

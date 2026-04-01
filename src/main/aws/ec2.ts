@@ -70,6 +70,9 @@ import type {
   BastionAmiOption,
   BastionConnectionInfo,
   BastionLaunchConfig,
+  Ec2BulkInstanceAction,
+  Ec2BulkInstanceActionItemResult,
+  Ec2BulkInstanceActionResult,
   Ec2IamAssociation,
   Ec2InstanceAction,
   Ec2InstanceDetail,
@@ -1143,6 +1146,103 @@ export async function runEc2InstanceAction(
 export async function terminateEc2Instance(connection: AwsConnection, instanceId: string): Promise<void> {
   const client = createClient(connection)
   await client.send(new TerminateInstancesCommand({ InstanceIds: [instanceId] }))
+}
+
+async function loadInstanceNameMap(client: EC2Client, instanceIds: string[]): Promise<Map<string, string>> {
+  if (!instanceIds.length) {
+    return new Map()
+  }
+
+  const output = await client.send(new DescribeInstancesCommand({ InstanceIds: instanceIds }))
+  const nameMap = new Map<string, string>()
+
+  for (const reservation of output.Reservations ?? []) {
+    for (const instance of reservation.Instances ?? []) {
+      const instanceId = instance.InstanceId ?? ''
+
+      if (!instanceId) {
+        continue
+      }
+
+      nameMap.set(instanceId, readTags(instance.Tags).Name?.trim() || instanceId)
+    }
+  }
+
+  return nameMap
+}
+
+function toBulkActionDetail(action: Ec2BulkInstanceAction): string {
+  if (action === 'start') {
+    return 'Start sent'
+  }
+
+  if (action === 'stop') {
+    return 'Stop sent'
+  }
+
+  if (action === 'reboot') {
+    return 'Reboot sent'
+  }
+
+  return 'Terminate sent'
+}
+
+export async function runEc2BulkInstanceAction(
+  connection: AwsConnection,
+  instanceIds: string[],
+  action: Ec2BulkInstanceAction
+): Promise<Ec2BulkInstanceActionResult> {
+  const uniqueInstanceIds = [...new Set(instanceIds.map((instanceId) => instanceId.trim()).filter(Boolean))]
+
+  if (!uniqueInstanceIds.length) {
+    return {
+      action,
+      attempted: 0,
+      succeeded: 0,
+      failed: 0,
+      results: []
+    }
+  }
+
+  const client = createClient(connection)
+  const nameMap = await loadInstanceNameMap(client, uniqueInstanceIds).catch(() => new Map<string, string>())
+  const results: Ec2BulkInstanceActionItemResult[] = []
+
+  for (const instanceId of uniqueInstanceIds) {
+    try {
+      if (action === 'terminate') {
+        await terminateEc2Instance(connection, instanceId)
+      } else {
+        await runEc2InstanceAction(connection, instanceId, action)
+      }
+
+      results.push({
+        instanceId,
+        name: nameMap.get(instanceId) ?? instanceId,
+        action,
+        status: 'success',
+        detail: toBulkActionDetail(action)
+      })
+    } catch (error) {
+      results.push({
+        instanceId,
+        name: nameMap.get(instanceId) ?? instanceId,
+        action,
+        status: 'failed',
+        detail: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
+
+  const succeeded = results.filter((result) => result.status === 'success').length
+
+  return {
+    action,
+    attempted: uniqueInstanceIds.length,
+    succeeded,
+    failed: uniqueInstanceIds.length - succeeded,
+    results
+  }
 }
 
 /* ── Resize ────────────────────────────────────────────────── */

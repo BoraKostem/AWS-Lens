@@ -3,6 +3,8 @@ import type {
   BastionAmiOption,
   BastionConnectionInfo,
   BastionLaunchConfig,
+  Ec2BulkInstanceAction,
+  Ec2BulkInstanceActionResult,
   Ec2IamAssociation,
   Ec2InstanceAction,
   Ec2InstanceDetail,
@@ -18,6 +20,7 @@ import type {
   EbsVolumeDetachRequest,
   EbsVolumeModifyRequest,
   EbsVolumeSummary,
+  Ec2SshKeySuggestion,
   SsmCommandExecutionResult,
   SsmConnectionTarget,
   SsmManagedInstanceSummary,
@@ -42,6 +45,10 @@ function unwrap<T>(result: Wrapped<T>): T {
 
 export async function chooseEc2SshKey(): Promise<string> {
   return unwrap((await bridge().chooseEc2SshKey()) as Wrapped<string>)
+}
+
+export async function listEc2SshKeySuggestions(preferredKeyName?: string): Promise<Ec2SshKeySuggestion[]> {
+  return unwrap((await bridge().listEc2SshKeySuggestions(preferredKeyName)) as Wrapped<Ec2SshKeySuggestion[]>)
 }
 
 export async function listEc2Instances(c: AwsConnection): Promise<Ec2InstanceSummary[]> {
@@ -88,8 +95,16 @@ export async function runEc2InstanceAction(c: AwsConnection, id: string, action:
   return unwrap((await bridge().runEc2InstanceAction(c, id, action)) as Wrapped<void>)
 }
 
+export async function runEc2BulkInstanceAction(c: AwsConnection, ids: string[], action: Ec2BulkInstanceAction): Promise<Ec2BulkInstanceActionResult> {
+  return unwrap((await bridge().runEc2BulkInstanceAction(c, ids, action)) as Wrapped<Ec2BulkInstanceActionResult>)
+}
+
 export async function terminateEc2Instance(c: AwsConnection, id: string): Promise<void> {
   return unwrap((await bridge().terminateEc2Instance(c, id)) as Wrapped<void>)
+}
+
+export async function terminateEc2Instances(c: AwsConnection, ids: string[]): Promise<Ec2BulkInstanceActionResult> {
+  return unwrap((await bridge().terminateEc2Instances(c, ids)) as Wrapped<Ec2BulkInstanceActionResult>)
 }
 
 export async function resizeEc2Instance(c: AwsConnection, id: string, type: string): Promise<void> {

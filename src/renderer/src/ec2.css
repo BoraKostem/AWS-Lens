@@ -183,6 +183,19 @@
   background: #323947;
 }
 
+.ec2-data-table tbody tr.bulk-selected:not(.active) {
+  background: rgba(86, 149, 255, 0.08);
+}
+
+.ec2-select-col {
+  width: 42px;
+  text-align: center;
+}
+
+.ec2-select-col input {
+  cursor: pointer;
+}
+
 /* ── Sidebar ──────────────────────────────────────────────── */
 
 .ec2-sidebar {
@@ -301,6 +314,36 @@
 
 .ec2-action-btn.ssh {
   background: #4a5ab5;
+}
+
+.ec2-selection-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid #3b4350;
+  border-bottom: 1px solid #3b4350;
+  background: #20252d;
+}
+
+.ec2-selection-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #d0d8e2;
+  font-size: 12px;
+}
+
+.ec2-selection-summary span {
+  color: #9ca7b7;
+}
+
+.ec2-selection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .ec2-list-item-orphan {
@@ -681,9 +724,49 @@
   min-width: 0;
 }
 
+.ec2-connect-field {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .ec2-pem-row input {
   flex: 1;
   min-width: 0;
+}
+
+.ec2-ssh-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ec2-ssh-suggestion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #1e232b;
+  color: #edf1f6;
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+}
+
+.ec2-ssh-suggestion.active,
+.ec2-ssh-suggestion:hover {
+  border-color: #5f7fb6;
+  background: #242b36;
+}
+
+.ec2-ssh-suggestion-note {
+  color: #9ca7b7;
+  font-size: 11px;
 }
 
 .ec2-connect-btns {

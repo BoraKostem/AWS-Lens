@@ -270,6 +270,9 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   getCostBreakdown: 'overview',
   searchByTag: 'overview',
   listEc2Instances: 'ec2',
+  runEc2BulkInstanceAction: 'ec2',
+  terminateEc2Instances: 'ec2',
+  listEc2SshKeySuggestions: 'ec2',
   listSsmManagedInstances: 'ec2',
   getSsmConnectionTarget: 'ec2',
   listSsmSessions: 'ec2',
@@ -501,6 +504,8 @@ const MUTATING_METHODS = new Set<keyof AwsLensBridge>([
   'createIamPolicy',
   'deleteIamPolicy',
   'generateIamCredentialReport',
+  'runEc2BulkInstanceAction',
+  'terminateEc2Instances',
   'startSsmSession',
   'sendSsmCommand'
 ])

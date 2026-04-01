@@ -13,6 +13,7 @@ import type {
   BastionLaunchConfig,
   DbConnectionPresetFilter,
   DbConnectionPresetInput,
+  Ec2BulkInstanceAction,
   Ec2InstanceAction,
   EbsVolumeAttachRequest,
   EbsVolumeDetachRequest,
@@ -94,8 +95,12 @@ const awsLensApi = {
     ipcRenderer.invoke('ec2:modify-volume', connection, volumeId, request),
   runEc2InstanceAction: (connection: AwsConnection, instanceId: string, action: Ec2InstanceAction) =>
     ipcRenderer.invoke('ec2:action', connection, instanceId, action),
+  runEc2BulkInstanceAction: (connection: AwsConnection, instanceIds: string[], action: Ec2BulkInstanceAction) =>
+    ipcRenderer.invoke('ec2:action-bulk', connection, instanceIds, action),
   terminateEc2Instance: (connection: AwsConnection, instanceId: string) =>
     ipcRenderer.invoke('ec2:terminate', connection, instanceId),
+  terminateEc2Instances: (connection: AwsConnection, instanceIds: string[]) =>
+    ipcRenderer.invoke('ec2:terminate-bulk', connection, instanceIds),
   resizeEc2Instance: (connection: AwsConnection, instanceId: string, instanceType: string) =>
     ipcRenderer.invoke('ec2:resize', connection, instanceId, instanceType),
   listInstanceTypes: (connection: AwsConnection, architecture?: string, currentGenerationOnly?: boolean) =>
@@ -188,6 +193,7 @@ const awsLensApi = {
   openExternalUrl: (url: string) => ipcRenderer.invoke('shell:open-external', url),
   openPath: (targetPath: string) => ipcRenderer.invoke('shell:open-path', targetPath),
   chooseEc2SshKey: () => ipcRenderer.invoke('ec2:ssh:choose-key'),
+  listEc2SshKeySuggestions: (preferredKeyName?: string) => ipcRenderer.invoke('ec2:ssh:list-key-suggestions', preferredKeyName),
   getEnterpriseSettings: () => ipcRenderer.invoke('enterprise:get-settings'),
   setEnterpriseAccessMode: (accessMode: 'read-only' | 'operator') => ipcRenderer.invoke('enterprise:set-access-mode', accessMode),
   listEnterpriseAuditEvents: () => ipcRenderer.invoke('enterprise:audit:list'),

@@ -86,9 +86,80 @@ async function stageSshPrivateKey(sourcePath: string): Promise<string> {
 
   await fs.mkdir(targetDir, { recursive: true })
   await fs.copyFile(sourcePath, targetPath)
+  await fs.copyFile(`${sourcePath}.pub`, `${targetPath}.pub`).catch(() => undefined)
   await lockDownPrivateKey(targetPath)
 
   return targetPath
+}
+
+function normalizeKeyName(value: string): string {
+  return value.trim().toLowerCase().replace(/\.pem$|\.ppk$|\.key$/g, '')
+}
+
+async function listLocalSshKeySuggestions(preferredKeyName = ''): Promise<Array<{
+  privateKeyPath: string
+  publicKeyPath: string
+  label: string
+  source: 'matched-key-name' | 'discovered'
+  keyNameMatch: boolean
+  hasPublicKey: boolean
+}>> {
+  const sshDir = path.join(app.getPath('home'), '.ssh')
+  const preferred = normalizeKeyName(preferredKeyName)
+
+  let entries: Array<{ isFile: () => boolean; name: string }>
+  try {
+    entries = (await fs.readdir(sshDir, { withFileTypes: true, encoding: 'utf8' })).map((entry) => ({
+      isFile: () => entry.isFile(),
+      name: entry.name
+    }))
+  } catch {
+    return []
+  }
+
+  const ignoredNames = new Set(['authorized_keys', 'config', 'known_hosts', 'known_hosts.old'])
+  const candidates = entries
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .filter((name) => !name.endsWith('.pub'))
+    .filter((name) => !ignoredNames.has(name))
+    .filter((name) => {
+      const extension = path.extname(name).toLowerCase()
+
+      if (extension) {
+        return extension === '.pem' || extension === '.ppk' || extension === '.key'
+      }
+
+      return name.startsWith('id_') || name.includes('aws') || name.includes('ssh')
+    })
+
+  const suggestions = await Promise.all(candidates.map(async (name) => {
+    const privateKeyPath = path.join(sshDir, name)
+    const publicKeyPath = `${privateKeyPath}.pub`
+    const hasPublicKey = await fs.access(publicKeyPath).then(() => true).catch(() => false)
+    const keyNameMatch = preferred.length > 0 && normalizeKeyName(name) === preferred
+
+    return {
+      privateKeyPath,
+      publicKeyPath,
+      label: keyNameMatch ? `${name} (matches ${preferredKeyName})` : name,
+      source: keyNameMatch ? 'matched-key-name' as const : 'discovered' as const,
+      keyNameMatch,
+      hasPublicKey
+    }
+  }))
+
+  return suggestions.sort((left, right) => {
+    if (left.keyNameMatch !== right.keyNameMatch) {
+      return left.keyNameMatch ? -1 : 1
+    }
+
+    if (left.hasPublicKey !== right.hasPublicKey) {
+      return left.hasPublicKey ? -1 : 1
+    }
+
+    return left.label.localeCompare(right.label)
+  })
 }
 
 async function openInVisualStudioCode(targetPath: string): Promise<void> {
@@ -180,6 +251,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
 
       return stageSshPrivateKey(result.filePaths[0])
     })
+  )
+  ipcMain.handle('ec2:ssh:list-key-suggestions', async (_event, preferredKeyName?: string) =>
+    wrap(() => listLocalSshKeySuggestions(preferredKeyName))
   )
   ipcMain.handle('terraform:projects:add', async (_event, profileName: string, rootPath: string, connection?: AwsConnection) => wrap(() => addProject(profileName, rootPath, connection)))
   ipcMain.handle('terraform:projects:rename', async (_event, profileName: string, projectId: string, name: string) =>
