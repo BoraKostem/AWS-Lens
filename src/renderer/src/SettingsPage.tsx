@@ -11,10 +11,11 @@ import type {
   EnterpriseAuditEvent,
   EnterpriseSettings,
   EnvironmentHealthReport,
+  GovernanceTagDefaults,
   TerraformCliInfo
 } from '@shared/types'
 
-type SettingsTab = 'general' | 'terminal' | 'refresh' | 'toolchain' | 'updates' | 'security'
+type SettingsTab = 'general' | 'terminal' | 'refresh' | 'governance' | 'toolchain' | 'updates' | 'security'
 
 type SettingsPageProps = {
   appSettings: AppSettings | null
@@ -35,12 +36,14 @@ type SettingsPageProps = {
   releaseStateTone: string
   environmentHealth: EnvironmentHealthReport | null
   environmentBusy: boolean
+  governanceDefaults: GovernanceTagDefaults | null
   toolchainBusy: boolean
   enterpriseBusy: boolean
   settingsMessage: string
   onUpdateGeneralSettings: (update: AppSettings['general']) => void
   onUpdateTerminalSettings: (update: AppSettings['terminal']) => void
   onUpdateRefreshSettings: (update: AppSettings['refresh']) => void
+  onUpdateGovernanceDefaults: (update: GovernanceTagDefaults) => void
   onUpdateToolchainSettings: (update: AppSettings['toolchain']) => void
   onUpdatePreferences: (update: AppSettings['updates']) => void
   onAccessModeChange: (accessMode: EnterpriseAccessMode) => void
@@ -58,6 +61,7 @@ const TAB_ITEMS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'general', label: 'App' },
   { id: 'terminal', label: 'Terminal' },
   { id: 'refresh', label: 'Refresh' },
+  { id: 'governance', label: 'Governance' },
   { id: 'toolchain', label: 'Toolchain' },
   { id: 'updates', label: 'Updates' },
   { id: 'security', label: 'Security' }
@@ -142,12 +146,14 @@ export function SettingsPage({
   releaseStateTone,
   environmentHealth,
   environmentBusy,
+  governanceDefaults,
   toolchainBusy,
   enterpriseBusy,
   settingsMessage,
   onUpdateGeneralSettings,
   onUpdateTerminalSettings,
   onUpdateRefreshSettings,
+  onUpdateGovernanceDefaults,
   onUpdateToolchainSettings,
   onUpdatePreferences,
   onAccessModeChange,
@@ -176,6 +182,16 @@ export function SettingsPage({
     autoRefreshIntervalSeconds: 0,
     heavyScreenMode: 'manual'
   })
+  const [governanceDraft, setGovernanceDraft] = useState<GovernanceTagDefaults>({
+    inheritByDefault: true,
+    values: {
+      Owner: '',
+      Environment: '',
+      Project: '',
+      CostCenter: ''
+    },
+    updatedAt: ''
+  })
   const [toolchainDraft, setToolchainDraft] = useState<AppSettings['toolchain']>({
     preferredTerraformCliKind: '',
     terraformPathOverride: '',
@@ -197,6 +213,11 @@ export function SettingsPage({
     setToolchainDraft(appSettings.toolchain)
     setUpdateDraft(appSettings.updates)
   }, [appSettings])
+
+  useEffect(() => {
+    if (!governanceDefaults) return
+    setGovernanceDraft(governanceDefaults)
+  }, [governanceDefaults])
 
   const releaseNotesPreview = releaseInfo?.latestRelease.notes?.trim() ?? ''
   const selectedTabLabel = TAB_ITEMS.find((item) => item.id === activeTab)?.label ?? 'App'
@@ -364,6 +385,96 @@ export function SettingsPage({
         <div className="settings-tab-actions">
           <button type="button" className="accent" disabled={!appSettings} onClick={() => onUpdateRefreshSettings(refreshDraft)}>
             Save refresh preferences
+          </button>
+        </div>
+      </>
+    )
+  }
+
+  function renderGovernanceTab(): JSX.Element {
+    const configuredValues = Object.entries(governanceDraft.values).filter(([, value]) => value.trim())
+
+    return (
+      <>
+        <SettingSection title="Default Tags">
+          <SettingRow label="Apply defaults automatically" description="When enabled, AWS Lens applies the saved Owner, Environment, Project, and CostCenter tags to supported EC2 workflows it creates.">
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                checked={governanceDraft.inheritByDefault}
+                onChange={(event) => setGovernanceDraft((current) => ({
+                  ...current,
+                  inheritByDefault: event.target.checked
+                }))}
+                disabled={!governanceDefaults}
+              />
+              <span>{governanceDraft.inheritByDefault ? 'On' : 'Off'}</span>
+            </label>
+          </SettingRow>
+          <SettingRow label="Owner">
+            <input
+              value={governanceDraft.values.Owner}
+              onChange={(event) => setGovernanceDraft((current) => ({
+                ...current,
+                values: { ...current.values, Owner: event.target.value }
+              }))}
+              placeholder="team or operator"
+              disabled={!governanceDefaults}
+            />
+          </SettingRow>
+          <SettingRow label="Environment">
+            <input
+              value={governanceDraft.values.Environment}
+              onChange={(event) => setGovernanceDraft((current) => ({
+                ...current,
+                values: { ...current.values, Environment: event.target.value }
+              }))}
+              placeholder="prod, staging, dev"
+              disabled={!governanceDefaults}
+            />
+          </SettingRow>
+          <SettingRow label="Project">
+            <input
+              value={governanceDraft.values.Project}
+              onChange={(event) => setGovernanceDraft((current) => ({
+                ...current,
+                values: { ...current.values, Project: event.target.value }
+              }))}
+              placeholder="service or initiative"
+              disabled={!governanceDefaults}
+            />
+          </SettingRow>
+          <SettingRow label="Cost center">
+            <input
+              value={governanceDraft.values.CostCenter}
+              onChange={(event) => setGovernanceDraft((current) => ({
+                ...current,
+                values: { ...current.values, CostCenter: event.target.value }
+              }))}
+              placeholder="finance code"
+              disabled={!governanceDefaults}
+            />
+          </SettingRow>
+        </SettingSection>
+
+        <SettingSection title="Current Coverage">
+          <SettingRow label="Configured values" description="Only non-empty values are applied to new supported resources and the EC2 apply-defaults shortcuts.">
+            <div className="settings-static-value">
+              {configuredValues.length > 0
+                ? configuredValues.map(([key, value]) => `${key}=${value}`).join(' | ')
+                : 'No governance tag defaults configured'}
+            </div>
+          </SettingRow>
+          <SettingRow label="Last updated">
+            <div className="settings-static-value">
+              {governanceDefaults?.updatedAt ? new Date(governanceDefaults.updatedAt).toLocaleString() : 'Not saved yet'}
+            </div>
+          </SettingRow>
+        </SettingSection>
+
+        <div className="settings-tab-actions">
+          <button type="button" className="accent" disabled={!governanceDefaults} onClick={() => onUpdateGovernanceDefaults(governanceDraft)}>
+            Save governance defaults
           </button>
         </div>
       </>
@@ -613,6 +724,8 @@ export function SettingsPage({
         return renderTerminalTab()
       case 'refresh':
         return renderRefreshTab()
+      case 'governance':
+        return renderGovernanceTab()
       case 'toolchain':
         return renderToolchainTab()
       case 'updates':
@@ -671,6 +784,7 @@ export function SettingsPage({
               {activeTab === 'general' && <p>Set the default profile, region, and launch screen when you want AWS Lens to boot into a predictable operator context.</p>}
               {activeTab === 'terminal' && <p>Terminal preferences control how the embedded shell opens after a session becomes active. Operator mode is still required for command execution.</p>}
               {activeTab === 'refresh' && <p>Use refresh policy to decide whether heavy screens re-query automatically or only on demand. Conservative defaults reduce surprise AWS API traffic.</p>}
+              {activeTab === 'governance' && <p>Governance defaults define reusable ownership tags that AWS Lens can inherit into supported EC2 workflows and reapply from resource consoles.</p>}
               {activeTab === 'toolchain' && <p>Toolchain settings define which local CLI AWS Lens should prefer and let you override executable paths when workstation PATH state is inconsistent.</p>}
               {activeTab === 'updates' && <p>Update preferences let you pin stable versus preview behavior, check release state manually, and decide whether packages download automatically.</p>}
               {activeTab === 'security' && <p>Security is the operational control plane for workspace mode, vault summary, audit export, diagnostics export, and active session review.</p>}
