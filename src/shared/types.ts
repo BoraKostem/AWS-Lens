@@ -1032,6 +1032,35 @@ export type CloudWatchQueryHistoryEntry = {
 
 export type CloudWatchQueryHistoryInput = Omit<CloudWatchQueryHistoryEntry, 'id' | 'executedAt'>
 
+export type CloudWatchQueryExecutionInput = {
+  queryString: string
+  logGroupNames: string[]
+  startTimeMs: number
+  endTimeMs: number
+  limit?: number
+}
+
+export type CloudWatchQueryExecutionRow = Record<string, string>
+
+export type CloudWatchQueryExecutionStatistics = {
+  recordsMatched: number
+  recordsScanned: number
+  bytesScanned: number
+}
+
+export type CloudWatchQueryExecutionResult = {
+  queryId: string
+  status: string
+  queryString: string
+  logGroupNames: string[]
+  fields: string[]
+  rows: CloudWatchQueryExecutionRow[]
+  statistics: CloudWatchQueryExecutionStatistics
+  limit: number
+  startedAt: string
+  completedAt: string
+}
+
 export type DbConnectionEngine =
   | 'postgres'
   | 'mysql'
@@ -1165,7 +1194,14 @@ export type NavigationFocus =
   | { service: 'ecs'; clusterArn: string; serviceName: string }
   | { service: 'eks'; clusterName: string }
   | { service: 'ec2'; instanceId?: string; volumeId?: string; tab?: 'instances' | 'volumes' | 'snapshots' }
-  | { service: 'cloudwatch'; ec2InstanceId: string }
+  | {
+      service: 'cloudwatch'
+      ec2InstanceId?: string
+      logGroupNames?: string[]
+      queryString?: string
+      sourceLabel?: string
+      serviceHint?: ServiceId | ''
+    }
   | { service: 'vpc'; vpcId: string }
   | { service: 'security-groups'; securityGroupId: string }
   | { service: 'waf'; webAclName: string }

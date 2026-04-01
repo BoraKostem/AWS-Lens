@@ -7,6 +7,7 @@ import type {
   AssumeRoleRequest,
   AwsAssumeRoleTarget,
   CloudWatchQueryFilter,
+  CloudWatchQueryExecutionInput,
   CloudWatchQueryHistoryInput,
   CloudWatchSavedQueryInput,
   AwsConnection,
@@ -158,14 +159,16 @@ const awsLensApi = {
   getEc2MetricSeries: (connection: AwsConnection, instanceId: string) =>
     ipcRenderer.invoke('cloudwatch:ec2-series', connection, instanceId),
   listCloudWatchLogGroups: (connection: AwsConnection) => ipcRenderer.invoke('cloudwatch:log-groups', connection),
-  listCloudWatchRecentEvents: (connection: AwsConnection, logGroupName: string) =>
-    ipcRenderer.invoke('cloudwatch:recent-events', connection, logGroupName),
+  listCloudWatchRecentEvents: (connection: AwsConnection, logGroupName: string, periodHours?: number) =>
+    ipcRenderer.invoke('cloudwatch:recent-events', connection, logGroupName, periodHours),
   listEc2InstanceMetrics: (connection: AwsConnection, instanceId: string) =>
     ipcRenderer.invoke('cloudwatch:ec2-instance-metrics', connection, instanceId),
   getMetricStatistics: (connection: AwsConnection, metrics: unknown[], periodHours: number) =>
     ipcRenderer.invoke('cloudwatch:metric-stats', connection, metrics, periodHours),
   getEc2AllMetricSeries: (connection: AwsConnection, instanceId: string, periodHours: number) =>
     ipcRenderer.invoke('cloudwatch:ec2-all-series', connection, instanceId, periodHours),
+  runCloudWatchQuery: (connection: AwsConnection, input: CloudWatchQueryExecutionInput) =>
+    ipcRenderer.invoke('cloudwatch:run-query', connection, input),
   listRoute53HostedZones: (connection: AwsConnection) => ipcRenderer.invoke('route53:hosted-zones', connection),
   listRoute53Records: (connection: AwsConnection, hostedZoneId: string) =>
     ipcRenderer.invoke('route53:records', connection, hostedZoneId),

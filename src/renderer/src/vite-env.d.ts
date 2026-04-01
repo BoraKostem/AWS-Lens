@@ -9,6 +9,7 @@ import type {
   AwsConnection,
   BastionLaunchConfig,
   CloudWatchQueryFilter,
+  CloudWatchQueryExecutionInput,
   CloudWatchQueryHistoryInput,
   CloudWatchSavedQueryInput,
   DbConnectionPresetFilter,
@@ -111,10 +112,11 @@ declare global {
       listCloudWatchMetrics: (connection: AwsConnection) => Promise<unknown>
       getEc2MetricSeries: (connection: AwsConnection, instanceId: string) => Promise<unknown>
       listCloudWatchLogGroups: (connection: AwsConnection) => Promise<unknown>
-      listCloudWatchRecentEvents: (connection: AwsConnection, logGroupName: string) => Promise<unknown>
+      listCloudWatchRecentEvents: (connection: AwsConnection, logGroupName: string, periodHours?: number) => Promise<unknown>
       listEc2InstanceMetrics: (connection: AwsConnection, instanceId: string) => Promise<unknown>
       getMetricStatistics: (connection: AwsConnection, metrics: unknown[], periodHours: number) => Promise<unknown>
       getEc2AllMetricSeries: (connection: AwsConnection, instanceId: string, periodHours: number) => Promise<unknown>
+      runCloudWatchQuery: (connection: AwsConnection, input: CloudWatchQueryExecutionInput) => Promise<unknown>
       listRoute53HostedZones: (connection: AwsConnection) => Promise<unknown>
       listRoute53Records: (connection: AwsConnection, hostedZoneId: string) => Promise<unknown>
       upsertRoute53Record: (connection: AwsConnection, hostedZoneId: string, record: unknown) => Promise<unknown>

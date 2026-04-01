@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
-import type { AwsConnection, LambdaCodeResult, LambdaCreateConfig, LambdaFunctionDetail, LambdaFunctionSummary } from '@shared/types'
+import type { AwsConnection, LambdaCodeResult, LambdaCreateConfig, LambdaFunctionDetail, LambdaFunctionSummary, ServiceId } from '@shared/types'
 import { createLambdaFunction, deleteLambdaFunction, getLambdaFunction, getLambdaFunctionCode, invokeLambdaFunction, listLambdaFunctions } from './api'
 import { ConfirmButton } from './ConfirmButton'
 import { SvcState } from './SvcState'
@@ -46,10 +46,12 @@ function formatDate(value: string) {
 
 export function LambdaConsole({
   connection,
-  focusFunctionName
+  focusFunctionName,
+  onNavigateCloudWatch
 }: {
   connection: AwsConnection
   focusFunctionName?: { token: number; functionName: string } | null
+  onNavigateCloudWatch?: (focus: { logGroupNames?: string[]; queryString?: string; sourceLabel?: string; serviceHint?: ServiceId | '' }) => void
 }) {
   const [functions, setFunctions] = useState<LambdaFunctionSummary[]>([])
   const [selectedName, setSelectedName] = useState('')
@@ -333,6 +335,24 @@ export function LambdaConsole({
                       <button type="button" className="lambda-toolbar-btn accent" onClick={() => setView('create')}>Create Function</button>
                       <button type="button" className="lambda-toolbar-btn" onClick={() => { setDetailTab('code'); void ensureCodeLoaded() }}>Open Source</button>
                       <button type="button" className="lambda-toolbar-btn" onClick={() => setDetailTab('invoke')}>Invoke Function</button>
+                      <button
+                        type="button"
+                        className="lambda-toolbar-btn"
+                        disabled={!onNavigateCloudWatch}
+                        onClick={() => onNavigateCloudWatch?.({
+                          logGroupNames: [`/aws/lambda/${detail.functionName}`],
+                          queryString: [
+                            'fields @timestamp, @requestId, @message',
+                            `| filter @message like /(?i)(${detail.functionName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|error|exception|timeout)/`,
+                            '| sort @timestamp desc',
+                            '| limit 50'
+                          ].join('\n'),
+                          sourceLabel: detail.functionName,
+                          serviceHint: 'lambda'
+                        })}
+                      >
+                        Investigate Logs
+                      </button>
                       <ConfirmButton
                         className="lambda-toolbar-btn danger"
                         onConfirm={() => void handleDelete()}

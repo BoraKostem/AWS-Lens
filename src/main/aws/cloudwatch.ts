@@ -4,13 +4,21 @@ import {
   ListMetricsCommand,
   type Metric
 } from '@aws-sdk/client-cloudwatch'
-import { CloudWatchLogsClient, DescribeLogGroupsCommand, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs'
+import {
+  CloudWatchLogsClient,
+  DescribeLogGroupsCommand,
+  FilterLogEventsCommand,
+  GetQueryResultsCommand,
+  StartQueryCommand as StartLogsQueryCommand
+} from '@aws-sdk/client-cloudwatch-logs'
 
 import { awsClientConfig } from './client'
 import type {
   AwsConnection,
   CloudWatchLogEventSummary,
   CloudWatchLogGroupSummary,
+  CloudWatchQueryExecutionInput,
+  CloudWatchQueryExecutionResult,
   CloudWatchMetricSeries,
   CloudWatchMetricStatistic,
   CloudWatchMetricSummary,
@@ -19,6 +27,8 @@ import type {
 
 const METRIC_SCAN_LIMIT = 500
 const EC2_METRICS = ['CPUUtilization', 'NetworkIn', 'NetworkOut']
+const QUERY_POLL_INTERVAL_MS = 750
+const QUERY_MAX_ATTEMPTS = 20
 
 function createCloudWatchClient(connection: AwsConnection): CloudWatchClient {
   return new CloudWatchClient(awsClientConfig(connection))
@@ -307,7 +317,8 @@ export async function listCloudWatchLogGroups(connection: AwsConnection): Promis
 
 export async function listRecentLogEvents(
   connection: AwsConnection,
-  logGroupName: string
+  logGroupName: string,
+  periodHours = 24
 ): Promise<CloudWatchLogEventSummary[]> {
   const client = createLogsClient(connection)
   const output = await client.send(
@@ -315,7 +326,7 @@ export async function listRecentLogEvents(
       logGroupName,
       limit: 60,
       interleaved: true,
-      startTime: Date.now() - 24 * 60 * 60 * 1000
+      startTime: Date.now() - Math.max(1, periodHours) * 60 * 60 * 1000
     })
   )
 
@@ -330,6 +341,94 @@ export async function listRecentLogEvents(
     .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
 }
 
+export async function executeCloudWatchQuery(
+  connection: AwsConnection,
+  input: CloudWatchQueryExecutionInput
+): Promise<CloudWatchQueryExecutionResult> {
+  const logGroupNames = input.logGroupNames.map((name) => name.trim()).filter(Boolean)
+  const queryString = input.queryString.trim()
+  const limit = Math.max(1, Math.min(input.limit ?? 100, 200))
+
+  if (!queryString) {
+    throw new Error('CloudWatch query text is required.')
+  }
+
+  if (logGroupNames.length === 0) {
+    throw new Error('Select at least one log group before running a CloudWatch query.')
+  }
+
+  const startTimeMs = Math.max(0, Math.min(input.startTimeMs, input.endTimeMs))
+  const endTimeMs = Math.max(startTimeMs, input.endTimeMs)
+  const client = createLogsClient(connection)
+
+  const startedAt = new Date().toISOString()
+  const started = await client.send(
+    new StartLogsQueryCommand({
+      logGroupNames,
+      queryString,
+      startTime: Math.floor(startTimeMs / 1000),
+      endTime: Math.floor(endTimeMs / 1000),
+      limit
+    })
+  )
+
+  const queryId = started.queryId?.trim()
+  if (!queryId) {
+    throw new Error('CloudWatch Logs Insights did not return a query identifier.')
+  }
+
+  for (let attempt = 0; attempt < QUERY_MAX_ATTEMPTS; attempt += 1) {
+    if (attempt > 0) {
+      await sleep(QUERY_POLL_INTERVAL_MS)
+    }
+
+    const output = await client.send(new GetQueryResultsCommand({ queryId }))
+    const status = output.status ?? 'Unknown'
+    if (status === 'Scheduled' || status === 'Running' || status === 'Unknown') {
+      continue
+    }
+
+    if (status !== 'Complete') {
+      throw new Error(`CloudWatch Logs Insights query ended with status ${status}.`)
+    }
+
+    const fields: string[] = []
+    const seenFields = new Set<string>()
+    const rows = (output.results ?? []).map((resultRow) => {
+      const row: Record<string, string> = {}
+      for (const cell of resultRow) {
+        const field = cell.field ?? ''
+        if (!field) continue
+        if (!seenFields.has(field)) {
+          seenFields.add(field)
+          fields.push(field)
+        }
+        row[field] = cell.value ?? ''
+      }
+      return row
+    })
+
+    return {
+      queryId,
+      status,
+      queryString,
+      logGroupNames,
+      fields,
+      rows,
+      statistics: {
+        recordsMatched: Number(output.statistics?.recordsMatched ?? 0),
+        recordsScanned: Number(output.statistics?.recordsScanned ?? 0),
+        bytesScanned: Number(output.statistics?.bytesScanned ?? 0)
+      },
+      limit,
+      startedAt,
+      completedAt: new Date().toISOString()
+    }
+  }
+
+  throw new Error('CloudWatch Logs Insights query timed out before results were ready.')
+}
+
 function inferUnit(metricName: string): string {
   const lower = metricName.toLowerCase()
   if (lower.includes('utilization') || lower.includes('percent') || lower.endsWith('%')) return 'Percent'
@@ -339,4 +438,10 @@ function inferUnit(metricName: string): string {
   if (lower.includes('credit')) return 'Count'
   if (lower.includes('statuscheck')) return 'Count'
   return ''
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
 }

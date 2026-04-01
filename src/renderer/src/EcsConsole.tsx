@@ -11,7 +11,8 @@ import type {
   EcsServiceDiagnostics,
   EcsServiceSummary,
   GeneratedArtifact,
-  ObservabilityPostureReport
+  ObservabilityPostureReport,
+  ServiceId
 } from '@shared/types'
 import {
   forceEcsRedeploy,
@@ -152,12 +153,14 @@ export function EcsConsole({
   connection,
   refreshNonce = 0,
   focusService,
-  onRunTerminalCommand
+  onRunTerminalCommand,
+  onNavigateCloudWatch
 }: {
   connection: AwsConnection
   refreshNonce?: number
   focusService?: { token: number; clusterArn: string; serviceName: string } | null
   onRunTerminalCommand?: (command: string) => void
+  onNavigateCloudWatch?: (focus: { logGroupNames?: string[]; queryString?: string; sourceLabel?: string; serviceHint?: ServiceId | '' }) => void
 }) {
   const [mainTab, setMainTab] = useState<MainTab>('services')
   const [loading, setLoading] = useState(false)
@@ -757,6 +760,27 @@ export function EcsConsole({
                       </ConfirmButton>
                       <button className="ecs-action-btn apply" type="button" disabled={!onRunTerminalCommand} onClick={() => onRunTerminalCommand?.(diagnosticsCommand(selectedClusterTarget, selectedServiceName))}>
                         Open Command
+                      </button>
+                      <button
+                        className="ecs-action-btn"
+                        type="button"
+                        disabled={!onNavigateCloudWatch || !selectedLogTarget}
+                        onClick={() => {
+                          if (!selectedLogTarget) return
+                          onNavigateCloudWatch?.({
+                            logGroupNames: [selectedLogTarget.logGroup],
+                            queryString: [
+                              'fields @timestamp, @logStream, @message',
+                              `| filter @message like /(?i)(${selectedServiceName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|error|exception|timeout|unhealthy)/`,
+                              '| sort @timestamp desc',
+                              '| limit 50'
+                            ].join('\n'),
+                            sourceLabel: selectedServiceName,
+                            serviceHint: 'ecs'
+                          })
+                        }}
+                      >
+                        Investigate Logs
                       </button>
                     </div>
 

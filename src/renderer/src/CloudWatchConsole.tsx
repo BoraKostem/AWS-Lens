@@ -6,28 +6,38 @@ import type {
   CloudWatchDatapoint,
   CloudWatchLogEventSummary,
   CloudWatchLogGroupSummary,
+  CloudWatchMetricSeries,
   CloudWatchMetricStatistic,
   CloudWatchMetricSummary,
   CloudWatchNamespaceSummary,
-  CloudWatchMetricSeries
+  CloudWatchQueryExecutionResult,
+  CloudWatchQueryHistoryEntry,
+  CloudWatchSavedQuery,
+  ServiceId,
+  TokenizedFocus
 } from '@shared/types'
 import {
+  clearCloudWatchQueryHistory,
+  deleteCloudWatchSavedQuery,
   getEc2AllMetricSeries,
   getMetricStatistics,
   listCloudWatchLogGroups,
   listCloudWatchMetrics,
+  listCloudWatchQueryHistory,
   listCloudWatchRecentEvents,
-  listEc2InstanceMetrics
+  listCloudWatchSavedQueries,
+  listEc2InstanceMetrics,
+  recordCloudWatchQueryHistory,
+  runCloudWatchQuery,
+  saveCloudWatchSavedQuery
 } from './api'
 import { formatDateTime } from './AwsPage'
 import './cloudwatch.css'
 
 type TimeRange = 1 | 3 | 12 | 24 | 72 | 168
 type OpenTab = { type: 'overview' } | { type: 'log-group'; name: string }
-type ExpandedChart =
-  | { type: 'namespaces' }
-  | { type: 'storage' }
-  | { type: 'series'; metricName: string }
+type CloudWatchFocus = TokenizedFocus<'cloudwatch'> | null | undefined
+type QueryPreset = { id: string; label: string; queryString: string }
 
 const TIME_RANGE_OPTIONS: { value: TimeRange; label: string }[] = [
   { value: 1, label: '1 hour' },
@@ -41,8 +51,8 @@ const TIME_RANGE_OPTIONS: { value: TimeRange; label: string }[] = [
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(1024))
-  return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+  const index = Math.floor(Math.log(bytes) / Math.log(1024))
+  return `${(bytes / Math.pow(1024, index)).toFixed(index === 0 ? 0 : 1)} ${units[index]}`
 }
 
 function formatMetricValue(value: number | null, unit: string): string {
@@ -55,133 +65,73 @@ function formatMetricValue(value: number | null, unit: string): string {
   return value.toFixed(2)
 }
 
-function formatTooltipTime(value: string): string {
-  return new Date(value).toLocaleString()
-}
-
 function formatCompactNumber(value: number): string {
-  if (!Number.isFinite(value)) return '0'
   if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
   if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(1)}K`
   return value.toLocaleString()
 }
 
-function matchesEc2LogGroup(logGroup: CloudWatchLogGroupSummary, instanceId: string): boolean {
-  const needle = instanceId.toLowerCase()
-  return logGroup.name.toLowerCase().includes(needle) || logGroup.arn.toLowerCase().includes(needle)
+function serviceHintLabel(serviceHint: ServiceId | ''): string {
+  if (serviceHint === 'lambda') return 'Lambda'
+  if (serviceHint === 'ecs') return 'ECS'
+  if (serviceHint === 'rds') return 'RDS'
+  if (serviceHint === 'ec2') return 'EC2'
+  return 'AWS context'
 }
 
-/* ── Sparkline SVG ────────────────────────────────────────── */
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
 
-function Sparkline({
-  points,
-  unit,
-  width = 120,
-  height = 32,
-  interactive = false
-}: {
-  points: CloudWatchDatapoint[]
-  unit: string
-  width?: number
-  height?: number
-  interactive?: boolean
-}) {
-  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+function defaultQuery(serviceHint: ServiceId | '', sourceLabel: string): string {
+  const label = escapeRegex(sourceLabel || 'current')
+  const extra = serviceHint === 'rds'
+    ? 'deadlock|fail|timeout'
+    : serviceHint === 'ecs'
+      ? 'unhealthy|throttle|error'
+      : serviceHint === 'lambda'
+        ? 'request|error|timeout'
+        : 'error|exception|timeout'
 
+  return [
+    'fields @timestamp, @logStream, @message',
+    `| filter @message like /(?i)(${label}|${extra})/`,
+    '| sort @timestamp desc',
+    '| limit 50'
+  ].join('\n')
+}
+
+function severity(message: string): string {
+  const lower = message.toLowerCase()
+  if (lower.includes('error') || lower.includes('fatal') || lower.includes('exception')) return 'error'
+  if (lower.includes('warn')) return 'warn'
+  if (lower.includes('debug') || lower.includes('trace')) return 'debug'
+  return 'info'
+}
+
+function matchesEc2LogGroup(group: CloudWatchLogGroupSummary, instanceId: string): boolean {
+  const needle = instanceId.toLowerCase()
+  return group.name.toLowerCase().includes(needle) || group.arn.toLowerCase().includes(needle)
+}
+
+function summarizeResult(result: CloudWatchQueryExecutionResult): string {
+  return `${result.rows.length} rows, ${formatBytes(result.statistics.bytesScanned)} scanned`
+}
+
+function Sparkline({ points, unit, width = 140, height = 36 }: { points: CloudWatchDatapoint[]; unit: string; width?: number; height?: number }) {
   if (points.length < 2) return <span className="cw-no-data">No data</span>
-
   const values = points.map((point) => point.value)
   const min = Math.min(...values)
   const max = Math.max(...values)
   const range = max - min || 1
   const stepX = width / (points.length - 1)
-  const plotted = points.map((point, index) => {
+  const path = points.map((point, index) => {
     const x = index * stepX
     const y = height - ((point.value - min) / range) * (height - 4) - 2
-    return { ...point, x, y }
-  })
-
-  const pathData = plotted
-    .map((point, index) => {
-      return `${index === 0 ? 'M' : 'L'}${point.x.toFixed(1)},${point.y.toFixed(1)}`
-    })
-    .join(' ')
-  const hoveredPoint = hoverIndex === null ? null : plotted[hoverIndex]
-
-  function handleMove(event: React.MouseEvent<SVGRectElement>): void {
-    if (!interactive) return
-    const bounds = event.currentTarget.getBoundingClientRect()
-    const x = event.clientX - bounds.left
-    const ratio = bounds.width > 0 ? x / bounds.width : 0
-    const nextIndex = Math.max(0, Math.min(plotted.length - 1, Math.round(ratio * (plotted.length - 1))))
-    setHoverIndex(nextIndex)
-  }
-
-  return (
-    <div className={`cw-sparkline-wrap ${interactive ? 'interactive' : ''}`}>
-      {interactive && hoveredPoint && (
-        <div className="cw-sparkline-tooltip">
-          <strong>{formatMetricValue(hoveredPoint.value, unit)}</strong>
-          <span>{formatTooltipTime(hoveredPoint.timestamp)}</span>
-        </div>
-      )}
-      <svg className="cw-sparkline" width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
-        <path d={pathData} fill="none" stroke="#4a8fe7" strokeWidth="1.5" />
-        {interactive && hoveredPoint && (
-          <>
-            <line
-              x1={hoveredPoint.x}
-              y1={0}
-              x2={hoveredPoint.x}
-              y2={height}
-              stroke="rgba(123, 184, 245, 0.45)"
-              strokeDasharray="4 4"
-            />
-            <circle cx={hoveredPoint.x} cy={hoveredPoint.y} r={4} fill="#7bb8f5" stroke="#0f1114" strokeWidth="2" />
-          </>
-        )}
-        {interactive && (
-          <rect
-            x={0}
-            y={0}
-            width={width}
-            height={height}
-            fill="transparent"
-            onMouseMove={handleMove}
-            onMouseLeave={() => setHoverIndex(null)}
-          />
-        )}
-      </svg>
-    </div>
-  )
+    return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(' ')
+  return <svg className="cw-sparkline" width={width} height={height} viewBox={`0 0 ${width} ${height}`}><path d={path} fill="none" stroke="#4a8fe7" strokeWidth="1.5" /></svg>
 }
-
-/* ── Bar Chart (CSS) ──────────────────────────────────────── */
-
-function BarChart({ items, labelKey, valueKey }: {
-  items: Array<Record<string, unknown>>
-  labelKey: string
-  valueKey: string
-}) {
-  const maxVal = Math.max(...items.map((it) => Number(it[valueKey]) || 0), 1)
-
-  return (
-    <div className="cw-bar-chart">
-      {items.map((item, i) => {
-        const value = Number(item[valueKey]) || 0
-        const pct = (value / maxVal) * 100
-        return (
-          <div key={i} className="cw-bar-row">
-            <div className="cw-bar-fill" style={{ width: `${Math.max(pct, 2)}%` }} />
-            <span className="cw-bar-label">{String(item[labelKey])}</span>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-/* ── Filterable Table ─────────────────────────────────────── */
 
 function FilterableTable<T extends Record<string, unknown>>({
   columns,
@@ -195,63 +145,31 @@ function FilterableTable<T extends Record<string, unknown>>({
   hint?: string
 }) {
   const [filter, setFilter] = useState('')
-
   const filtered = useMemo(() => {
     if (!filter) return data
-    const lower = filter.toLowerCase()
-    return data.filter((row) =>
-      columns.some((col) => {
-        const val = col.render ? col.render(row) : String(row[col.key] ?? '')
-        return val.toLowerCase().includes(lower)
-      })
-    )
-  }, [data, filter, columns])
+    const needle = filter.toLowerCase()
+    return data.filter((row) => columns.some((col) => {
+      const value = col.render ? col.render(row) : String(row[col.key] ?? '')
+      return value.toLowerCase().includes(needle)
+    }))
+  }, [columns, data, filter])
 
   return (
     <div className="cw-table-section">
-      <input
-        className="cw-table-filter"
-        placeholder="Filter rows across selected columns..."
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-      />
-      <div className="cw-column-chips">
-        {columns.map((col) => (
-          <span key={col.key} className="cw-chip">{col.label}</span>
-        ))}
-      </div>
+      <input className="cw-table-filter" placeholder="Filter rows..." value={filter} onChange={(event) => setFilter(event.target.value)} />
+      <div className="cw-column-chips">{columns.map((col) => <span key={col.key} className="cw-chip">{col.label}</span>)}</div>
       {hint && <p className="cw-table-hint">{hint}</p>}
       <div className="cw-table-scroll">
         <table className="cw-table">
-          <thead>
-            <tr>
-              {columns.map((col) => (
-                <th key={col.key}>{col.label}</th>
-              ))}
-            </tr>
-          </thead>
+          <thead><tr>{columns.map((col) => <th key={col.key}>{col.label}</th>)}</tr></thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={columns.length} className="cw-empty">No data</td></tr>
-            ) : (
-              filtered.map((row, i) => (
-                <tr
-                  key={i}
-                  onDoubleClick={onDoubleClick ? () => onDoubleClick(row) : undefined}
-                  className={onDoubleClick ? 'cw-clickable' : ''}
-                >
-                  {columns.map((col) => (
-                    <td key={col.key}>
-                      {col.renderNode
-                        ? col.renderNode(row)
-                        : col.render
-                          ? col.render(row)
-                          : String(row[col.key] ?? '-')}
-                    </td>
-                  ))}
-                </tr>
-              ))
-            )}
+              <tr><td className="cw-empty" colSpan={columns.length}>No data</td></tr>
+            ) : filtered.map((row, index) => (
+              <tr key={index} onDoubleClick={onDoubleClick ? () => onDoubleClick(row) : undefined} className={onDoubleClick ? 'cw-clickable' : ''}>
+                {columns.map((col) => <td key={col.key}>{col.renderNode ? col.renderNode(row) : col.render ? col.render(row) : String(row[col.key] ?? '-')}</td>)}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -259,68 +177,36 @@ function FilterableTable<T extends Record<string, unknown>>({
   )
 }
 
-/* ── Log Group Viewer ─────────────────────────────────────── */
-
 function LogGroupViewer({
   connection,
   logGroupName,
-  timeRange
+  timeRange,
+  onInvestigate
 }: {
   connection: AwsConnection
   logGroupName: string
   timeRange: TimeRange
+  onInvestigate: (logGroupName: string) => void
 }) {
   const [events, setEvents] = useState<CloudWatchLogEventSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [searchFilter, setSearchFilter] = useState('')
-  const [groupByStream, setGroupByStream] = useState(false)
-
-  async function load() {
-    setLoading(true)
-    setError('')
-    try {
-      const result = await listCloudWatchRecentEvents(connection, logGroupName)
-      setEvents(result)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setLoading(false)
-    }
-  }
+  const [search, setSearch] = useState('')
 
   useEffect(() => {
-    void load()
-}, [connection.sessionId, connection.region, logGroupName, timeRange])
+    setLoading(true)
+    setError('')
+    void listCloudWatchRecentEvents(connection, logGroupName, timeRange)
+      .then(setEvents)
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setLoading(false))
+  }, [connection.sessionId, connection.region, logGroupName, timeRange])
 
   const filtered = useMemo(() => {
-    if (!searchFilter) return events
-    const lower = searchFilter.toLowerCase()
-    return events.filter(
-      (e) =>
-        e.message.toLowerCase().includes(lower) ||
-        e.logStreamName.toLowerCase().includes(lower)
-    )
-  }, [events, searchFilter])
-
-  const streamGroups = useMemo(() => {
-    if (!groupByStream) return null
-    const map = new Map<string, CloudWatchLogEventSummary[]>()
-    for (const event of filtered) {
-      const existing = map.get(event.logStreamName) ?? []
-      existing.push(event)
-      map.set(event.logStreamName, existing)
-    }
-    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]))
-  }, [filtered, groupByStream])
-
-  function getSeverity(message: string): string {
-    const lower = message.toLowerCase()
-    if (lower.includes('error') || lower.includes('fatal') || lower.includes('exception')) return 'error'
-    if (lower.includes('warn')) return 'warn'
-    if (lower.includes('debug') || lower.includes('trace')) return 'debug'
-    return 'info'
-  }
+    if (!search) return events
+    const needle = search.toLowerCase()
+    return events.filter((event) => event.message.toLowerCase().includes(needle) || event.logStreamName.toLowerCase().includes(needle))
+  }, [events, search])
 
   if (loading) return <div className="cw-loading">Loading log events...</div>
   if (error) return <div className="error-banner">{error}</div>
@@ -328,555 +214,344 @@ function LogGroupViewer({
   return (
     <div className="cw-log-viewer">
       <div className="cw-log-viewer-header">
-        <h3>{logGroupName}</h3>
-        <span className="cw-log-count">{filtered.length} events</span>
+        <div><h3>{logGroupName}</h3><span className="cw-log-count">{filtered.length} events</span></div>
+        <button type="button" className="cw-expand-btn" onClick={() => onInvestigate(logGroupName)}>Investigate</button>
       </div>
-
       <div className="cw-log-controls">
-        <input
-          className="cw-table-filter"
-          placeholder="Search log messages..."
-          value={searchFilter}
-          onChange={(e) => setSearchFilter(e.target.value)}
-        />
-        <button
-          type="button"
-          className={groupByStream ? 'cw-toggle active' : 'cw-toggle'}
-          onClick={() => setGroupByStream(!groupByStream)}
-        >
-          Group by Stream
-        </button>
-        <button type="button" className="cw-toggle" onClick={() => void load()}>Refresh</button>
+        <input className="cw-table-filter" placeholder="Search log messages..." value={search} onChange={(event) => setSearch(event.target.value)} />
       </div>
-
-      {groupByStream && streamGroups ? (
-        <div className="cw-stream-groups">
-          {streamGroups.map(([streamName, streamEvents]) => (
-            <div key={streamName} className="cw-stream-group">
-              <div className="cw-stream-header">
-                <span className="cw-stream-name">{streamName}</span>
-                <span className="cw-stream-count">{streamEvents.length} events</span>
-              </div>
-              <div className="cw-log-entries">
-                {streamEvents.map((event, i) => (
-                  <div key={`${event.eventId}-${i}`} className={`cw-log-entry cw-severity-${getSeverity(event.message)}`}>
-                    <span className="cw-log-time">{formatDateTime(event.timestamp)}</span>
-                    <pre className="cw-log-message">{event.message}</pre>
-                  </div>
-                ))}
-              </div>
+      <div className="cw-log-entries">
+        {filtered.map((event, index) => (
+          <div key={`${event.eventId}-${index}`} className={`cw-log-entry cw-severity-${severity(event.message)}`}>
+            <div className="cw-log-entry-header">
+              <span className="cw-log-time">{formatDateTime(event.timestamp)}</span>
+              <span className="cw-log-stream">{event.logStreamName}</span>
             </div>
-          ))}
-        </div>
-      ) : (
-        <div className="cw-log-entries">
-          {filtered.map((event, i) => (
-            <div key={`${event.eventId}-${i}`} className={`cw-log-entry cw-severity-${getSeverity(event.message)}`}>
-              <div className="cw-log-entry-header">
-                <span className="cw-log-time">{formatDateTime(event.timestamp)}</span>
-                <span className="cw-log-stream">{event.logStreamName}</span>
-              </div>
-              <pre className="cw-log-message">{event.message}</pre>
-            </div>
-          ))}
-          {filtered.length === 0 && <div className="cw-empty-logs">No log events found in the selected time range.</div>}
-        </div>
-      )}
+            <pre className="cw-log-message">{event.message}</pre>
+          </div>
+        ))}
+        {filtered.length === 0 && <div className="cw-empty-logs">No log events found.</div>}
+      </div>
     </div>
   )
 }
 
-/* ── Main Console ─────────────────────────────────────────── */
-
-export function CloudWatchConsole({
-  connection,
-  focusEc2Instance
-}: {
-  connection: AwsConnection
-  focusEc2Instance?: { token: number; ec2InstanceId: string } | null
-}) {
+export function CloudWatchConsole({ connection, focusEc2Instance }: { connection: AwsConnection; focusEc2Instance?: CloudWatchFocus }) {
   const [timeRange, setTimeRange] = useState<TimeRange>(24)
   const [namespaceFilter, setNamespaceFilter] = useState('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-
-  // Data state
   const [namespaces, setNamespaces] = useState<CloudWatchNamespaceSummary[]>([])
-  const [metrics, setMetrics] = useState<CloudWatchMetricSummary[]>([])
   const [logGroups, setLogGroups] = useState<CloudWatchLogGroupSummary[]>([])
   const [metricStats, setMetricStats] = useState<CloudWatchMetricStatistic[]>([])
   const [ec2Series, setEc2Series] = useState<CloudWatchMetricSeries[]>([])
-
-  // Tab state
   const [tabs, setTabs] = useState<OpenTab[]>([{ type: 'overview' }])
   const [activeTabIndex, setActiveTabIndex] = useState(0)
-  const [expandedChart, setExpandedChart] = useState<ExpandedChart | null>(null)
-
-  // Focus drilldown
   const [appliedFocusToken, setAppliedFocusToken] = useState(0)
   const [ec2InstanceId, setEc2InstanceId] = useState<string | undefined>(focusEc2Instance?.ec2InstanceId)
-  useEffect(() => {
-    if (!focusEc2Instance) {
-      setAppliedFocusToken(0)
-      setEc2InstanceId(undefined)
-      return
-    }
-    if (focusEc2Instance.token === appliedFocusToken) return
-    setAppliedFocusToken(focusEc2Instance.token)
-    setEc2InstanceId(focusEc2Instance.ec2InstanceId)
-  }, [appliedFocusToken, focusEc2Instance])
+  const [queryDraft, setQueryDraft] = useState(defaultQuery('', 'current context'))
+  const [queryServiceHint, setQueryServiceHint] = useState<ServiceId | ''>('')
+  const [querySourceLabel, setQuerySourceLabel] = useState('current context')
+  const [selectedQueryLogGroups, setSelectedQueryLogGroups] = useState<string[]>([])
+  const [logGroupToAdd, setLogGroupToAdd] = useState('')
+  const [savedQueries, setSavedQueries] = useState<CloudWatchSavedQuery[]>([])
+  const [queryHistory, setQueryHistory] = useState<CloudWatchQueryHistoryEntry[]>([])
+  const [queryResult, setQueryResult] = useState<CloudWatchQueryExecutionResult | null>(null)
+  const [queryBusy, setQueryBusy] = useState(false)
+  const [queryFeedback, setQueryFeedback] = useState('')
+  const [queryError, setQueryError] = useState('')
+  const [saveName, setSaveName] = useState('')
+  const [saveDescription, setSaveDescription] = useState('')
 
   const isEc2Mode = !!ec2InstanceId
+  const activeTab = tabs[activeTabIndex]
 
-  async function load() {
+  useEffect(() => {
+    if (!focusEc2Instance || focusEc2Instance.token === appliedFocusToken) return
+    setAppliedFocusToken(focusEc2Instance.token)
+    setEc2InstanceId(focusEc2Instance.ec2InstanceId)
+    setQueryServiceHint(focusEc2Instance.serviceHint ?? (focusEc2Instance.ec2InstanceId ? 'ec2' : ''))
+    setQuerySourceLabel(focusEc2Instance.sourceLabel ?? focusEc2Instance.ec2InstanceId ?? 'current context')
+    setSelectedQueryLogGroups(focusEc2Instance.logGroupNames ?? [])
+    setQueryDraft(focusEc2Instance.queryString?.trim() || defaultQuery(
+      focusEc2Instance.serviceHint ?? (focusEc2Instance.ec2InstanceId ? 'ec2' : ''),
+      focusEc2Instance.sourceLabel ?? focusEc2Instance.ec2InstanceId ?? 'current context'
+    ))
+    setActiveTabIndex(0)
+  }, [appliedFocusToken, focusEc2Instance])
+
+  useEffect(() => {
     setLoading(true)
     setError('')
-    try {
-      if (isEc2Mode) {
-        const [ec2Metrics, nextLogGroups] = await Promise.all([
-          listEc2InstanceMetrics(connection, ec2InstanceId!),
-          listCloudWatchLogGroups(connection)
-        ])
-        setMetrics(ec2Metrics)
-        setLogGroups(nextLogGroups.filter((group) => matchesEc2LogGroup(group, ec2InstanceId!)))
+    const metricLoader: Promise<{ metrics: CloudWatchMetricSummary[]; namespaces: CloudWatchNamespaceSummary[] }> = isEc2Mode
+      ? listEc2InstanceMetrics(connection, ec2InstanceId!).then((metrics) => ({
+          metrics,
+          namespaces: Array.from(new Set(metrics.map((metric) => metric.namespace))).map((namespace) => ({
+            namespace,
+            metricCount: metrics.filter((metric) => metric.namespace === namespace).length,
+            dimensionKeys: []
+          }))
+        }))
+      : listCloudWatchMetrics(connection)
 
-        // Build namespace summary from EC2 metrics
-        const nsMap = new Map<string, { count: number; keys: Set<string> }>()
-        for (const m of ec2Metrics) {
-          const existing = nsMap.get(m.namespace) ?? { count: 0, keys: new Set() }
-          existing.count += 1
-          for (const d of m.dimensions) existing.keys.add(d.split('=')[0])
-          nsMap.set(m.namespace, existing)
-        }
-        setNamespaces(
-          Array.from(nsMap.entries())
-            .map(([ns, v]) => ({ namespace: ns, metricCount: v.count, dimensionKeys: Array.from(v.keys) }))
-            .sort((a, b) => b.metricCount - a.metricCount)
-        )
-
-        // Fetch stats and series in parallel
-        const [stats, series] = await Promise.all([
-          getMetricStatistics(connection, ec2Metrics, timeRange),
-          getEc2AllMetricSeries(connection, ec2InstanceId!, timeRange)
-        ])
-        setMetricStats(stats)
-        setEc2Series(series)
-      } else {
-        const [metricData, nextLogGroups] = await Promise.all([
-          listCloudWatchMetrics(connection),
-          listCloudWatchLogGroups(connection)
-        ])
+    void Promise.all([metricLoader, listCloudWatchLogGroups(connection)])
+      .then(async ([metricData, nextLogGroups]) => {
+        const scopedGroups = isEc2Mode ? nextLogGroups.filter((group) => matchesEc2LogGroup(group, ec2InstanceId!)) : nextLogGroups
         setNamespaces(metricData.namespaces)
-        setMetrics(metricData.metrics)
-        setLogGroups(nextLogGroups)
-
-        // Fetch metric stats
-        const stats = await getMetricStatistics(connection, metricData.metrics, timeRange)
-        setMetricStats(stats)
-      }
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setLoading(false)
-    }
-  }
+        setLogGroups(scopedGroups)
+        setMetricStats(await getMetricStatistics(connection, metricData.metrics, timeRange))
+        setEc2Series(isEc2Mode ? await getEc2AllMetricSeries(connection, ec2InstanceId!, timeRange) : [])
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setLoading(false))
+  }, [connection.sessionId, connection.region, ec2InstanceId, isEc2Mode, timeRange])
 
   useEffect(() => {
-    void load()
-}, [connection.sessionId, connection.region, timeRange, ec2InstanceId, isEc2Mode])
+    void Promise.all([
+      listCloudWatchSavedQueries({ profile: connection.profile, region: connection.region, limit: 8 }),
+      listCloudWatchQueryHistory({ profile: connection.profile, region: connection.region, limit: 8 })
+    ]).then(([nextSaved, nextHistory]) => {
+      setSavedQueries(nextSaved)
+      setQueryHistory(nextHistory)
+    }).catch(() => {
+      // Keep the screen usable if query history hydration fails.
+    })
+  }, [connection.profile, connection.region, connection.sessionId])
 
   useEffect(() => {
-    setTabs([{ type: 'overview' }])
-    setActiveTabIndex(0)
-    setNamespaceFilter('all')
-    setExpandedChart(null)
-}, [ec2InstanceId, connection.sessionId, connection.region])
+    const available = new Set(logGroups.map((group) => group.name))
+    setSelectedQueryLogGroups((current) => {
+      const pruned = current.filter((name) => available.has(name))
+      if (pruned.length > 0) return pruned
+      if (logGroups.length === 0) return []
+      return isEc2Mode ? logGroups.slice(0, 3).map((group) => group.name) : [logGroups[0].name]
+    })
+    setLogGroupToAdd(logGroups[0]?.name ?? '')
+  }, [isEc2Mode, logGroups])
 
-  // Filtered metric stats based on namespace filter
-  const filteredStats = useMemo(() => {
-    if (namespaceFilter === 'all') return metricStats
-    return metricStats.filter((s) => s.namespace === namespaceFilter)
-  }, [metricStats, namespaceFilter])
+  const filteredStats = useMemo(() => namespaceFilter === 'all' ? metricStats : metricStats.filter((item) => item.namespace === namespaceFilter), [metricStats, namespaceFilter])
+  const totalStoredBytes = useMemo(() => logGroups.reduce((sum, group) => sum + group.storedBytes, 0), [logGroups])
+  const latestMetricTimestamp = useMemo(() => ec2Series.flatMap((series) => series.points.map((point) => point.timestamp)).sort().at(-1) ?? '', [ec2Series])
+  const topLogGroups = useMemo(() => [...logGroups].sort((left, right) => right.storedBytes - left.storedBytes).slice(0, 8), [logGroups])
+  const quickQueries = useMemo<QueryPreset[]>(() => [
+    { id: 'recent', label: 'Recent', queryString: defaultQuery(queryServiceHint, querySourceLabel) },
+    { id: 'errors', label: 'Errors', queryString: ['fields @timestamp, @logStream, @message', '| filter @message like /(?i)(error|exception|fail|timeout)/', '| sort @timestamp desc', '| limit 50'].join('\n') },
+    { id: 'warnings', label: 'Warnings', queryString: ['fields @timestamp, @logStream, @message', '| filter @message like /(?i)(warn|retry|throttle|backoff)/', '| sort @timestamp desc', '| limit 50'].join('\n') }
+  ], [queryServiceHint, querySourceLabel])
 
-  const totalStoredBytes = useMemo(
-    () => logGroups.reduce((sum, group) => sum + group.storedBytes, 0),
-    [logGroups]
-  )
-
-  const activeNamespaceCount = namespaceFilter === 'all'
-    ? namespaces.length
-    : (filteredStats.length > 0 ? 1 : 0)
-
-  const latestMetricTimestamp = useMemo(() => {
-    const timestamps = ec2Series
-      .flatMap((series) => series.points.map((point) => point.timestamp))
-      .filter((value): value is string => Boolean(value))
-      .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())
-    return timestamps[0] ?? ''
-  }, [ec2Series])
-
-  const tabsOpenCount = tabs.filter((tab) => tab.type === 'log-group').length
-
-  // Top log groups by storage
-  const topLogGroupsByStorage = useMemo(
-    () => [...logGroups].sort((a, b) => b.storedBytes - a.storedBytes).slice(0, 8),
-    [logGroups]
-  )
-
-  // EC2 series for sparklines in the metrics table
-  const seriesMap = useMemo(() => {
-    const map = new Map<string, number[]>()
-    for (const s of ec2Series) {
-      map.set(s.metricName, s.points.map((p) => p.value))
-    }
-    return map
-  }, [ec2Series])
-
-  function openLogGroupTab(group: CloudWatchLogGroupSummary) {
-    const existing = tabs.findIndex((t) => t.type === 'log-group' && t.name === group.name)
+  function openLogGroupTab(group: CloudWatchLogGroupSummary): void {
+    const existing = tabs.findIndex((tab) => tab.type === 'log-group' && tab.name === group.name)
+    setSelectedQueryLogGroups((current) => current.includes(group.name) ? current : [group.name, ...current].slice(0, 6))
     if (existing >= 0) {
       setActiveTabIndex(existing)
-    } else {
-      const newTabs = [...tabs, { type: 'log-group' as const, name: group.name }]
-      setTabs(newTabs)
-      setActiveTabIndex(newTabs.length - 1)
+      return
+    }
+    const nextTabs = [...tabs, { type: 'log-group' as const, name: group.name }]
+    setTabs(nextTabs)
+    setActiveTabIndex(nextTabs.length - 1)
+  }
+
+  function refreshQueryLibrary(): Promise<void> {
+    return Promise.all([
+      listCloudWatchSavedQueries({ profile: connection.profile, region: connection.region, limit: 8 }),
+      listCloudWatchQueryHistory({ profile: connection.profile, region: connection.region, limit: 8 })
+    ]).then(([nextSaved, nextHistory]) => {
+      setSavedQueries(nextSaved)
+      setQueryHistory(nextHistory)
+    })
+  }
+
+  async function runQuery(options?: { queryString?: string; logGroupNames?: string[]; savedQueryId?: string; serviceHint?: ServiceId | ''; sourceLabel?: string }) {
+    const queryString = options?.queryString?.trim() || queryDraft.trim()
+    const logGroupNames = options?.logGroupNames ?? selectedQueryLogGroups
+    const serviceHint = options?.serviceHint ?? queryServiceHint ?? (isEc2Mode ? 'ec2' : '')
+    const sourceLabel = options?.sourceLabel ?? querySourceLabel
+    if (!queryString) { setQueryError('Enter a query first.'); return }
+    if (logGroupNames.length === 0) { setQueryError('Select at least one log group.'); return }
+    setQueryBusy(true)
+    setQueryError('')
+    setQueryFeedback('')
+    const started = Date.now()
+    try {
+      const result = await runCloudWatchQuery(connection, {
+        queryString,
+        logGroupNames,
+        startTimeMs: Date.now() - timeRange * 60 * 60 * 1000,
+        endTimeMs: Date.now(),
+        limit: 100
+      })
+      setQueryResult(result)
+      setQueryDraft(queryString)
+      setQueryServiceHint(serviceHint)
+      setQuerySourceLabel(sourceLabel)
+      setSelectedQueryLogGroups(logGroupNames)
+      setQueryFeedback(`Query completed. ${summarizeResult(result)}.`)
+      await recordCloudWatchQueryHistory({
+        queryString,
+        logGroupNames,
+        profile: connection.profile,
+        region: connection.region,
+        serviceHint,
+        savedQueryId: options?.savedQueryId ?? '',
+        status: 'success',
+        durationMs: Date.now() - started,
+        resultSummary: summarizeResult(result)
+      })
+      await refreshQueryLibrary()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setQueryError(message)
+      await recordCloudWatchQueryHistory({
+        queryString,
+        logGroupNames,
+        profile: connection.profile,
+        region: connection.region,
+        serviceHint,
+        savedQueryId: options?.savedQueryId ?? '',
+        status: 'failed',
+        durationMs: Date.now() - started,
+        resultSummary: message
+      }).catch(() => {})
+      await refreshQueryLibrary().catch(() => {})
+    } finally {
+      setQueryBusy(false)
     }
   }
 
-  function closeTab(index: number) {
-    if (index === 0) return // Can't close Overview
-    const newTabs = tabs.filter((_, i) => i !== index)
-    setTabs(newTabs)
-    if (activeTabIndex >= newTabs.length) {
-      setActiveTabIndex(newTabs.length - 1)
-    } else if (activeTabIndex === index) {
-      setActiveTabIndex(Math.max(0, index - 1))
-    }
+  async function saveCurrentQuery() {
+    if (!saveName.trim()) { setQueryError('Provide a saved query name.'); return }
+    await saveCloudWatchSavedQuery({
+      name: saveName.trim(),
+      description: saveDescription.trim(),
+      queryString: queryDraft.trim(),
+      logGroupNames: selectedQueryLogGroups,
+      profile: connection.profile,
+      region: connection.region,
+      serviceHint: queryServiceHint
+    })
+    setSaveName('')
+    setSaveDescription('')
+    setQueryFeedback('Saved query stored.')
+    await refreshQueryLibrary()
   }
-
-  const activeTab = tabs[activeTabIndex]
-  const expandedSeries = expandedChart?.type === 'series'
-    ? ec2Series.find((series) => series.metricName === expandedChart.metricName) ?? null
-    : null
 
   return (
     <div className="cw-console">
       {error && <div className="error-banner">{error}</div>}
-
       <div className="cw-shell-hero">
         <div className="cw-shell-hero-copy">
           <div className="cw-shell-kicker">CloudWatch</div>
-          <h2>{isEc2Mode ? 'Instance telemetry in one operating surface' : 'Metrics, logs, and capacity signals in one view'}</h2>
-          <p>
-            {isEc2Mode
-              ? 'Stay on the focused EC2 instance while scanning metric movement, namespace coverage, and matching log activity without changing workflows.'
-              : 'Scan namespace coverage, metric behavior, and log storage from the same surface, with faster orientation and less panel noise.'}
-          </p>
+          <h2>{isEc2Mode ? 'Instance telemetry in one operating surface' : 'Metrics, logs, and investigation flows in one view'}</h2>
+          <p>{isEc2Mode ? 'Stay on the focused EC2 instance while running queries, reviewing log groups, and tracking metric movement.' : 'Run Logs Insights style investigations, save useful queries, and keep metrics plus log browsing in the same workspace.'}</p>
           <div className="cw-shell-meta-strip">
-            <div className="cw-shell-meta-pill">
-              <span>Scope</span>
-              <strong>{isEc2Mode ? `EC2 ${ec2InstanceId}` : `Region ${connection.region}`}</strong>
-            </div>
-            <div className="cw-shell-meta-pill">
-              <span>Window</span>
-              <strong>{TIME_RANGE_OPTIONS.find((item) => item.value === timeRange)?.label ?? `${timeRange}h`}</strong>
-            </div>
-            <div className="cw-shell-meta-pill">
-              <span>Namespace Filter</span>
-              <strong>{namespaceFilter === 'all' ? 'All namespaces' : namespaceFilter}</strong>
-            </div>
-            <div className="cw-shell-meta-pill">
-              <span>Last datapoint</span>
-              <strong>{latestMetricTimestamp ? formatDateTime(latestMetricTimestamp) : 'No datapoints yet'}</strong>
-            </div>
+            <div className="cw-shell-meta-pill"><span>Scope</span><strong>{isEc2Mode ? `EC2 ${ec2InstanceId}` : `Region ${connection.region}`}</strong></div>
+            <div className="cw-shell-meta-pill"><span>Window</span><strong>{TIME_RANGE_OPTIONS.find((item) => item.value === timeRange)?.label ?? `${timeRange}h`}</strong></div>
+            <div className="cw-shell-meta-pill"><span>Investigation</span><strong>{serviceHintLabel(queryServiceHint)}</strong></div>
+            <div className="cw-shell-meta-pill"><span>Last datapoint</span><strong>{latestMetricTimestamp ? formatDateTime(latestMetricTimestamp) : 'No datapoints yet'}</strong></div>
           </div>
         </div>
         <div className="cw-shell-hero-stats">
-          <div className="cw-shell-stat-card cw-shell-stat-card-accent">
-            <span>Tracked Metrics</span>
-            <strong>{formatCompactNumber(filteredStats.length)}</strong>
-            <small>Metrics with computed statistics in the current scope.</small>
-          </div>
-          <div className="cw-shell-stat-card">
-            <span>Namespaces</span>
-            <strong>{formatCompactNumber(activeNamespaceCount)}</strong>
-            <small>Discovered metric families available for drilldown.</small>
-          </div>
-          <div className="cw-shell-stat-card">
-            <span>Log Groups</span>
-            <strong>{formatCompactNumber(logGroups.length)}</strong>
-            <small>Visible groups matching the selected connection context.</small>
-          </div>
-          <div className="cw-shell-stat-card">
-            <span>Stored Bytes</span>
-            <strong>{formatBytes(totalStoredBytes)}</strong>
-            <small>Total retained log storage across the current result set.</small>
-          </div>
+          <div className="cw-shell-stat-card cw-shell-stat-card-accent"><span>Tracked Metrics</span><strong>{formatCompactNumber(filteredStats.length)}</strong><small>Metrics with computed statistics in scope.</small></div>
+          <div className="cw-shell-stat-card"><span>Namespaces</span><strong>{formatCompactNumber(namespaceFilter === 'all' ? namespaces.length : 1)}</strong><small>Metric families available for drilldown.</small></div>
+          <div className="cw-shell-stat-card"><span>Log Groups</span><strong>{formatCompactNumber(logGroups.length)}</strong><small>Visible groups in this context.</small></div>
+          <div className="cw-shell-stat-card"><span>Saved Queries</span><strong>{formatCompactNumber(savedQueries.length)}</strong><small>Reusable investigations for this profile and region.</small></div>
         </div>
       </div>
 
       <div className="cw-shell-toolbar">
         <div className="cw-tabs" role="tablist" aria-label="CloudWatch tabs">
-          {tabs.map((tab, i) => (
-            <button
-              key={i}
-              type="button"
-              className={`cw-tab ${i === activeTabIndex ? 'active' : ''}`}
-              onClick={() => setActiveTabIndex(i)}
-            >
-              <span>{tab.type === 'overview' ? 'Overview' : tab.name}</span>
-              {tab.type !== 'overview' && (
-                <span
-                  className="cw-tab-close"
-                  onClick={(e) => { e.stopPropagation(); closeTab(i) }}
-                >
-                  x
-                </span>
-              )}
-            </button>
-          ))}
+          {tabs.map((tab, index) => <button key={index} type="button" className={`cw-tab ${index === activeTabIndex ? 'active' : ''}`} onClick={() => setActiveTabIndex(index)}><span>{tab.type === 'overview' ? 'Overview' : tab.name}</span></button>)}
         </div>
         <div className="cw-toolbar">
           <div className="cw-toolbar-group">
             <span className="cw-toolbar-label">Range</span>
-            <select
-              className="cw-time-select"
-              value={timeRange}
-              onChange={(e) => setTimeRange(Number(e.target.value) as TimeRange)}
-            >
-              {TIME_RANGE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
+            <select className="cw-time-select" value={timeRange} onChange={(event) => setTimeRange(Number(event.target.value) as TimeRange)}>
+              {TIME_RANGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </div>
           {!isEc2Mode && (
             <div className="cw-toolbar-group">
               <span className="cw-toolbar-label">Namespace</span>
-              <select
-                className="cw-ns-select"
-                value={namespaceFilter}
-                onChange={(e) => setNamespaceFilter(e.target.value)}
-              >
+              <select className="cw-ns-select" value={namespaceFilter} onChange={(event) => setNamespaceFilter(event.target.value)}>
                 <option value="all">All Namespaces</option>
-                {namespaces.map((ns) => (
-                  <option key={ns.namespace} value={ns.namespace}>{ns.namespace}</option>
-                ))}
+                {namespaces.map((ns) => <option key={ns.namespace} value={ns.namespace}>{ns.namespace}</option>)}
               </select>
             </div>
           )}
-          {isEc2Mode && (
-            <span className="cw-ec2-badge">{ec2InstanceId}</span>
-          )}
-          <div className="cw-toolbar-status">
-            <span className="cw-toolbar-pill">{tabsOpenCount} log tabs</span>
-            <button type="button" className="cw-refresh-btn" onClick={() => void load()} disabled={loading}>
-              {loading ? 'Refreshing...' : 'Refresh'}
-            </button>
-          </div>
+          <span className="cw-toolbar-pill">{loading ? 'Refreshing telemetry' : 'Telemetry ready'}</span>
         </div>
       </div>
 
-      {/* Overview tab */}
-      {activeTab?.type === 'overview' && (
+      {activeTab.type === 'overview' ? (
         <>
-          <div className="cw-charts-row">
-            <div className="cw-chart-panel">
-              <div className="cw-panel-head">
-                <div>
-                  <h3>Metric Namespaces</h3>
-                  <p className="cw-chart-subtitle">Discovered metric families ordered by observed volume.</p>
-                </div>
-                <button type="button" className="cw-expand-btn" onClick={() => setExpandedChart({ type: 'namespaces' })}>Expand</button>
-              </div>
-              {loading ? (
-                <div className="cw-loading">Loading...</div>
-              ) : (
-                <BarChart
-                  items={namespaces.map((ns) => ({ label: ns.namespace, value: ns.metricCount }))}
-                  labelKey="label"
-                  valueKey="value"
-                />
-              )}
+          <div className="cw-section">
+            <div className="cw-section-head">
+              <div><h3>Investigation Workspace</h3><p className="cw-section-subtitle">Query active log groups, save working searches, and rerun recent investigations.</p></div>
+              <div className="cw-query-headline"><span className="cw-toolbar-pill">{selectedQueryLogGroups.length} targets</span><span className="cw-toolbar-pill">{serviceHintLabel(queryServiceHint)}</span></div>
             </div>
-            <div className="cw-chart-panel">
-              <div className="cw-panel-head">
-                <div>
-                  <h3>Top Log Group Storage</h3>
-                  <p className="cw-chart-subtitle">Largest retained groups so storage hotspots are visible early.</p>
+            <div className="cw-query-layout">
+              <div className="cw-query-main">
+                <div className="cw-query-target-bar">
+                  <select className="cw-time-select" value={logGroupToAdd} onChange={(event) => setLogGroupToAdd(event.target.value)}>{logGroups.map((group) => <option key={group.name} value={group.name}>{group.name}</option>)}</select>
+                  <button type="button" className="cw-toggle" onClick={() => logGroupToAdd && !selectedQueryLogGroups.includes(logGroupToAdd) && setSelectedQueryLogGroups((current) => [...current, logGroupToAdd])}>Add Target</button>
+                  <span className="cw-query-source">{querySourceLabel}</span>
                 </div>
-                <button type="button" className="cw-expand-btn" onClick={() => setExpandedChart({ type: 'storage' })}>Expand</button>
+                <div className="cw-query-chip-row">{selectedQueryLogGroups.map((name) => <button key={name} type="button" className="cw-query-chip" onClick={() => setSelectedQueryLogGroups((current) => current.filter((item) => item !== name))}>{name}<span>x</span></button>)}</div>
+                <div className="cw-query-preset-row">{quickQueries.map((item) => <button key={item.id} type="button" className="cw-chip" onClick={() => setQueryDraft(item.queryString)}>{item.label}</button>)}</div>
+                <textarea className="cw-query-editor" value={queryDraft} onChange={(event) => setQueryDraft(event.target.value)} rows={8} spellCheck={false} />
+                <div className="cw-query-actions">
+                  <button type="button" className="cw-refresh-btn" disabled={queryBusy} onClick={() => void runQuery()}>{queryBusy ? 'Running...' : 'Run Query'}</button>
+                  <input className="cw-table-filter" placeholder="Saved query name" value={saveName} onChange={(event) => setSaveName(event.target.value)} />
+                  <input className="cw-table-filter" placeholder="Description" value={saveDescription} onChange={(event) => setSaveDescription(event.target.value)} />
+                  <button type="button" className="cw-expand-btn" onClick={() => void saveCurrentQuery()}>Save Query</button>
+                  <button type="button" className="cw-toggle" disabled={queryHistory.length === 0} onClick={() => void clearCloudWatchQueryHistory({ profile: connection.profile, region: connection.region }).then(() => refreshQueryLibrary())}>Clear History</button>
+                </div>
+                {queryFeedback && <div className="cw-query-feedback success">{queryFeedback}</div>}
+                {queryError && <div className="cw-query-feedback error">{queryError}</div>}
+                {queryResult && (
+                  <div className="cw-query-results">
+                    <div className="cw-section-head"><div><h3>Query Results</h3><p className="cw-section-subtitle">{queryResult.status} - {summarizeResult(queryResult)}</p></div><div className="cw-query-headline"><span className="cw-toolbar-pill">{formatCompactNumber(queryResult.statistics.recordsMatched)} matched</span><span className="cw-toolbar-pill">{formatCompactNumber(queryResult.statistics.recordsScanned)} scanned</span></div></div>
+                    <div className="cw-table-scroll"><table className="cw-table"><thead><tr>{queryResult.fields.map((field) => <th key={field}>{field}</th>)}</tr></thead><tbody>{queryResult.rows.length === 0 ? <tr><td className="cw-empty" colSpan={Math.max(1, queryResult.fields.length)}>No results returned.</td></tr> : queryResult.rows.map((row, index) => <tr key={`${queryResult.queryId}-${index}`}>{queryResult.fields.map((field) => <td key={field}><span className="cw-query-cell">{row[field] || '-'}</span></td>)}</tr>)}</tbody></table></div>
+                  </div>
+                )}
               </div>
-              {loading ? (
-                <div className="cw-loading">Loading...</div>
-              ) : (
-                <BarChart
-                  items={topLogGroupsByStorage.map((g) => ({ label: g.name, value: g.storedBytes }))}
-                  labelKey="label"
-                  valueKey="value"
-                />
-              )}
+              <div className="cw-query-sidebar">
+                <div className="cw-query-card">
+                  <div className="cw-panel-head"><div><h3>Saved Queries</h3><p className="cw-chart-subtitle">One-click reruns from the current AWS context.</p></div></div>
+                  {savedQueries.length === 0 ? <div className="cw-table-hint">No saved queries yet.</div> : <div className="cw-query-list">{savedQueries.map((saved) => <div key={saved.id} className="cw-query-list-item"><div><strong>{saved.name}</strong><span>{saved.description || saved.logGroupNames.join(', ')}</span><small>Last run {saved.lastRunAt ? formatDateTime(saved.lastRunAt) : 'never'}</small></div><div className="cw-query-list-actions"><button type="button" className="cw-toggle" onClick={() => { setQueryDraft(saved.queryString); setSelectedQueryLogGroups(saved.logGroupNames); setQueryServiceHint(saved.serviceHint); setQuerySourceLabel(saved.name) }}>Load</button><button type="button" className="cw-expand-btn" onClick={() => void runQuery({ queryString: saved.queryString, logGroupNames: saved.logGroupNames, savedQueryId: saved.id, serviceHint: saved.serviceHint, sourceLabel: saved.name })}>Run</button><button type="button" className="cw-toggle" onClick={() => void deleteCloudWatchSavedQuery(saved.id).then(() => refreshQueryLibrary())}>Delete</button></div></div>)}</div>}
+                </div>
+                <div className="cw-query-card">
+                  <div className="cw-panel-head"><div><h3>Recent Runs</h3><p className="cw-chart-subtitle">Quick rerun for recent investigations.</p></div></div>
+                  {queryHistory.length === 0 ? <div className="cw-table-hint">No query history yet.</div> : <div className="cw-query-list">{queryHistory.map((entry) => <div key={entry.id} className="cw-query-list-item"><div><strong>{entry.status === 'success' ? 'Successful run' : 'Failed run'}</strong><span>{entry.resultSummary}</span><small>{formatDateTime(entry.executedAt)} - {entry.durationMs} ms</small></div><div className="cw-query-list-actions"><button type="button" className="cw-expand-btn" onClick={() => void runQuery({ queryString: entry.queryString, logGroupNames: entry.logGroupNames, savedQueryId: entry.savedQueryId, serviceHint: entry.serviceHint, sourceLabel: querySourceLabel })}>Rerun</button></div></div>)}</div>}
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* EC2 Series Charts (only in EC2 mode) */}
+          <div className="cw-charts-row">
+            <div className="cw-chart-panel"><div className="cw-panel-head"><div><h3>Metric Namespaces</h3><p className="cw-chart-subtitle">Observed metric families ordered by discovered volume.</p></div></div><div className="cw-bar-chart">{namespaces.map((ns) => <div key={ns.namespace} className="cw-bar-row"><div className="cw-bar-fill" style={{ width: `${Math.max((ns.metricCount / Math.max(...namespaces.map((item) => item.metricCount), 1)) * 100, 2)}%` }} /><span className="cw-bar-label">{ns.namespace}</span></div>)}</div></div>
+            <div className="cw-chart-panel"><div className="cw-panel-head"><div><h3>Top Log Group Storage</h3><p className="cw-chart-subtitle">Largest retained groups in the current scope.</p></div></div><div className="cw-bar-chart">{topLogGroups.map((group) => <div key={group.name} className="cw-bar-row"><div className="cw-bar-fill" style={{ width: `${Math.max((group.storedBytes / Math.max(...topLogGroups.map((item) => item.storedBytes), 1)) * 100, 2)}%` }} /><span className="cw-bar-label">{group.name}</span></div>)}</div></div>
+          </div>
+
           {isEc2Mode && ec2Series.length > 0 && (
             <div className="cw-series-section">
-              <div className="cw-section-head">
-                <div>
-                  <h3>EC2 Metric Series</h3>
-                  <p className="cw-section-subtitle">Focused charts for the selected instance, kept compact until you need a larger trace.</p>
-                </div>
-              </div>
-              <div className="cw-series-grid">
-                {ec2Series.map((series) => (
-                  <div key={series.metricName} className="cw-series-card">
-                    <div className="cw-series-card-header">
-                      <span className="cw-series-name">{series.metricName}</span>
-                      <div className="cw-series-card-actions">
-                        <span className="cw-series-points">{series.points.length} pts</span>
-                        <button type="button" className="cw-expand-btn" onClick={() => setExpandedChart({ type: 'series', metricName: series.metricName })}>Expand</button>
-                      </div>
-                    </div>
-                    <Sparkline points={series.points} unit={series.unit} width={200} height={48} />
-                    {series.points.length > 0 && (
-                      <div className="cw-series-stats">
-                        <span>Latest: {formatMetricValue(series.points[series.points.length - 1].value, series.unit)}</span>
-                        <span>Min: {formatMetricValue(Math.min(...series.points.map((p) => p.value)), series.unit)}</span>
-                        <span>Max: {formatMetricValue(Math.max(...series.points.map((p) => p.value)), series.unit)}</span>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+              <div className="cw-section-head"><div><h3>EC2 Metric Series</h3><p className="cw-section-subtitle">Compact sparkline traces for the selected instance.</p></div></div>
+              <div className="cw-series-grid">{ec2Series.map((series) => <div key={series.metricName} className="cw-series-card"><div className="cw-series-card-header"><span className="cw-series-name">{series.metricName}</span><span className="cw-series-points">{series.points.length} pts</span></div><Sparkline points={series.points} unit={series.unit} /><div className="cw-series-stats"><span>Latest: {formatMetricValue(series.points.at(-1)?.value ?? null, series.unit)}</span></div></div>)}</div>
             </div>
           )}
 
-          {/* Metric Summary */}
           <div className="cw-section">
-            <div className="cw-section-head">
-              <div>
-                <h3>Metric Summary</h3>
-                <p className="cw-section-subtitle">Search and compare aggregate values across the current telemetry window.</p>
-              </div>
-            </div>
-            <FilterableTable
-              columns={[
-                { key: 'metric', label: 'Metric', render: (row: CloudWatchMetricStatistic) => `${row.namespace} / ${row.metricName}` },
-                { key: 'latest', label: 'Latest', render: (row: CloudWatchMetricStatistic) => formatMetricValue(row.latest, row.unit) },
-                { key: 'average', label: 'Average', render: (row: CloudWatchMetricStatistic) => formatMetricValue(row.average, row.unit) },
-                { key: 'min', label: 'Min', render: (row: CloudWatchMetricStatistic) => formatMetricValue(row.min, row.unit) },
-                { key: 'max', label: 'Max', render: (row: CloudWatchMetricStatistic) => formatMetricValue(row.max, row.unit) },
-                { key: 'unit', label: 'Unit' },
-                ...(isEc2Mode
-                  ? [{
-                      key: 'trend' as const,
-                      label: 'Trend',
-                      render: (row: CloudWatchMetricStatistic) => {
-                        const pts = seriesMap.get(row.metricName)
-                        return pts ? `Series ${pts.length}` : ''
-                      },
-                      renderNode: (row: CloudWatchMetricStatistic) => {
-                        const series = ec2Series.find((item) => item.metricName === row.metricName)
-                        if (!series || series.points.length < 2) {
-                          return <span className="cw-no-data">No data</span>
-                        }
-                        return <Sparkline points={series.points} unit={series.unit} width={150} height={36} />
-                      }
-                    }]
-                  : [])
-              ]}
-              data={filteredStats}
-            />
+            <div className="cw-section-head"><div><h3>Metric Summary</h3><p className="cw-section-subtitle">Search and compare aggregate values across the current telemetry window.</p></div></div>
+            <FilterableTable columns={[{ key: 'metric', label: 'Metric', render: (row: CloudWatchMetricStatistic) => `${row.namespace} / ${row.metricName}` }, { key: 'latest', label: 'Latest', render: (row: CloudWatchMetricStatistic) => formatMetricValue(row.latest, row.unit) }, { key: 'average', label: 'Average', render: (row: CloudWatchMetricStatistic) => formatMetricValue(row.average, row.unit) }, { key: 'min', label: 'Min', render: (row: CloudWatchMetricStatistic) => formatMetricValue(row.min, row.unit) }, { key: 'max', label: 'Max', render: (row: CloudWatchMetricStatistic) => formatMetricValue(row.max, row.unit) }, { key: 'unit', label: 'Unit' }]} data={filteredStats} />
           </div>
 
-          {/* Log Groups */}
           <div className="cw-section">
-            <div className="cw-section-head">
-              <div>
-                <h3>Log Groups</h3>
-                <p className="cw-section-subtitle">Open recent events in-place and keep operational context anchored to the same console.</p>
-              </div>
-            </div>
-            <FilterableTable
-              columns={[
-                { key: 'name', label: 'Name' },
-                {
-                  key: 'retentionInDays',
-                  label: 'RetentionDays',
-                  render: (row: CloudWatchLogGroupSummary) => row.retentionInDays !== null ? String(row.retentionInDays) : 'Never expire'
-                },
-                {
-                  key: 'storedBytes',
-                  label: 'StoredBytes',
-                  render: (row: CloudWatchLogGroupSummary) => formatBytes(row.storedBytes)
-                },
-                { key: 'logClass', label: 'Class' },
-                {
-                  key: 'arn',
-                  label: 'Arn',
-                  render: (row: CloudWatchLogGroupSummary) =>
-                    row.arn.length > 40 ? `${row.arn.slice(0, 20)}...${row.arn.slice(-16)}` : row.arn
-                }
-              ]}
-              data={logGroups}
-              onDoubleClick={(row) => openLogGroupTab(row as unknown as CloudWatchLogGroupSummary)}
-              hint="Double-click a log group to open its recent events in a new tab."
-            />
-            {isEc2Mode && logGroups.length === 0 && (
-              <div className="cw-table-hint">No log groups matched EC2 instance `{ec2InstanceId}`.</div>
-            )}
+            <div className="cw-section-head"><div><h3>Log Groups</h3><p className="cw-section-subtitle">Double-click a group to inspect recent events and add it to the query target list.</p></div><div className="cw-query-headline"><span className="cw-toolbar-pill">{formatBytes(totalStoredBytes)}</span></div></div>
+            <FilterableTable columns={[{ key: 'name', label: 'Name' }, { key: 'retentionInDays', label: 'Retention', render: (row: CloudWatchLogGroupSummary) => row.retentionInDays !== null ? `${row.retentionInDays} days` : 'Never expire' }, { key: 'storedBytes', label: 'Stored', render: (row: CloudWatchLogGroupSummary) => formatBytes(row.storedBytes) }, { key: 'logClass', label: 'Class' }]} data={logGroups} onDoubleClick={(row) => openLogGroupTab(row as unknown as CloudWatchLogGroupSummary)} hint="Double-click to inspect the recent event stream." />
           </div>
         </>
-      )}
-
-      {/* Log group tabs */}
-      {activeTab?.type === 'log-group' && (
-        <LogGroupViewer
-          connection={connection}
-          logGroupName={activeTab.name}
-          timeRange={timeRange}
-        />
-      )}
-
-      {expandedChart && (
-        <div className="cw-overlay" role="dialog" aria-modal="true">
-          <div className="cw-overlay-backdrop" onClick={() => setExpandedChart(null)} />
-          <div className="cw-overlay-panel">
-            <div className="cw-overlay-header">
-              <h3>
-                {expandedChart.type === 'namespaces' && 'Metric Namespaces'}
-                {expandedChart.type === 'storage' && 'Top Log Group Storage'}
-                {expandedChart.type === 'series' && expandedChart.metricName}
-              </h3>
-              <button type="button" className="cw-expand-btn" onClick={() => setExpandedChart(null)}>Close</button>
-            </div>
-            {expandedChart.type === 'namespaces' && (
-              <BarChart
-                items={namespaces.map((ns) => ({ label: ns.namespace, value: ns.metricCount }))}
-                labelKey="label"
-                valueKey="value"
-              />
-            )}
-            {expandedChart.type === 'storage' && (
-              <BarChart
-                items={topLogGroupsByStorage.map((g) => ({ label: g.name, value: g.storedBytes }))}
-                labelKey="label"
-                valueKey="value"
-              />
-            )}
-            {expandedSeries && (
-              <div className="cw-overlay-series">
-                <Sparkline points={expandedSeries.points} unit={expandedSeries.unit} width={960} height={220} interactive />
-                <div className="cw-overlay-series-stats">
-                  <span>Latest: {formatMetricValue(expandedSeries.points[expandedSeries.points.length - 1]?.value ?? null, expandedSeries.unit)}</span>
-                  <span>Min: {formatMetricValue(Math.min(...expandedSeries.points.map((p) => p.value)), expandedSeries.unit)}</span>
-                  <span>Max: {formatMetricValue(Math.max(...expandedSeries.points.map((p) => p.value)), expandedSeries.unit)}</span>
-                  <span>Points: {expandedSeries.points.length}</span>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+      ) : (
+        <LogGroupViewer connection={connection} logGroupName={activeTab.name} timeRange={timeRange} onInvestigate={(logGroupName) => { setSelectedQueryLogGroups([logGroupName]); setQuerySourceLabel(logGroupName); setQueryDraft(defaultQuery(queryServiceHint, logGroupName)); setActiveTabIndex(0) }} />
       )}
     </div>
   )
