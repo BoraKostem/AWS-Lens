@@ -545,6 +545,161 @@ textarea {
   color: var(--accent-strong);
 }
 
+.overview-account-grid,
+.overview-hint-grid,
+.overview-ownership-grid {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.overview-account-grid {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.overview-hint-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.overview-ownership-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.overview-account-card,
+.overview-hint-card,
+.overview-ownership-card {
+  padding: 0.8rem 0.85rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(18, 22, 29, 0.96), rgba(11, 15, 21, 0.96));
+}
+
+.overview-account-kv {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin-top: 0.2rem;
+}
+
+.overview-account-kv span,
+.overview-hint-kicker,
+.overview-ownership-header span,
+.overview-ownership-metrics span,
+.overview-linked-account-row span,
+.overview-note-item {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.overview-account-kv strong,
+.overview-linked-account-row strong,
+.overview-ownership-value strong,
+.overview-hint-card strong,
+.overview-ownership-header strong {
+  display: block;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  letter-spacing: -0.02em;
+}
+
+.overview-note-list,
+.overview-linked-account-list,
+.overview-ownership-values {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.overview-note-list {
+  margin-top: 0.75rem;
+}
+
+.overview-note-item {
+  padding: 0.55rem 0.65rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+  line-height: 1.45;
+}
+
+.overview-linked-account-row,
+.overview-ownership-value {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  padding: 0.6rem 0.7rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.overview-linked-account-row > div,
+.overview-ownership-value > div {
+  min-width: 0;
+}
+
+.overview-hint-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.overview-hint-card.info {
+  border-color: rgba(88, 165, 255, 0.18);
+  background:
+    radial-gradient(circle at top right, rgba(88, 165, 255, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(18, 22, 29, 0.96), rgba(11, 15, 21, 0.96));
+}
+
+.overview-hint-card.warning {
+  border-color: rgba(223, 105, 42, 0.22);
+  background:
+    radial-gradient(circle at top right, rgba(223, 105, 42, 0.14), transparent 34%),
+    linear-gradient(180deg, rgba(18, 22, 29, 0.96), rgba(11, 15, 21, 0.96));
+}
+
+.overview-hint-card.error {
+  border-color: rgba(224, 82, 82, 0.22);
+  background:
+    radial-gradient(circle at top right, rgba(224, 82, 82, 0.16), transparent 34%),
+    linear-gradient(180deg, rgba(18, 22, 29, 0.96), rgba(11, 15, 21, 0.96));
+}
+
+.overview-hint-kicker {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.overview-hint-card p,
+.overview-hint-card small {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.overview-hint-card p {
+  color: rgba(238, 240, 244, 0.78);
+  font-size: 0.82rem;
+}
+
+.overview-ownership-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.overview-ownership-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.overview-ownership-metrics {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.16rem;
+}
+
 .overview-tiles {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -3132,6 +3287,9 @@ button.overview-tile.clickable.active strong {
   .overview-hero-card,
   .relationship-hero-card,
   .stats-hero-card,
+  .overview-account-grid,
+  .overview-hint-grid,
+  .overview-ownership-grid,
   .overview-tiles-featured,
   .overview-tiles-summary,
   .overview-hero-stats,
@@ -3144,6 +3302,21 @@ button.overview-tile.clickable.active strong {
 
   .relationship-summary-list {
     grid-template-columns: 1fr;
+  }
+
+  .overview-account-kv {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-ownership-header,
+  .overview-linked-account-row,
+  .overview-ownership-value {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .overview-ownership-metrics {
+    align-items: flex-start;
   }
 
   .global-overview-prompt,

@@ -195,6 +195,8 @@ const awsLensApi = {
     ipcRenderer.invoke('overview:metrics', connection, regions),
   getOverviewStatistics: (connection: AwsConnection) =>
     ipcRenderer.invoke('overview:statistics', connection),
+  getOverviewAccountContext: (connection: AwsConnection) =>
+    ipcRenderer.invoke('overview:account-context', connection),
   getComplianceReport: (connection: AwsConnection) =>
     ipcRenderer.invoke('compliance:report', connection),
   getRelationshipMap: (connection: AwsConnection) =>

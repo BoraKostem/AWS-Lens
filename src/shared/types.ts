@@ -1599,6 +1599,37 @@ export type CostBreakdown = {
   period: string
 }
 
+export type BillingLinkedAccountSummary = {
+  accountId: string
+  amount: number
+  sharePercent: number
+}
+
+export type BillingOwnershipValueSummary = {
+  value: string
+  amount: number
+  sharePercent: number
+}
+
+export type BillingTagOwnershipHint = {
+  key: GovernanceTagKey
+  coveragePercent: number
+  taggedAmount: number
+  untaggedAmount: number
+  topValues: BillingOwnershipValueSummary[]
+}
+
+export type OverviewAccountContext = {
+  caller: CallerIdentity
+  billingHomeRegion: string
+  payerVisibility: 'payer-or-management' | 'member-or-standalone' | 'unavailable'
+  linkedAccounts: BillingLinkedAccountSummary[]
+  ownershipHints: BillingTagOwnershipHint[]
+  capabilitySnapshot: AwsCapabilitySnapshot
+  notes: string[]
+  generatedAt: string
+}
+
 export type ServiceRelationship = {
   source: string
   sourceType: string

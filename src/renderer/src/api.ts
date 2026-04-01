@@ -143,6 +143,7 @@ import type {
   NatGatewaySummary,
   NetworkInterfaceSummary,
   CostBreakdown,
+  OverviewAccountContext,
   OverviewMetrics,
   OverviewStatistics,
   ObservabilityPostureReport,
@@ -275,6 +276,7 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   runComparison: 'compare',
   getOverviewMetrics: 'overview',
   getOverviewStatistics: 'overview',
+  getOverviewAccountContext: 'overview',
   getComplianceReport: 'compliance-center',
   getRelationshipMap: 'overview',
   getCostBreakdown: 'overview',
@@ -1575,6 +1577,10 @@ export async function getOverviewMetrics(connection: AwsConnection, regions: str
 
 export async function getCostBreakdown(connection: AwsConnection): Promise<CostBreakdown> {
   return unwrap((await awsBridge().getCostBreakdown(connection)) as Wrapped<CostBreakdown>)
+}
+
+export async function getOverviewAccountContext(connection: AwsConnection): Promise<OverviewAccountContext> {
+  return unwrap((await awsBridge().getOverviewAccountContext(connection)) as Wrapped<OverviewAccountContext>)
 }
 
 export async function getOverviewStatistics(connection: AwsConnection): Promise<OverviewStatistics> {

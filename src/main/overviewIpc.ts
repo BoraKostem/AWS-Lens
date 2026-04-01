@@ -2,6 +2,7 @@ import { ipcMain } from 'electron'
 
 import type { AwsConnection } from '@shared/types'
 import {
+  getOverviewAccountContext,
   getCostBreakdown,
   getOverviewMetrics,
   getOverviewStatistics,
@@ -20,6 +21,9 @@ export function registerOverviewIpcHandlers(): void {
   )
   ipcMain.handle('overview:statistics', async (_event, connection: AwsConnection) =>
     wrap(() => getOverviewStatistics(connection))
+  )
+  ipcMain.handle('overview:account-context', async (_event, connection: AwsConnection) =>
+    wrap(() => getOverviewAccountContext(connection))
   )
   ipcMain.handle('overview:relationships', async (_event, connection: AwsConnection) =>
     wrap(() => getRelationshipMap(connection))

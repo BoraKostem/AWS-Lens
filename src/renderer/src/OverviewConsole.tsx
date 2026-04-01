@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import type { AwsConnection, CostBreakdown, InsightItem, OverviewMetrics, OverviewStatistics, RegionMetric, RegionalSignal, RelationshipMap, ServiceId, ServiceRelationship, TagSearchResult } from '@shared/types'
+import type { AwsCapabilityHint, AwsConnection, CostBreakdown, InsightItem, OverviewAccountContext, OverviewMetrics, OverviewStatistics, RegionMetric, RegionalSignal, RelationshipMap, ServiceId, ServiceRelationship, TagSearchResult } from '@shared/types'
 import { useAwsPageConnection } from './AwsPage'
-import { getCostBreakdown, getOverviewMetrics, getOverviewStatistics, getRelationshipMap, searchByTag } from './api'
+import { getCostBreakdown, getOverviewAccountContext, getOverviewMetrics, getOverviewStatistics, getRelationshipMap, searchByTag } from './api'
 import { SvcState, variantForError } from './SvcState'
 
 type OverviewTab = 'overview' | 'relationships' | 'statistics' | 'tags'
@@ -47,6 +47,21 @@ function fmtCurrency(value: number): string {
   return `$${value.toFixed(2)}`
 }
 
+function fmtPercent(value: number): string {
+  return `${value.toFixed(1)}%`
+}
+
+function describePayerVisibility(value: OverviewAccountContext['payerVisibility']): string {
+  switch (value) {
+    case 'payer-or-management':
+      return 'Payer or management visibility'
+    case 'member-or-standalone':
+      return 'Single-account visibility'
+    default:
+      return 'Billing visibility unavailable'
+  }
+}
+
 function sumMetricField(regions: RegionMetric[], key: keyof RegionMetric): number {
   return regions.reduce((s, r) => {
     const v = r[key]
@@ -80,6 +95,7 @@ export function OverviewConsole({
   const [metrics, setMetrics] = useState<OverviewMetrics | null>(null)
   const [globalMetrics, setGlobalMetrics] = useState<OverviewMetrics | null>(null)
   const [statistics, setStatistics] = useState<OverviewStatistics | null>(null)
+  const [accountContext, setAccountContext] = useState<OverviewAccountContext | null>(null)
   const [relationships, setRelationships] = useState<RelationshipMap | null>(null)
   const [tagResults, setTagResults] = useState<TagSearchResult | null>(null)
   const [tab, setTab] = useState<OverviewTab>('overview')
@@ -114,17 +130,20 @@ export function OverviewConsole({
     setLoading(true)
     setPageError('')
     try {
-      const [nextMetrics, nextStatistics, nextRelationships, nextCost] = await Promise.all([
+      const [nextMetrics, nextStatistics, nextAccountContext, nextRelationships, nextCost] = await Promise.all([
         getOverviewMetrics(connection, [connection.region]),
         getOverviewStatistics(connection),
+        getOverviewAccountContext(connection).catch(() => null),
         getRelationshipMap(connection),
         getCostBreakdown(connection).catch(() => null)
       ])
       setMetrics(nextMetrics)
       setStatistics(nextStatistics)
+      setAccountContext(nextAccountContext)
       setRelationships(nextRelationships)
       setCostBreakdown(nextCost)
     } catch (error) {
+      setAccountContext(null)
       setPageError(error instanceof Error ? error.message : String(error))
     } finally {
       setLoading(false)
@@ -362,6 +381,115 @@ export function OverviewConsole({
                         </div>
                       </div>
                     </div>
+
+                    {accountContext && (
+                      <>
+                        <div className="overview-section-title">Account And Billing Posture</div>
+                        <section className="overview-account-grid">
+                          <article className="overview-account-card">
+                            <div className="panel-header minor">
+                              <h3>Account Context</h3>
+                            </div>
+                            <div className="overview-account-kv">
+                              <div>
+                                <span>Account ID</span>
+                                <strong>{accountContext.caller.account || '-'}</strong>
+                              </div>
+                              <div>
+                                <span>Billing home</span>
+                                <strong>{accountContext.billingHomeRegion}</strong>
+                              </div>
+                              <div>
+                                <span>Visibility</span>
+                                <strong>{describePayerVisibility(accountContext.payerVisibility)}</strong>
+                              </div>
+                              <div>
+                                <span>Linked accounts</span>
+                                <strong>{accountContext.linkedAccounts.length}</strong>
+                              </div>
+                            </div>
+                            <div className="overview-note-list">
+                              {accountContext.notes.map((note) => (
+                                <div key={note} className="overview-note-item">{note}</div>
+                              ))}
+                            </div>
+                          </article>
+
+                          <article className="overview-account-card">
+                            <div className="panel-header minor">
+                              <h3>Linked Account Spend</h3>
+                              <span className="hero-path" style={{ margin: 0 }}>Current month</span>
+                            </div>
+                            {accountContext.linkedAccounts.length ? (
+                              <div className="overview-linked-account-list">
+                                {accountContext.linkedAccounts.slice(0, 6).map((item) => (
+                                  <div key={item.accountId} className="overview-linked-account-row">
+                                    <div>
+                                      <strong>{item.accountId}</strong>
+                                      <span>{fmtPercent(item.sharePercent)} of monthly spend</span>
+                                    </div>
+                                    <strong>{fmtCurrency(item.amount)}</strong>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <SvcState
+                                variant="empty"
+                                message="Linked-account rollups are not visible with the current billing context."
+                                compact
+                              />
+                            )}
+                          </article>
+                        </section>
+
+                        <div className="overview-section-title">Capability Hints</div>
+                        <section className="overview-hint-grid">
+                          {accountContext.capabilitySnapshot.hints.map((hint: AwsCapabilityHint) => (
+                            <article key={hint.id} className={`overview-hint-card ${hint.severity}`}>
+                              <span className="overview-hint-kicker">{hint.subject}</span>
+                              <strong>{hint.title}</strong>
+                              <p>{hint.summary}</p>
+                              <small>{hint.recommendedAction}</small>
+                            </article>
+                          ))}
+                        </section>
+
+                        <div className="overview-section-title">Cost Ownership Hints</div>
+                        <section className="overview-ownership-grid">
+                          {accountContext.ownershipHints.map((hint) => (
+                            <article key={hint.key} className="overview-ownership-card">
+                              <div className="overview-ownership-header">
+                                <div>
+                                  <span>{hint.key}</span>
+                                  <strong>{fmtPercent(hint.coveragePercent)} tagged</strong>
+                                </div>
+                                <div className="overview-ownership-metrics">
+                                  <span>{fmtCurrency(hint.taggedAmount)} tagged</span>
+                                  <span>{fmtCurrency(hint.untaggedAmount)} remaining</span>
+                                </div>
+                              </div>
+                              {hint.topValues.length ? (
+                                <div className="overview-ownership-values">
+                                  {hint.topValues.map((value) => (
+                                    <div key={`${hint.key}-${value.value}`} className="overview-ownership-value">
+                                      <div>
+                                        <strong>{value.value}</strong>
+                                        <span>{fmtPercent(value.sharePercent)} of total spend</span>
+                                      </div>
+                                      <strong>{fmtCurrency(value.amount)}</strong>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="hero-path" style={{ margin: 0 }}>
+                                  No current-month tagged spend surfaced for {hint.key}.
+                                </p>
+                              )}
+                            </article>
+                          ))}
+                        </section>
+                      </>
+                    )}
 
                     <div className="overview-section-title">Top Services</div>
                     <section className="overview-tiles overview-tiles-featured">

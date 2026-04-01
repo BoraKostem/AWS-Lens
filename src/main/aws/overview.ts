@@ -21,11 +21,18 @@ import { CloudTrailClient, DescribeTrailsCommand, ListTagsCommand as ListCloudTr
 import { IAMClient, ListRolesCommand, ListRoleTagsCommand, ListUsersCommand, ListUserTagsCommand } from '@aws-sdk/client-iam'
 
 import { awsClientConfig, readTags } from './client'
+import { getAwsCapabilitySnapshot } from './capabilities'
+import { getCallerIdentity } from './sts'
 import type {
   AwsConnection,
+  BillingLinkedAccountSummary,
+  BillingOwnershipValueSummary,
+  BillingTagOwnershipHint,
   CostBreakdown,
   CostBreakdownEntry,
+  GovernanceTagKey,
   InsightItem,
+  OverviewAccountContext,
   OverviewMetrics,
   OverviewStat,
   OverviewStatistics,
@@ -62,6 +69,8 @@ const COST_SECRET = 0.4
 const COST_KEY_PAIR = 0
 const COST_CW_ALARM = 0.1
 const COST_EXPLORER_METRIC = 'UnblendedCost' as const
+const BILLING_HOME_REGION = 'us-east-1'
+const OWNERSHIP_TAG_KEYS: GovernanceTagKey[] = ['Owner', 'Environment', 'Project', 'CostCenter']
 
 /* ── helpers ──────────────────────────────────────────────── */
 
@@ -1173,16 +1182,127 @@ function roundCurrency(amount: number): number {
   return Math.round(amount * 100) / 100
 }
 
+function roundPercent(value: number): number {
+  return Math.round(value * 10) / 10
+}
+
 function readCostMetricAmount(
   metrics: Record<string, { Amount?: string; Unit?: string } | undefined> | undefined
 ): number {
   return parseFloat(metrics?.[COST_EXPLORER_METRIC]?.Amount ?? '0')
 }
 
-async function fetchCurrentMonthCostBreakdown(connection: AwsConnection): Promise<CostBreakdown> {
-  const client = new CostExplorerClient(awsClientConfig({ ...connection, region: 'us-east-1' }))
+function createBillingCostExplorerClient(connection: AwsConnection): CostExplorerClient {
+  return new CostExplorerClient(awsClientConfig({ ...connection, region: BILLING_HOME_REGION }))
+}
+
+function getCurrentMonthCostExplorerWindow(): {
+  label: string
+  timePeriod: {
+    Start: string
+    End: string
+  }
+} {
   const { start, end, label } = getCurrentMonthTimePeriod()
-  const timePeriod = { Start: formatCostExplorerDate(start), End: formatCostExplorerDate(end) }
+
+  return {
+    label,
+    timePeriod: {
+      Start: formatCostExplorerDate(start),
+      End: formatCostExplorerDate(end)
+    }
+  }
+}
+
+function buildSharePercent(amount: number, total: number): number {
+  if (total <= 0) {
+    return 0
+  }
+
+  return roundPercent((amount / total) * 100)
+}
+
+function parseTagGroupValue(tagKey: GovernanceTagKey, rawKey: string): string {
+  const prefix = `${tagKey}$`
+  const rawValue = rawKey.startsWith(prefix)
+    ? rawKey.slice(prefix.length)
+    : rawKey.includes('$')
+      ? rawKey.slice(rawKey.indexOf('$') + 1)
+      : rawKey
+
+  return rawValue.trim()
+}
+
+function isAssignedTagValue(value: string): boolean {
+  const normalized = value.trim().toLowerCase()
+
+  if (!normalized) {
+    return false
+  }
+
+  return normalized !== '(none)' &&
+    normalized !== '(empty)' &&
+    normalized !== 'no tag key' &&
+    normalized !== 'untagged' &&
+    normalized !== 'null' &&
+    normalized !== '__none__'
+}
+
+async function fetchCurrentMonthTotalCost(connection: AwsConnection): Promise<{
+  total: number
+  period: string
+}> {
+  const client = createBillingCostExplorerClient(connection)
+  const { label, timePeriod } = getCurrentMonthCostExplorerWindow()
+  const response = await client.send(new GetCostAndUsageCommand({
+    TimePeriod: timePeriod,
+    Granularity: 'MONTHLY',
+    Metrics: [COST_EXPLORER_METRIC]
+  }))
+
+  let total = 0
+  for (const result of response.ResultsByTime ?? []) {
+    total += readCostMetricAmount(result.Total)
+  }
+
+  return {
+    total: roundCurrency(total),
+    period: label
+  }
+}
+
+async function fetchCurrentMonthGroupedCosts(
+  connection: AwsConnection,
+  groupBy: { Type: 'DIMENSION' | 'TAG'; Key: string }
+): Promise<Array<{ key: string; amount: number }>> {
+  const client = createBillingCostExplorerClient(connection)
+  const { timePeriod } = getCurrentMonthCostExplorerWindow()
+  const response = await client.send(new GetCostAndUsageCommand({
+    TimePeriod: timePeriod,
+    Granularity: 'MONTHLY',
+    Metrics: [COST_EXPLORER_METRIC],
+    GroupBy: [groupBy]
+  }))
+
+  const groupedAmounts = new Map<string, number>()
+
+  for (const result of response.ResultsByTime ?? []) {
+    for (const group of result.Groups ?? []) {
+      const key = group.Keys?.[0] ?? 'Unknown'
+      const amount = readCostMetricAmount(group.Metrics)
+      groupedAmounts.set(key, (groupedAmounts.get(key) ?? 0) + amount)
+    }
+  }
+
+  return [...groupedAmounts.entries()]
+    .map(([key, amount]) => ({ key, amount: roundCurrency(amount) }))
+    .filter((entry) => Math.abs(entry.amount) > 0.001)
+    .sort((a, b) => b.amount - a.amount)
+}
+
+async function fetchCurrentMonthCostBreakdown(connection: AwsConnection): Promise<CostBreakdown> {
+  const client = createBillingCostExplorerClient(connection)
+  const { label, timePeriod } = getCurrentMonthCostExplorerWindow()
 
   const [totalResp, groupedResp] = await Promise.all([
     client.send(new GetCostAndUsageCommand({
@@ -1231,14 +1351,11 @@ async function getMonthlyCostForTag(
   tagKey: string,
   tagValue: string
 ): Promise<number> {
-  const client = new CostExplorerClient(awsClientConfig({ ...connection, region: 'us-east-1' }))
-  const { start, end } = getCurrentMonthTimePeriod()
+  const client = createBillingCostExplorerClient(connection)
+  const { timePeriod } = getCurrentMonthCostExplorerWindow()
 
   const resp = await client.send(new GetCostAndUsageCommand({
-    TimePeriod: {
-      Start: formatCostExplorerDate(start),
-      End: formatCostExplorerDate(end)
-    },
+    TimePeriod: timePeriod,
     Granularity: 'MONTHLY',
     Metrics: [COST_EXPLORER_METRIC],
     Filter: {
@@ -1256,6 +1373,119 @@ async function getMonthlyCostForTag(
   }
 
   return roundCurrency(total)
+}
+
+export async function getOverviewAccountContext(connection: AwsConnection): Promise<OverviewAccountContext> {
+  const caller = await getCallerIdentity(connection)
+  const capabilitySnapshot = getAwsCapabilitySnapshot(connection.region, ['billing', 'organizations', 'local-zones'])
+  const generatedAt = new Date().toISOString()
+  const notes = [
+    `Billing aggregation is normalized through ${BILLING_HOME_REGION} even when the active region is ${connection.region}.`,
+    'Linked-account visibility depends on payer, management-account, or delegated billing access.'
+  ]
+  const emptyOwnershipHints: BillingTagOwnershipHint[] = OWNERSHIP_TAG_KEYS.map((key) => ({
+    key,
+    coveragePercent: 0,
+    taggedAmount: 0,
+    untaggedAmount: 0,
+    topValues: []
+  }))
+
+  try {
+    const [totalCost, linkedAccountGroups, ownershipGroups] = await Promise.all([
+      fetchCurrentMonthTotalCost(connection),
+      safeCount(
+        () => fetchCurrentMonthGroupedCosts(connection, { Type: 'DIMENSION', Key: 'LINKED_ACCOUNT' }),
+        []
+      ),
+      Promise.all(
+        OWNERSHIP_TAG_KEYS.map(async (key) => ({
+          key,
+          groups: await safeCount(
+            () => fetchCurrentMonthGroupedCosts(connection, { Type: 'TAG', Key: key }),
+            []
+          )
+        }))
+      )
+    ])
+
+    const linkedAccounts: BillingLinkedAccountSummary[] = linkedAccountGroups
+      .map(({ key, amount }) => ({
+        accountId: key,
+        amount,
+        sharePercent: buildSharePercent(amount, totalCost.total)
+      }))
+      .filter((item) => item.amount > 0)
+      .sort((a, b) => b.amount - a.amount)
+
+    const payerVisibility = linkedAccounts.length > 1
+      ? 'payer-or-management'
+      : totalCost.total > 0
+        ? 'member-or-standalone'
+        : 'unavailable'
+
+    const ownershipHints: BillingTagOwnershipHint[] = ownershipGroups.map(({ key, groups }) => {
+      const taggedValues = groups
+        .map(({ key: rawKey, amount }) => ({
+          value: parseTagGroupValue(key, rawKey),
+          amount
+        }))
+        .filter((item) => isAssignedTagValue(item.value) && item.amount > 0)
+        .sort((a, b) => b.amount - a.amount)
+
+      const topValues: BillingOwnershipValueSummary[] = taggedValues
+        .slice(0, 3)
+        .map((item) => ({
+          ...item,
+          sharePercent: buildSharePercent(item.amount, totalCost.total)
+        }))
+
+      const taggedAmount = roundCurrency(taggedValues.reduce((sum, item) => sum + item.amount, 0))
+      const untaggedAmount = roundCurrency(Math.max(totalCost.total - taggedAmount, 0))
+
+      return {
+        key,
+        coveragePercent: buildSharePercent(taggedAmount, totalCost.total),
+        taggedAmount,
+        untaggedAmount,
+        topValues
+      }
+    })
+
+    if (payerVisibility === 'payer-or-management') {
+      notes.push(`Linked-account rollups show ${linkedAccounts.length} accounts with current-month spend.`)
+    } else if (payerVisibility === 'member-or-standalone') {
+      notes.push('Only single-account spend is visible from the current credentials, so organization-level grouping is inferred as limited.')
+    }
+
+    if (ownershipHints.every((hint) => hint.taggedAmount === 0) && totalCost.total > 0) {
+      notes.push('Ownership hints are empty for the current month. AWS cost allocation tags may not be activated for Owner, Environment, Project, or CostCenter.')
+    }
+
+    return {
+      caller,
+      billingHomeRegion: BILLING_HOME_REGION,
+      payerVisibility,
+      linkedAccounts,
+      ownershipHints,
+      capabilitySnapshot,
+      notes,
+      generatedAt
+    }
+  } catch {
+    notes.push('Cost Explorer billing context is unavailable for these credentials. Overview remains usable, but payer rollups and ownership hints are suppressed.')
+
+    return {
+      caller,
+      billingHomeRegion: BILLING_HOME_REGION,
+      payerVisibility: 'unavailable',
+      linkedAccounts: [],
+      ownershipHints: emptyOwnershipHints,
+      capabilitySnapshot,
+      notes,
+      generatedAt
+    }
+  }
 }
 
 /* ── public API ───────────────────────────────────────────── */
