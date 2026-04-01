@@ -264,6 +264,109 @@
   background: rgba(66, 31, 31, 0.74);
 }
 
+.route53-utility-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.route53-panel {
+  padding: 16px 18px;
+  border: 1px solid rgba(145, 176, 207, 0.12);
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(18, 26, 36, 0.98), rgba(10, 16, 24, 0.98));
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.2);
+}
+
+.route53-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.route53-panel-head h3 {
+  margin: 0;
+  color: #edf4fb;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  letter-spacing: -0.04em;
+}
+
+.route53-panel-head p {
+  margin: 6px 0 0;
+  color: #a6bbcf;
+  font-size: 0.8rem;
+  line-height: 1.42;
+}
+
+.route53-bootstrap-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.route53-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  color: #d7e3ef;
+  font-size: 0.78rem;
+}
+
+.route53-checkbox-inline {
+  padding-left: 96px;
+}
+
+.route53-guidance-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.route53-guidance-list-tight {
+  padding: 0 18px 18px;
+}
+
+.route53-guidance-card {
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(145, 176, 207, 0.1);
+  background: linear-gradient(180deg, rgba(20, 29, 40, 0.96), rgba(11, 18, 28, 0.96));
+  color: #d5dfe9;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.route53-template-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 18px 14px;
+}
+
+.route53-template-btn {
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(145, 176, 207, 0.12);
+  background: rgba(12, 18, 27, 0.86);
+  color: #d7e3ef;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.route53-template-btn:hover {
+  filter: brightness(1.12);
+}
+
+.route53-template-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .svc-layout.route53-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.28fr) minmax(360px, 0.82fr);
@@ -433,6 +536,8 @@
   .route53-hero,
   .route53-toolbar,
   .route53-toolbar-main,
+  .route53-utility-grid,
+  .route53-bootstrap-grid,
   .route53-layout {
     grid-template-columns: 1fr;
   }
@@ -467,6 +572,10 @@
   .route53-form-row {
     grid-template-columns: 1fr;
     gap: 6px;
+  }
+
+  .route53-checkbox-inline {
+    padding-left: 0;
   }
 
   .route53-toolbar,

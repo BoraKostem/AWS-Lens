@@ -1,20 +1,24 @@
 import {
   ChangeResourceRecordSetsCommand,
+  CreateHostedZoneCommand,
   ListHostedZonesByNameCommand,
   ListResourceRecordSetsCommand,
   Route53Client,
   type AliasTarget,
   type RRType,
-  type ResourceRecordSet
+  type ResourceRecordSet,
+  type VPCRegion
 } from '@aws-sdk/client-route-53'
 
 import { awsClientConfig } from './client'
 import type {
   AwsConnection,
+  Route53HostedZoneCreateInput,
   Route53HostedZoneSummary,
   Route53RecordChange,
   Route53RecordSummary
 } from '@shared/types'
+import { randomUUID } from 'node:crypto'
 
 function createClient(connection: AwsConnection): Route53Client {
   return new Route53Client(awsClientConfig(connection))
@@ -184,4 +188,50 @@ export async function deleteRoute53Record(
       }
     })
   )
+}
+
+export async function createRoute53HostedZone(
+  connection: AwsConnection,
+  input: Route53HostedZoneCreateInput
+): Promise<Route53HostedZoneSummary> {
+  const client = createClient(connection)
+  const domainName = input.domainName.trim().replace(/\.+$/, '')
+
+  if (!domainName) {
+    throw new Error('Hosted zone domain name is required.')
+  }
+
+  if (input.privateZone && (!input.vpcId.trim() || !input.vpcRegion.trim())) {
+    throw new Error('Private hosted zones require a VPC and region.')
+  }
+
+  const output = await client.send(
+    new CreateHostedZoneCommand({
+      Name: domainName,
+      CallerReference: `aws-lens-${randomUUID()}`,
+      HostedZoneConfig: {
+        Comment: input.comment.trim() || undefined,
+        PrivateZone: input.privateZone
+      },
+      VPC: input.privateZone
+        ? {
+            VPCId: input.vpcId.trim(),
+            VPCRegion: input.vpcRegion.trim() as VPCRegion
+          }
+        : undefined
+    })
+  )
+
+  const zone = output.HostedZone
+  if (!zone?.Id) {
+    throw new Error('Hosted zone was created but no hosted zone metadata was returned.')
+  }
+
+  return {
+    id: normalizeHostedZoneId(zone.Id),
+    name: zone.Name ?? `${domainName}.`,
+    privateZone: Boolean(zone.Config?.PrivateZone),
+    recordSetCount: Number(zone.ResourceRecordSetCount ?? 0),
+    comment: zone.Config?.Comment ?? ''
+  }
 }

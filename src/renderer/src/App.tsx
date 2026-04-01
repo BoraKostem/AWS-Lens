@@ -2124,7 +2124,7 @@ export function App() {
 
         {screen === 'route53' && selectedService?.id === 'route53' && (
           <ConnectedServiceScreen service={selectedService!} state={connectionState}>
-            {(connection) => <Route53Console connection={connection} />}
+            {(connection) => <Route53Console connection={connection} focusRecord={getFocus('route53')} />}
           </ConnectedServiceScreen>
         )}
 

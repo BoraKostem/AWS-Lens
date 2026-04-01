@@ -6,6 +6,7 @@ import type {
   CloudWatchQueryExecutionInput,
   EcsFargateServiceConfig,
   LambdaCreateConfig,
+  Route53HostedZoneCreateInput,
   Route53RecordChange
 } from '@shared/types'
 import { listAutoScalingGroupInstances, listAutoScalingGroups, deleteAutoScalingGroup, startAutoScalingInstanceRefresh, updateAutoScalingGroupCapacity } from './aws/autoScaling'
@@ -50,7 +51,7 @@ import {
   stopDbCluster,
   stopDbInstance
 } from './aws/rds'
-import { deleteRoute53Record, listRoute53HostedZones, listRoute53Records, upsertRoute53Record } from './aws/route53'
+import { createRoute53HostedZone, deleteRoute53Record, listRoute53HostedZones, listRoute53Records, upsertRoute53Record } from './aws/route53'
 import {
   createBucket,
   createFolder,
@@ -118,6 +119,9 @@ export function registerServiceIpcHandlers(): void {
 
   ipcMain.handle('route53:hosted-zones', async (_event, connection: AwsConnection) =>
     wrap(() => listRoute53HostedZones(connection))
+  )
+  ipcMain.handle('route53:create-hosted-zone', async (_event, connection: AwsConnection, input: Route53HostedZoneCreateInput) =>
+    wrap(() => createRoute53HostedZone(connection, input))
   )
   ipcMain.handle('route53:records', async (_event, connection: AwsConnection, hostedZoneId: string) =>
     wrap(() => listRoute53Records(connection, hostedZoneId))

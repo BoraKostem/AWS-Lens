@@ -1489,6 +1489,14 @@ export type Route53HostedZoneSummary = {
   comment: string
 }
 
+export type Route53HostedZoneCreateInput = {
+  domainName: string
+  comment: string
+  privateZone: boolean
+  vpcId: string
+  vpcRegion: string
+}
+
 export type Route53RecordSummary = {
   name: string
   type: string

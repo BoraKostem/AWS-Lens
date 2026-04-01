@@ -103,6 +103,7 @@ import type {
   RdsClusterSummary,
   RdsInstanceDetail,
   RdsInstanceSummary,
+  Route53HostedZoneCreateInput,
   Route53HostedZoneSummary,
   Route53RecordChange,
   Route53RecordSummary,
@@ -342,6 +343,7 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   getReachabilityAnalysis: 'vpc',
   listLoadBalancerWorkspaces: 'load-balancers',
   listRoute53HostedZones: 'route53',
+  createRoute53HostedZone: 'route53',
   listRoute53Records: 'route53',
   listSecrets: 'secrets-manager',
   describeSecret: 'secrets-manager',
@@ -419,6 +421,7 @@ const MUTATING_METHODS = new Set<keyof AwsLensBridge>([
   'stopEcsTask',
   'updateSubnetPublicIp',
   'createReachabilityPath',
+  'createRoute53HostedZone',
   'upsertRoute53Record',
   'deleteRoute53Record',
   'invokeLambdaFunction',
@@ -1299,6 +1302,10 @@ export async function runCloudWatchQuery(connection: AwsConnection, input: Cloud
 
 export async function listRoute53HostedZones(connection: AwsConnection): Promise<Route53HostedZoneSummary[]> {
   return unwrap((await awsBridge().listRoute53HostedZones(connection)) as Wrapped<Route53HostedZoneSummary[]>)
+}
+
+export async function createRoute53HostedZone(connection: AwsConnection, input: Route53HostedZoneCreateInput): Promise<Route53HostedZoneSummary> {
+  return unwrap((await awsBridge().createRoute53HostedZone(connection, input)) as Wrapped<Route53HostedZoneSummary>)
 }
 
 export async function listRoute53Records(connection: AwsConnection, hostedZoneId: string): Promise<Route53RecordSummary[]> {

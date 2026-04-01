@@ -21,6 +21,7 @@ import type {
   EbsTempInspectionProgress,
   EcsFargateServiceConfig,
   LambdaCreateConfig,
+  Route53HostedZoneCreateInput,
   SsmSendCommandRequest,
   SsmStartSessionRequest,
   SnapshotLaunchConfig,
@@ -124,6 +125,7 @@ declare global {
       getEc2AllMetricSeries: (connection: AwsConnection, instanceId: string, periodHours: number) => Promise<unknown>
       runCloudWatchQuery: (connection: AwsConnection, input: CloudWatchQueryExecutionInput) => Promise<unknown>
       listRoute53HostedZones: (connection: AwsConnection) => Promise<unknown>
+      createRoute53HostedZone: (connection: AwsConnection, input: Route53HostedZoneCreateInput) => Promise<unknown>
       listRoute53Records: (connection: AwsConnection, hostedZoneId: string) => Promise<unknown>
       upsertRoute53Record: (connection: AwsConnection, hostedZoneId: string, record: unknown) => Promise<unknown>
       deleteRoute53Record: (connection: AwsConnection, hostedZoneId: string, record: unknown) => Promise<unknown>
