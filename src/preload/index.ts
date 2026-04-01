@@ -24,6 +24,7 @@ import type {
   EbsTempInspectionProgress,
   EcsFargateServiceConfig,
   LambdaCreateConfig,
+  Route53HostedZoneCreateInput,
   SsmSendCommandRequest,
   SsmStartSessionRequest,
   SnapshotLaunchConfig,
@@ -177,6 +178,8 @@ const awsLensApi = {
   runCloudWatchQuery: (connection: AwsConnection, input: CloudWatchQueryExecutionInput) =>
     ipcRenderer.invoke('cloudwatch:run-query', connection, input),
   listRoute53HostedZones: (connection: AwsConnection) => ipcRenderer.invoke('route53:hosted-zones', connection),
+  createRoute53HostedZone: (connection: AwsConnection, input: Route53HostedZoneCreateInput) =>
+    ipcRenderer.invoke('route53:create-hosted-zone', connection, input),
   listRoute53Records: (connection: AwsConnection, hostedZoneId: string) =>
     ipcRenderer.invoke('route53:records', connection, hostedZoneId),
   upsertRoute53Record: (connection: AwsConnection, hostedZoneId: string, record: unknown) =>
