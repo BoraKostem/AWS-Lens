@@ -9,6 +9,7 @@ import type {
   EnvironmentHealthReport,
   EnterpriseAccessMode,
   EnterpriseAuditEvent,
+  GovernanceTagDefaults,
   NavigationFocus,
   ServiceDescriptor,
   ServiceId,
@@ -29,6 +30,7 @@ import {
   getAppSettings,
   getEnvironmentHealth,
   getEnterpriseSettings,
+  getGovernanceTagDefaults,
   getTerraformCliInfo,
   invalidateAllPageCaches,
   invalidatePageCache,
@@ -40,6 +42,7 @@ import {
   setTerraformCliKind,
   setEnterpriseAccessMode,
   updateAppSettings,
+  updateGovernanceTagDefaults,
   useAwsActivity,
   useEnterpriseSettings,
   type CacheTag
@@ -439,6 +442,7 @@ export function App() {
   const [settingsMessage, setSettingsMessage] = useState('')
   const [environmentHealth, setEnvironmentHealth] = useState<EnvironmentHealthReport | null>(null)
   const [environmentBusy, setEnvironmentBusy] = useState(false)
+  const [governanceDefaults, setGovernanceDefaults] = useState<GovernanceTagDefaults | null>(null)
   const [toolchainInfo, setToolchainInfo] = useState<TerraformCliInfo | null>(null)
   const [toolchainBusy, setToolchainBusy] = useState(false)
   const [securitySummary, setSecuritySummary] = useState<AppSecuritySummary | null>(null)
@@ -484,6 +488,14 @@ export function App() {
         // Ignore settings hydration failures until the settings surface is opened.
       })
       .finally(() => setSettingsHydrated(true))
+  }, [])
+
+  useEffect(() => {
+    void getGovernanceTagDefaults()
+      .then(setGovernanceDefaults)
+      .catch(() => {
+        // Ignore governance defaults hydration failures until the settings surface is opened.
+      })
   }, [])
 
   const showInitialLoadingScreen = !servicesHydrated || !settingsHydrated
@@ -1188,6 +1200,17 @@ export function App() {
     }
   }
 
+  async function handleUpdateGovernanceDefaults(update: GovernanceTagDefaults): Promise<void> {
+    setSettingsMessage('')
+    try {
+      const nextDefaults = await updateGovernanceTagDefaults(update)
+      setGovernanceDefaults(nextDefaults)
+      setSettingsMessage('Governance tag defaults saved.')
+    } catch (err) {
+      setSettingsMessage(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   async function handleDownloadUpdate(): Promise<void> {
     setSettingsMessage('')
     try {
@@ -1592,12 +1615,14 @@ export function App() {
           releaseStateTone={releaseStateTone}
           environmentHealth={environmentHealth}
           environmentBusy={environmentBusy}
+          governanceDefaults={governanceDefaults}
           toolchainBusy={toolchainBusy}
           enterpriseBusy={enterpriseBusy}
           settingsMessage={settingsMessage}
           onUpdateGeneralSettings={(update) => void handleUpdateGeneralSettings(update)}
           onUpdateTerminalSettings={(update) => void handleUpdateTerminalSettings(update)}
           onUpdateRefreshSettings={(update) => void handleUpdateRefreshSettings(update)}
+          onUpdateGovernanceDefaults={(update) => void handleUpdateGovernanceDefaults(update)}
           onUpdateToolchainSettings={(update) => void handleUpdateToolchainSettings(update)}
           onUpdatePreferences={(update) => void handleUpdatePreferences(update)}
           onAccessModeChange={(mode) => void handleAccessModeChange(mode)}

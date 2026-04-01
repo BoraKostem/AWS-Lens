@@ -65,6 +65,7 @@ import {
 } from '@aws-sdk/client-ssm'
 
 import { awsClientConfig, readTags } from './client'
+import { getGovernanceTagDefaults } from '../phase1FoundationStore'
 import type {
   AwsConnection,
   BastionAmiOption,
@@ -116,7 +117,7 @@ const TEMP_MANAGED_SG_TAG = 'aws-lens:temp-managed-sg'
 const TEMP_MANAGED_ROLE_TAG = 'aws-lens:temp-managed-role'
 const TEMP_MANAGED_INSTANCE_PROFILE_TAG = 'aws-lens:temp-managed-instance-profile'
 const TEMP_ATTACH_DEVICE = '/dev/sdf'
-const GOVERNANCE_TAG_KEYS = ['Owner', 'Environment', 'CostCenter']
+const GOVERNANCE_TAG_KEYS = ['Owner', 'Environment', 'Project', 'CostCenter'] as const
 const SSM_MANAGED_POLICY_ARN = 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
 const TEMP_INSPECTION_AMI_ID = 'ami-096a4fdbcf530d8e0'
 
@@ -169,13 +170,35 @@ function listTempUuids(tags: Record<string, string> | undefined): string[] {
 }
 
 function buildTempTags(uuid: string, volumeId: string, extra: Record<string, string> = {}): Record<string, string> {
-  return {
+  return mergeWithGovernanceDefaults({
     [buildTempTagKey(uuid)]: 'true',
     [TEMP_PURPOSE_TAG]: TEMP_PURPOSE_EBS_INSPECTION,
     [TEMP_UUID_TAG]: uuid,
     [TEMP_SOURCE_VOLUME_TAG]: volumeId,
     ...extra
+  })
+}
+
+function resolveGovernanceTags(): Record<string, string> {
+  const defaults = getGovernanceTagDefaults()
+  if (!defaults.inheritByDefault) {
+    return {}
   }
+
+  return Object.fromEntries(
+    GOVERNANCE_TAG_KEYS
+      .map((key) => [key, defaults.values[key]?.trim() ?? ''] as const)
+      .filter(([, value]) => Boolean(value))
+  )
+}
+
+function mergeWithGovernanceDefaults(tags: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries({
+      ...resolveGovernanceTags(),
+      ...tags
+    }).filter(([, value]) => Boolean(value?.trim()))
+  )
 }
 
 function sshPortForPlatform(platform: string): number {
@@ -249,14 +272,14 @@ async function createManagedBastionSecurityGroup(
       TagSpecifications: [
         {
           ResourceType: 'security-group',
-          Tags: [
-            { Key: 'Name', Value: `aws-lens-bastion-${uuid}` },
-            { Key: tagKey, Value: 'true' },
-            { Key: BASTION_PURPOSE_TAG, Value: 'bastion' },
-            { Key: BASTION_UUID_TAG, Value: uuid },
-            { Key: BASTION_TARGET_INSTANCE_TAG, Value: targetInstanceId },
-            { Key: BASTION_MANAGED_SG_TAG, Value: 'true' }
-          ]
+          Tags: Object.entries(mergeWithGovernanceDefaults({
+            Name: `aws-lens-bastion-${uuid}`,
+            [tagKey]: 'true',
+            [BASTION_PURPOSE_TAG]: 'bastion',
+            [BASTION_UUID_TAG]: uuid,
+            [BASTION_TARGET_INSTANCE_TAG]: targetInstanceId,
+            [BASTION_MANAGED_SG_TAG]: 'true'
+          })).map(([Key, Value]) => ({ Key, Value }))
         }
       ]
     })
@@ -1355,7 +1378,9 @@ export async function createEc2Snapshot(
       TagSpecifications: [
         {
           ResourceType: 'snapshot',
-          Tags: [{ Key: 'CreatedBy', Value: 'aws-lens' }]
+          Tags: Object.entries(mergeWithGovernanceDefaults({
+            CreatedBy: 'aws-lens'
+          })).map(([Key, Value]) => ({ Key, Value }))
         }
       ]
     })
@@ -1480,13 +1505,13 @@ export async function launchBastion(connection: AwsConnection, config: BastionLa
         TagSpecifications: [
           {
             ResourceType: 'instance',
-            Tags: [
-              { Key: 'Name', Value: `aws-lens-bastion-${uuid}` },
-              { Key: tagKey, Value: 'true' },
-              { Key: BASTION_PURPOSE_TAG, Value: 'bastion' },
-              { Key: BASTION_UUID_TAG, Value: uuid },
-              { Key: BASTION_TARGET_INSTANCE_TAG, Value: config.targetInstanceId }
-            ]
+            Tags: Object.entries(mergeWithGovernanceDefaults({
+              Name: `aws-lens-bastion-${uuid}`,
+              [tagKey]: 'true',
+              [BASTION_PURPOSE_TAG]: 'bastion',
+              [BASTION_UUID_TAG]: uuid,
+              [BASTION_TARGET_INSTANCE_TAG]: config.targetInstanceId
+            })).map(([Key, Value]) => ({ Key, Value }))
           }
         ]
       })
@@ -2086,10 +2111,10 @@ export async function launchFromSnapshot(connection: AwsConnection, config: Snap
       TagSpecifications: [
         {
           ResourceType: 'instance',
-          Tags: [
-            { Key: 'Name', Value: `launched-from-${config.snapshotId}` },
-            { Key: 'aws-lens:source-snapshot', Value: config.snapshotId }
-          ]
+          Tags: Object.entries(mergeWithGovernanceDefaults({
+            Name: `launched-from-${config.snapshotId}`,
+            'aws-lens:source-snapshot': config.snapshotId
+          })).map(([Key, Value]) => ({ Key, Value }))
         }
       ]
     })

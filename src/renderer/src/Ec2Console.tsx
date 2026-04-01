@@ -22,6 +22,8 @@ import type {
   EbsTempInspectionProgress,
   EbsVolumeDetail,
   EbsVolumeSummary,
+  GovernanceTagDefaults,
+  GovernanceTagKey,
   KeyPairSummary,
   SecurityGroupSummary,
   SsmCommandExecutionResult,
@@ -31,7 +33,7 @@ import type {
   SsmSessionSummary,
   SubnetSummary
 } from '@shared/types'
-import { listKeyPairs, listSecurityGroupsForVpc, listSubnets, lookupCloudTrailEventsByResource } from './api'
+import { getGovernanceTagDefaults, listKeyPairs, listSecurityGroupsForVpc, listSubnets, lookupCloudTrailEventsByResource } from './api'
 import {
   attachEbsVolume,
   attachIamProfile,
@@ -121,9 +123,21 @@ function formatBulkActionMessage(
   return failed > 0 ? `${base}; ${failed} failed.` : `${base}.`
 }
 
+function resolveConfiguredGovernanceTags(governanceDefaults: GovernanceTagDefaults | null): Record<string, string> {
+  if (!governanceDefaults?.inheritByDefault) {
+    return {}
+  }
+
+  return Object.fromEntries(
+    GOVERNANCE_TAG_KEYS
+      .map((key) => [key, governanceDefaults.values[key]?.trim() ?? ''] as const)
+      .filter(([, value]) => Boolean(value))
+  )
+}
+
 const BASTION_PURPOSE_TAG = 'aws-lens:purpose'
 const BASTION_TARGET_INSTANCE_TAG = 'aws-lens:bastion-target-instance-id'
-const GOVERNANCE_TAG_KEYS = ['Owner', 'Environment', 'CostCenter']
+const GOVERNANCE_TAG_KEYS: GovernanceTagKey[] = ['Owner', 'Environment', 'Project', 'CostCenter']
 
 const SSM_COMMAND_PRESETS = [
   {
@@ -406,6 +420,7 @@ export function Ec2Console({
   const [sshKey, setSshKey] = useState('')
   const [sshSuggestions, setSshSuggestions] = useState<Ec2SshKeySuggestion[]>([])
   const [sshSuggestionsLoading, setSshSuggestionsLoading] = useState(false)
+  const [governanceDefaults, setGovernanceDefaults] = useState<GovernanceTagDefaults | null>(null)
   const [showDescribe, setShowDescribe] = useState(false)
   const [ssmManagedInstances, setSsmManagedInstances] = useState<SsmManagedInstanceSummary[]>([])
   const [ssmTarget, setSsmTarget] = useState<SsmConnectionTarget | null>(null)
@@ -625,6 +640,14 @@ export function Ec2Console({
   useEffect(() => {
     volumeDetailNameRef.current = volumeDetail?.name ?? ''
   }, [volumeDetail?.name])
+
+  useEffect(() => {
+    void getGovernanceTagDefaults()
+      .then(setGovernanceDefaults)
+      .catch(() => {
+        setGovernanceDefaults(null)
+      })
+  }, [connection.sessionId])
 
   useEffect(() => {
     const preferredKeyName = detail?.keyName?.trim()
@@ -908,6 +931,26 @@ export function Ec2Console({
     })
   }
 
+  async function doApplyGovernanceTagsToSnapshot(): Promise<void> {
+    if (!selectedSnapId) {
+      return
+    }
+
+    const tags = resolveConfiguredGovernanceTags(governanceDefaults)
+    if (!Object.keys(tags).length) {
+      setMsg(governanceDefaults?.inheritByDefault === false
+        ? 'Governance tag inheritance is disabled in Settings.'
+        : 'No governance tag defaults are configured in Settings.')
+      return
+    }
+
+    await runEc2Mutation(async () => {
+      await tagEc2Snapshot(connection, selectedSnapId, tags)
+      setMsg(`Applied ${Object.keys(tags).length} governance tags to ${selectedSnapId}`)
+      setSnapshots(await listEc2Snapshots(connection))
+    })
+  }
+
   async function refreshSelectedVolume(): Promise<void> {
     if (!selectedVolumeId) {
       return
@@ -926,6 +969,26 @@ export function Ec2Console({
       setVolumeTagKey('')
       setVolumeTagValue('')
       setMsg(`Tag ${volumeTagKey.trim()} applied to ${volumeDetail.volumeId}`)
+      await refreshSelectedVolume()
+    })
+  }
+
+  async function doApplyGovernanceTagsToVolume(): Promise<void> {
+    if (!volumeDetail) {
+      return
+    }
+
+    const tags = resolveConfiguredGovernanceTags(governanceDefaults)
+    if (!Object.keys(tags).length) {
+      setMsg(governanceDefaults?.inheritByDefault === false
+        ? 'Governance tag inheritance is disabled in Settings.'
+        : 'No governance tag defaults are configured in Settings.')
+      return
+    }
+
+    await runEc2Mutation(async () => {
+      await tagEbsVolume(connection, volumeDetail.volumeId, tags)
+      setMsg(`Applied ${Object.keys(tags).length} governance tags to ${volumeDetail.volumeId}`)
       await refreshSelectedVolume()
     })
   }
@@ -1443,13 +1506,15 @@ export function Ec2Console({
   const volumeWorkflowBusy = volumeWorkflowStatus !== null && !['completed', 'failed'].includes(volumeWorkflowStatus.stage)
   const ssmHistory = selectedId ? (ssmCommandHistory[selectedId] ?? []) : []
   const ssmOnlineCount = ssmManagedInstances.filter((instance) => instance.pingStatus === 'Online').length
+  const configuredGovernanceTags = resolveConfiguredGovernanceTags(governanceDefaults)
+  const configuredGovernanceTagCount = Object.keys(configuredGovernanceTags).length
   const volumeWarnings = volumeDetail ? [
     !volumeDetail.encrypted && volumeDetail.status === 'available-orphan' ? 'High priority: orphan volume is unencrypted.' : '',
     volumeDetail.type === 'gp2' ? 'Recommendation: migrate gp2 to gp3 for lower cost and more predictable performance.' : '',
     volumeDetail.status === 'available-orphan' && volumeDetail.createTime !== '-' && (Date.now() - new Date(volumeDetail.createTime).getTime()) > 1000 * 60 * 60 * 24 * 14
       ? 'Warning: orphan volume looks stale and has been unattached for more than 14 days.'
       : '',
-    GOVERNANCE_TAG_KEYS.some((key) => !(volumeDetail.tags[key] || '').trim()) ? 'Warning: missing governance tags (Owner, Environment, or CostCenter).' : ''
+    GOVERNANCE_TAG_KEYS.some((key) => !(volumeDetail.tags[key] || '').trim()) ? 'Warning: missing governance tags (Owner, Environment, Project, or CostCenter).' : ''
   ].filter(Boolean) : []
   const runningInstancesCount = instances.filter((instance) => instance.state === 'running').length
   const stoppedInstancesCount = instances.filter((instance) => instance.state === 'stopped').length
@@ -2478,10 +2543,14 @@ export function Ec2Console({
                       )}
                       {warning.includes('governance tags') && (
                         <button className="ec2-action-btn" type="button" onClick={() => {
+                          if (configuredGovernanceTagCount > 0) {
+                            void doApplyGovernanceTagsToVolume()
+                            return
+                          }
                           setVolumeTagKey('Owner')
                           setVolumeTagValue('')
                         }}>
-                          Add Tags
+                          {configuredGovernanceTagCount > 0 ? 'Apply Defaults' : 'Add Tags'}
                         </button>
                       )}
                     </div>
@@ -2517,6 +2586,9 @@ export function Ec2Console({
                 <div className="ec2-inline" style={{ marginTop: 10 }}>
                   <input placeholder="Tag key" value={volumeTagKey} onChange={(e) => setVolumeTagKey(e.target.value)} style={{ width: 140 }} />
                   <input placeholder="Tag value" value={volumeTagValue} onChange={(e) => setVolumeTagValue(e.target.value)} style={{ width: 220 }} />
+                  <button className="ec2-action-btn" type="button" onClick={() => void doApplyGovernanceTagsToVolume()} disabled={configuredGovernanceTagCount === 0}>
+                    Apply Defaults
+                  </button>
                   <button className="ec2-action-btn apply" type="button" onClick={() => void doTagVolume()}>
                     Tag Volume
                   </button>
@@ -2638,6 +2710,7 @@ export function Ec2Console({
                 <div className="ec2-inline">
                   <input placeholder="Key" value={tagKey} onChange={(e) => setTagKey(e.target.value)} style={{ width: 120 }} />
                   <input placeholder="Value" value={tagValue} onChange={(e) => setTagValue(e.target.value)} style={{ width: 180 }} />
+                  <button type="button" onClick={() => void doApplyGovernanceTagsToSnapshot()} disabled={configuredGovernanceTagCount === 0}>Apply Defaults</button>
                   <button type="button" onClick={() => void doTagSnap()}>Add Tag</button>
                 </div>
               </div>
@@ -2649,6 +2722,15 @@ export function Ec2Console({
               <div className="ec2-form">
                 <label>Volume ID<input value={snapVolume} onChange={(e) => setSnapVolume(e.target.value)} placeholder="vol-..." /></label>
                 <label>Description<input value={snapDesc} onChange={(e) => setSnapDesc(e.target.value)} placeholder="Snapshot description" /></label>
+              </div>
+              <div className="ec2-sidebar-hint" style={{ marginBottom: 10 }}>
+                {governanceDefaults === null
+                  ? 'Governance tag defaults are unavailable until the settings store loads.'
+                  : governanceDefaults.inheritByDefault
+                  ? configuredGovernanceTagCount > 0
+                    ? `This snapshot will inherit ${configuredGovernanceTagCount} saved governance tag defaults.`
+                    : 'Governance tag inheritance is enabled, but no default values are configured yet.'
+                  : 'Governance tag inheritance is currently disabled in Settings.'}
               </div>
               <button type="button" onClick={() => void doCreateSnap()}>Create Snapshot</button>
             </div>
