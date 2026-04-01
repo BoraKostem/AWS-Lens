@@ -216,6 +216,30 @@ export type ComparisonResult = {
   groups: ComparisonDiffGroup[]
 }
 
+export type ComparisonBaselineSummary = {
+  id: string
+  name: string
+  description: string
+  generatedAt: string
+  createdAt: string
+  updatedAt: string
+  leftLabel: string
+  rightLabel: string
+}
+
+export type ComparisonBaseline = ComparisonBaselineSummary & {
+  request: ComparisonRequest
+  result: ComparisonResult
+}
+
+export type ComparisonBaselineInput = {
+  id?: string
+  name: string
+  description: string
+  request: ComparisonRequest
+  result: ComparisonResult
+}
+
 export type AssumeRoleRequest = {
   label: string
   roleArn: string
@@ -831,6 +855,7 @@ export type EksClusterDetail = {
 export type EksNodegroupSummary = {
   name: string
   status: string
+  version: string
   min: number | string
   desired: number | string
   max: number | string
@@ -844,6 +869,67 @@ export type EksUpdateEvent = {
   createdAt: string
   params: Array<{ type: string; value: string }>
   errors: string[]
+}
+
+export type EksUpgradeSupportStatus = 'ready' | 'warning' | 'blocked' | 'unknown'
+
+export type EksVersionSkewStatus = 'aligned' | 'supported-skew' | 'unsupported-skew' | 'unknown'
+
+export type EksAddonCompatibility = {
+  addonName: string
+  currentVersion: string
+  targetVersion: string
+  status: EksUpgradeSupportStatus
+  detail: string
+}
+
+export type EksNodegroupUpgradeReadiness = {
+  nodegroupName: string
+  currentVersion: string
+  targetVersion: string
+  status: EksUpgradeSupportStatus
+  detail: string
+  recommendedAction: string
+}
+
+export type EksMaintenanceChecklistItem = {
+  id: string
+  title: string
+  status: 'todo' | 'warning' | 'ready'
+  detail: string
+}
+
+export type EksCommandHandoff = {
+  id: string
+  label: string
+  shell: 'aws-cli' | 'kubectl' | 'shell'
+  description: string
+  command: string
+}
+
+export type EksUpgradePlannerRequest = {
+  clusterName: string
+  targetVersion?: string
+}
+
+export type EksUpgradePlan = {
+  generatedAt: string
+  clusterName: string
+  connectionLabel: string
+  profile: string
+  region: string
+  currentClusterVersion: string
+  suggestedTargetVersion: string
+  supportStatus: EksUpgradeSupportStatus
+  versionSkewStatus: EksVersionSkewStatus
+  summary: string
+  warnings: string[]
+  rollbackNotes: string[]
+  recentUpdates: EksUpdateEvent[]
+  nodegroups: EksNodegroupUpgradeReadiness[]
+  addonCompatibilities: EksAddonCompatibility[]
+  maintenanceChecklist: EksMaintenanceChecklistItem[]
+  commandHandoffs: EksCommandHandoff[]
 }
 
 export type AutoScalingGroupSummary = {
@@ -1079,6 +1165,74 @@ export type DbConnectionResourceKind =
 
 export type DbConnectionCredentialSourceKind = 'local-vault' | 'aws-secrets-manager' | 'manual'
 
+export type VaultEntryKind =
+  | 'aws-profile'
+  | 'ssh-key'
+  | 'pem'
+  | 'access-key'
+  | 'generic'
+  | 'db-credential'
+  | 'connection-secret'
+
+export type VaultOrigin =
+  | 'manual'
+  | 'imported-file'
+  | 'aws-secrets-manager'
+  | 'aws-iam'
+  | 'generated'
+  | 'unknown'
+
+export type VaultRotationState = 'unknown' | 'not-applicable' | 'tracked' | 'rotation-due' | 'rotated'
+
+export type VaultEntryUsage = {
+  usedAt: string
+  source: string
+  profile: string
+  region: string
+  resourceId: string
+  resourceLabel: string
+}
+
+export type VaultEntrySummary = {
+  id: string
+  kind: VaultEntryKind
+  name: string
+  metadata: Record<string, string>
+  createdAt: string
+  updatedAt: string
+  origin: VaultOrigin
+  rotationState: VaultRotationState
+  rotationUpdatedAt: string
+  lastUsedAt: string
+  lastUsedContext: VaultEntryUsage | null
+}
+
+export type VaultEntryFilter = {
+  kind?: VaultEntryKind
+  search?: string
+}
+
+export type VaultEntryInput = {
+  id?: string
+  kind: VaultEntryKind
+  name: string
+  secret: string
+  metadata?: Record<string, string>
+  origin?: VaultOrigin
+  rotationState?: VaultRotationState
+  rotationUpdatedAt?: string
+}
+
+export type VaultEntryUsageInput = {
+  id: string
+  usedAt?: string
+  source: string
+  profile?: string
+  region?: string
+  resourceId?: string
+  resourceLabel?: string
+}
+
 export type DbVaultCredentialSummary = {
   name: string
   engine: DbConnectionEngine
@@ -1267,6 +1421,61 @@ export type NavigationFocus =
   | { service: 'vpc'; vpcId: string }
   | { service: 'security-groups'; securityGroupId: string }
   | { service: 'waf'; webAclName: string }
+
+export type DirectAccessServiceTarget =
+  | 's3'
+  | 'lambda'
+  | 'rds-instance'
+  | 'rds-cluster'
+  | 'ecr'
+  | 'ecs'
+  | 'eks'
+  | 'cloudformation'
+  | 'route53'
+  | 'secrets-manager'
+  | 'sns'
+  | 'sqs'
+  | 'kms'
+  | 'waf'
+  | 'acm'
+  | 'ec2'
+  | 'security-group'
+  | 'load-balancer'
+  | 'iam-role'
+  | 'iam-user'
+  | 'iam-policy'
+  | 'cloudwatch-log-group'
+
+export type DirectAccessIdentifierMatch = {
+  target: DirectAccessServiceTarget
+  confidence: 'high' | 'medium'
+  reason: string
+  values: Record<string, string>
+}
+
+export type DirectAccessPlaybookStep = {
+  id: string
+  title: string
+  detail: string
+  kind: 'lookup' | 'permission' | 'navigate' | 'command'
+}
+
+export type DirectAccessPlaybook = {
+  id: string
+  target: DirectAccessServiceTarget
+  title: string
+  description: string
+  supportLevel: 'supported' | 'partial' | 'planned'
+  requiredFields: string[]
+  suggestedFocus: NavigationFocus | null
+  steps: DirectAccessPlaybookStep[]
+}
+
+export type DirectAccessResolution = {
+  input: string
+  matches: DirectAccessIdentifierMatch[]
+  playbooks: DirectAccessPlaybook[]
+}
 
 export type TokenizedFocus<S extends NavigationFocus['service'] = NavigationFocus['service']> =
   Extract<NavigationFocus, { service: S }> & { token: number }

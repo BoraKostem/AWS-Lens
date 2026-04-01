@@ -2,19 +2,38 @@ import { ipcMain } from 'electron'
 
 import type {
   AwsCapabilitySubject,
+  ComparisonBaselineInput,
   CloudWatchQueryFilter,
   CloudWatchQueryHistoryInput,
   CloudWatchSavedQueryInput,
+  DirectAccessResolution,
   DbConnectionResolveInput,
   DbConnectionPresetFilter,
   DbConnectionPresetInput,
   DbVaultCredentialInput,
+  EksUpgradePlannerRequest,
   AwsConnection,
-  GovernanceTagDefaultsUpdate
+  GovernanceTagDefaultsUpdate,
+  VaultEntryFilter,
+  VaultEntryInput,
+  VaultEntryUsageInput
 } from '@shared/types'
 import { getAwsCapabilitySnapshot } from './aws/capabilities'
-import { resolveDbConnectionMaterial } from './dbConnectionResolver'
 import {
+  deleteComparisonBaseline,
+  getComparisonBaseline,
+  listComparisonBaselines,
+  saveComparisonBaseline
+} from './compareBaselineStore'
+import { resolveDbConnectionMaterial } from './dbConnectionResolver'
+import { resolveDirectAccessInput } from './directAccessGuidance'
+import { buildEksUpgradePlan } from './eksUpgradePlanner'
+import {
+  deleteVaultEntryById,
+  listVaultEntrySummaries,
+  recordVaultEntryUse,
+  revealVaultEntrySecret,
+  saveVaultEntry,
   deleteDbVaultCredential,
   listDbVaultCredentials,
   setDbVaultCredential
@@ -90,5 +109,38 @@ export function registerFoundationIpcHandlers(): void {
   )
   ipcMain.handle('phase1:get-aws-capability-snapshot', async (_event, region: string, subjects?: AwsCapabilitySubject[]) =>
     wrap(() => getAwsCapabilitySnapshot(region, subjects))
+  )
+  ipcMain.handle('phase2:list-vault-entries', async (_event, filter?: VaultEntryFilter) =>
+    wrap(() => listVaultEntrySummaries(filter))
+  )
+  ipcMain.handle('phase2:save-vault-entry', async (_event, input: VaultEntryInput) =>
+    wrap(() => saveVaultEntry(input))
+  )
+  ipcMain.handle('phase2:delete-vault-entry', async (_event, entryId: string) =>
+    wrap(() => deleteVaultEntryById(entryId))
+  )
+  ipcMain.handle('phase2:reveal-vault-entry-secret', async (_event, entryId: string) =>
+    wrap(() => revealVaultEntrySecret(entryId))
+  )
+  ipcMain.handle('phase2:record-vault-entry-use', async (_event, input: VaultEntryUsageInput) =>
+    wrap(() => recordVaultEntryUse(input))
+  )
+  ipcMain.handle('phase2:list-comparison-baselines', async () =>
+    wrap(() => listComparisonBaselines())
+  )
+  ipcMain.handle('phase2:get-comparison-baseline', async (_event, baselineId: string) =>
+    wrap(() => getComparisonBaseline(baselineId))
+  )
+  ipcMain.handle('phase2:save-comparison-baseline', async (_event, input: ComparisonBaselineInput) =>
+    wrap(() => saveComparisonBaseline(input))
+  )
+  ipcMain.handle('phase2:delete-comparison-baseline', async (_event, baselineId: string) =>
+    wrap(() => deleteComparisonBaseline(baselineId))
+  )
+  ipcMain.handle('phase2:build-eks-upgrade-plan', async (_event, connection: AwsConnection, request: EksUpgradePlannerRequest) =>
+    wrap(() => buildEksUpgradePlan(connection, request))
+  )
+  ipcMain.handle('phase2:resolve-direct-access-input', async (_event, input: string): Promise<HandlerResult<DirectAccessResolution>> =>
+    wrap(() => resolveDirectAccessInput(input))
   )
 }

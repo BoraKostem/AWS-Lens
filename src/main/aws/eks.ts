@@ -153,6 +153,7 @@ export async function listEksNodegroups(
     nodegroups.push({
       name: nodegroup?.nodegroupName ?? name,
       status: nodegroup?.status ?? '-',
+      version: nodegroup?.version ?? '-',
       min: nodegroup?.scalingConfig?.minSize ?? '-',
       desired: nodegroup?.scalingConfig?.desiredSize ?? '-',
       max: nodegroup?.scalingConfig?.maxSize ?? '-',

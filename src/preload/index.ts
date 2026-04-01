@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AwsCapabilitySubject,
   AppSettings,
+  ComparisonBaselineInput,
   ComparisonRequest,
   AssumeRoleRequest,
   AwsAssumeRoleTarget,
@@ -10,12 +11,14 @@ import type {
   CloudWatchQueryExecutionInput,
   CloudWatchQueryHistoryInput,
   CloudWatchSavedQueryInput,
+  DirectAccessResolution,
   AwsConnection,
   BastionLaunchConfig,
   DbConnectionResolveInput,
   DbConnectionPresetFilter,
   DbConnectionPresetInput,
   DbVaultCredentialInput,
+  EksUpgradePlannerRequest,
   Ec2BulkInstanceAction,
   Ec2InstanceAction,
   EbsVolumeAttachRequest,
@@ -31,7 +34,10 @@ import type {
   TerraformInputConfiguration,
   TerraformCommandRequest,
   TerraformInputValidationResult,
-  TerraformRunHistoryFilter
+  TerraformRunHistoryFilter,
+  VaultEntryFilter,
+  VaultEntryInput,
+  VaultEntryUsageInput
 } from '@shared/types'
 
 const terminalListenerMap = new Map<(event: unknown) => void, (...args: unknown[]) => void>()
@@ -73,6 +79,19 @@ const awsLensApi = {
   resolveDbConnectionMaterial: (connection: AwsConnection, input: DbConnectionResolveInput) =>
     ipcRenderer.invoke('phase1:resolve-db-connection-material', connection, input),
   getAwsCapabilitySnapshot: (region: string, subjects?: AwsCapabilitySubject[]) => ipcRenderer.invoke('phase1:get-aws-capability-snapshot', region, subjects),
+  listVaultEntries: (filter?: VaultEntryFilter) => ipcRenderer.invoke('phase2:list-vault-entries', filter),
+  saveVaultEntry: (input: VaultEntryInput) => ipcRenderer.invoke('phase2:save-vault-entry', input),
+  deleteVaultEntry: (entryId: string) => ipcRenderer.invoke('phase2:delete-vault-entry', entryId),
+  revealVaultEntrySecret: (entryId: string) => ipcRenderer.invoke('phase2:reveal-vault-entry-secret', entryId),
+  recordVaultEntryUse: (input: VaultEntryUsageInput) => ipcRenderer.invoke('phase2:record-vault-entry-use', input),
+  listComparisonBaselines: () => ipcRenderer.invoke('phase2:list-comparison-baselines'),
+  getComparisonBaseline: (baselineId: string) => ipcRenderer.invoke('phase2:get-comparison-baseline', baselineId),
+  saveComparisonBaseline: (input: ComparisonBaselineInput) => ipcRenderer.invoke('phase2:save-comparison-baseline', input),
+  deleteComparisonBaseline: (baselineId: string) => ipcRenderer.invoke('phase2:delete-comparison-baseline', baselineId),
+  buildEksUpgradePlan: (connection: AwsConnection, request: EksUpgradePlannerRequest) =>
+    ipcRenderer.invoke('phase2:build-eks-upgrade-plan', connection, request),
+  resolveDirectAccessInput: (input: string): Promise<DirectAccessResolution> =>
+    ipcRenderer.invoke('phase2:resolve-direct-access-input', input),
   getReleaseInfo: () => ipcRenderer.invoke('app:release-info'),
   getAppSettings: () => ipcRenderer.invoke('app:settings:get'),
   updateAppSettings: (update: Partial<AppSettings>) => ipcRenderer.invoke('app:settings:update', update),

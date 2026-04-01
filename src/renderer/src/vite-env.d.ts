@@ -3,6 +3,7 @@
 import type {
   AwsCapabilitySubject,
   AppSettings,
+  ComparisonBaselineInput,
   ComparisonRequest,
   AssumeRoleRequest,
   AwsAssumeRoleTarget,
@@ -12,6 +13,7 @@ import type {
   CloudWatchQueryExecutionInput,
   CloudWatchQueryHistoryInput,
   CloudWatchSavedQueryInput,
+  EksUpgradePlannerRequest,
   DbConnectionResolveInput,
   DbConnectionPresetFilter,
   DbConnectionPresetInput,
@@ -27,7 +29,10 @@ import type {
   SnapshotLaunchConfig,
   TerraformInputConfiguration,
   TerraformInputValidationResult,
-  TerraformCommandRequest
+  TerraformCommandRequest,
+  VaultEntryFilter,
+  VaultEntryInput,
+  VaultEntryUsageInput
 } from '@shared/types'
 
 declare global {
@@ -63,6 +68,17 @@ declare global {
       deleteDbVaultCredential: (name: string) => Promise<unknown>
       resolveDbConnectionMaterial: (connection: AwsConnection, input: DbConnectionResolveInput) => Promise<unknown>
       getAwsCapabilitySnapshot: (region: string, subjects?: AwsCapabilitySubject[]) => Promise<unknown>
+      listVaultEntries: (filter?: VaultEntryFilter) => Promise<unknown>
+      saveVaultEntry: (input: VaultEntryInput) => Promise<unknown>
+      deleteVaultEntry: (entryId: string) => Promise<unknown>
+      revealVaultEntrySecret: (entryId: string) => Promise<unknown>
+      recordVaultEntryUse: (input: VaultEntryUsageInput) => Promise<unknown>
+      listComparisonBaselines: () => Promise<unknown>
+      getComparisonBaseline: (baselineId: string) => Promise<unknown>
+      saveComparisonBaseline: (input: ComparisonBaselineInput) => Promise<unknown>
+      deleteComparisonBaseline: (baselineId: string) => Promise<unknown>
+      buildEksUpgradePlan: (connection: AwsConnection, request: EksUpgradePlannerRequest) => Promise<unknown>
+      resolveDirectAccessInput: (input: string) => Promise<unknown>
       getReleaseInfo: () => Promise<unknown>
       getAppSettings: () => Promise<unknown>
       updateAppSettings: (update: Partial<AppSettings>) => Promise<unknown>

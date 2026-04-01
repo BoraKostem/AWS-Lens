@@ -3,13 +3,19 @@ import path from 'node:path'
 import { app } from 'electron'
 
 import type {
+  VaultEntryFilter,
+  VaultEntryInput,
+  VaultEntryKind,
+  VaultEntrySummary,
+  VaultEntryUsage,
+  VaultEntryUsageInput,
+  VaultOrigin,
+  VaultRotationState,
   DbConnectionEngine,
   DbVaultCredentialInput,
   DbVaultCredentialSummary
 } from '@shared/types'
 import { readSecureJsonFile, writeSecureJsonFile } from './secureJson'
-
-type VaultEntryKind = 'aws-profile' | 'ssh-key' | 'pem' | 'access-key' | 'generic' | 'db-credential'
 
 type VaultEntry = {
   id: string
@@ -19,6 +25,11 @@ type VaultEntry = {
   metadata: Record<string, string>
   createdAt: string
   updatedAt: string
+  origin: VaultOrigin
+  rotationState: VaultRotationState
+  rotationUpdatedAt: string
+  lastUsedAt: string
+  lastUsedContext: VaultEntryUsage | null
 }
 
 type VaultState = {
@@ -36,6 +47,9 @@ type DbVaultCredentialSecret = {
   engine: DbConnectionEngine
   notes: string
 }
+
+const DEFAULT_VAULT_ORIGIN: VaultOrigin = 'unknown'
+const DEFAULT_ROTATION_STATE: VaultRotationState = 'unknown'
 
 export function getVaultEntryCounts(): {
   all: number
@@ -68,9 +82,135 @@ function writeVaultState(state: VaultState): void {
   writeSecureJsonFile(vaultPath(), state, 'Local secret vault')
 }
 
-function upsertEntry(nextEntry: VaultEntry): void {
+function sanitizeString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function sanitizeMetadata(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {}
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[0].trim().length > 0)
+      .map(([key, entryValue]) => [key.trim(), entryValue.trim()])
+  )
+}
+
+function sanitizeKind(value: unknown): VaultEntryKind {
+  switch (value) {
+    case 'aws-profile':
+    case 'ssh-key':
+    case 'pem':
+    case 'access-key':
+    case 'generic':
+    case 'db-credential':
+    case 'connection-secret':
+      return value
+    default:
+      return 'generic'
+  }
+}
+
+function sanitizeOrigin(value: unknown): VaultOrigin {
+  switch (value) {
+    case 'manual':
+    case 'imported-file':
+    case 'aws-secrets-manager':
+    case 'aws-iam':
+    case 'generated':
+    case 'unknown':
+      return value
+    default:
+      return DEFAULT_VAULT_ORIGIN
+  }
+}
+
+function sanitizeRotationState(value: unknown): VaultRotationState {
+  switch (value) {
+    case 'unknown':
+    case 'not-applicable':
+    case 'tracked':
+    case 'rotation-due':
+    case 'rotated':
+      return value
+    default:
+      return DEFAULT_ROTATION_STATE
+  }
+}
+
+function sanitizeLastUsedContext(value: unknown): VaultEntryUsage | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null
+  }
+
+  return {
+    usedAt: sanitizeString((value as Record<string, unknown>).usedAt),
+    source: sanitizeString((value as Record<string, unknown>).source),
+    profile: sanitizeString((value as Record<string, unknown>).profile),
+    region: sanitizeString((value as Record<string, unknown>).region),
+    resourceId: sanitizeString((value as Record<string, unknown>).resourceId),
+    resourceLabel: sanitizeString((value as Record<string, unknown>).resourceLabel)
+  }
+}
+
+function sanitizeVaultEntry(value: unknown): VaultEntry | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null
+  }
+
+  const raw = value as Record<string, unknown>
+  const kind = sanitizeKind(raw.kind)
+  const name = sanitizeString(raw.name)
+  if (!name) {
+    return null
+  }
+
+  const createdAt = sanitizeString(raw.createdAt)
+  const updatedAt = sanitizeString(raw.updatedAt)
+
+  return {
+    id: sanitizeString(raw.id) || `${kind}:${name}`,
+    kind,
+    name,
+    secret: typeof raw.secret === 'string' ? raw.secret : '',
+    metadata: sanitizeMetadata(raw.metadata),
+    createdAt,
+    updatedAt: updatedAt || createdAt,
+    origin: sanitizeOrigin(raw.origin),
+    rotationState: sanitizeRotationState(raw.rotationState),
+    rotationUpdatedAt: sanitizeString(raw.rotationUpdatedAt),
+    lastUsedAt: sanitizeString(raw.lastUsedAt),
+    lastUsedContext: sanitizeLastUsedContext(raw.lastUsedContext)
+  }
+}
+
+function readEntries(): VaultEntry[] {
   const state = readVaultState()
-  const nextEntries = state.entries.filter((entry) => entry.id !== nextEntry.id)
+  return state.entries
+    .map((entry) => sanitizeVaultEntry(entry))
+    .filter((entry): entry is VaultEntry => Boolean(entry))
+}
+
+function toSummary(entry: VaultEntry): VaultEntrySummary {
+  return {
+    id: entry.id,
+    kind: entry.kind,
+    name: entry.name,
+    metadata: entry.metadata,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+    origin: entry.origin,
+    rotationState: entry.rotationState,
+    rotationUpdatedAt: entry.rotationUpdatedAt,
+    lastUsedAt: entry.lastUsedAt,
+    lastUsedContext: entry.lastUsedContext
+  }
+}
+
+function upsertEntry(nextEntry: VaultEntry): void {
+  const nextEntries = readEntries().filter((entry) => entry.id !== nextEntry.id)
   nextEntries.push(nextEntry)
   nextEntries.sort((left, right) => left.name.localeCompare(right.name))
   writeVaultState({ entries: nextEntries })
@@ -78,22 +218,26 @@ function upsertEntry(nextEntry: VaultEntry): void {
 
 function getEntry(kind: VaultEntryKind, name: string): VaultEntry | null {
   const normalizedName = name.trim()
-  return readVaultState().entries.find((entry) => entry.kind === kind && entry.name === normalizedName) ?? null
+  return readEntries().find((entry) => entry.kind === kind && entry.name === normalizedName) ?? null
+}
+
+function getEntryById(entryId: string): VaultEntry | null {
+  const normalizedId = entryId.trim()
+  return readEntries().find((entry) => entry.id === normalizedId) ?? null
 }
 
 function deleteEntry(kind: VaultEntryKind, name: string): void {
   const normalizedName = name.trim()
-  const state = readVaultState()
   writeVaultState({
-    entries: state.entries.filter((entry) => !(entry.kind === kind && entry.name === normalizedName))
+    entries: readEntries().filter((entry) => !(entry.kind === kind && entry.name === normalizedName))
   })
 }
 
-export function listVaultEntries(kind?: VaultEntryKind): Array<Omit<VaultEntry, 'secret'>> {
-  const entries = readVaultState().entries
+export function listVaultEntries(kind?: VaultEntryKind): VaultEntrySummary[] {
+  const entries = readEntries()
   return entries
     .filter((entry) => !kind || entry.kind === kind)
-    .map(({ secret: _secret, ...entry }) => entry)
+    .map((entry) => toSummary(entry))
 }
 
 export function setVaultSecret(kind: VaultEntryKind, name: string, secret: string, metadata: Record<string, string> = {}): void {
@@ -111,7 +255,12 @@ export function setVaultSecret(kind: VaultEntryKind, name: string, secret: strin
     secret,
     metadata,
     createdAt: existing?.createdAt ?? now,
-    updatedAt: now
+    updatedAt: now,
+    origin: existing?.origin ?? DEFAULT_VAULT_ORIGIN,
+    rotationState: existing?.rotationState ?? DEFAULT_ROTATION_STATE,
+    rotationUpdatedAt: existing?.rotationUpdatedAt ?? '',
+    lastUsedAt: existing?.lastUsedAt ?? '',
+    lastUsedContext: existing?.lastUsedContext ?? null
   })
 }
 
@@ -244,4 +393,113 @@ export function setDbVaultCredential(input: DbVaultCredentialInput): DbVaultCred
 
 export function deleteDbVaultCredential(name: string): void {
   deleteVaultSecret('db-credential', name)
+}
+
+export function listVaultEntrySummaries(filter?: VaultEntryFilter): VaultEntrySummary[] {
+  const query = filter?.search?.trim().toLowerCase() ?? ''
+
+  return readEntries()
+    .filter((entry) => !filter?.kind || entry.kind === filter.kind)
+    .filter((entry) => {
+      if (!query) {
+        return true
+      }
+
+      return [
+        entry.name,
+        entry.kind,
+        entry.origin,
+        entry.lastUsedContext?.source ?? '',
+        ...Object.entries(entry.metadata).flatMap(([key, value]) => [key, value])
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(query)
+    })
+    .map((entry) => toSummary(entry))
+}
+
+export function saveVaultEntry(input: VaultEntryInput): VaultEntrySummary {
+  const name = input.name.trim()
+  if (!name) {
+    throw new Error('Vault entry name is required.')
+  }
+
+  const secret = input.secret.trim()
+  if (!secret) {
+    throw new Error('Vault entry secret is required.')
+  }
+
+  const now = new Date().toISOString()
+  const existing = input.id?.trim()
+    ? getEntryById(input.id)
+    : getEntry(input.kind, name)
+
+  const nextEntry: VaultEntry = {
+    id: existing?.id ?? `${input.kind}:${name}`,
+    kind: input.kind,
+    name,
+    secret,
+    metadata: sanitizeMetadata(input.metadata),
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+    origin: input.origin ?? existing?.origin ?? DEFAULT_VAULT_ORIGIN,
+    rotationState: input.rotationState ?? existing?.rotationState ?? DEFAULT_ROTATION_STATE,
+    rotationUpdatedAt: sanitizeString(input.rotationUpdatedAt) || existing?.rotationUpdatedAt || '',
+    lastUsedAt: existing?.lastUsedAt ?? '',
+    lastUsedContext: existing?.lastUsedContext ?? null
+  }
+
+  upsertEntry(nextEntry)
+  return toSummary(nextEntry)
+}
+
+export function deleteVaultEntryById(entryId: string): void {
+  const normalizedId = entryId.trim()
+  if (!normalizedId) {
+    return
+  }
+
+  writeVaultState({
+    entries: readEntries().filter((entry) => entry.id !== normalizedId)
+  })
+}
+
+export function revealVaultEntrySecret(entryId: string): string {
+  const entry = getEntryById(entryId)
+  if (!entry) {
+    throw new Error(`Vault entry not found: ${entryId}`)
+  }
+
+  return entry.secret
+}
+
+export function recordVaultEntryUse(input: VaultEntryUsageInput): VaultEntrySummary {
+  const entry = getEntryById(input.id)
+  if (!entry) {
+    throw new Error(`Vault entry not found: ${input.id}`)
+  }
+
+  const usage: VaultEntryUsage = {
+    usedAt: sanitizeString(input.usedAt) || new Date().toISOString(),
+    source: input.source.trim(),
+    profile: sanitizeString(input.profile),
+    region: sanitizeString(input.region),
+    resourceId: sanitizeString(input.resourceId),
+    resourceLabel: sanitizeString(input.resourceLabel)
+  }
+
+  if (!usage.source) {
+    throw new Error('Vault usage source is required.')
+  }
+
+  const nextEntry: VaultEntry = {
+    ...entry,
+    updatedAt: usage.usedAt,
+    lastUsedAt: usage.usedAt,
+    lastUsedContext: usage
+  }
+
+  upsertEntry(nextEntry)
+  return toSummary(nextEntry)
 }
