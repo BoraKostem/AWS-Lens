@@ -739,9 +739,118 @@
   font-size: 12px;
 }
 
+.cw-query-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  gap: 16px;
+}
+
+.cw-query-main,
+.cw-query-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cw-query-target-bar,
+.cw-query-actions,
+.cw-query-list-item,
+.cw-query-list-actions,
+.cw-query-headline,
+.cw-query-preset-row,
+.cw-query-chip-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.cw-query-source {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cw-query-editor {
+  width: 100%;
+  min-height: 160px;
+  border-radius: 16px;
+  border: 1px solid rgba(120, 160, 195, 0.18);
+  background: rgba(8, 13, 19, 0.86);
+  color: #e8f2ff;
+  padding: 14px;
+  font: inherit;
+  resize: vertical;
+}
+
+.cw-query-chip {
+  border: 1px solid rgba(123, 184, 245, 0.26);
+  background: rgba(74, 143, 231, 0.12);
+  color: #d5e8ff;
+  border-radius: 999px;
+  padding: 6px 10px;
+}
+
+.cw-query-chip span {
+  margin-left: 8px;
+  color: rgba(213, 232, 255, 0.72);
+}
+
+.cw-query-feedback {
+  border-radius: 14px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.cw-query-feedback.success {
+  border: 1px solid rgba(77, 182, 122, 0.28);
+  background: rgba(77, 182, 122, 0.1);
+  color: #c8f0d6;
+}
+
+.cw-query-feedback.error {
+  border: 1px solid rgba(244, 114, 114, 0.24);
+  background: rgba(244, 114, 114, 0.1);
+  color: #ffd4d4;
+}
+
+.cw-query-card {
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(120, 160, 195, 0.12);
+  background: rgba(7, 12, 18, 0.72);
+}
+
+.cw-query-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cw-query-list-item {
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.16);
+  border: 1px solid rgba(120, 160, 195, 0.08);
+}
+
+.cw-query-list-item strong,
+.cw-query-list-item span,
+.cw-query-list-item small {
+  display: block;
+}
+
+.cw-query-list-item span,
+.cw-query-list-item small,
+.cw-query-cell {
+  color: var(--muted);
+}
+
 @media (max-width: 1100px) {
   .cw-shell-hero,
-  .cw-charts-row {
+  .cw-charts-row,
+  .cw-query-layout {
     grid-template-columns: 1fr;
   }
 }

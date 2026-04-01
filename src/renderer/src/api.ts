@@ -15,6 +15,8 @@ import type {
   AppReleaseInfo,
   AppSecuritySummary,
   CloudWatchQueryFilter,
+  CloudWatchQueryExecutionInput,
+  CloudWatchQueryExecutionResult,
   CloudWatchQueryHistoryEntry,
   CloudWatchQueryHistoryInput,
   CloudWatchSavedQuery,
@@ -380,6 +382,14 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
 }
 
 const MUTATING_METHODS = new Set<keyof AwsLensBridge>([
+  'updateGovernanceTagDefaults',
+  'saveCloudWatchSavedQuery',
+  'deleteCloudWatchSavedQuery',
+  'recordCloudWatchQueryHistory',
+  'clearCloudWatchQueryHistory',
+  'saveDbConnectionPreset',
+  'deleteDbConnectionPreset',
+  'markDbConnectionPresetUsed',
   'deleteProfile',
   'chooseAndImportConfig',
   'saveCredentials',
@@ -1239,8 +1249,8 @@ export async function listCloudWatchLogGroups(connection: AwsConnection): Promis
   return unwrap((await awsBridge().listCloudWatchLogGroups(connection)) as Wrapped<CloudWatchLogGroupSummary[]>)
 }
 
-export async function listCloudWatchRecentEvents(connection: AwsConnection, logGroupName: string): Promise<CloudWatchLogEventSummary[]> {
-  return unwrap((await awsBridge().listCloudWatchRecentEvents(connection, logGroupName)) as Wrapped<CloudWatchLogEventSummary[]>)
+export async function listCloudWatchRecentEvents(connection: AwsConnection, logGroupName: string, periodHours?: number): Promise<CloudWatchLogEventSummary[]> {
+  return unwrap((await awsBridge().listCloudWatchRecentEvents(connection, logGroupName, periodHours)) as Wrapped<CloudWatchLogEventSummary[]>)
 }
 
 export async function listEc2InstanceMetrics(connection: AwsConnection, instanceId: string): Promise<CloudWatchMetricSummary[]> {
@@ -1253,6 +1263,10 @@ export async function getMetricStatistics(connection: AwsConnection, metrics: Cl
 
 export async function getEc2AllMetricSeries(connection: AwsConnection, instanceId: string, periodHours: number): Promise<CloudWatchMetricSeries[]> {
   return unwrap((await awsBridge().getEc2AllMetricSeries(connection, instanceId, periodHours)) as Wrapped<CloudWatchMetricSeries[]>)
+}
+
+export async function runCloudWatchQuery(connection: AwsConnection, input: CloudWatchQueryExecutionInput): Promise<CloudWatchQueryExecutionResult> {
+  return unwrap((await awsBridge().runCloudWatchQuery(connection, input)) as Wrapped<CloudWatchQueryExecutionResult>)
 }
 
 export async function listRoute53HostedZones(connection: AwsConnection): Promise<Route53HostedZoneSummary[]> {

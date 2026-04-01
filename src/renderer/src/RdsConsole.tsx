@@ -13,7 +13,8 @@ import type {
   RdsOperationalStatusTone,
   RdsPostureBadge,
   RdsRiskFinding,
-  RdsSummaryTile
+  RdsSummaryTile,
+  ServiceId
 } from '@shared/types'
 import {
   createRdsClusterSnapshot,
@@ -237,7 +238,13 @@ function ClusterNodeMatrix({
   )
 }
 
-export function RdsConsole({ connection }: { connection: AwsConnection }) {
+export function RdsConsole({
+  connection,
+  onNavigateCloudWatch
+}: {
+  connection: AwsConnection
+  onNavigateCloudWatch?: (focus: { logGroupNames?: string[]; queryString?: string; sourceLabel?: string; serviceHint?: ServiceId | '' }) => void
+}) {
   const [mainTab, setMainTab] = useState<MainTab>('instances')
   const [sideTab, setSideTab] = useState<SideTab>('overview')
   const [loading, setLoading] = useState(false)
@@ -846,6 +853,23 @@ export function RdsConsole({ connection }: { connection: AwsConnection }) {
                       <button className="rds-action-btn resize" type="button" disabled={busy} onClick={() => setShowResize((value) => !value)}>
                         Resize
                       </button>
+                      <button
+                        className="rds-action-btn"
+                        type="button"
+                        disabled={!onNavigateCloudWatch}
+                        onClick={() => onNavigateCloudWatch?.({
+                          queryString: [
+                            'fields @timestamp, @logStream, @message',
+                            `| filter @message like /(?i)(${instanceDetail.summary.dbInstanceIdentifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|error|fail|timeout|deadlock)/`,
+                            '| sort @timestamp desc',
+                            '| limit 50'
+                          ].join('\n'),
+                          sourceLabel: instanceDetail.summary.dbInstanceIdentifier,
+                          serviceHint: 'rds'
+                        })}
+                      >
+                        Investigate Logs
+                      </button>
                     </div>
                   </div>
 
@@ -970,6 +994,23 @@ export function RdsConsole({ connection }: { connection: AwsConnection }) {
                       </ConfirmButton>
                       <button className="rds-action-btn resize" type="button" disabled={busy} onClick={() => setShowResize((value) => !value)}>
                         Resize Node
+                      </button>
+                      <button
+                        className="rds-action-btn"
+                        type="button"
+                        disabled={!onNavigateCloudWatch}
+                        onClick={() => onNavigateCloudWatch?.({
+                          queryString: [
+                            'fields @timestamp, @logStream, @message',
+                            `| filter @message like /(?i)(${clusterDetail.summary.dbClusterIdentifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|error|fail|timeout|deadlock)/`,
+                            '| sort @timestamp desc',
+                            '| limit 50'
+                          ].join('\n'),
+                          sourceLabel: clusterDetail.summary.dbClusterIdentifier,
+                          serviceHint: 'rds'
+                        })}
+                      >
+                        Investigate Logs
                       </button>
                     </div>
                   </div>
