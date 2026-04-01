@@ -18,10 +18,16 @@ function dismissBootSplash(): void {
 
 // In web mode (no Electron preload), inject the fetch-based bridge
 if (!window.awsLens) {
-  const { webBridge } = await import('./webBridge')
+  const { webBridge, terraformBridge } = await import('./webBridge')
   window.awsLens = webBridge
+  // @ts-expect-error
+  window.terraformWorkspace = terraformBridge
+  // Signal to UI components that they are running in web/server mode so
+  // desktop-only features (file pickers, VS Code integration, OS shell
+  // launchers) can be hidden rather than shown as broken stubs.
+  ;(window as unknown as Record<string, unknown>).__WEB_MODE__ = true
 }
-if (!window.terraformWorkspace) {
+if (!window.terraformWorkspace && !(window as unknown as Record<string, unknown>).__WEB_MODE__) {
   const { terraformBridge } = await import('./webBridge')
   // @ts-expect-error
   window.terraformWorkspace = terraformBridge

@@ -12,7 +12,8 @@ files:
   - node_modules/**/*
   - package.json
 
-asar: false
+asarUnpack:
+  - node_modules/node-pty/**/*
 
 publish:
   provider: github
@@ -40,9 +41,11 @@ mac:
     - dmg
     - zip
   icon: assets/aws-lens-logo.icns
-  hardenedRuntime: false
+  hardenedRuntime: true
   gatekeeperAssess: false
-  notarize: false
+  entitlements: assets/entitlements.mac.plist
+  entitlementsInherit: assets/entitlements.mac.inherit.plist
+  notarize: true
 
 linux:
   artifactName: aws-lens_${version}_${arch}.${ext}

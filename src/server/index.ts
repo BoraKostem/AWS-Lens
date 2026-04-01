@@ -36,6 +36,9 @@ import { registerIpcHandlers } from '../main/ipc'
 import { registerTerminalIpcHandlers } from '../main/terminalIpc'
 import { makeMockWindow, onEvent, offEvent } from './terraformEvents'
 import { githubAuthRouter } from './githubAuth'
+import { buildAwsContextCommand, getShellConfig } from '../main/shell'
+import { getConnectionEnv } from '../main/sessionHub'
+import type { AwsConnection } from '@shared/types'
 
 // Register all handlers into webRegistry
 registerAwsIpcHandlers()
@@ -146,6 +149,19 @@ eventsWss.on('connection', (ws) => {
 })
 
 // ── Terminal WebSocket ───────────────────────────────────────────────────────
+// Protocol mirrors the Electron terminal IPC handlers in terminalIpc.ts:
+//   { type: 'open', connection?, initialCommand?, cols?, rows? }
+//     → spawns a pty using the same shell config and AWS context injection as
+//       the desktop app (buildAwsContextCommand / getConnectionEnv)
+//   { type: 'update-context', connection }
+//     → writes a new AWS context command into the running pty
+//   { type: 'run-command', command }
+//     → writes a command into the running pty (equivalent to terminal:run-command)
+//   { type: 'input', data }  → raw keystrokes
+//   { type: 'resize', cols, rows }
+//   { type: 'close' }
+//
+// Server → client: { type: 'output', text } | { type: 'exit', code }
 const wss = new WebSocketServer({ server, path: '/api/terminal' })
 
 wss.on('connection', (ws) => {
@@ -154,20 +170,32 @@ wss.on('connection', (ws) => {
   ws.on('message', (raw) => {
     try {
       const msg = JSON.parse(raw.toString()) as {
-        type: 'open' | 'input' | 'resize' | 'close'
+        type: 'open' | 'input' | 'resize' | 'close' | 'update-context' | 'run-command'
         cols?: number
         rows?: number
         data?: string
+        command?: string
+        connection?: AwsConnection
+        initialCommand?: string
       }
 
       if (msg.type === 'open') {
-        const shell = process.env.SHELL ?? '/bin/bash'
-        pty = spawn(shell, [], {
+        const shellCfg = getShellConfig()
+        // Merge AWS connection env vars if a connection was provided, matching
+        // the behaviour of createSession() in terminalIpc.ts
+        const connectionEnv = msg.connection ? getConnectionEnv(msg.connection) : {}
+        pty = spawn(shellCfg.command, shellCfg.args, {
           name: 'xterm-color',
           cols: msg.cols ?? 120,
           rows: msg.rows ?? 24,
           cwd: process.env.HOME ?? '/',
-          env: { ...process.env } as Record<string, string>
+          env: {
+            ...process.env,
+            ...connectionEnv,
+            LANG: 'en_US.UTF-8',
+            LC_ALL: 'en_US.UTF-8',
+            PYTHONIOENCODING: 'utf-8'
+          } as Record<string, string>
         })
 
         pty.onData((text) => {
@@ -181,6 +209,27 @@ wss.on('connection', (ws) => {
             ws.send(JSON.stringify({ type: 'exit', code: exitCode }))
           }
         })
+
+        // Inject AWS context and optional initial command after the shell starts,
+        // replicating createSession()'s pty.write(buildAwsContextCommand()) call
+        if (msg.connection) {
+          const contextCmd = buildAwsContextCommand(msg.connection)
+          setTimeout(() => {
+            pty?.write(`${contextCmd}\r`)
+            if (msg.initialCommand) {
+              setTimeout(() => pty?.write(`${msg.initialCommand}\r`), 120)
+            }
+          }, 120)
+        } else if (msg.initialCommand) {
+          setTimeout(() => pty?.write(`${msg.initialCommand}\r`), 200)
+        }
+      } else if (msg.type === 'update-context' && pty && msg.connection) {
+        // Mirror terminalIpc.ts updateContext(): write new AWS env vars into the running shell
+        const contextCmd = buildAwsContextCommand(msg.connection)
+        pty.write(`${contextCmd}\r`)
+      } else if (msg.type === 'run-command' && pty && msg.command) {
+        const normalized = msg.command.trim()
+        if (normalized) pty.write(`${normalized}\r`)
       } else if (msg.type === 'input' && pty && msg.data) {
         pty.write(msg.data)
       } else if (msg.type === 'resize' && pty) {

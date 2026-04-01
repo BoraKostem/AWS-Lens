@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+const isWebMode = () => !!(window as unknown as Record<string, unknown>).__WEB_MODE__
+
 import appLogoUrl from '../../../assets/aws-lens-logo.png'
 import type {
   AppReleaseInfo,
@@ -2454,14 +2456,16 @@ output "aws_lens_readonly_secret" {
       <div className="fab-container">
         {fabMode === 'menu' && (
           <div className="fab-menu">
-            <button
-              type="button"
-              className="fab-menu-item"
-              disabled={enterpriseSettings.accessMode !== 'operator'}
-              onClick={() => void handleLoadAwsConfig()}
-            >
-              Load AWS Config
-            </button>
+            {!isWebMode() && (
+              <button
+                type="button"
+                className="fab-menu-item"
+                disabled={enterpriseSettings.accessMode !== 'operator'}
+                onClick={() => void handleLoadAwsConfig()}
+              >
+                Load AWS Config
+              </button>
+            )}
             <button
               type="button"
               className="fab-menu-item"

@@ -102,7 +102,8 @@ export const webBridge: Window['awsLens'] = {
   // ── Services + release ────────────────────────────────────────────────────
   listServices: () => rpc('services:list'),
   getReleaseInfo: () => rpc('app:release-info'),
-  openExternalUrl: (url) => rpc('shell:open-external', url),
+  // In web mode, open URLs in a new browser tab instead of via Electron shell
+  openExternalUrl: (url) => { window.open(url, '_blank', 'noopener,noreferrer'); return Promise.resolve() },
 
   // ── STS / identity ────────────────────────────────────────────────────────
   getCallerIdentity: (c) => rpc('sts:get-caller-identity', c),
@@ -446,16 +447,20 @@ export const webBridge: Window['awsLens'] = {
   openAwsTerminal: (connection, initialCommand?) => {
     const ws = getTerminalWs()
     const send = () => {
-      ws.send(JSON.stringify({ type: 'open', cols: 120, rows: 24 }))
-      if (initialCommand) setTimeout(() => ws.send(JSON.stringify({ type: 'input', data: `${initialCommand}\r` })), 200)
+      // Pass connection so the server injects AWS env vars + context command,
+      // matching the behaviour of terminalIpc.ts createSession()
+      ws.send(JSON.stringify({ type: 'open', connection, initialCommand, cols: 120, rows: 24 }))
     }
     if (ws.readyState === WebSocket.OPEN) send()
     else ws.addEventListener('open', send, { once: true })
     return Promise.resolve()
   },
-  updateAwsTerminalContext: (_c) => Promise.resolve(),
+  updateAwsTerminalContext: (connection) => {
+    getTerminalWs().send(JSON.stringify({ type: 'update-context', connection }))
+    return Promise.resolve()
+  },
   sendTerminalInput: (input) => { getTerminalWs().send(JSON.stringify({ type: 'input', data: input })); return Promise.resolve() },
-  runTerminalCommand: (cmd) => { getTerminalWs().send(JSON.stringify({ type: 'input', data: `${cmd}\r` })); return Promise.resolve() },
+  runTerminalCommand: (cmd) => { getTerminalWs().send(JSON.stringify({ type: 'run-command', command: cmd })); return Promise.resolve() },
   resizeTerminal: (cols, rows) => { getTerminalWs().send(JSON.stringify({ type: 'resize', cols, rows })); return Promise.resolve() },
   closeTerminal: () => {
     if (terminalWs) { terminalWs.send(JSON.stringify({ type: 'close' })); terminalWs = null }
