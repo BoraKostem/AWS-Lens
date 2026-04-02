@@ -5,22 +5,10 @@ import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage } from 'electron'
 
 import { hasPendingAwsCredentialActivity, waitForAwsCredentialActivity } from './aws/client'
-import { registerAwsIpcHandlers } from './awsIpc'
-import { registerCompareIpcHandlers } from './compareIpc'
-import { registerComplianceIpcHandlers } from './complianceIpc'
-import { registerEc2IpcHandlers } from './ec2Ipc'
 import { assertEnterpriseAccess, recordEnterpriseAuditEvent } from './enterprise'
-import { registerEcrIpcHandlers } from './ecrIpc'
-import { registerEksIpcHandlers } from './eksIpc'
-import { registerFoundationIpcHandlers } from './foundationIpc'
 import { registerIpcHandlers } from './ipc'
-import { registerOverviewIpcHandlers } from './overviewIpc'
-import { registerSecurityIpcHandlers } from './securityIpc'
-import { registerServiceIpcHandlers } from './serviceIpc'
-import { registerSgIpcHandlers } from './sgIpc'
-import { registerTerminalIpcHandlers } from './terminalIpc'
-import { registerVpcIpcHandlers } from './vpcIpc'
 import { initializeObservability, logError, logInfo, logWarn } from './observability'
+import { registerProviderIpcHandlers } from './providerIpcRegistry'
 import { startReleaseCheck } from './releaseCheck'
 import { hasActiveTerraformApplyOrDestroy } from './terraform'
 
@@ -235,19 +223,7 @@ app.whenReady().then(() => {
   logInfo('app.ready', 'Electron app is ready.')
   Menu.setApplicationMenu(null)
   registerIpcHandlers(() => mainWindow)
-  registerAwsIpcHandlers()
-  registerCompareIpcHandlers()
-  registerComplianceIpcHandlers()
-  registerEc2IpcHandlers()
-  registerEcrIpcHandlers()
-  registerEksIpcHandlers(() => mainWindow)
-  registerFoundationIpcHandlers()
-  registerOverviewIpcHandlers()
-  registerSecurityIpcHandlers()
-  registerServiceIpcHandlers()
-  registerSgIpcHandlers()
-  registerTerminalIpcHandlers()
-  registerVpcIpcHandlers()
+  registerProviderIpcHandlers({ getWindow: () => mainWindow })
   startReleaseCheck()
   createWindow()
 
