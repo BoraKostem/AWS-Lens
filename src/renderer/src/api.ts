@@ -213,6 +213,14 @@ export type AwsActivityState = {
   lastCompletedAt: number | null
 }
 
+export type ProviderTerminalTarget = {
+  providerId: Exclude<CloudProviderId, 'aws'>
+  label: string
+  modeId: string
+  modeLabel: string
+  env: Record<string, string>
+}
+
 type AwsLensBridge = Window['awsLens']
 export type CacheTag =
   | 'phase1-foundations'
@@ -841,6 +849,14 @@ export async function openExternalUrl(url: string): Promise<void> {
 
 export async function updateAwsTerminalContext(sessionId: string, connection: AwsConnection): Promise<void> {
   await rawAwsBridge().updateAwsTerminalContext(sessionId, connection)
+}
+
+export async function openProviderTerminal(sessionId: string, target: ProviderTerminalTarget, initialCommand?: string): Promise<AwsTerminalOpenResult> {
+  return rawAwsBridge().openProviderTerminal(sessionId, target, initialCommand) as Promise<AwsTerminalOpenResult>
+}
+
+export async function updateProviderTerminalContext(sessionId: string, target: ProviderTerminalTarget): Promise<void> {
+  await rawAwsBridge().updateProviderTerminalContext(sessionId, target)
 }
 
 export async function sendAwsTerminalInput(sessionId: string, input: string): Promise<void> {

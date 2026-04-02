@@ -176,7 +176,9 @@ const ALWAYS_OPERATOR_CHANNELS = new Set<string>([
   'sqs:tag-queue',
   'sqs:untag-queue',
   'terminal:open-aws',
+  'terminal:open-provider-context',
   'terminal:update-aws-context',
+  'terminal:update-provider-context',
   'terminal:input',
   'terminal:run-command'
 ])

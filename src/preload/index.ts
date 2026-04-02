@@ -592,6 +592,17 @@ const awsLensApi = {
     ipcRenderer.invoke('terminal:open-aws', sessionId, connection, initialCommand),
   updateAwsTerminalContext: (sessionId: string, connection: AwsConnection) =>
     ipcRenderer.invoke('terminal:update-aws-context', sessionId, connection),
+  openProviderTerminal: (
+    sessionId: string,
+    target: { providerId: 'gcp' | 'azure'; label: string; modeId: string; modeLabel: string; env: Record<string, string> },
+    initialCommand?: string
+  ) =>
+    ipcRenderer.invoke('terminal:open-provider-context', sessionId, target, initialCommand),
+  updateProviderTerminalContext: (
+    sessionId: string,
+    target: { providerId: 'gcp' | 'azure'; label: string; modeId: string; modeLabel: string; env: Record<string, string> }
+  ) =>
+    ipcRenderer.invoke('terminal:update-provider-context', sessionId, target),
   sendTerminalInput: (sessionId: string, input: string) => ipcRenderer.invoke('terminal:input', sessionId, input),
   runTerminalCommand: (sessionId: string, command: string) => ipcRenderer.invoke('terminal:run-command', sessionId, command),
   resizeTerminal: (sessionId: string, cols: number, rows: number) => ipcRenderer.invoke('terminal:resize', sessionId, cols, rows),

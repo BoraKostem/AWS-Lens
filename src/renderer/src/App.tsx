@@ -77,6 +77,7 @@ import { KeyPairsConsole } from './KeyPairsConsole'
 import { KmsConsole } from './KmsConsole'
 import { LambdaConsole } from './LambdaConsole'
 import { OverviewConsole } from './OverviewConsole'
+import { ProviderTerminalPanel } from './ProviderTerminalPanel'
 import { RdsConsole } from './RdsConsole'
 import { Route53Console } from './Route53Console'
 import { S3Console } from './S3Console'
@@ -118,6 +119,7 @@ type ProviderConnectionMode = {
   detail: string
   status: 'Live now' | 'Phase 4 preview'
 }
+type PreviewProviderId = Exclude<CloudProviderId, 'aws'>
 
 type ProviderPreviewNavItem = {
   id: string
@@ -129,6 +131,22 @@ type ProviderPreviewNavSection = {
   id: string
   label: string
   items: ProviderPreviewNavItem[]
+}
+
+type ProviderTerminalPreviewPreset = {
+  id: string
+  label: string
+  command: string
+  detail: string
+}
+
+type ProviderTerminalPreviewModel = {
+  cliLabel: string
+  authLabel: string
+  contextLabel: string
+  contextDetail: string
+  helperIntro: string
+  helpers: ProviderTerminalPreviewPreset[]
 }
 
 const NAV_PRIORITY_SERVICE_IDS: ServiceId[] = ['overview', 'session-hub']
@@ -344,6 +362,63 @@ const PROVIDER_AFFORDANCE_LABELS: Record<CloudProviderId, string> = {
   azure: 'Shared preview'
 }
 
+const PROVIDER_TERMINAL_PREVIEWS: Record<Exclude<CloudProviderId, 'aws'>, ProviderTerminalPreviewModel> = {
+  gcp: {
+    cliLabel: 'gcloud',
+    authLabel: 'ADC or service account',
+    contextLabel: 'Project and location context will be injected here.',
+    contextDetail: 'The shared drawer now pivots to Google Cloud helper flows so auth, config, and smoke-test commands can attach to the same provider selection.',
+    helperIntro: 'Use the staged helper set to validate Google Cloud auth, inspect the active config, and confirm project or region targeting before live PTY injection lands.',
+    helpers: [
+      {
+        id: 'gcp-auth-list',
+        label: 'Auth inventory',
+        command: 'gcloud auth list',
+        detail: 'Check which account or service account is active before opening provider workspaces.'
+      },
+      {
+        id: 'gcp-config-list',
+        label: 'Config snapshot',
+        command: 'gcloud config list --all',
+        detail: 'Inspect project, region, zone, and active configuration values.'
+      },
+      {
+        id: 'gcp-project-check',
+        label: 'Project smoke test',
+        command: 'gcloud projects list --limit=20',
+        detail: 'Verify the shell can enumerate accessible projects with the selected auth flow.'
+      }
+    ]
+  },
+  azure: {
+    cliLabel: 'az',
+    authLabel: 'Device login or tenant handoff',
+    contextLabel: 'Tenant and subscription context will be injected here.',
+    contextDetail: 'The shared drawer now pivots to Azure helper flows so device login, tenant checks, and subscription inspection can follow the provider selector.',
+    helperIntro: 'Use the staged helper set to validate Azure login state, inspect active account targeting, and confirm subscription context before live PTY injection lands.',
+    helpers: [
+      {
+        id: 'azure-account-show',
+        label: 'Account snapshot',
+        command: 'az account show --output table',
+        detail: 'Confirm the currently active subscription, tenant, and default account context.'
+      },
+      {
+        id: 'azure-account-list',
+        label: 'Subscription inventory',
+        command: 'az account list --output table',
+        detail: 'Review accessible subscriptions before the adaptive shell binds one as the active context.'
+      },
+      {
+        id: 'azure-group-list',
+        label: 'Resource group smoke test',
+        command: 'az group list --output table',
+        detail: 'Verify ARM access from the staged provider-aware shell surface.'
+      }
+    ]
+  }
+}
+
 const SOFT_REFRESH_SCREENS = new Set<Screen>([
   'overview',
   'compare',
@@ -354,6 +429,34 @@ const SOFT_REFRESH_SCREENS = new Set<Screen>([
   'ecs',
   'load-balancers'
 ])
+
+function buildPreviewProviderTerminalEnv(
+  providerId: PreviewProviderId,
+  providerLabel: string,
+  mode: ProviderConnectionMode
+): Record<string, string> {
+  const baseEnv = {
+    CLOUD_LENS_PROVIDER: providerId,
+    CLOUD_LENS_PROVIDER_LABEL: providerLabel,
+    CLOUD_LENS_CONTEXT: `${providerLabel} · ${mode.label}`,
+    CLOUD_LENS_CONNECTION_MODE: mode.label,
+    CLOUD_LENS_CONNECTION_MODE_ID: mode.id
+  }
+
+  if (providerId === 'gcp') {
+    return {
+      ...baseEnv,
+      CLOUD_LENS_GCP_MODE: mode.label,
+      CLOUD_LENS_GCP_MODE_ID: mode.id
+    }
+  }
+
+  return {
+    ...baseEnv,
+    CLOUD_LENS_AZURE_MODE: mode.label,
+    CLOUD_LENS_AZURE_MODE_ID: mode.id
+  }
+}
 
 function ConnectedServiceScreen({
   service,
@@ -637,6 +740,7 @@ export function App() {
   const [visitedScreens, setVisitedScreens] = useState<Screen[]>(['profiles'])
   const [providers, setProviders] = useState<ProviderDescriptor[]>([])
   const [activeProviderId, setActiveProviderId] = useState<CloudProviderId>(DEFAULT_PROVIDER_ID)
+  const [selectedPreviewModeIds, setSelectedPreviewModeIds] = useState<Partial<Record<PreviewProviderId, string>>>({})
   const [workspaceCatalog, setWorkspaceCatalog] = useState<WorkspaceCatalog | null>(null)
   const [services, setServices] = useState<ServiceDescriptor[]>([])
   const [pinnedServiceIds, setPinnedServiceIds] = useState<ServiceId[]>([])
@@ -876,6 +980,7 @@ export function App() {
     }
   const activeProviderThemeClass = `provider-theme-${activeProviderId}`
   const isAwsProviderActive = activeProviderId === 'aws'
+  const activePreviewProviderId = isAwsProviderActive ? null : activeProviderId as PreviewProviderId
   const activeShellConnected = isAwsProviderActive && connectionState.connected
   const activeShellConnection = isAwsProviderActive ? connectionState.connection : null
   const activeProviderModes = PROVIDER_CONNECTION_MODES[activeProviderId]
@@ -884,7 +989,11 @@ export function App() {
   const totalProfiles = isAwsProviderActive ? connectionState.profiles.length : activeProviderModes.length
   const totalPinnedProfiles = isAwsProviderActive ? connectionState.pinnedProfileNames.length : providerWorkspaceCount
   const totalVisibleServices = services.length
-  const serviceNavEnabled = activeProvider.availability === 'available' && connectionState.connected
+  const selectedPreviewModeId = activePreviewProviderId ? selectedPreviewModeIds[activePreviewProviderId] ?? '' : ''
+  const selectedPreviewMode = activePreviewProviderId
+    ? activeProviderModes.find((mode) => mode.id === selectedPreviewModeId) ?? null
+    : null
+  const serviceNavEnabled = activeProvider.availability === 'available' && (isAwsProviderActive ? connectionState.connected : selectedPreviewMode !== null)
   const selectorPrimaryStatLabel = isAwsProviderActive ? 'Profiles' : 'Connection modes'
   const selectorSecondaryStatLabel = isAwsProviderActive ? 'Pinned' : 'Provider workspaces'
   const providerProfileLabel = activeProvider.profileLabel.toLowerCase()
@@ -949,12 +1058,14 @@ export function App() {
 
   const primaryProfileLabel = isAwsProviderActive
     ? connectionState.activeSession?.sourceProfile || connectionState.selectedProfile?.name || connectionState.profile || 'No profile selected'
-    : `${activeProvider.label} preview`
+    : selectedPreviewMode?.label || 'No profile selected'
   const assumedRoleLabel = isAwsProviderActive && connectionState.activeSession
     ? `Assumed role: ${getRoleDisplayName(connectionState.activeSession.roleArn) || connectionState.activeSession.label}`
     : ''
   const profileMetaLabel = !isAwsProviderActive
-    ? activeProvider.connectionLabel
+    ? selectedPreviewMode
+      ? `${selectedPreviewMode.status} · terminal env ready`
+      : 'Select a connection mode'
     : connectionState.activeSession
       ? assumedRoleLabel
       : connectionState.selectedProfile
@@ -962,18 +1073,34 @@ export function App() {
         : 'Click to select a profile'
   const providerMetaLabel = isAwsProviderActive && connectionState.providerConnection
     ? `${activeProvider.locationLabel}: ${connectionState.providerConnection.locationLabel}`
-    : activeProvider.connectionLabel
+    : selectedPreviewMode
+      ? `Mode: ${selectedPreviewMode.label}`
+      : activeProvider.connectionLabel
   const navSharedServices = NAV_PRIORITY_SERVICE_IDS
     .map((serviceId) => services.find((service) => service.id === serviceId) ?? null)
     .filter((service): service is ServiceDescriptor => service !== null)
   const previewProviderSections = activeProviderId === 'aws' ? [] : PROVIDER_PREVIEW_NAV_SECTIONS[activeProviderId]
+  const providerTerminalPreview = activeProviderId === 'aws' ? null : PROVIDER_TERMINAL_PREVIEWS[activeProviderId]
+  const providerTerminalTarget = activeProviderId === 'aws'
+    ? null
+    : selectedPreviewMode
+      ? {
+          providerId: activeProviderId,
+          label: `${activeProvider.label} · ${selectedPreviewMode.label}`,
+          modeId: selectedPreviewMode.id,
+          modeLabel: selectedPreviewMode.label,
+          env: buildPreviewProviderTerminalEnv(activeProviderId, activeProvider.label, selectedPreviewMode)
+        }
+      : null
   const activityLabel = awsActivity.pendingCount > 0
     ? `Fetching ${awsActivity.pendingCount} ${activeProvider.shortLabel} request${awsActivity.pendingCount === 1 ? '' : 's'}`
     : activeShellConnection
       ? `Ready${awsActivity.lastCompletedAt ? ` · last response ${new Date(awsActivity.lastCompletedAt).toLocaleTimeString()}` : ''}`
       : isAwsProviderActive
         ? 'Idle'
-        : `${activeProvider.shortLabel} preview`
+        : selectedPreviewMode
+          ? `${selectedPreviewMode.label} selected`
+          : `${activeProvider.shortLabel} preview`
 
   const selectedService = (services.find((service) => service.id === screen) ?? null) as ServiceDescriptor | null
   const activeCacheTag = screenCacheTag(screen)
@@ -981,9 +1108,12 @@ export function App() {
   const isCurrentScreenRefreshing = refreshState?.screen === screen
   const prefersSoftRefresh = SOFT_REFRESH_SCREENS.has(screen)
   const showCatalogFab = screen === 'profiles' && !showEnvironmentOnboarding && isAwsProviderActive
+  const terminalToggleEnabled = enterpriseSettings.accessMode === 'operator' && (isAwsProviderActive ? activeShellConnected : selectedPreviewMode !== null)
   const connectionScopeKey = activeShellConnection
     ? `${activeProviderId}:${activeShellConnection.sessionId}:${activeShellConnection.region}`
-    : `provider:${activeProviderId}:disconnected`
+    : selectedPreviewMode
+      ? `provider:${activeProviderId}:${selectedPreviewMode.id}`
+      : `provider:${activeProviderId}:disconnected`
   const versionLabel = releaseInfo?.currentVersion ?? ''
   const releaseStateLabel = !releaseInfo?.supportsAutoUpdate
     ? 'Unavailable in dev build'
@@ -1014,7 +1144,6 @@ export function App() {
   const onboardingStepIndex = ENVIRONMENT_ONBOARDING_STEPS.indexOf(environmentOnboardingStep)
   const onboardingBackEnabled = onboardingStepIndex > 0
   const onboardingNextLabel = onboardingStepIndex === ENVIRONMENT_ONBOARDING_STEPS.length - 1 ? 'Finish onboarding' : 'Next step'
-
   function togglePinnedService(serviceId: ServiceId) {
     setPinnedServiceIds((current) =>
       current.includes(serviceId)
@@ -1095,10 +1224,21 @@ export function App() {
       connectionState.clearActiveSession()
       connectionState.setProfile('')
       connectionState.setError('')
+      setSelectedPreviewModeIds({})
     }
 
     setActiveProviderId(providerId)
     setScreen('profiles')
+  }
+
+  function handleSelectPreviewMode(modeId: string): void {
+    if (!activePreviewProviderId) {
+      return
+    }
+
+    setPendingTerminalCommand(null)
+    setTerminalOpen(false)
+    setSelectedPreviewModeIds((current) => ({ ...current, [activePreviewProviderId]: modeId }))
   }
 
   function renderServiceLink(service: ServiceDescriptor, options?: { pinned?: boolean }) {
@@ -1219,10 +1359,16 @@ export function App() {
   }, [fabMode, showCatalogFab])
 
   useEffect(() => {
-    if ((enterpriseSettings.accessMode !== 'operator' || !isAwsProviderActive) && terminalOpen) {
+    if (enterpriseSettings.accessMode !== 'operator' && terminalOpen) {
       setTerminalOpen(false)
     }
-  }, [enterpriseSettings.accessMode, isAwsProviderActive, terminalOpen])
+  }, [enterpriseSettings.accessMode, terminalOpen])
+
+  useEffect(() => {
+    if (!terminalToggleEnabled && terminalOpen) {
+      setTerminalOpen(false)
+    }
+  }, [terminalOpen, terminalToggleEnabled])
 
   useEffect(() => {
     if (!appSettings?.terminal.autoOpen || enterpriseSettings.accessMode !== 'operator') {
@@ -1977,12 +2123,24 @@ export function App() {
                 )
               ) : (
                 activeProviderModes.map((mode) => (
-                  <article key={mode.id} className={`profile-catalog-card provider-mode-card provider-mode-card-${activeProviderId}`}>
+                  <article
+                    key={mode.id}
+                    className={`profile-catalog-card provider-mode-card provider-mode-card-${activeProviderId} ${selectedPreviewMode?.id === mode.id ? 'active' : ''}`}
+                  >
                     <div className="profile-catalog-status">
                       <span>{mode.label}</span>
                       <strong>{mode.status}</strong>
                     </div>
                     <p className="hero-path provider-mode-card-copy">{mode.detail}</p>
+                    <div className="button-row profile-catalog-actions">
+                      <button
+                        type="button"
+                        className={selectedPreviewMode?.id === mode.id ? 'accent' : ''}
+                        onClick={() => handleSelectPreviewMode(mode.id)}
+                      >
+                        {selectedPreviewMode?.id === mode.id ? 'Selected' : 'Select'}
+                      </button>
+                    </div>
                   </article>
                 ))
               )}
@@ -2252,7 +2410,7 @@ export function App() {
           </>
         )}
         <div className="rail-actions">
-          <button type="button" className={screen === 'profiles' ? 'active' : ''} onClick={() => setScreen('profiles')}>CNX</button>
+          <button type="button" className={screen === 'profiles' ? 'active' : ''} onClick={() => setScreen('profiles')}>ALL</button>
         </div>
       </aside>
 
@@ -2310,8 +2468,8 @@ export function App() {
             ) : (
               <div className={`enterprise-sidebar-note provider-sidebar-note provider-sidebar-note-secondary provider-sidebar-note-${activeProviderId}`}>
                 <span>{activeProvider.locationLabel}</span>
-                <strong>Selector staged</strong>
-                <small>{activeProvider.label} will bind location and credential context here in the next Phase 4 steps.</small>
+                <strong>{selectedPreviewMode ? selectedPreviewMode.label : 'Selector staged'}</strong>
+                <small>{selectedPreviewMode ? 'Terminal env values will be injected automatically when the shell opens.' : `${activeProvider.label} will bind location and credential context here in the next Phase 4 steps.`}</small>
               </div>
             )}
             <div className="enterprise-sidebar-note">
@@ -2690,7 +2848,9 @@ export function App() {
                 : `Session=${activeShellConnection.label} · ${activeProvider.locationLabel}=${activeShellConnection.region}`
               : isAwsProviderActive
                 ? `Select a ${providerProfileLabel} and ${providerLocationLabel} to enable CLI context.`
-                : `${activeProvider.label} is in preview mode. CLI context switching arrives in a later Phase 4 branch.`}
+                : selectedPreviewMode
+                  ? `${providerTerminalPreview?.cliLabel} env values are ready for ${selectedPreviewMode.label}. Open the terminal to use the selected ${activeProvider.label} context.`
+                  : `Select a ${activeProvider.label} connection mode before opening the terminal.`}
           </span>
         </div>
         {enterpriseSettings.accessMode === 'operator' && (
@@ -2698,7 +2858,7 @@ export function App() {
             type="button"
             className="accent footer-terminal-toggle"
             onClick={() => setTerminalOpen((current) => !current)}
-            disabled={!activeShellConnected}
+            disabled={!terminalToggleEnabled}
             aria-label={terminalOpen ? 'Hide terminal' : 'Open terminal'}
             title={terminalOpen ? 'Hide terminal' : 'Open terminal'}
           >
@@ -2706,17 +2866,27 @@ export function App() {
           </button>
         )}
       </footer>
-      <AwsTerminalPanel
-        connection={activeShellConnection}
-        open={terminalOpen}
-        onClose={() => setTerminalOpen(false)}
-        defaultCommand={appSettings?.terminal.defaultCommand}
-        fontSize={appSettings?.terminal.fontSize ?? 13}
-        commandToRun={pendingTerminalCommand}
-        onCommandHandled={(id) => {
-          setPendingTerminalCommand((current) => (current?.id === id ? null : current))
-        }}
-      />
+      {isAwsProviderActive ? (
+        <AwsTerminalPanel
+          connection={activeShellConnection}
+          open={terminalOpen}
+          onClose={() => setTerminalOpen(false)}
+          defaultCommand={appSettings?.terminal.defaultCommand}
+          fontSize={appSettings?.terminal.fontSize ?? 13}
+          commandToRun={pendingTerminalCommand}
+          onCommandHandled={(id) => {
+            setPendingTerminalCommand((current) => (current?.id === id ? null : current))
+          }}
+        />
+      ) : providerTerminalTarget ? (
+        <ProviderTerminalPanel
+          target={providerTerminalTarget!}
+          open={terminalOpen}
+          onClose={() => setTerminalOpen(false)}
+          defaultCommand={appSettings?.terminal.defaultCommand}
+          fontSize={appSettings?.terminal.fontSize ?? 13}
+        />
+      ) : null}
 
       {/* FAB — Add Profile */}
       {showCatalogFab && (

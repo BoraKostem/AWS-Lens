@@ -360,6 +360,15 @@ declare global {
       disassociateWebAcl: (connection: AwsConnection, resourceArn: string) => Promise<unknown>
       openAwsTerminal: (sessionId: string, connection: AwsConnection, initialCommand?: string) => Promise<unknown>
       updateAwsTerminalContext: (sessionId: string, connection: AwsConnection) => Promise<unknown>
+      openProviderTerminal: (
+        sessionId: string,
+        target: { providerId: 'gcp' | 'azure'; label: string; modeId: string; modeLabel: string; env: Record<string, string> },
+        initialCommand?: string
+      ) => Promise<unknown>
+      updateProviderTerminalContext: (
+        sessionId: string,
+        target: { providerId: 'gcp' | 'azure'; label: string; modeId: string; modeLabel: string; env: Record<string, string> }
+      ) => Promise<unknown>
       sendTerminalInput: (sessionId: string, input: string) => Promise<unknown>
       runTerminalCommand: (sessionId: string, command: string) => Promise<unknown>
       resizeTerminal: (sessionId: string, cols: number, rows: number) => Promise<unknown>
