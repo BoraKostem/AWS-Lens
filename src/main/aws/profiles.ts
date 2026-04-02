@@ -383,8 +383,12 @@ export function listAwsProfiles(): AwsProfile[] {
 
   for (const name of configProfiles) {
     merged.set(name, {
+      providerId: 'aws',
+      id: name,
+      label: name,
       name,
       source: 'config',
+      defaultLocationId: regions.get(name) ?? 'us-east-1',
       region: regions.get(name) ?? 'us-east-1',
       managedByApp: manualProfiles.has(name)
     })
@@ -393,8 +397,12 @@ export function listAwsProfiles(): AwsProfile[] {
   for (const name of credentialProfiles) {
     if (!merged.has(name)) {
       merged.set(name, {
+        providerId: 'aws',
+        id: name,
+        label: name,
         name,
         source: 'credentials',
+        defaultLocationId: regions.get(name) ?? 'us-east-1',
         region: regions.get(name) ?? 'us-east-1',
         managedByApp: manualProfiles.has(name)
       })
@@ -412,8 +420,12 @@ export function listAwsProfiles(): AwsProfile[] {
   for (const name of vaultProfiles) {
     const existing = merged.get(name)
     merged.set(name, {
+      providerId: 'aws',
+      id: name,
+      label: name,
       name,
       source: existing?.source ?? 'credentials',
+      defaultLocationId: regions.get(name) ?? existing?.region ?? 'us-east-1',
       region: regions.get(name) ?? existing?.region ?? 'us-east-1',
       managedByApp: true
     })

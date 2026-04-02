@@ -18,6 +18,10 @@ export async function getCallerIdentity(connection: AwsConnection): Promise<Call
   const output = await client.send(new GetCallerIdentityCommand({}))
 
   return {
+    providerId: 'aws',
+    accountId: output.Account ?? '',
+    principalArn: output.Arn ?? '',
+    principalId: output.UserId ?? '',
     account: output.Account ?? '',
     arn: output.Arn ?? '',
     userId: output.UserId ?? ''

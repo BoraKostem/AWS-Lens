@@ -111,9 +111,12 @@ function formatCountdown(expiration: string): string {
 
 function buildSessionConnection(session: AwsSessionSummary): AwsConnection {
   return {
+    providerId: 'aws',
     kind: 'assumed-role',
     sessionId: session.id,
     label: session.label,
+    profileId: session.profile,
+    locationId: session.region,
     profile: session.profile,
     sourceProfile: session.sourceProfile,
     region: session.region,
@@ -241,9 +244,12 @@ export function SessionHub({
     }
 
     const connection: AwsConnection = {
+      providerId: 'aws',
       kind: 'profile',
       sessionId: `profile:${sourceProfile}`,
       label: sourceProfile,
+      profileId: sourceProfile,
+      locationId: draft.defaultRegion || connectionState.region,
       profile: sourceProfile,
       region: draft.defaultRegion || connectionState.region
     }

@@ -130,9 +130,12 @@ function createBaseCredentials(profile: string) {
 
 export function createBaseConnection(profile: string, region: string): AwsConnection {
   return {
+    providerId: 'aws',
     kind: 'profile',
     sessionId: `profile:${profile}`,
     label: profile,
+    profileId: profile,
+    locationId: normalizeRegion(region),
     profile,
     region: normalizeRegion(region)
   }
@@ -252,9 +255,12 @@ export function createConnectionFromSession(sessionId: string, region?: string):
   }
 
   return {
+    providerId: 'aws',
     kind: 'assumed-role',
     sessionId: session.id,
     label: session.label,
+    profileId: session.sourceProfile,
+    locationId: normalizeRegion(region ?? session.region),
     profile: session.sourceProfile,
     sourceProfile: session.sourceProfile,
     region: normalizeRegion(region ?? session.region),

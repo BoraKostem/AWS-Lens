@@ -1,16 +1,47 @@
 /* ── AWS ──────────────────────────────────────────────────── */
 
-export type AwsProfile = {
-  name: string
-  source: 'config' | 'credentials'
-  region: string
+export type ProviderProfileSource = string
+
+export type ProviderProfileState = 'available' | 'connected' | 'expired'
+
+export type ProviderProfileRecord<TSource extends ProviderProfileSource = ProviderProfileSource> = {
+  providerId: CloudProviderId
+  id: string
+  label: string
+  source: TSource
+  defaultLocationId: string
   managedByApp: boolean
 }
 
-export type AwsRegionOption = {
+export type ProviderLocationOption<TKind extends ProviderLocationKind = ProviderLocationKind> = {
+  providerId: CloudProviderId
   id: string
   name: string
+  kind: TKind
 }
+
+export type ProviderIdentity = {
+  providerId: CloudProviderId
+  accountId: string
+  principalArn: string
+  principalId: string
+}
+
+export type ProviderScopedConnection<TKind extends ProviderConnectionKind = ProviderConnectionKind> = {
+  providerId: CloudProviderId
+  kind: TKind
+  sessionId: string
+  label: string
+  profileId: string
+  locationId: string
+}
+
+export type AwsProfile = ProviderProfileRecord<'config' | 'credentials'> & {
+  name: string
+  region: string
+}
+
+export type AwsRegionOption = ProviderLocationOption<'region'>
 
 export type AwsCredentialSnapshot = {
   accessKeyId: string
@@ -31,18 +62,12 @@ export type AwsAssumeRoleTarget = {
   updatedAt: string
 }
 
-export type AwsBaseConnection = {
-  kind: 'profile'
-  sessionId: string
-  label: string
+export type AwsBaseConnection = ProviderScopedConnection<'profile'> & {
   profile: string
   region: string
 }
 
-export type AwsAssumedRoleConnection = {
-  kind: 'assumed-role'
-  sessionId: string
-  label: string
+export type AwsAssumedRoleConnection = ProviderScopedConnection<'assumed-role'> & {
   profile: string
   sourceProfile: string
   region: string
@@ -94,7 +119,7 @@ export type ProviderProfileDescriptor = {
   label: string
   source: string
   defaultLocationId: string
-  state: 'available' | 'connected' | 'expired'
+  state: ProviderProfileState
 }
 
 export type ProviderLocationDescriptor = {
@@ -311,7 +336,7 @@ export type AssumeRoleRequest = {
   region?: string
 }
 
-export type CallerIdentity = {
+export type CallerIdentity = ProviderIdentity & {
   account: string
   arn: string
   userId: string

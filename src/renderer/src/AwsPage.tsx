@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
+import {
+  toProviderConnectionDescriptor,
+  toProviderLocationDescriptor,
+  toProviderProfileDescriptor
+} from '@shared/providerAdapters'
 import type {
   AwsConnection,
   AwsProfile,
@@ -182,9 +187,12 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProf
     if (!region) return null
     if (activeSession) {
       return {
+        providerId: 'aws',
         kind: 'assumed-role',
         sessionId: activeSession.id,
         label: activeSession.label,
+        profileId: activeSession.profile,
+        locationId: region,
         profile: activeSession.profile,
         sourceProfile: activeSession.sourceProfile,
         region,
@@ -198,9 +206,12 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProf
     }
     if (!profile) return null
     return {
+      providerId: 'aws',
       kind: 'profile',
       sessionId: `profile:${profile}`,
       label: profile,
+      profileId: profile,
+      locationId: region,
       profile,
       region
     }
@@ -222,26 +233,12 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProf
   }, [pinnedProfileNames, profiles])
 
   const providerProfiles = useMemo<ProviderProfileDescriptor[]>(
-    () =>
-      profiles.map((entry) => ({
-        providerId: 'aws',
-        id: entry.name,
-        label: entry.name,
-        source: entry.source,
-        defaultLocationId: entry.region,
-        state: entry.name === profile ? 'connected' : 'available'
-      })),
+    () => profiles.map((entry) => toProviderProfileDescriptor(entry, entry.name === profile)),
     [profile, profiles]
   )
 
   const providerLocations = useMemo<ProviderLocationDescriptor[]>(
-    () =>
-      regions.map((entry) => ({
-        providerId: 'aws',
-        id: entry.id,
-        label: entry.name || entry.id,
-        kind: 'region'
-      })),
+    () => regions.map((entry) => toProviderLocationDescriptor(entry)),
     [regions]
   )
 
@@ -250,18 +247,7 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProf
       return null
     }
 
-    return {
-      providerId: 'aws',
-      kind: connection.kind,
-      sessionId: connection.sessionId,
-      label: connection.label,
-      profileId: connection.profile,
-      profileLabel: connection.profile,
-      sourceProfileId: 'sourceProfile' in connection ? connection.sourceProfile : undefined,
-      locationId: connection.region,
-      locationLabel: selectedRegion?.name || connection.region,
-      accountId: 'accountId' in connection ? connection.accountId : undefined
-    }
+    return toProviderConnectionDescriptor(connection, selectedRegion?.name || connection.region)
   }, [connection, selectedRegion])
 
   function togglePinnedProfile(name: string): void {
