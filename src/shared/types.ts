@@ -27,6 +27,28 @@ export type ProviderIdentity = {
   principalId: string
 }
 
+export type NormalizedActorScopeKind = 'account' | 'project' | 'subscription' | 'tenant'
+
+export type NormalizedActorIdentity = {
+  providerId: CloudProviderId
+  scopeKind: NormalizedActorScopeKind
+  scopeId: string
+  principalId: string
+  principalArn: string
+  displayName: string
+}
+
+export type NormalizedResourceIdentity = {
+  providerId: CloudProviderId
+  serviceId: ServiceId | ''
+  resourceType: string
+  canonicalType: string
+  identityKey: string
+  displayName: string
+  locationId: string
+  scopeId: string
+}
+
 export type ProviderScopedConnection<TKind extends ProviderConnectionKind = ProviderConnectionKind> = {
   providerId: CloudProviderId
   kind: TKind
@@ -192,6 +214,7 @@ export type ComparisonContextDescriptor = {
   accountId: string
   roleArn: string
   arn: string
+  normalizedIdentity: NormalizedActorIdentity
 }
 
 export type ComparisonRequest = {
@@ -238,9 +261,11 @@ export type ComparisonDetailField = {
 }
 
 export type ComparisonNavigationTarget = {
+  providerId: CloudProviderId
   serviceId: ServiceId
   region: string
   resourceLabel: string
+  identity?: NormalizedResourceIdentity
 }
 
 export type ComparisonDiffRow = {
@@ -254,6 +279,7 @@ export type ComparisonDiffRow = {
   serviceId: ServiceId
   resourceType: string
   identityKey: string
+  normalizedIdentity: NormalizedResourceIdentity
   focusModes: ComparisonFocusMode[]
   rationale: string
   left: ComparisonMetricSide

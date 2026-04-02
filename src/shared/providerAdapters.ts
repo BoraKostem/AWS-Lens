@@ -3,6 +3,7 @@ import type {
   AwsProfile,
   AwsRegionOption,
   CallerIdentity,
+  NormalizedActorIdentity,
   ProviderConnectionDescriptor,
   ProviderIdentity,
   ProviderLocationDescriptor,
@@ -53,5 +54,16 @@ export function toProviderIdentity(identity: CallerIdentity): ProviderIdentity {
     accountId: identity.accountId,
     principalArn: identity.principalArn,
     principalId: identity.principalId
+  }
+}
+
+export function toNormalizedActorIdentity(identity: CallerIdentity, displayName: string): NormalizedActorIdentity {
+  return {
+    providerId: identity.providerId,
+    scopeKind: 'account',
+    scopeId: identity.accountId,
+    principalId: identity.principalId,
+    principalArn: identity.principalArn,
+    displayName
   }
 }
