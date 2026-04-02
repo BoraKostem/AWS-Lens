@@ -5,13 +5,16 @@ import type {
   AwsConnection,
   CloudTrailEventSummary,
   CorrelatedSignalReference,
+  EksCommandHandoff,
   EksClusterDetail,
   EksClusterSummary,
   EksNodegroupSummary,
+  EksUpgradePlan,
   ObservabilityPostureReport
 } from '@shared/types'
 import {
   addEksToKubeconfig,
+  buildEksUpgradePlan,
   chooseEksKubeconfigPath,
   describeEksCluster,
   getEksObservabilityReport,
@@ -72,9 +75,16 @@ function truncate(value: string, max = 52): string {
 
 function statusTone(status: string): 'success' | 'warning' | 'danger' | 'info' {
   const s = status.toLowerCase()
-  if (s === 'active' || s === 'running' || s === 'successful') return 'success'
-  if (s === 'creating' || s === 'updating' || s === 'pending') return 'warning'
-  if (s.includes('delet') || s.includes('fail') || s.includes('degrad')) return 'danger'
+  if (s === 'active' || s === 'running' || s === 'successful' || s === 'ready' || s === 'aligned') return 'success'
+  if (s === 'creating' || s === 'updating' || s === 'pending' || s === 'warning' || s === 'supported-skew') return 'warning'
+  if (s === 'blocked' || s === 'unsupported-skew' || s.includes('delet') || s.includes('fail') || s.includes('degrad')) return 'danger'
+  return 'info'
+}
+
+function plannerTone(status: string): 'success' | 'warning' | 'danger' | 'info' {
+  if (status === 'ready' || status === 'aligned') return 'success'
+  if (status === 'warning' || status === 'supported-skew') return 'warning'
+  if (status === 'blocked' || status === 'unsupported-skew') return 'danger'
   return 'info'
 }
 
@@ -108,6 +118,10 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   return <div className="eks-kv-row"><div className="eks-kv-label">{label}</div><div className="eks-kv-value">{value || '-'}</div></div>
 }
 
+async function copyText(value: string): Promise<void> {
+  await navigator.clipboard.writeText(value)
+}
+
 export function EksConsole({
   connection,
   focusClusterName,
@@ -129,7 +143,7 @@ export function EksConsole({
   const [ngSearch, setNgSearch] = useState('')
   const [visibleNgCols, setVisibleNgCols] = useState<Set<NgCol>>(new Set(['name', 'status', 'min', 'desired', 'max', 'cpu7d', 'mem7d', 'recommendation', 'instanceTypes']))
   const [selectedNg, setSelectedNg] = useState('')
-  const [sideTab, setSideTab] = useState<'overview' | 'timeline' | 'lab'>('overview')
+  const [sideTab, setSideTab] = useState<'overview' | 'planner' | 'timeline' | 'lab'>('overview')
   const [showDescribe, setShowDescribe] = useState(false)
   const [showScale, setShowScale] = useState(false)
   const [scaleMin, setScaleMin] = useState('')
@@ -161,6 +175,11 @@ export function EksConsole({
   const [labReport, setLabReport] = useState<ObservabilityPostureReport | null>(null)
   const [labLoading, setLabLoading] = useState(false)
   const [labError, setLabError] = useState('')
+  const [upgradePlan, setUpgradePlan] = useState<EksUpgradePlan | null>(null)
+  const [plannerTargetVersion, setPlannerTargetVersion] = useState('')
+  const [plannerLoading, setPlannerLoading] = useState(false)
+  const [plannerError, setPlannerError] = useState('')
+  const [plannerCopiedCommandId, setPlannerCopiedCommandId] = useState('')
 
   const activeClusterCols = CLUSTER_COLUMNS.filter((column) => visibleClusterCols.has(column.key))
   const activeNgCols = NG_COLUMNS.filter((column) => visibleNgCols.has(column.key))
@@ -223,6 +242,10 @@ export function EksConsole({
     setKubeconfigErr('')
     setLabReport(null)
     setLabError('')
+    setUpgradePlan(null)
+    setPlannerError('')
+    setPlannerTargetVersion('')
+    setPlannerCopiedCommandId('')
     try {
       const [clusterDetail, clusterNodegroups] = await Promise.all([
         describeEksCluster(connection, name),
@@ -259,6 +282,34 @@ export function EksConsole({
   useEffect(() => {
     if (sideTab === 'timeline' && selectedCluster) void loadTimeline()
   }, [sideTab, selectedCluster, timelineStart, timelineEnd])
+
+  async function loadUpgradePlan(targetVersion = plannerTargetVersion): Promise<void> {
+    if (!selectedCluster) {
+      return
+    }
+
+    setPlannerLoading(true)
+    setPlannerError('')
+    try {
+      const plan = await buildEksUpgradePlan(connection, {
+        clusterName: selectedCluster,
+        targetVersion: targetVersion.trim() || undefined
+      })
+      setUpgradePlan(plan)
+      setPlannerTargetVersion(plan.suggestedTargetVersion)
+    } catch (e) {
+      setUpgradePlan(null)
+      setPlannerError(e instanceof Error ? e.message : 'Failed to build upgrade plan')
+    } finally {
+      setPlannerLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (sideTab !== 'planner' || !selectedCluster) return
+    if (upgradePlan?.clusterName === selectedCluster) return
+    void loadUpgradePlan()
+  }, [selectedCluster, sideTab, upgradePlan])
 
   async function loadLab() {
     if (!selectedCluster) return
@@ -362,6 +413,23 @@ export function EksConsole({
     }
   }
 
+  async function handleCopyPlannerCommand(handoff: EksCommandHandoff): Promise<void> {
+    try {
+      await copyText(handoff.command)
+      setPlannerCopiedCommandId(handoff.id)
+      window.setTimeout(() => {
+        setPlannerCopiedCommandId((current) => (current === handoff.id ? '' : current))
+      }, 1600)
+    } catch (e) {
+      setPlannerError(e instanceof Error ? e.message : 'Failed to copy command')
+    }
+  }
+
+  function handleRunPlannerCommand(handoff: EksCommandHandoff): void {
+    onRunTerminalCommand?.(handoff.command)
+    setMsg(`${handoff.label} command sent to the app terminal`)
+  }
+
   async function runTerminalCommand() {
     if (!terminalCmd.trim() || terminalBusy) return
     const cmd = terminalCmd.trim()
@@ -447,7 +515,7 @@ export function EksConsole({
         <div className="eks-shell-status">
           <div className="eks-status-card"><span>Inventory</span><strong>{loading ? 'Refreshing' : `${clusters.length} clusters loaded`}</strong></div>
           <div className="eks-status-card"><span>Selection</span><strong>{selectedCluster ? truncate(selectedCluster, 28) : 'Waiting for selection'}</strong></div>
-          <div className="eks-status-card"><span>Mode</span><strong>{sideTab === 'overview' ? 'Capacity review' : sideTab === 'timeline' ? 'Change timeline' : 'Resilience lab'}</strong></div>
+          <div className="eks-status-card"><span>Mode</span><strong>{sideTab === 'overview' ? 'Capacity review' : sideTab === 'planner' ? 'Upgrade planner' : sideTab === 'timeline' ? 'Change timeline' : 'Resilience lab'}</strong></div>
         </div>
       </div>
 
@@ -528,6 +596,7 @@ export function EksConsole({
 
               <div className="eks-detail-tabs">
                 <button className={sideTab === 'overview' ? 'active' : ''} type="button" onClick={() => setSideTab('overview')}>Overview</button>
+                <button className={sideTab === 'planner' ? 'active' : ''} type="button" onClick={() => setSideTab('planner')}>Upgrade planner</button>
                 <button className={sideTab === 'timeline' ? 'active' : ''} type="button" onClick={() => setSideTab('timeline')}>Change timeline</button>
                 <button className={sideTab === 'lab' ? 'active' : ''} type="button" onClick={() => setSideTab('lab')}>Resilience lab</button>
               </div>
@@ -648,6 +717,197 @@ export function EksConsole({
                       ) : <SvcState variant="empty" resourceName="nodegroup" compact />}
                     </aside>
                   </div>
+                </section>
+              )}
+              {sideTab === 'planner' && (
+                <section className="eks-section eks-planner-shell">
+                  <div className="eks-section-head">
+                    <div><span className="eks-section-kicker">Upgrade planner</span><h4>Read-only control-plane upgrade review</h4></div>
+                    <span className="eks-section-hint">Generate a target-version plan, nodegroup readiness summary, add-on compatibility view, and operator handoff commands.</span>
+                  </div>
+                  <div className="eks-planner-toolbar">
+                    <label>
+                      Target Kubernetes version
+                      <input
+                        value={plannerTargetVersion}
+                        onChange={(event) => setPlannerTargetVersion(event.target.value)}
+                        placeholder={detail.version === '-' ? '1.xx' : `${detail.version} -> next minor`}
+                      />
+                    </label>
+                    <button className="eks-toolbar-btn accent" type="button" disabled={plannerLoading} onClick={() => void loadUpgradePlan()}>
+                      {plannerLoading ? 'Building...' : 'Build plan'}
+                    </button>
+                  </div>
+                  {plannerError && <SvcState variant="error" error={plannerError} compact />}
+                  {plannerLoading && !upgradePlan && <SvcState variant="loading" resourceName="upgrade plan" compact />}
+                  {upgradePlan && (
+                    <>
+                      <section className="eks-planner-summary">
+                        <div className="eks-side-card">
+                          <div className="eks-section-head">
+                            <div><span className="eks-section-kicker">Plan summary</span><h4>{upgradePlan.clusterName}</h4></div>
+                            <StatusBadge status={upgradePlan.supportStatus} />
+                          </div>
+                          <div className="eks-side-card-grid">
+                            <MetricCard label="Current version" value={upgradePlan.currentClusterVersion} note="Current control-plane Kubernetes version" />
+                            <MetricCard label="Suggested target" value={upgradePlan.suggestedTargetVersion} note="Editable target for the next change window" tone={plannerTone(upgradePlan.supportStatus)} />
+                            <MetricCard label="Skew posture" value={upgradePlan.versionSkewStatus} note="Derived from current nodegroup version spread" tone={plannerTone(upgradePlan.versionSkewStatus)} />
+                            <MetricCard label="Generated" value={formatDateTime(upgradePlan.generatedAt)} note={`Profile ${upgradePlan.profile} in ${upgradePlan.region}`} />
+                          </div>
+                          <p className="eks-planner-lead">{upgradePlan.summary}</p>
+                          <div className="eks-mini-kv">
+                            <InfoRow label="Platform version" value={detail.platformVersion} />
+                            <InfoRow label="Health issues" value={detail.healthIssues.length ? detail.healthIssues.join(' | ') : 'None reported'} />
+                            <InfoRow label="Recent updates reviewed" value={String(upgradePlan.recentUpdates.length)} />
+                          </div>
+                        </div>
+                        <div className="eks-side-card">
+                          <div className="eks-section-head">
+                            <div><span className="eks-section-kicker">Warnings</span><h4>Preflight notes</h4></div>
+                          </div>
+                          {upgradePlan.warnings.length > 0 ? (
+                            <div className="eks-planner-list">
+                              {upgradePlan.warnings.map((warning) => (
+                                <div key={warning} className="eks-planner-list-item warning">
+                                  <span className="eks-planner-list-dot" />
+                                  <div>{warning}</div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <SvcState variant="empty" resourceName="planner warnings" compact />
+                          )}
+                        </div>
+                      </section>
+
+                      <section className="eks-section">
+                        <div className="eks-section-head">
+                          <div><span className="eks-section-kicker">Nodegroups</span><h4>Upgrade readiness</h4></div>
+                          <span className="eks-section-hint">Review skew, scaling posture, and rollout notes before changing the control plane.</span>
+                        </div>
+                        <div className="eks-planner-card-grid">
+                          {upgradePlan.nodegroups.map((nodegroup) => (
+                            <article key={nodegroup.nodegroupName} className="eks-planner-card">
+                              <div className="eks-project-row-top">
+                                <strong>{nodegroup.nodegroupName}</strong>
+                                <StatusBadge status={nodegroup.status} />
+                              </div>
+                              <div className="eks-planner-meta">
+                                <span>{`${nodegroup.currentVersion} -> ${nodegroup.targetVersion}`}</span>
+                              </div>
+                              <p>{nodegroup.detail}</p>
+                              <small>{nodegroup.recommendedAction}</small>
+                            </article>
+                          ))}
+                        </div>
+                      </section>
+
+                      <section className="eks-section">
+                        <div className="eks-section-head">
+                          <div><span className="eks-section-kicker">Managed add-ons</span><h4>Compatibility review</h4></div>
+                          <span className="eks-section-hint">Managed add-on versions are checked against the selected Kubernetes target version.</span>
+                        </div>
+                        <div className="eks-planner-card-grid">
+                          {upgradePlan.addonCompatibilities.map((addon) => (
+                            <article key={addon.addonName} className="eks-planner-card">
+                              <div className="eks-project-row-top">
+                                <strong>{addon.addonName}</strong>
+                                <StatusBadge status={addon.status} />
+                              </div>
+                              <div className="eks-planner-meta">
+                                <span>{`${addon.currentVersion} -> ${addon.targetVersion}`}</span>
+                              </div>
+                              <p>{addon.detail}</p>
+                            </article>
+                          ))}
+                        </div>
+                      </section>
+
+                      <div className="eks-planner-summary">
+                        <section className="eks-section">
+                          <div className="eks-section-head">
+                            <div><span className="eks-section-kicker">Checklist</span><h4>Maintenance window prep</h4></div>
+                          </div>
+                          <div className="eks-planner-list">
+                            {upgradePlan.maintenanceChecklist.map((item) => (
+                              <div key={item.id} className={`eks-planner-list-item ${item.status}`}>
+                                <span className="eks-planner-list-dot" />
+                                <div>
+                                  <strong>{item.title}</strong>
+                                  <p>{item.detail}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </section>
+                        <section className="eks-section">
+                          <div className="eks-section-head">
+                            <div><span className="eks-section-kicker">Rollback</span><h4>Operator notes</h4></div>
+                          </div>
+                          <div className="eks-planner-list">
+                            {upgradePlan.rollbackNotes.map((note) => (
+                              <div key={note} className="eks-planner-list-item">
+                                <span className="eks-planner-list-dot" />
+                                <div>{note}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </section>
+                      </div>
+
+                      <section className="eks-section">
+                        <div className="eks-section-head">
+                          <div><span className="eks-section-kicker">Recent updates</span><h4>Latest cluster events</h4></div>
+                        </div>
+                        {upgradePlan.recentUpdates.length === 0 ? (
+                          <SvcState variant="empty" resourceName="recent updates" compact />
+                        ) : (
+                          <div className="eks-table-shell eks-timeline-table-wrap">
+                            <table className="eks-timeline-table">
+                              <thead><tr><th>Update</th><th>Status</th><th>Type</th><th>Created</th></tr></thead>
+                              <tbody>
+                                {upgradePlan.recentUpdates.map((update) => (
+                                  <tr key={update.id}>
+                                    <td title={update.errors.join(' | ') || update.id}>{truncate(update.id, 28)}</td>
+                                    <td><StatusBadge status={update.status} /></td>
+                                    <td>{update.type}</td>
+                                    <td>{formatDateTime(update.createdAt)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </section>
+
+                      <section className="eks-section">
+                        <div className="eks-section-head">
+                          <div><span className="eks-section-kicker">Handoff commands</span><h4>AWS CLI and kubectl snippets</h4></div>
+                          <span className="eks-section-hint">These commands are shown for operator handoff only. This planner does not execute upgrades in-app.</span>
+                        </div>
+                        <div className="eks-planner-card-grid">
+                          {upgradePlan.commandHandoffs.map((handoff) => (
+                            <article key={handoff.id} className="eks-planner-card">
+                              <div className="eks-project-row-top">
+                                <strong>{handoff.label}</strong>
+                                <StatusBadge status={handoff.shell} />
+                              </div>
+                              <p>{handoff.description}</p>
+                              <pre className="eks-command-block"><code>{handoff.command}</code></pre>
+                              <div className="eks-inline-actions">
+                                <button className="eks-toolbar-btn" type="button" onClick={() => void handleCopyPlannerCommand(handoff)}>
+                                  {plannerCopiedCommandId === handoff.id ? 'Copied' : 'Copy command'}
+                                </button>
+                                <button className="eks-toolbar-btn" type="button" onClick={() => handleRunPlannerCommand(handoff)} disabled={!onRunTerminalCommand}>
+                                  Run in terminal
+                                </button>
+                              </div>
+                            </article>
+                          ))}
+                        </div>
+                      </section>
+                    </>
+                  )}
                 </section>
               )}
               {sideTab === 'timeline' && (

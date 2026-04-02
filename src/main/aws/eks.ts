@@ -6,10 +6,13 @@ import { promisify } from 'node:util'
 
 import {
   DeleteClusterCommand,
+  DescribeAddonCommand,
+  DescribeAddonVersionsCommand,
   DescribeClusterCommand,
   DescribeNodegroupCommand,
   DescribeUpdateCommand,
   EKSClient,
+  ListAddonsCommand,
   ListClustersCommand,
   ListNodegroupsCommand,
   ListUpdatesCommand,
@@ -57,6 +60,20 @@ export type EksMetricsSnapshot = {
   topPods: EksPodResourceUsage[]
   highCpuNodeCount: number
   highMemoryNodeCount: number
+}
+
+export type EksManagedAddonSummary = {
+  addonName: string
+  addonVersion: string
+  status: string
+}
+
+export type EksAddonVersionCompatibility = {
+  addonName: string
+  kubernetesVersion: string
+  recommendedVersion: string
+  compatibleVersions: string[]
+  defaultVersion: string
 }
 
 function createClient(connection: AwsConnection): EKSClient {
@@ -130,7 +147,10 @@ export async function describeEksCluster(
         ? Object.entries(raw.tags).map(([Key, Value]) => ({ Key, Value }))
         : []
     ),
-    oidcIssuer: raw?.identity?.oidc?.issuer ?? '-'
+    oidcIssuer: raw?.identity?.oidc?.issuer ?? '-',
+    healthIssues: (raw?.health?.issues ?? [])
+      .map((issue) => `${issue.code ?? 'Unknown'}${issue.message ? `: ${issue.message}` : ''}`)
+      .filter(Boolean)
   }
 }
 
@@ -157,7 +177,10 @@ export async function listEksNodegroups(
       min: nodegroup?.scalingConfig?.minSize ?? '-',
       desired: nodegroup?.scalingConfig?.desiredSize ?? '-',
       max: nodegroup?.scalingConfig?.maxSize ?? '-',
-      instanceTypes: nodegroup?.instanceTypes?.join(', ') || '-'
+      instanceTypes: nodegroup?.instanceTypes?.join(', ') || '-',
+      releaseVersion: nodegroup?.releaseVersion ?? '-',
+      capacityType: nodegroup?.capacityType ?? '-',
+      amiType: nodegroup?.amiType ?? '-'
     })
   }
 
@@ -218,6 +241,58 @@ export async function listEksUpdates(
 
   events.sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1))
   return events
+}
+
+export async function listEksAddons(
+  connection: AwsConnection,
+  clusterName: string
+): Promise<EksManagedAddonSummary[]> {
+  const client = createClient(connection)
+  const output = await client.send(new ListAddonsCommand({ clusterName }))
+  const addons: EksManagedAddonSummary[] = []
+
+  for (const addonName of output.addons ?? []) {
+    const detail = await client.send(new DescribeAddonCommand({ clusterName, addonName }))
+    addons.push({
+      addonName,
+      addonVersion: detail.addon?.addonVersion ?? '-',
+      status: detail.addon?.status ?? '-'
+    })
+  }
+
+  return addons.sort((left, right) => left.addonName.localeCompare(right.addonName))
+}
+
+export async function getEksAddonVersionCompatibility(
+  connection: AwsConnection,
+  addonName: string,
+  kubernetesVersion: string
+): Promise<EksAddonVersionCompatibility> {
+  const client = createClient(connection)
+  const output = await client.send(
+    new DescribeAddonVersionsCommand({
+      addonName,
+      kubernetesVersion
+    })
+  )
+
+  const addon = output.addons?.[0]
+  const versions = addon?.addonVersions ?? []
+  const compatibleVersions = versions
+    .map((version) => version.addonVersion ?? '')
+    .filter(Boolean)
+
+  const recommended = versions.find((version) =>
+    (version.compatibilities ?? []).some((compatibility) => compatibility.defaultVersion)
+  )
+
+  return {
+    addonName,
+    kubernetesVersion,
+    recommendedVersion: recommended?.addonVersion ?? compatibleVersions[0] ?? '-',
+    compatibleVersions,
+    defaultVersion: recommended?.addonVersion ?? '-'
+  }
 }
 
 export async function deleteEksCluster(connection: AwsConnection, clusterName: string): Promise<void> {

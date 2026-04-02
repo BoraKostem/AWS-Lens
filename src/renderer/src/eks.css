@@ -64,6 +64,7 @@
 .eks-shell-meta-strip,
 .eks-detail-meta-strip,
 .eks-toolbar,
+.eks-planner-toolbar,
 .eks-shell-status,
 .eks-column-chips,
 .eks-inline-actions,
@@ -290,6 +291,7 @@
 .eks-form-grid input,
 .eks-scale-form input,
 .eks-scale-form select,
+.eks-planner-toolbar input,
 .eks-timeline-controls input[type="date"],
 .eks-terminal-input-row input {
   background: #111820;
@@ -610,8 +612,136 @@
 .eks-form-grid input,
 .eks-scale-form input,
 .eks-scale-form select,
+.eks-planner-toolbar input,
 .eks-timeline-controls input[type="date"] {
   padding: 9px 10px;
+}
+
+.eks-planner-toolbar {
+  align-items: end;
+  margin-bottom: 12px;
+}
+
+.eks-planner-toolbar label {
+  display: flex;
+  min-width: 220px;
+  flex-direction: column;
+  gap: 4px;
+  color: #9ca7b7;
+  font-size: 11px;
+}
+
+.eks-planner-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.eks-planner-lead {
+  margin: 12px 0;
+  color: #dce8f5;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.eks-planner-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.eks-planner-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(145, 176, 207, 0.1);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(20, 29, 40, 0.96), rgba(11, 18, 28, 0.96));
+}
+
+.eks-planner-card p,
+.eks-planner-card small {
+  margin: 0;
+  color: #a6bbcf;
+  line-height: 1.45;
+}
+
+.eks-planner-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.eks-planner-meta span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(9, 16, 25, 0.7);
+  color: #a6bbcf;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.eks-planner-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.eks-planner-list-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid rgba(145, 176, 207, 0.1);
+  border-radius: 14px;
+  background: rgba(10, 16, 25, 0.74);
+  color: #dce8f5;
+}
+
+.eks-planner-list-item p,
+.eks-planner-list-item strong {
+  margin: 0;
+}
+
+.eks-planner-list-item.warning {
+  border-color: rgba(245, 154, 61, 0.22);
+}
+
+.eks-planner-list-item.ready {
+  border-color: rgba(89, 197, 140, 0.2);
+}
+
+.eks-planner-list-dot {
+  width: 10px;
+  height: 10px;
+  margin-top: 4px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  background: #4a8fe7;
+}
+
+.eks-planner-list-item.warning .eks-planner-list-dot {
+  background: #f59a3d;
+}
+
+.eks-planner-list-item.ready .eks-planner-list-dot {
+  background: #59c58c;
+}
+
+.eks-command-block {
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border-radius: 14px;
+  background: #0d1117;
+  color: #dce8f5;
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .eks-inline-error,
@@ -719,7 +849,8 @@
   .eks-shell-toolbar,
   .eks-shell-status,
   .eks-action-grid,
-  .eks-form-grid {
+  .eks-form-grid,
+  .eks-planner-summary {
     grid-template-columns: 1fr;
     flex-direction: column;
   }
@@ -733,7 +864,8 @@
 
   .eks-shell-hero-stats,
   .eks-detail-hero-stats,
-  .eks-side-card-grid {
+  .eks-side-card-grid,
+  .eks-planner-card-grid {
     grid-template-columns: 1fr;
   }
 }

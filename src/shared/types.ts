@@ -857,6 +857,7 @@ export type EksClusterDetail = {
   loggingEnabled: string[]
   tags: Record<string, string>
   oidcIssuer: string
+  healthIssues: string[]
 }
 
 export type EksNodegroupSummary = {
@@ -867,6 +868,9 @@ export type EksNodegroupSummary = {
   desired: number | string
   max: number | string
   instanceTypes: string
+  releaseVersion: string
+  capacityType: string
+  amiType: string
 }
 
 export type EksUpdateEvent = {
