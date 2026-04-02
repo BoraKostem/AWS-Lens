@@ -1116,7 +1116,7 @@ export function OverviewConsole({
         <div>
           <div className="eyebrow">Account Summary</div>
           <h2>Overview</h2>
-          <p className="hero-path">Regional summary landing page across AWS services.</p>
+          <p className="hero-path">Regional summary landing page across active provider services.</p>
         </div>
         {onBack && <button type="button" onClick={onBack}>Back</button>}
       </section>

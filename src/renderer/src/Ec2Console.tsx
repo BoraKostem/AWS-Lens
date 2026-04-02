@@ -1545,7 +1545,7 @@ export function Ec2Console({
           .split('\n')
           .map((line) => line.trim())
           .filter(Boolean),
-        comment: `${ssmCommandDocument} from AWS Lens`
+        comment: `${ssmCommandDocument} from the workspace shell`
       })
       setSsmCommandHistory((current) => ({
         ...current,

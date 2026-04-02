@@ -123,7 +123,7 @@ const SERVICE_CATEGORY_ORDER = [
 
 const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   terraform: 'Terraform project browser and command execution workspace.',
-  overview: 'Regional summary landing page across AWS services.',
+  overview: 'Regional summary landing page across active provider services.',
   'session-hub': 'Saved assume-role targets, active temporary sessions, activation, expiration, and cross-account comparison.',
   compare: 'Diff-oriented workspace for comparing two account or region contexts across inventory, posture, tags, and cost signals.',
   'compliance-center': 'Operational and security findings workspace with grouped policy checks and guided remediation.',
@@ -226,11 +226,11 @@ function ConnectedServiceScreen({
         <section className={hideHero ? 'empty-hero empty-hero-compact' : 'empty-hero'}>
           <div>
             <div className="eyebrow">{service.label}</div>
-            <h2>{service.label} needs an active AWS context</h2>
+            <h2>{service.label} needs an active provider context</h2>
             <SvcState
               variant="no-selection"
-              resourceName="profile"
-              message={`Select a profile from the catalog to open ${service.label}. ${SERVICE_DESCRIPTIONS[service.id]}`}
+              resourceName="provider profile"
+              message={`Select a provider profile from the catalog to open ${service.label}. ${SERVICE_DESCRIPTIONS[service.id]}`}
             />
           </div>
         </section>
@@ -669,8 +669,10 @@ export function App() {
       availability: 'available',
       profileLabel: 'Profile',
       locationLabel: 'Region',
-      connectionLabel: 'AWS profile or assumed role'
+      connectionLabel: 'Provider profile or active session'
     }
+  const providerProfileLabel = activeProvider.profileLabel.toLowerCase()
+  const providerLocationLabel = activeProvider.locationLabel.toLowerCase()
   const auditSummary = useMemo<AuditSummary>(() => ({
     total: auditEvents.length,
     blocked: auditEvents.filter((event) => event.outcome === 'blocked').length,
@@ -951,7 +953,7 @@ export function App() {
     function handleBlockedAction(event: Event): void {
       const detail = event instanceof CustomEvent && typeof event.detail === 'string'
         ? event.detail
-        : 'AWS Lens blocked the action because the app is in read-only mode.'
+        : 'The workspace blocked the action because the app is in read-only mode.'
       setGlobalWarning(detail)
     }
 
@@ -1065,7 +1067,7 @@ export function App() {
       const imported = await chooseAndImportConfig()
       if (imported.length > 0) {
         await connectionState.refreshProfiles()
-        setProfileActionMsg(`Imported ${imported.length} profile${imported.length === 1 ? '' : 's'} from AWS config`)
+        setProfileActionMsg(`Imported ${imported.length} profile${imported.length === 1 ? '' : 's'} from local config`)
       } else {
         setProfileActionMsg('No new profiles were imported')
       }
@@ -1095,7 +1097,7 @@ export function App() {
   }
 
   async function handleDeleteProfile(profileName: string): Promise<void> {
-    const confirmed = window.confirm(`Delete AWS profile "${profileName}" from AWS Lens local storage and related AWS config entries?`)
+    const confirmed = window.confirm(`Delete profile "${profileName}" from local app storage and related config entries?`)
     if (!confirmed) {
       return
     }
@@ -1134,7 +1136,7 @@ export function App() {
       setSettingsMessage(
         accessMode === 'operator'
           ? 'Operator mode enabled. Mutating actions and command execution are available.'
-          : 'Read-only mode enabled. AWS Lens will block mutating and command execution flows.'
+          : 'Read-only mode enabled. The workspace will block mutating and command execution flows.'
       )
     } catch (err) {
       setSettingsMessage(err instanceof Error ? err.message : String(err))
@@ -1293,7 +1295,7 @@ export function App() {
     try {
       const nextInfo = await installAppUpdate()
       setReleaseInfo(nextInfo)
-      setSettingsMessage('Closing AWS Lens to install the downloaded update.')
+      setSettingsMessage('Closing the app to install the downloaded update.')
     } catch (err) {
       setSettingsMessage(err instanceof Error ? err.message : String(err))
     }
@@ -1354,9 +1356,9 @@ export function App() {
     setEnvironmentOnboardingStepSafe(previousStep)
   }
 
-  let onboardingTitle = 'Connect a profile before you explore AWS workflows.'
-  let onboardingDescription = 'AWS Lens keeps one active account and region context across the shell, service consoles, and embedded terminal.'
-  let onboardingSummary = `Detected ${connectionState.profiles.length} local AWS profile${connectionState.profiles.length === 1 ? '' : 's'}. ${connectionState.selectedProfile?.name ? `Current selection: ${connectionState.selectedProfile.name}.` : 'No profile is selected yet.'}`
+  let onboardingTitle = `Connect a ${providerProfileLabel} before you explore workspace flows.`
+  let onboardingDescription = `The shell keeps one active ${providerProfileLabel} and ${providerLocationLabel} context across service workspaces and the embedded terminal.`
+  let onboardingSummary = `Detected ${connectionState.profiles.length} local ${providerProfileLabel}${connectionState.profiles.length === 1 ? '' : 's'}. ${connectionState.selectedProfile?.name ? `Current selection: ${connectionState.selectedProfile.name}.` : `No ${providerProfileLabel} is selected yet.`}`
   let onboardingPrimaryActionLabel = 'Open profile catalog'
   let onboardingPrimaryAction: (() => void) | null = () => setScreen('profiles')
   let onboardingSecondaryActionLabel = 'Continue here'
@@ -1364,9 +1366,9 @@ export function App() {
   let onboardingDetailContent: React.ReactNode = null
 
   if (environmentOnboardingStep === 'region') {
-    onboardingTitle = 'Confirm the region and launch defaults for this workspace.'
-    onboardingDescription = 'Region choice is global inside the shell. It affects overview, service consoles, direct access, compare, and assumed sessions.'
-    onboardingSummary = `Current region: ${connectionState.region}. Saved default: ${appSettings?.general.defaultRegion ?? 'us-east-1'}. Launch screen: ${appSettings?.general.launchScreen ?? 'profiles'}.`
+    onboardingTitle = `Confirm the ${providerLocationLabel} and launch defaults for this workspace.`
+    onboardingDescription = `${activeProvider.locationLabel} choice is global inside the shell. It affects overview, service consoles, direct access, compare, and assumed sessions.`
+    onboardingSummary = `Current ${providerLocationLabel}: ${connectionState.region}. Saved default: ${appSettings?.general.defaultRegion ?? 'us-east-1'}. Launch screen: ${appSettings?.general.launchScreen ?? 'profiles'}.`
     onboardingPrimaryActionLabel = 'Open settings'
     onboardingPrimaryAction = () => dismissEnvironmentOnboarding('settings')
     onboardingSecondaryActionLabel = 'Go to overview'
@@ -1387,7 +1389,7 @@ export function App() {
           <div className="settings-environment-row">
             <div>
               <strong>Saved startup defaults</strong>
-              <p>Settings already support default profile, default region, and launch screen. Use them if you want AWS Lens to boot into a predictable operator context.</p>
+              <p>Settings already support default profile, default region, and launch screen. Use them if you want the shell to boot into a predictable operator context.</p>
             </div>
             <div className="settings-environment-meta">
               <span className="settings-status-pill settings-status-pill-stable">{appSettings?.general.launchScreen ?? 'profiles'}</span>
@@ -1398,7 +1400,7 @@ export function App() {
     )
   } else if (environmentOnboardingStep === 'tooling') {
     onboardingTitle = 'Validate local tooling before operator flows start.'
-    onboardingDescription = 'AWS Lens depends on local CLIs and writable paths for shell actions, Terraform, EKS helpers, and support exports.'
+    onboardingDescription = 'The workspace depends on local CLIs and writable paths for shell actions, Terraform, helper flows, and support exports.'
     onboardingSummary = environmentHealth?.summary ?? 'Running environment checks for this machine.'
     onboardingPrimaryActionLabel = environmentBusy ? 'Refreshing...' : 'Run checks again'
     onboardingPrimaryAction = environmentBusy ? null : () => void handleRefreshEnvironmentHealth()
@@ -1444,7 +1446,7 @@ export function App() {
           ))}
           {!environmentHealth && (
             <div className="settings-release-notes">
-              <p>{environmentBusy ? 'Checking file-system access for local AWS Lens state.' : 'No permission report loaded yet.'}</p>
+              <p>{environmentBusy ? 'Checking file-system access for local app state.' : 'No permission report loaded yet.'}</p>
             </div>
           )}
         </section>
@@ -1452,10 +1454,10 @@ export function App() {
     )
   } else if (environmentOnboardingStep === 'access') {
     onboardingTitle = 'Choose the right operating mode before you mutate infrastructure.'
-    onboardingDescription = 'AWS Lens enforces read-only vs operator mode at the IPC boundary. The same rule applies to resource mutations, command execution, and Terraform state-changing actions.'
+    onboardingDescription = 'The workspace enforces read-only vs operator mode at the IPC boundary. The same rule applies to resource mutations, command execution, and Terraform state-changing actions.'
     onboardingSummary = enterpriseSettings.accessMode === 'operator'
       ? 'Operator mode is active. Mutating actions and terminal-backed workflows are enabled.'
-      : 'Read-only mode is active. AWS Lens will block writes and command execution until you switch modes.'
+      : 'Read-only mode is active. The workspace will block writes and command execution until you switch modes.'
     onboardingPrimaryActionLabel = 'Review security settings'
     onboardingPrimaryAction = () => dismissEnvironmentOnboarding('settings')
     onboardingSecondaryActionLabel = 'Open session hub'
@@ -1497,7 +1499,7 @@ export function App() {
           <div className="settings-environment-row">
             <div>
               <strong>Import or select a base profile</strong>
-              <p>Profiles are loaded from local AWS config files or created inside the app. The selected profile becomes the source context for overview, service consoles, Session Hub, and terminal flows.</p>
+              <p>Profiles are loaded from local config files or created inside the app. The selected profile becomes the source context for overview, service consoles, Session Hub, and terminal flows.</p>
             </div>
             <div className="settings-environment-meta">
               <code>{connectionState.profiles.length} discovered</code>
@@ -1515,7 +1517,7 @@ export function App() {
           <div className="settings-environment-row">
             <div>
               <strong>Current selection</strong>
-              <p>{connectionState.selectedProfile?.name ? `AWS Lens is currently scoped to ${connectionState.selectedProfile.name}.` : 'No profile is selected yet. Open the catalog and choose a base profile before loading service data.'}</p>
+              <p>{connectionState.selectedProfile?.name ? `The shell is currently scoped to ${connectionState.selectedProfile.name}.` : `No ${providerProfileLabel} is selected yet. Open the catalog and choose a base profile before loading service data.`}</p>
             </div>
             <div className="settings-environment-meta">
               <span className={`settings-status-pill settings-status-pill-${connectionState.selectedProfile ? 'stable' : 'unknown'}`}>{connectionState.selectedProfile ? 'selected' : 'pending'}</span>
@@ -1546,7 +1548,7 @@ export function App() {
               <div className="eyebrow">Profile Catalog</div>
               <h2>Switch accounts without losing context.</h2>
               <p className="hero-path">
-                Pinned profiles stay in the rail, region stays global, and every workspace uses the same active AWS context.
+                Pinned profiles stay in the rail, region stays global, and every workspace uses the same active provider context.
                 Security posture, audit history, and support exports now live in Settings.
               </p>
             </div>
@@ -1759,7 +1761,7 @@ export function App() {
             <section className="empty-hero">
               <div>
                 <div className="eyebrow">Access</div>
-                <h2>Direct resource access needs an active AWS context</h2>
+                <h2>Direct resource access needs an active provider context</h2>
                 <SvcState
                   variant="no-selection"
                   resourceName="profile"
@@ -2324,9 +2326,9 @@ export function App() {
           <span>
             {connectionState.connection
               ? connectionState.connection.kind === 'profile'
-                ? `AWS_PROFILE=${connectionState.connection.profile} · AWS_REGION=${connectionState.connection.region}`
-                : `SESSION=${connectionState.connection.label} · AWS_REGION=${connectionState.connection.region}`
-              : 'Select an AWS profile and region to enable CLI context.'}
+                ? `${activeProvider.profileLabel}=${connectionState.connection.profile} · ${activeProvider.locationLabel}=${connectionState.connection.region}`
+                : `Session=${connectionState.connection.label} · ${activeProvider.locationLabel}=${connectionState.connection.region}`
+              : `Select a ${providerProfileLabel} and ${providerLocationLabel} to enable CLI context.`}
           </span>
         </div>
         {enterpriseSettings.accessMode === 'operator' && (
@@ -2365,7 +2367,7 @@ export function App() {
               disabled={enterpriseSettings.accessMode !== 'operator'}
               onClick={() => void handleLoadAwsConfig()}
             >
-              Load AWS Config
+              Load local config
             </button>
             <button
               type="button"
@@ -2397,9 +2399,9 @@ export function App() {
       {showCatalogFab && fabMode === 'credentials' && (
         <div className="fab-modal-overlay" onClick={() => setFabMode('closed')}>
           <div className="fab-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="fab-modal-title">Add AWS Credentials</div>
+            <div className="fab-modal-title">Add Credentials</div>
             <p className="hero-path" style={{ marginTop: 0 }}>
-              Credentials added here are stored in the app&apos;s encrypted local vault instead of being written to <code>~/.aws/credentials</code>.
+              Credentials added here are stored in the app&apos;s encrypted local vault instead of being written to provider-specific local credential files.
             </p>
             <label className="field">
               <span>Profile Name</span>

@@ -882,7 +882,7 @@ export function EksConsole({
 
                       <section className="eks-section">
                         <div className="eks-section-head">
-                          <div><span className="eks-section-kicker">Handoff commands</span><h4>AWS CLI and kubectl snippets</h4></div>
+                          <div><span className="eks-section-kicker">Handoff commands</span><h4>CLI and kubectl snippets</h4></div>
                           <span className="eks-section-hint">These commands are shown for operator handoff only. This planner does not execute upgrades in-app.</span>
                         </div>
                         <div className="eks-planner-card-grid">

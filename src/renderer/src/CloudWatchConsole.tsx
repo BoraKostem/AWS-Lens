@@ -76,7 +76,7 @@ function serviceHintLabel(serviceHint: ServiceId | ''): string {
   if (serviceHint === 'ecs') return 'ECS'
   if (serviceHint === 'rds') return 'RDS'
   if (serviceHint === 'ec2') return 'EC2'
-  return 'AWS context'
+  return 'Current context'
 }
 
 function escapeRegex(value: string): string {
@@ -534,7 +534,7 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
               </div>
               <div className="cw-query-sidebar">
                 <div className="cw-query-card">
-                  <div className="cw-panel-head"><div><h3>Saved Queries</h3><p className="cw-chart-subtitle">One-click reruns from the current AWS context.</p></div></div>
+                  <div className="cw-panel-head"><div><h3>Saved Queries</h3><p className="cw-chart-subtitle">One-click reruns from the current active context.</p></div></div>
                   {savedQueries.length === 0 ? <div className="cw-table-hint">No saved queries yet.</div> : <div className="cw-query-list">{savedQueries.map((saved) => <div key={saved.id} className="cw-query-list-item"><div><strong>{saved.name}</strong><span>{saved.description || saved.logGroupNames.join(', ')}</span><small>Last run {saved.lastRunAt ? formatDateTime(saved.lastRunAt) : 'never'}</small></div><div className="cw-query-list-actions"><button type="button" className="cw-toggle" onClick={() => { setQueryDraft(saved.queryString); setSelectedQueryLogGroups(saved.logGroupNames); setQueryServiceHint(saved.serviceHint); setQuerySourceLabel(saved.name) }}>Load</button><button type="button" className="cw-expand-btn" onClick={() => void runQuery({ queryString: saved.queryString, logGroupNames: saved.logGroupNames, savedQueryId: saved.id, serviceHint: saved.serviceHint, sourceLabel: saved.name })}>Run</button><button type="button" className="cw-toggle" onClick={() => void deleteCloudWatchSavedQuery(saved.id).then(() => refreshQueryLibrary())}>Delete</button></div></div>)}</div>}
                 </div>
                 <div className="cw-query-card">

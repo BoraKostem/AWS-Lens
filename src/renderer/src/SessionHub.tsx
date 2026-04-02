@@ -452,7 +452,7 @@ export function SessionHub({
           <div className="eyebrow">Security</div>
           <h2>Cross-Account Session Hub</h2>
           <p>
-            Saved role targets persist locally. Temporary credentials stay in memory only and are never written into AWS config or credentials files.
+            Saved role targets persist locally. Temporary credentials stay in memory only and are never written into local config or credentials files.
           </p>
           <div className="session-hub-shell-meta-strip">
             <div className="session-hub-shell-meta-pill">
@@ -794,7 +794,7 @@ export function SessionHub({
           <article className="info-card">
             <div className="info-card__copy">
               <strong>Compare staging and production posture</strong>
-              <p>Assume or activate both contexts, launch Compare Workspace, and inspect posture or ownership differences without rewriting local AWS config.</p>
+              <p>Assume or activate both contexts, launch Compare Workspace, and inspect posture or ownership differences without rewriting local profile configuration.</p>
             </div>
           </article>
           <article className="info-card">

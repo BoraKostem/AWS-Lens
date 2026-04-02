@@ -245,7 +245,7 @@ export function SettingsPage({
     return (
       <>
         <SettingSection title="Startup">
-          <SettingRow label="Default profile" description="Select the profile AWS Lens should prefer when no manual profile is pinned.">
+          <SettingRow label="Default profile" description="Select the profile the shell should prefer when no manual profile is pinned.">
             <select
               value={generalDraft.defaultProfileName}
               onChange={(event) => setGeneralDraft((current) => ({ ...current, defaultProfileName: event.target.value }))}
@@ -410,7 +410,7 @@ export function SettingsPage({
     return (
       <>
         <SettingSection title="Default Tags">
-          <SettingRow label="Apply defaults automatically" description="When enabled, AWS Lens applies the saved Owner, Environment, Project, and CostCenter tags to supported EC2 workflows it creates.">
+          <SettingRow label="Apply defaults automatically" description="When enabled, the shell applies the saved Owner, Environment, Project, and CostCenter tags to supported EC2 workflows it creates.">
             <label className="settings-toggle">
               <input
                 type="checkbox"
@@ -867,11 +867,11 @@ export function SettingsPage({
 
           <CollapsibleInfoPanel title="Quick Help" className="settings-info-panel">
             <div className="settings-tab-section__body">
-              {activeTab === 'general' && <p>Set the default profile, region, and launch screen when you want AWS Lens to boot into a predictable operator context.</p>}
+              {activeTab === 'general' && <p>Set the default profile, region, and launch screen when you want the shell to boot into a predictable operator context.</p>}
               {activeTab === 'terminal' && <p>Terminal preferences control how the embedded shell opens after a session becomes active. Operator mode is still required for command execution.</p>}
-              {activeTab === 'refresh' && <p>Use refresh policy to decide whether heavy screens re-query automatically or only on demand. Conservative defaults reduce surprise AWS API traffic.</p>}
-              {activeTab === 'governance' && <p>Governance defaults define reusable ownership tags that AWS Lens can inherit into supported EC2 workflows and reapply from resource consoles.</p>}
-              {activeTab === 'toolchain' && <p>Toolchain settings define which local CLI AWS Lens should prefer and let you override executable paths when workstation PATH state is inconsistent.</p>}
+              {activeTab === 'refresh' && <p>Use refresh policy to decide whether heavy screens re-query automatically or only on demand. Conservative defaults reduce surprise provider API traffic.</p>}
+              {activeTab === 'governance' && <p>Governance defaults define reusable ownership tags that the shell can inherit into supported EC2 workflows and reapply from resource consoles.</p>}
+              {activeTab === 'toolchain' && <p>Toolchain settings define which local CLI the shell should prefer and let you override executable paths when workstation PATH state is inconsistent.</p>}
               {activeTab === 'updates' && <p>Update preferences let you pin stable versus preview behavior, check release state manually, and decide whether packages download automatically.</p>}
               {activeTab === 'security' && <p>Security is the operational control plane for workspace mode, vault inventory, secret handling, audit export, diagnostics export, and active session review.</p>}
             </div>

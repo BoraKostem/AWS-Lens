@@ -204,7 +204,7 @@ export function LambdaConsole({
         <div className="lambda-shell-hero-copy">
           <div className="eyebrow">Function authoring</div>
           <h2>Create Lambda Function</h2>
-          <p>Provision a new function in the current AWS context with the same operator-first visual system used by Terraform.</p>
+          <p>Provision a new function in the current active context with the same operator-first visual system used by Terraform.</p>
           <div className="lambda-shell-meta-strip">
             <div className="lambda-shell-meta-pill"><span>Connection</span><strong>{shellLabel(connection)}</strong></div>
             <div className="lambda-shell-meta-pill"><span>Region</span><strong>{connection.region}</strong></div>

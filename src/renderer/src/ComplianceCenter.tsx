@@ -223,7 +223,7 @@ export function ComplianceCenter({
           <div className="eyebrow">Compliance center</div>
           <h2>Operational findings workspace</h2>
           <p>
-            Review security, compliance, operations, and cost findings in one queue with guided remediation for the active AWS context.
+            Review security, compliance, operations, and cost findings in one queue with guided remediation for the active provider context.
           </p>
           <div className="tf-shell-meta-strip">
             <div className="tf-shell-meta-pill">
