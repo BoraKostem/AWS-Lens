@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
+import { LEGACY_STORAGE_NAMESPACE } from '@shared/branding'
 import {
   toProviderConnectionDescriptor,
   toProviderLocationDescriptor,
@@ -18,10 +19,10 @@ import type {
 } from '@shared/types'
 import { getCallerIdentity, getSessionHubState, listProfiles, listRegions } from './api'
 
-const PROFILE_STORAGE_KEY = 'aws-lens:selected-profile'
-const REGION_STORAGE_KEY = 'aws-lens:selected-region'
-const PINNED_PROFILES_STORAGE_KEY = 'aws-lens:pinned-profiles'
-const ACTIVE_SESSION_ID_STORAGE_KEY = 'aws-lens:active-session-id'
+const PROFILE_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:selected-profile`
+const REGION_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:selected-region`
+const PINNED_PROFILES_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:pinned-profiles`
+const ACTIVE_SESSION_ID_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:active-session-id`
 
 function readStoredValue(key: string, fallback: string): string {
   if (typeof window === 'undefined') {

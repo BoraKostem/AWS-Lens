@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { LEGACY_STORAGE_NAMESPACE } from '@shared/branding'
 import './terraform.css'
 import { CollapsibleInfoPanel } from './CollapsibleInfoPanel'
 import { SvcState, variantForError } from './SvcState'
@@ -252,7 +253,7 @@ function formatResourceTagsSummary(tags: string): string {
   }
 }
 
-const TF_UI_STORAGE_KEY = 'aws-lens:terraform-ui-state'
+const TF_UI_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:terraform-ui-state`
 
 type TerraformUiState = {
   selectedProjectByContext: Record<string, string>

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { LEGACY_STORAGE_NAMESPACE } from '@shared/branding'
 import './s3.css'
 import { SvcState, variantForError } from './SvcState'
 
@@ -217,9 +218,9 @@ function resolveBucketConnection(connection: AwsConnection, buckets: S3BucketSum
 }
 
 function bucketStorageKey(connection: AwsConnection): string {
-  return connection.kind === 'profile'
-    ? `aws-lens:s3-known-buckets:profile:${connection.profile}`
-    : `aws-lens:s3-known-buckets:assumed-role:${connection.profile}:${connection.roleArn}`
+    return connection.kind === 'profile'
+      ? `${LEGACY_STORAGE_NAMESPACE}:s3-known-buckets:profile:${connection.profile}`
+      : `${LEGACY_STORAGE_NAMESPACE}:s3-known-buckets:assumed-role:${connection.profile}:${connection.roleArn}`
 }
 
 function loadStoredBuckets(connection: AwsConnection): S3BucketSummary[] {

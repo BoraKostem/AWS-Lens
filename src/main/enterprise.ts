@@ -4,6 +4,7 @@ import path from 'node:path'
 
 import { app, dialog, type BrowserWindow } from 'electron'
 
+import { PRODUCT_BRAND_NAME, PRODUCT_BRAND_SLUG } from '@shared/branding'
 import type {
   AwsConnection,
   EnterpriseAccessMode,
@@ -445,7 +446,7 @@ export function setEnterpriseAccessMode(accessMode: EnterpriseAccessMode): Enter
 export function assertEnterpriseAccess(channel: string, args: unknown[]): EnterpriseSettings {
   const settings = readSettings()
   if (settings.accessMode !== 'operator' && isOperatorAction(channel, args)) {
-    throw new Error('AWS Lens is in read-only mode. Switch to operator mode to run mutating or command execution actions.')
+      throw new Error(`${PRODUCT_BRAND_NAME} is in read-only mode. Switch to operator mode to run mutating or command execution actions.`)
   }
 
   return settings
@@ -515,7 +516,7 @@ export async function exportEnterpriseAuditEvents(owner?: BrowserWindow | null):
   const rangeDays: 1 | 7 = scopeChoice.response === 1 ? 1 : 7
   const threshold = Date.now() - (rangeDays * MS_PER_DAY)
   const events = readAuditLog().filter((event) => new Date(event.happenedAt).getTime() >= threshold)
-  const defaultFileName = `aws-lens-audit-${rangeDays}d-${new Date().toISOString().slice(0, 10)}.json`
+  const defaultFileName = `${PRODUCT_BRAND_SLUG}-audit-${rangeDays}d-${new Date().toISOString().slice(0, 10)}.json`
   const result = owner
     ? await dialog.showSaveDialog(owner, {
         title: 'Export audit trail',

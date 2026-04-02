@@ -5,6 +5,7 @@ import path from 'node:path'
 import AdmZip from 'adm-zip'
 import { app, dialog, type BrowserWindow } from 'electron'
 
+import { PRODUCT_BRAND_SLUG } from '@shared/branding'
 import type { AppDiagnosticsExportResult } from '@shared/types'
 import { listEnterpriseAuditEvents } from './enterprise'
 import { listVaultEntries } from './localVault'
@@ -93,7 +94,7 @@ function buildManifest(logPath: string) {
 }
 
 function defaultBundleName(): string {
-  return `aws-lens-diagnostics-${new Date().toISOString().slice(0, 10)}.zip`
+  return `${PRODUCT_BRAND_SLUG}-diagnostics-${new Date().toISOString().slice(0, 10)}.zip`
 }
 
 export async function exportDiagnosticsBundle(owner?: BrowserWindow | null): Promise<AppDiagnosticsExportResult> {

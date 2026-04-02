@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { app } from 'electron'
 
+import { PRODUCT_BRAND_NAME } from '@shared/branding'
 import type { AwsProfile } from '@shared/types'
 import { deleteAwsProfileVaultSecret, getAwsProfileVaultSecret, listAwsProfileVaultSecrets, setAwsProfileVaultSecret } from '../localVault'
 import { readSecureJsonFile, writeSecureJsonFile } from '../secureJson'
@@ -273,7 +274,7 @@ export function deleteAwsProfile(profileName: string): void {
     throw new Error('Profile name is required.')
   }
   if (!isManualProfile(trimmed)) {
-    throw new Error('Only profiles created manually in AWS Lens can be deleted from the catalog.')
+      throw new Error(`Only profiles created manually in ${PRODUCT_BRAND_NAME} can be deleted from the catalog.`)
   }
 
   const awsDir = path.join(os.homedir(), '.aws')

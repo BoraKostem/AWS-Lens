@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import appLogoUrl from '../../../assets/aws-lens-logo.png'
+import {
+  LEGACY_BLOCKED_ACTION_EVENT,
+  LEGACY_STORAGE_NAMESPACE,
+  PRODUCT_BRAND_NAME
+} from '@shared/branding'
 import type {
   AppReleaseInfo,
   AppSecuritySummary,
@@ -99,8 +104,8 @@ type AuditSummary = {
   blocked: number
   failed: number
 }
-const PINNED_SERVICES_STORAGE_KEY = 'aws-lens:pinned-services'
-const ENVIRONMENT_ONBOARDING_STORAGE_KEY = 'aws-lens:environment-onboarding-v1'
+const PINNED_SERVICES_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:pinned-services`
+const ENVIRONMENT_ONBOARDING_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:environment-onboarding-v1`
 type EnvironmentOnboardingStep = 'profile' | 'region' | 'tooling' | 'access'
 type EnvironmentOnboardingState = {
   dismissed: boolean
@@ -314,9 +319,9 @@ function InitialLoadingScreen(): JSX.Element {
   return (
     <section className="initial-loading-shell" aria-live="polite" aria-busy="true">
       <div className="initial-loading-card">
-        <img src={appLogoUrl} alt="AWS Lens" className="initial-loading-logo" />
-        <div className="eyebrow">AWS Lens</div>
-        <h1>AWS Lens is loading</h1>
+        <img src={appLogoUrl} alt={PRODUCT_BRAND_NAME} className="initial-loading-logo" />
+        <div className="eyebrow">{PRODUCT_BRAND_NAME}</div>
+        <h1>{PRODUCT_BRAND_NAME} is loading</h1>
         <p>Initializing workspace shell, provider registry, settings, and service catalog.</p>
         <div className="initial-loading-progress" aria-hidden="true">
           <span />
@@ -957,8 +962,8 @@ export function App() {
       setGlobalWarning(detail)
     }
 
-    window.addEventListener('aws-lens:blocked-action', handleBlockedAction)
-    return () => window.removeEventListener('aws-lens:blocked-action', handleBlockedAction)
+    window.addEventListener(LEGACY_BLOCKED_ACTION_EVENT, handleBlockedAction)
+    return () => window.removeEventListener(LEGACY_BLOCKED_ACTION_EVENT, handleBlockedAction)
   }, [])
 
   useEffect(() => {
@@ -1850,7 +1855,7 @@ export function App() {
       <div className={`catalog-shell ${navOpen ? '' : 'nav-collapsed'}`}>
       <aside className="profile-rail">
         <button type="button" className={`rail-logo ${screen === 'settings' ? 'active' : ''}`} onClick={() => setScreen('settings')} aria-label="Open settings">
-          <img src={appLogoUrl} alt="AWS Lens" style={{ width: 28, height: 28, borderRadius: 6 }} />
+          <img src={appLogoUrl} alt={PRODUCT_BRAND_NAME} style={{ width: 28, height: 28, borderRadius: 6 }} />
         </button>
         <div className="rail-divider" />
         {connectionState.pinnedProfileNames.map((pinnedName) => (
@@ -1890,7 +1895,7 @@ export function App() {
               </span>
             </button>
             <div className="service-nav-title">
-              <h1>AWS Lens</h1>
+              <h1>{PRODUCT_BRAND_NAME}</h1>
               <span className="service-nav-provider-badge">{activeProvider.label}</span>
             </div>
             <div className="app-version-row service-nav-version-row">

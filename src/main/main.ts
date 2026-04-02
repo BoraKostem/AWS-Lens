@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage } from 'electron'
 
+import { LEGACY_APP_DATA_DIRECTORY, PRODUCT_BRAND_NAME } from '@shared/branding'
 import { hasPendingAwsCredentialActivity, waitForAwsCredentialActivity } from './aws/client'
 import { assertEnterpriseAccess, recordEnterpriseAuditEvent } from './enterprise'
 import { registerIpcHandlers } from './ipc'
@@ -21,7 +22,7 @@ function ensureDirectory(targetPath: string): void {
 
 function configureAppStoragePaths(): void {
   const appDataPath = app.getPath('appData')
-  const rootDataPath = path.join(appDataPath, 'aws-lens')
+  const rootDataPath = path.join(appDataPath, LEGACY_APP_DATA_DIRECTORY)
   const sessionDataPath = path.join(rootDataPath, 'session')
   const cachePath = path.join(sessionDataPath, 'Cache')
   const gpuCachePath = path.join(sessionDataPath, 'GPUCache')
@@ -181,7 +182,7 @@ function createWindow(): void {
   }
 
   mainWindow = new BrowserWindow({
-    title: 'AWS Lens',
+    title: PRODUCT_BRAND_NAME,
     icon: icon.isEmpty() ? undefined : icon,
     width: 1640,
     height: 1040,
