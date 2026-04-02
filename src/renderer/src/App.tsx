@@ -119,7 +119,20 @@ type ProviderConnectionMode = {
   status: 'Live now' | 'Phase 4 preview'
 }
 
-const NAV_HIDDEN_SERVICE_IDS = new Set<ServiceId>(['overview', 'session-hub', 'compare'])
+type ProviderPreviewNavItem = {
+  id: string
+  label: string
+  detail: string
+}
+
+type ProviderPreviewNavSection = {
+  id: string
+  label: string
+  items: ProviderPreviewNavItem[]
+}
+
+const NAV_PRIORITY_SERVICE_IDS: ServiceId[] = ['overview', 'session-hub']
+const NAV_SECTION_EXCLUDED_SERVICE_IDS = new Set<ServiceId>(NAV_PRIORITY_SERVICE_IDS)
 const ENVIRONMENT_ONBOARDING_STEPS: EnvironmentOnboardingStep[] = ['profile', 'region', 'tooling', 'access']
 const SERVICE_CATEGORY_ORDER = [
   'Infrastructure',
@@ -266,6 +279,61 @@ const PROVIDER_CONNECTION_MODES: Record<CloudProviderId, ProviderConnectionMode[
       label: 'CLI-assisted verification',
       detail: 'Reserve shell messaging for future device login, `az` validation, and scoped diagnostics.',
       status: 'Phase 4 preview'
+    }
+  ]
+}
+
+const PROVIDER_PREVIEW_NAV_SECTIONS: Record<Exclude<CloudProviderId, 'aws'>, ProviderPreviewNavSection[]> = {
+  gcp: [
+    {
+      id: 'gcp-compute',
+      label: 'Compute',
+      items: [
+        { id: 'gcp-compute-engine', label: 'Compute Engine', detail: 'Instance inventory and operator actions' },
+        { id: 'gcp-gke', label: 'GKE', detail: 'Cluster health, upgrades, and shell handoff' }
+      ]
+    },
+    {
+      id: 'gcp-data',
+      label: 'Data',
+      items: [
+        { id: 'gcp-cloud-storage', label: 'Cloud Storage', detail: 'Bucket and object operations' },
+        { id: 'gcp-cloud-sql', label: 'Cloud SQL', detail: 'Database posture and connection helpers' }
+      ]
+    },
+    {
+      id: 'gcp-ops',
+      label: 'Operations',
+      items: [
+        { id: 'gcp-logging', label: 'Logging', detail: 'Provider log workflows and presets' },
+        { id: 'gcp-billing', label: 'Billing Basics', detail: 'Project cost posture in shared overview flows' }
+      ]
+    }
+  ],
+  azure: [
+    {
+      id: 'azure-core',
+      label: 'Core',
+      items: [
+        { id: 'azure-resource-groups', label: 'Resource Groups', detail: 'Subscription inventory and grouping' },
+        { id: 'azure-vm', label: 'Virtual Machines', detail: 'VM operations and access context' }
+      ]
+    },
+    {
+      id: 'azure-platform',
+      label: 'Platform',
+      items: [
+        { id: 'azure-aks', label: 'AKS', detail: 'Cluster lifecycle and kubectl handoff' },
+        { id: 'azure-storage', label: 'Storage Accounts', detail: 'Storage posture and object workflows' }
+      ]
+    },
+    {
+      id: 'azure-ops',
+      label: 'Operations',
+      items: [
+        { id: 'azure-sql', label: 'Azure SQL', detail: 'Database inventory and connection helpers' },
+        { id: 'azure-monitor', label: 'Monitor', detail: 'Telemetry, alerts, and diagnostics posture' }
+      ]
     }
   ]
 }
@@ -780,14 +848,14 @@ export function App() {
   useEffect(() => {
     if (services.length === 0) return
     const validServiceIds = new Set(services.map((service) => service.id))
-    setPinnedServiceIds((current) => current.filter((serviceId) => validServiceIds.has(serviceId) && !NAV_HIDDEN_SERVICE_IDS.has(serviceId)))
+    setPinnedServiceIds((current) => current.filter((serviceId) => validServiceIds.has(serviceId) && !NAV_SECTION_EXCLUDED_SERVICE_IDS.has(serviceId)))
   }, [services])
 
   const pinnedServices = useMemo(() => {
     const serviceById = new Map(services.map((service) => [service.id, service]))
     return pinnedServiceIds
       .map((serviceId) => serviceById.get(serviceId) ?? null)
-      .filter((service): service is ServiceDescriptor => service !== null && !NAV_HIDDEN_SERVICE_IDS.has(service.id))
+      .filter((service): service is ServiceDescriptor => service !== null && !NAV_SECTION_EXCLUDED_SERVICE_IDS.has(service.id))
   }, [pinnedServiceIds, services])
 
   const activeProvider =
@@ -808,7 +876,7 @@ export function App() {
   const providerWorkspaceCount = workspaceCatalog?.providerWorkspaces.reduce((total, section) => total + section.items.length, 0) ?? 0
   const totalProfiles = isAwsProviderActive ? connectionState.profiles.length : activeProviderModes.length
   const totalPinnedProfiles = isAwsProviderActive ? connectionState.pinnedProfileNames.length : providerWorkspaceCount
-  const totalVisibleServices = services.filter((service) => !NAV_HIDDEN_SERVICE_IDS.has(service.id)).length
+  const totalVisibleServices = services.length
   const serviceNavEnabled = activeProvider.availability === 'available' && connectionState.connected
   const selectorPrimaryStatLabel = isAwsProviderActive ? 'Profiles' : 'Connection modes'
   const selectorSecondaryStatLabel = isAwsProviderActive ? 'Pinned' : 'Provider workspaces'
@@ -825,7 +893,7 @@ export function App() {
     return sections
       .map((section) => ({
         ...section,
-        items: section.items.filter((service) => !NAV_HIDDEN_SERVICE_IDS.has(service.id) && !pinnedIds.has(service.id))
+        items: section.items.filter((service) => !NAV_SECTION_EXCLUDED_SERVICE_IDS.has(service.id) && !pinnedIds.has(service.id))
       }))
       .filter((section) => section.items.length > 0)
   }
@@ -888,8 +956,10 @@ export function App() {
   const providerMetaLabel = isAwsProviderActive && connectionState.providerConnection
     ? `${activeProvider.locationLabel}: ${connectionState.providerConnection.locationLabel}`
     : activeProvider.connectionLabel
-  const overviewService = services.find((service) => service.id === 'overview')
-  const sessionHubService = services.find((service) => service.id === 'session-hub')
+  const navSharedServices = NAV_PRIORITY_SERVICE_IDS
+    .map((serviceId) => services.find((service) => service.id === serviceId) ?? null)
+    .filter((service): service is ServiceDescriptor => service !== null)
+  const previewProviderSections = activeProviderId === 'aws' ? [] : PROVIDER_PREVIEW_NAV_SECTIONS[activeProviderId]
   const activityLabel = awsActivity.pendingCount > 0
     ? `Fetching ${awsActivity.pendingCount} ${activeProvider.shortLabel} request${awsActivity.pendingCount === 1 ? '' : 's'}`
     : activeShellConnection
@@ -1049,6 +1119,57 @@ export function App() {
           onClick={() => togglePinnedService(service.id)}
         >
           {isPinned ? '★' : '☆'}
+        </button>
+      </div>
+    )
+  }
+
+  function renderNavPriorityLink(service: ServiceDescriptor) {
+    const isActive = screen === service.id
+    const detail = service.id === 'overview' && isAwsProviderActive
+      ? `${service.label} (${connectionState.region})`
+      : service.label
+
+    return (
+      <div key={service.id} className="service-link-row service-link-row-utility">
+        <button
+          type="button"
+          className={`service-link overview-link ${isActive ? 'active' : ''}`}
+          disabled={!serviceNavEnabled}
+          onClick={() => navigateToService(service.id)}
+        >
+          <span>{detail}</span>
+        </button>
+        <div className="pin-toggle pin-toggle-placeholder" aria-hidden="true" />
+      </div>
+    )
+  }
+
+  function renderDirectAccessLink() {
+    return (
+      <div className="service-link-row service-link-row-utility">
+        <button
+          type="button"
+          className={`service-link overview-link ${screen === 'direct-access' ? 'active' : ''}`}
+          disabled={!serviceNavEnabled}
+          onClick={() => setScreen('direct-access')}
+        >
+          <span>Direct Resource Access</span>
+        </button>
+        <div className="pin-toggle pin-toggle-placeholder" aria-hidden="true" />
+      </div>
+    )
+  }
+
+  function renderPreviewNavItem(item: ProviderPreviewNavItem) {
+    return (
+      <div key={item.id} className="service-link-row service-link-row-utility">
+        <button type="button" className="service-link provider-planned-link" disabled>
+          <span className="service-link-copy">
+            <strong>{item.label}</strong>
+            <small>{item.detail}</small>
+          </span>
+          <span className="service-link-badge">Preview</span>
         </button>
       </div>
     )
@@ -2217,6 +2338,10 @@ export function App() {
             <section className="service-group service-group-priority">
               <div className="service-group-title">Workspace</div>
               <div className="service-group-list">
+                {navSharedServices.map((service) => renderNavPriorityLink(service))}
+                {renderDirectAccessLink()}
+              </div>
+            </section>
             {pinnedServices.length > 0 && (
               <>
                 <section className="service-group">
@@ -2228,45 +2353,6 @@ export function App() {
                 <div className="service-nav-divider" aria-hidden="true" />
               </>
             )}
-            {overviewService && (
-              <div className="service-link-row service-link-row-utility">
-                <button
-                  type="button"
-                  className={`service-link overview-link ${screen === 'overview' ? 'active' : ''}`}
-                  disabled={!serviceNavEnabled}
-                  onClick={() => navigateToService('overview')}
-                >
-                  <span>{isAwsProviderActive ? `${overviewService.label} (${connectionState.region})` : overviewService.label}</span>
-                </button>
-                <div className="pin-toggle pin-toggle-placeholder" aria-hidden="true" />
-              </div>
-            )}
-            <div className="service-link-row service-link-row-utility">
-              <button
-                type="button"
-                className={`service-link overview-link ${screen === 'direct-access' ? 'active' : ''}`}
-                disabled={!serviceNavEnabled}
-                onClick={() => setScreen('direct-access')}
-              >
-                <span>Direct Resource Access</span>
-              </button>
-              <div className="pin-toggle pin-toggle-placeholder" aria-hidden="true" />
-            </div>
-            {sessionHubService && (
-              <div className="service-link-row service-link-row-utility">
-                <button
-                  type="button"
-                  className={`service-link overview-link ${screen === 'session-hub' ? 'active' : ''}`}
-                  disabled={!serviceNavEnabled}
-                  onClick={() => navigateToService('session-hub')}
-                >
-                  <span>{sessionHubService.label}</span>
-                </button>
-                <div className="pin-toggle pin-toggle-placeholder" aria-hidden="true" />
-              </div>
-            )}
-              </div>
-            </section>
             {sharedWorkspaceSections.map((section) => (
               <section key={section.id} className="service-group">
                 <div className="service-group-title">{section.label}</div>
@@ -2275,14 +2361,23 @@ export function App() {
                 </div>
               </section>
             ))}
-            {categorizedProviderSections.map((section) => (
-              <section key={section.id} className="service-group">
-                <div className="service-group-title">{section.label}</div>
-                <div className="service-group-list">
-                  {section.items.map((service) => renderServiceLink(service))}
-                </div>
-              </section>
-            ))}
+            {activeProviderId === 'aws'
+              ? categorizedProviderSections.map((section) => (
+                <section key={section.id} className="service-group">
+                  <div className="service-group-title">{section.label}</div>
+                  <div className="service-group-list">
+                    {section.items.map((service) => renderServiceLink(service))}
+                  </div>
+                </section>
+              ))
+              : previewProviderSections.map((section) => (
+                <section key={section.id} className="service-group">
+                  <div className="service-group-title">{section.label}</div>
+                  <div className="service-group-list">
+                    {section.items.map((item) => renderPreviewNavItem(item))}
+                  </div>
+                </section>
+              ))}
           </div>
         </div>
       </nav>
