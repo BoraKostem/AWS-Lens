@@ -512,6 +512,14 @@ export function App() {
     })
   }, [])
 
+  async function refreshSecuritySummary(): Promise<void> {
+    try {
+      setSecuritySummary(await getAppSecuritySummary())
+    } catch {
+      // Ignore summary refresh failures and keep the current shell state.
+    }
+  }
+
   useEffect(() => {
     if (!appSettings || launchScreenInitializedRef.current) {
       return
@@ -1017,6 +1025,7 @@ export function App() {
     try {
       await saveCredentials(credName, credKeyId, credSecret)
       await connectionState.refreshProfiles()
+      await refreshSecuritySummary()
       setCredName('')
       setCredKeyId('')
       setCredSecret('')
@@ -1050,6 +1059,7 @@ export function App() {
       }
 
       await connectionState.refreshProfiles()
+      await refreshSecuritySummary()
       setProfileActionMsg(`Profile "${profileName}" deleted`)
 
       if (screen !== 'profiles' && wasSelectedProfile) {
@@ -1597,6 +1607,7 @@ export function App() {
     if (targetScreen === 'settings') {
       return (
         <SettingsPage
+          isVisible={screen === 'settings'}
           appSettings={appSettings}
           profiles={connectionState.profiles}
           regions={connectionState.regions}

@@ -159,6 +159,7 @@ declare global {
       openPath: (targetPath: string) => Promise<unknown>
       chooseEc2SshKey: () => Promise<unknown>
       listEc2SshKeySuggestions: (preferredKeyName?: string) => Promise<unknown>
+      materializeEc2VaultSshKey: (entryId: string) => Promise<unknown>
       getEnterpriseSettings: () => Promise<unknown>
       setEnterpriseAccessMode: (accessMode: 'read-only' | 'operator') => Promise<unknown>
       listEnterpriseAuditEvents: () => Promise<unknown>

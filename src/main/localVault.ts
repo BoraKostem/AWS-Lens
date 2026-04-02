@@ -272,6 +272,11 @@ export function deleteVaultSecret(kind: VaultEntryKind, name: string): void {
   deleteEntry(kind, name)
 }
 
+export function getVaultEntrySummaryByKindAndName(kind: VaultEntryKind, name: string): VaultEntrySummary | null {
+  const entry = getEntry(kind, name)
+  return entry ? toSummary(entry) : null
+}
+
 export function listAwsProfileVaultSecrets(): string[] {
   return listVaultEntries('aws-profile').map((entry) => entry.name)
 }
@@ -296,9 +301,23 @@ export function getAwsProfileVaultSecret(profileName: string): AwsProfileVaultSe
   }
 }
 
-export function setAwsProfileVaultSecret(profileName: string, secret: AwsProfileVaultSecret): void {
-  setVaultSecret('aws-profile', profileName, JSON.stringify(secret), {
-    profileName: profileName.trim()
+export function setAwsProfileVaultSecret(
+  profileName: string,
+  secret: AwsProfileVaultSecret,
+  options?: {
+    origin?: VaultOrigin
+    rotationState?: VaultRotationState
+  }
+): void {
+  saveVaultEntry({
+    kind: 'aws-profile',
+    name: profileName.trim(),
+    secret: JSON.stringify(secret),
+    metadata: {
+      profileName: profileName.trim()
+    },
+    origin: options?.origin ?? 'manual',
+    rotationState: options?.rotationState ?? DEFAULT_ROTATION_STATE
   })
 }
 
@@ -377,10 +396,17 @@ export function setDbVaultCredential(input: DbVaultCredentialInput): DbVaultCred
     notes: input.notes.trim()
   }
 
-  setVaultSecret('db-credential', name, JSON.stringify(secret), {
-    usernameHint: secret.usernameHint,
-    engine: secret.engine,
-    notes: secret.notes
+  saveVaultEntry({
+    kind: 'db-credential',
+    name,
+    secret: JSON.stringify(secret),
+    metadata: {
+      usernameHint: secret.usernameHint,
+      engine: secret.engine,
+      notes: secret.notes
+    },
+    origin: 'manual',
+    rotationState: DEFAULT_ROTATION_STATE
   })
 
   const saved = listVaultEntries('db-credential').find((entry) => entry.name === name)
@@ -495,11 +521,26 @@ export function recordVaultEntryUse(input: VaultEntryUsageInput): VaultEntrySumm
 
   const nextEntry: VaultEntry = {
     ...entry,
-    updatedAt: usage.usedAt,
     lastUsedAt: usage.usedAt,
     lastUsedContext: usage
   }
 
   upsertEntry(nextEntry)
   return toSummary(nextEntry)
+}
+
+export function recordVaultEntryUseByKindAndName(
+  kind: VaultEntryKind,
+  name: string,
+  input: Omit<VaultEntryUsageInput, 'id'>
+): VaultEntrySummary | null {
+  const entry = getEntry(kind, name)
+  if (!entry) {
+    return null
+  }
+
+  return recordVaultEntryUse({
+    ...input,
+    id: entry.id
+  })
 }

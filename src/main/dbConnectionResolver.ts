@@ -5,7 +5,7 @@ import type {
   DbConnectionResolutionResult
 } from '@shared/types'
 import { getSecretValue } from './aws/secretsManager'
-import { getDbVaultCredentialSecret } from './localVault'
+import { getDbVaultCredentialSecret, recordVaultEntryUseByKindAndName } from './localVault'
 
 type ParsedSecretMaterial = {
   username: string
@@ -238,6 +238,14 @@ export async function resolveDbConnectionMaterial(
       port: null,
       databaseName: ''
     }
+
+    recordVaultEntryUseByKindAndName('db-credential', credentialSourceRef, {
+      source: 'rds-connection-helper',
+      profile: connection.profile,
+      region: connection.region,
+      resourceId: input.resourceId.trim(),
+      resourceLabel
+    })
   } else if (input.credentialSourceKind === 'aws-secrets-manager') {
     if (!credentialSourceRef) {
       throw new Error('Secrets Manager ARN or name is required.')

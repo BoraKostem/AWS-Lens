@@ -182,7 +182,7 @@ function migrateLegacyManualProfilesToVault(): void {
       continue
     }
 
-    setAwsProfileVaultSecret(profileName, { accessKeyId, secretAccessKey })
+    setAwsProfileVaultSecret(profileName, { accessKeyId, secretAccessKey }, { origin: 'imported-file' })
     mutated = true
   }
 
@@ -258,6 +258,8 @@ export function saveAwsCredentials(profileName: string, accessKeyId: string, sec
   setAwsProfileVaultSecret(trimmedProfileName, {
     accessKeyId: accessKeyId.trim(),
     secretAccessKey: secretAccessKey.trim()
+  }, {
+    origin: 'manual'
   })
   removeCredentialSection(credentialsPath, trimmedProfileName)
   markProfileAsManual(trimmedProfileName)

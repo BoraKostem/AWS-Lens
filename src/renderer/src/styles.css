@@ -5232,6 +5232,298 @@ button.overview-tile.clickable.active strong {
   border-color: rgba(255, 116, 116, 0.28);
 }
 
+.vault-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.vault-manager-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(180px, 0.9fr) repeat(3, auto);
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.vault-manager-toolbar input,
+.vault-manager-toolbar select {
+  min-height: 44px;
+}
+
+.vault-manager-shell {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.92fr) minmax(0, 1.5fr);
+  gap: 0.9rem;
+  align-items: start;
+}
+
+.vault-manager-list,
+.vault-manager-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.vault-manager-pane__title {
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #98a9bb;
+}
+
+.vault-manager-pane__subtitle {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #8ea3b8;
+}
+
+.vault-manager-list__items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  max-height: 760px;
+  overflow-y: auto;
+  padding-right: 0.2rem;
+}
+
+.vault-manager-entry {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+  width: 100%;
+  padding: 0.95rem 1rem;
+  border-radius: 16px;
+  border: 1px solid rgba(123, 146, 171, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+  color: inherit;
+  text-align: left;
+}
+
+.vault-manager-entry.active {
+  border-color: rgba(86, 164, 255, 0.34);
+  background:
+    linear-gradient(180deg, rgba(20, 36, 54, 0.96), rgba(11, 20, 31, 0.96)),
+    radial-gradient(circle at top left, rgba(82, 153, 255, 0.12), transparent 30%);
+  box-shadow: inset 0 0 0 1px rgba(86, 164, 255, 0.16);
+}
+
+.vault-manager-entry strong {
+  color: #eef4fb;
+  font-size: 0.96rem;
+}
+
+.vault-manager-entry > span {
+  color: #95a8bc;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  text-align: right;
+}
+
+.vault-manager-entry__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.34rem;
+}
+
+.vault-manager-entry__meta span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 0.6rem;
+  border-radius: 999px;
+  border: 1px solid rgba(123, 146, 171, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+  color: #cdd9e6;
+  font-size: 0.77rem;
+  font-weight: 600;
+}
+
+.vault-manager-empty,
+.vault-manager-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 1rem 1.05rem;
+  border-radius: 18px;
+  border: 1px solid rgba(132, 156, 188, 0.14);
+  background:
+    linear-gradient(180deg, rgba(16, 24, 36, 0.96), rgba(8, 14, 22, 0.96)),
+    radial-gradient(circle at top left, rgba(91, 154, 255, 0.08), transparent 28%);
+  box-shadow: 0 18px 40px rgba(6, 12, 20, 0.2);
+}
+
+.vault-manager-card-empty,
+.vault-manager-empty {
+  color: #9eb0c3;
+}
+
+.vault-manager-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.9rem;
+}
+
+.vault-manager-card__header h3 {
+  margin: 0;
+  color: #f3f7fc;
+  letter-spacing: -0.03em;
+}
+
+.vault-manager-card__header p {
+  margin: 0.22rem 0 0;
+  color: #99afc4;
+  line-height: 1.5;
+}
+
+.vault-manager-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.vault-manager-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.24rem;
+  padding: 0.85rem 0.9rem;
+  border-radius: 14px;
+  border: 1px solid rgba(123, 146, 171, 0.12);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.vault-manager-stat span {
+  color: #90a4bb;
+  font-size: 0.76rem;
+}
+
+.vault-manager-stat strong {
+  color: #eef4fb;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.vault-manager-secret pre {
+  margin: 0;
+  padding: 0.95rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(123, 146, 171, 0.12);
+  background: rgba(5, 11, 18, 0.92);
+  color: #dfeafb;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.vault-manager-metadata {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.vault-manager-metadata__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.vault-manager-metadata__row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 14px;
+  border: 1px solid rgba(123, 146, 171, 0.12);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.vault-manager-metadata__row span {
+  color: #90a4bb;
+  font-size: 0.82rem;
+}
+
+.vault-manager-metadata__row strong {
+  color: #eaf2fb;
+  text-align: right;
+  word-break: break-word;
+}
+
+.vault-manager-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.vault-manager-form-simple {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.vault-manager-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.vault-manager-form__field span {
+  color: #a5b6c8;
+  font-size: 0.83rem;
+  font-weight: 700;
+}
+
+.vault-manager-form__field-span-2 {
+  grid-column: 1 / -1;
+}
+
+.vault-manager-mode-toggle {
+  display: inline-flex;
+  gap: 0.55rem;
+}
+
+.vault-manager-import-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.7rem;
+  align-items: center;
+}
+
+.vault-manager-file-input {
+  display: none;
+}
+
+.vault-manager-import-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.9rem 0.95rem;
+  border-radius: 14px;
+  border: 1px solid rgba(123, 146, 171, 0.12);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.vault-manager-import-summary span {
+  color: #a5b6c8;
+}
+
+.vault-manager-import-summary strong {
+  color: #eef4fb;
+}
+
+.vault-manager-footnote {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  color: #90a4bb;
+  font-size: 0.82rem;
+}
+
 .settings-page-header {
   display: flex;
   align-items: flex-start;
@@ -7749,10 +8041,17 @@ textarea {
   .settings-refresh-form,
   .settings-toolchain-form,
   .settings-updates-form,
+  .vault-manager-shell,
+  .vault-manager-detail-grid,
+  .vault-manager-form,
   .settings-security-grid,
   .settings-info-grid,
   .settings-environment-grid,
   .environment-onboarding-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .vault-manager-toolbar {
     grid-template-columns: 1fr;
   }
 }
@@ -7771,6 +8070,24 @@ textarea {
 
   .settings-sidebar__item {
     min-height: 44px;
+  }
+
+  .vault-manager-card__header,
+  .vault-manager-entry,
+  .vault-manager-footnote,
+  .vault-manager-metadata__row,
+  .vault-manager-import-summary {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .vault-manager-entry > span,
+  .vault-manager-metadata__row strong {
+    text-align: left;
+  }
+
+  .vault-manager-import-row {
+    grid-template-columns: 1fr;
   }
 
   .settings-tab-actions,

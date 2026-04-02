@@ -4,6 +4,7 @@ import type {
   BastionConnectionInfo,
   BastionLaunchConfig,
   Ec2BulkInstanceAction,
+  Ec2ChosenSshKey,
   Ec2BulkInstanceActionResult,
   Ec2IamAssociation,
   Ec2InstanceAction,
@@ -43,12 +44,16 @@ function unwrap<T>(result: Wrapped<T>): T {
   return result.data
 }
 
-export async function chooseEc2SshKey(): Promise<string> {
-  return unwrap((await bridge().chooseEc2SshKey()) as Wrapped<string>)
+export async function chooseEc2SshKey(): Promise<Ec2ChosenSshKey | null> {
+  return unwrap((await bridge().chooseEc2SshKey()) as Wrapped<Ec2ChosenSshKey | null>)
 }
 
 export async function listEc2SshKeySuggestions(preferredKeyName?: string): Promise<Ec2SshKeySuggestion[]> {
   return unwrap((await bridge().listEc2SshKeySuggestions(preferredKeyName)) as Wrapped<Ec2SshKeySuggestion[]>)
+}
+
+export async function materializeEc2VaultSshKey(entryId: string): Promise<string> {
+  return unwrap((await bridge().materializeEc2VaultSshKey(entryId)) as Wrapped<string>)
 }
 
 export async function listEc2Instances(c: AwsConnection): Promise<Ec2InstanceSummary[]> {

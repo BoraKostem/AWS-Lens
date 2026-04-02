@@ -769,6 +769,11 @@
   font-size: 11px;
 }
 
+.ec2-connect-note {
+  color: #9ca7b7;
+  font-size: 11px;
+}
+
 .ec2-connect-btns {
   display: grid;
   grid-template-columns: 1fr 1fr;

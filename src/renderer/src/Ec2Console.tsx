@@ -31,9 +31,10 @@ import type {
   SsmManagedInstanceSummary,
   SsmPortForwardPreset,
   SsmSessionSummary,
-  SubnetSummary
+  SubnetSummary,
+  VaultEntrySummary
 } from '@shared/types'
-import { getGovernanceTagDefaults, listKeyPairs, listSecurityGroupsForVpc, listSubnets, lookupCloudTrailEventsByResource } from './api'
+import { getGovernanceTagDefaults, listKeyPairs, listSecurityGroupsForVpc, listSubnets, listVaultEntries, lookupCloudTrailEventsByResource, recordVaultEntryUse } from './api'
 import {
   attachEbsVolume,
   attachIamProfile,
@@ -64,6 +65,7 @@ import {
   listSsmManagedInstances,
   listSsmSessions,
   modifyEbsVolume,
+  materializeEc2VaultSshKey,
   removeIamProfile,
   replaceIamProfile,
   resizeEc2Instance,
@@ -235,6 +237,26 @@ function formatVolumeSettings(volume: EbsVolumeSummary | EbsVolumeDetail): strin
     parts.push(`${volume.throughput} MiB/s`)
   }
   return parts.join(' | ')
+}
+
+function isSshVaultEntry(entry: VaultEntrySummary): boolean {
+  return entry.kind === 'pem' || entry.kind === 'ssh-key'
+}
+
+function findSshVaultEntry(entries: VaultEntrySummary[], value: string, preferredId = ''): VaultEntrySummary | null {
+  const normalizedValue = value.trim().toLowerCase()
+  if (!normalizedValue) {
+    return null
+  }
+
+  if (preferredId) {
+    const preferred = entries.find((entry) => entry.id === preferredId)
+    if (preferred && preferred.name.trim().toLowerCase() === normalizedValue) {
+      return preferred
+    }
+  }
+
+  return entries.find((entry) => entry.name.trim().toLowerCase() === normalizedValue) ?? null
 }
 
 function KV({ items }: { items: Array<[string, string]> }) {
@@ -417,6 +439,10 @@ export function Ec2Console({
   const [iamName, setIamName] = useState('')
   const [sshUser, setSshUser] = useState('ec2-user')
   const [sshKey, setSshKey] = useState('')
+  const [sshVaultEntryId, setSshVaultEntryId] = useState('')
+  const [sshVaultEntryName, setSshVaultEntryName] = useState('')
+  const [sshVaultEntries, setSshVaultEntries] = useState<VaultEntrySummary[]>([])
+  const [sshVaultEntriesLoading, setSshVaultEntriesLoading] = useState(false)
   const [sshSuggestions, setSshSuggestions] = useState<Ec2SshKeySuggestion[]>([])
   const [sshSuggestionsLoading, setSshSuggestionsLoading] = useState(false)
   const [governanceDefaults, setGovernanceDefaults] = useState<GovernanceTagDefaults | null>(null)
@@ -491,6 +517,25 @@ export function Ec2Console({
     const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().slice(0, 10)
   })
   const [timelineEnd, setTimelineEnd] = useState(() => new Date().toISOString().slice(0, 10))
+
+  async function loadSshVaultEntries(): Promise<void> {
+    setSshVaultEntriesLoading(true)
+    try {
+      const entries = await listVaultEntries()
+      setSshVaultEntries(entries.filter(isSshVaultEntry).sort((left, right) => left.name.localeCompare(right.name)))
+    } catch {
+      setSshVaultEntries([])
+    } finally {
+      setSshVaultEntriesLoading(false)
+    }
+  }
+
+  function applySshKeyInput(nextValue: string, preferredVaultId = ''): void {
+    const matchedVaultEntry = findSshVaultEntry(sshVaultEntries, nextValue, preferredVaultId)
+    setSshKey(nextValue)
+    setSshVaultEntryId(matchedVaultEntry?.id ?? '')
+    setSshVaultEntryName(matchedVaultEntry?.name ?? '')
+  }
 
   async function loadTimeline(instanceId: string) {
     if (!instanceId) return
@@ -647,6 +692,23 @@ export function Ec2Console({
         setGovernanceDefaults(null)
       })
   }, [connection.sessionId])
+
+  useEffect(() => {
+    void loadSshVaultEntries()
+  }, [refreshNonce])
+
+  useEffect(() => {
+    const matchedVaultEntry = findSshVaultEntry(sshVaultEntries, sshKey, sshVaultEntryId)
+    const nextId = matchedVaultEntry?.id ?? ''
+    const nextName = matchedVaultEntry?.name ?? ''
+
+    if (nextId !== sshVaultEntryId) {
+      setSshVaultEntryId(nextId)
+    }
+    if (nextName !== sshVaultEntryName) {
+      setSshVaultEntryName(nextName)
+    }
+  }, [sshKey, sshVaultEntries, sshVaultEntryId, sshVaultEntryName])
 
   useEffect(() => {
     const preferredKeyName = detail?.keyName?.trim()
@@ -1310,22 +1372,92 @@ export function Ec2Console({
     await reload()
   }
 
+  async function resolveCurrentSshKeyInput(): Promise<{ value: string; vaultEntryId: string; vaultEntryName: string }> {
+    const trimmedValue = sshKey.trim()
+    if (!trimmedValue) {
+      throw new Error('Provide a PEM key path, vault key name, or public key.')
+    }
+
+    const matchedVaultEntry = findSshVaultEntry(sshVaultEntries, trimmedValue, sshVaultEntryId)
+    if (!matchedVaultEntry) {
+      return {
+        value: trimmedValue,
+        vaultEntryId: '',
+        vaultEntryName: ''
+      }
+    }
+
+    const materializedKeyPath = await materializeEc2VaultSshKey(matchedVaultEntry.id)
+    setSshVaultEntryId(matchedVaultEntry.id)
+    setSshVaultEntryName(matchedVaultEntry.name)
+
+    return {
+      value: materializedKeyPath,
+      vaultEntryId: matchedVaultEntry.id,
+      vaultEntryName: matchedVaultEntry.name
+    }
+  }
+
   async function doSendKey() {
     if (!selectedId || !sshKey || !detail) return
     await runEc2Mutation(async () => {
-      const ok = await sendSshPublicKey(connection, selectedId, sshUser, sshKey, detail.availabilityZone)
+      const resolvedKey = await resolveCurrentSshKeyInput()
+      await markSelectedPemUsed('ec2-instance-connect', resolvedKey.vaultEntryId)
+      const ok = await sendSshPublicKey(connection, selectedId, sshUser, resolvedKey.value, detail.availabilityZone)
       setMsg(ok ? 'Public key sent (valid 60s)' : 'Failed to send key')
     })
   }
 
+  async function doSshConnect() {
+    if (!detail || !onRunTerminalCommand) {
+      return
+    }
+
+    try {
+      const resolvedKey = await resolveCurrentSshKeyInput()
+      await markSelectedPemUsed('ec2-ssh-connect', resolvedKey.vaultEntryId)
+      const sshTarget = detail.publicIp !== '-' ? detail.publicIp : detail.privateIp
+      onRunTerminalCommand(`ssh -i ${quoteSshArg(resolvedKey.value)} ${sshUser}@${sshTarget}`)
+      setMsg(
+        resolvedKey.vaultEntryName
+          ? `SSH command opened in terminal using vault key ${resolvedKey.vaultEntryName}`
+          : 'SSH command opened in terminal'
+      )
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : 'Failed to prepare SSH command')
+    }
+  }
+
+  async function markSelectedPemUsed(source: string, entryId = sshVaultEntryId): Promise<void> {
+    if (!entryId) {
+      return
+    }
+
+    try {
+      await recordVaultEntryUse({
+        id: entryId,
+        source,
+        profile: connection.profile,
+        region: connection.region,
+        resourceId: selectedId,
+        resourceLabel: detail?.name && detail.name !== '-' ? detail.name : selectedId
+      })
+    } catch {
+      // Ignore vault usage telemetry failures during SSH workflows.
+    }
+  }
+
   async function handleBrowseSshKey() {
     try {
-      const selectedPath = await chooseEc2SshKey()
-      if (!selectedPath) {
+      const selectedKey = await chooseEc2SshKey()
+      if (!selectedKey) {
         return
       }
-      setSshKey(selectedPath)
-      setMsg(`Selected SSH key: ${selectedPath}`)
+      applySshKeyInput(selectedKey.vaultEntryName, selectedKey.vaultEntryId)
+      setSshVaultEntryId(selectedKey.vaultEntryId)
+      setSshVaultEntryName(selectedKey.vaultEntryName)
+      await loadSshVaultEntries()
+      setMsg(`Selected SSH key: ${selectedKey.originalPath} | Vault: ${selectedKey.vaultEntryName}`)
     } catch (err) {
       setMsg(err instanceof Error ? err.message : 'Failed to choose SSH key')
     }
@@ -1517,10 +1649,6 @@ export function Ec2Console({
   const stoppedInstancesCount = instances.filter((instance) => instance.state === 'stopped').length
   const orphanVolumeCount = volumes.filter((volume) => volume.status === 'available-orphan').length
   const snapshotReadyCount = snapshots.filter((snapshot) => snapshot.state === 'completed').length
-  const primarySshSuggestion = sshSuggestions.find((suggestion) => suggestion.keyNameMatch && suggestion.hasPublicKey)
-    ?? sshSuggestions.find((suggestion) => suggestion.hasPublicKey)
-    ?? sshSuggestions[0]
-  const activeSshKeyPath = sshKey || primarySshSuggestion?.privateKeyPath || (detail?.keyName ? `~/.ssh/${detail.keyName}.pem` : '')
   const heroStats = mainTab === 'instances'
     ? [
         { label: 'Fleet', value: String(instances.length), detail: `${runningInstancesCount} running / ${stoppedInstancesCount} stopped`, tone: 'accent' },
@@ -1550,10 +1678,6 @@ export function Ec2Console({
           { label: 'Source Volume', value: selectedSnap?.volumeId || '-', detail: selectedSnap ? selectedSnap.progress : 'launch and tag workflows preserved', tone: 'info' },
           { label: 'Session', value: connection.kind === 'assumed-role' ? 'Assumed role' : 'Profile session', detail: connection.profile, tone: 'default' }
         ]
-
-  const sshCmd = detail
-    ? `ssh -i ${quoteSshArg(activeSshKeyPath)} ${sshUser}@${detail.publicIp !== '-' ? detail.publicIp : detail.privateIp}`
-    : ''
 
   if (loading) return <SvcState variant="loading" resourceName="EC2" />
 
@@ -2051,9 +2175,40 @@ export function Ec2Console({
                         <span className="ec2-connect-label">PEM key</span>
                         <div className="ec2-connect-field">
                           <div className="ec2-pem-row">
-                            <input value={sshKey} onChange={e => setSshKey(e.target.value)} placeholder="path or public key" />
+                            <input
+                              list="ec2-ssh-vault-options"
+                              value={sshKey}
+                              onChange={(e) => applySshKeyInput(e.target.value, sshVaultEntryId)}
+                              placeholder="vault key name, path, or public key"
+                            />
+                            <datalist id="ec2-ssh-vault-options">
+                              {sshVaultEntries.map((entry) => (
+                                <option key={entry.id} value={entry.name}>
+                                  {entry.kind === 'pem' ? 'Vault PEM key' : 'Vault SSH key'}
+                                </option>
+                              ))}
+                            </datalist>
                             <button className="ec2-action-btn" type="button" onClick={() => void handleBrowseSshKey()}>Browse</button>
                           </div>
+                          {(sshVaultEntriesLoading || sshVaultEntries.length > 0) && (
+                            <div className="ec2-ssh-suggestions">
+                              {sshVaultEntriesLoading && <span className="ec2-ssh-suggestion-note">Loading vault keys...</span>}
+                              {sshVaultEntries.map((entry) => (
+                                <button
+                                  key={entry.id}
+                                  className={`ec2-ssh-suggestion ${sshVaultEntryId === entry.id ? 'active' : ''}`}
+                                  type="button"
+                                  onClick={() => applySshKeyInput(entry.name, entry.id)}
+                                >
+                                  <span>{entry.name}</span>
+                                  <span className="ec2-ssh-suggestion-note">
+                                    {entry.kind === 'pem' ? 'vault PEM key' : 'vault SSH key'}
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {sshVaultEntryName && <div className="ec2-connect-note">Vault entry: {sshVaultEntryName}</div>}
                           {(sshSuggestionsLoading || sshSuggestions.length > 0) && (
                             <div className="ec2-ssh-suggestions">
                               {sshSuggestionsLoading && <span className="ec2-ssh-suggestion-note">Scanning local SSH keys...</span>}
@@ -2062,7 +2217,7 @@ export function Ec2Console({
                                   key={suggestion.privateKeyPath}
                                   className={`ec2-ssh-suggestion ${sshKey === suggestion.privateKeyPath ? 'active' : ''}`}
                                   type="button"
-                                  onClick={() => setSshKey(suggestion.privateKeyPath)}
+                                  onClick={() => applySshKeyInput(suggestion.privateKeyPath)}
                                 >
                                   <span>{suggestion.label}</span>
                                   <span className="ec2-ssh-suggestion-note">
@@ -2084,10 +2239,7 @@ export function Ec2Console({
                         <button
                           className="ec2-action-btn ssh"
                           type="button"
-                          onClick={() => {
-                            onRunTerminalCommand?.(sshCmd)
-                            setMsg('SSH command opened in terminal')
-                          }}
+                          onClick={() => void doSshConnect()}
                         >SSH Connect</button>
                       </div>
                     </div>

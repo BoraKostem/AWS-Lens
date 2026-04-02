@@ -5,14 +5,14 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { dialog, ipcMain, shell, app, type BrowserWindow, type OpenDialogOptions } from 'electron'
 
-import type { AppSecuritySummary, AppSettings, AwsConnection, TerraformCommandRequest, TerraformInputConfiguration, TerraformRunHistoryFilter } from '@shared/types'
+import type { AppSecuritySummary, AppSettings, AwsConnection, Ec2ChosenSshKey, TerraformCommandRequest, TerraformInputConfiguration, TerraformRunHistoryFilter } from '@shared/types'
 import { getAppSettings, resetAppSettings, updateAppSettings } from './appSettings'
 import { importAwsConfigFile } from './aws/profiles'
 import { SERVICE_CATALOG } from './catalog'
 import { exportDiagnosticsBundle } from './diagnostics'
 import { getEnvironmentHealthReport } from './environment'
 import { exportEnterpriseAuditEvents, getEnterpriseSettings, listEnterpriseAuditEvents, setEnterpriseAccessMode } from './enterprise'
-import { getVaultEntryCounts } from './localVault'
+import { getVaultEntryCounts, listVaultEntries, revealVaultEntrySecret, saveVaultEntry } from './localVault'
 import { createHandlerWrapper, type OperationOptions } from './operations'
 import { checkForAppUpdates, downloadAppUpdate, getReleaseInfo, installAppUpdate } from './releaseCheck'
 import { getSelectedProjectId, setSelectedProjectId } from './store'
@@ -93,6 +93,77 @@ async function stageSshPrivateKey(sourcePath: string): Promise<string> {
   await lockDownPrivateKey(targetPath)
 
   return targetPath
+}
+
+async function stageVaultSshPrivateKey(entryId: string): Promise<string> {
+  const entry = listVaultEntries().find((candidate) => candidate.id === entryId)
+  if (!entry) {
+    throw new Error('Selected vault key could not be found.')
+  }
+  if (entry.kind !== 'pem' && entry.kind !== 'ssh-key') {
+    throw new Error('Selected vault entry is not an SSH private key.')
+  }
+
+  const secret = revealVaultEntrySecret(entry.id)
+  const extension = path.extname(entry.metadata.fileName || entry.name) || (entry.kind === 'pem' ? '.pem' : '.key')
+  const targetDir = path.join(app.getPath('temp'), 'aws-lens', 'ssh-keys')
+  const targetPath = path.join(targetDir, `${randomUUID()}${extension}`)
+
+  await fs.mkdir(targetDir, { recursive: true })
+  await fs.writeFile(targetPath, secret, 'utf8')
+
+  const publicKeyCandidates = [entry.metadata.sourcePath, entry.metadata.stagedPath]
+    .map((candidate) => candidate?.trim())
+    .filter((candidate): candidate is string => Boolean(candidate))
+    .map((candidate) => `${candidate}.pub`)
+
+  let publicKey = entry.metadata.publicKey?.trim() ?? ''
+  if (!publicKey) {
+    for (const candidatePath of publicKeyCandidates) {
+      publicKey = await fs.readFile(candidatePath, 'utf8').then((value) => value.trim()).catch(() => '')
+      if (publicKey) {
+        break
+      }
+    }
+  }
+
+  if (publicKey) {
+    await fs.writeFile(`${targetPath}.pub`, `${publicKey}\n`, 'utf8')
+  }
+
+  await lockDownPrivateKey(targetPath)
+  return targetPath
+}
+
+function inferSshVaultKind(filePath: string): 'pem' | 'ssh-key' {
+  return path.extname(filePath).toLowerCase() === '.pem' ? 'pem' : 'ssh-key'
+}
+
+async function importSshPrivateKeyToVault(sourcePath: string): Promise<Ec2ChosenSshKey> {
+  const stagedPath = await stageSshPrivateKey(sourcePath)
+  const content = await fs.readFile(sourcePath, 'utf8')
+  const baseName = path.basename(sourcePath)
+  const publicKey = await fs.readFile(`${sourcePath}.pub`, 'utf8').then((value) => value.trim()).catch(() => '')
+  const saved = saveVaultEntry({
+    kind: inferSshVaultKind(sourcePath),
+    name: baseName,
+    secret: content,
+    metadata: {
+      sourcePath,
+      stagedPath,
+      fileName: baseName,
+      publicKey
+    },
+    origin: 'imported-file',
+    rotationState: 'not-applicable'
+  })
+
+  return {
+    stagedPath,
+    originalPath: sourcePath,
+    vaultEntryId: saved.id,
+    vaultEntryName: saved.name
+  }
 }
 
 function normalizeKeyName(value: string): string {
@@ -234,7 +305,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       return result.canceled ? '' : result.filePaths[0] ?? ''
     })
   )
-  ipcMain.handle('ec2:ssh:choose-key', async () =>
+  ipcMain.handle('ec2:ssh:choose-key', async (): Promise<HandlerResult<Ec2ChosenSshKey | null>> =>
     wrap(async () => {
       const owner = getWindow()
       const dialogOptions: OpenDialogOptions = {
@@ -249,14 +320,17 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
         ? await dialog.showOpenDialog(owner, dialogOptions)
         : await dialog.showOpenDialog(dialogOptions)
       if (result.canceled || !result.filePaths[0]) {
-        return ''
+        return null
       }
 
-      return stageSshPrivateKey(result.filePaths[0])
+      return importSshPrivateKeyToVault(result.filePaths[0])
     })
   )
   ipcMain.handle('ec2:ssh:list-key-suggestions', async (_event, preferredKeyName?: string) =>
     wrap(() => listLocalSshKeySuggestions(preferredKeyName))
+  )
+  ipcMain.handle('ec2:ssh:materialize-vault-key', async (_event, entryId: string) =>
+    wrap(() => stageVaultSshPrivateKey(entryId))
   )
   ipcMain.handle('terraform:projects:add', async (_event, profileName: string, rootPath: string, connection?: AwsConnection) => wrap(() => addProject(profileName, rootPath, connection)))
   ipcMain.handle('terraform:projects:rename', async (_event, profileName: string, projectId: string, name: string) =>

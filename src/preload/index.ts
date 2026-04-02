@@ -228,6 +228,7 @@ const awsLensApi = {
   openPath: (targetPath: string) => ipcRenderer.invoke('shell:open-path', targetPath),
   chooseEc2SshKey: () => ipcRenderer.invoke('ec2:ssh:choose-key'),
   listEc2SshKeySuggestions: (preferredKeyName?: string) => ipcRenderer.invoke('ec2:ssh:list-key-suggestions', preferredKeyName),
+  materializeEc2VaultSshKey: (entryId: string) => ipcRenderer.invoke('ec2:ssh:materialize-vault-key', entryId),
   getEnterpriseSettings: () => ipcRenderer.invoke('enterprise:get-settings'),
   setEnterpriseAccessMode: (accessMode: 'read-only' | 'operator') => ipcRenderer.invoke('enterprise:set-access-mode', accessMode),
   listEnterpriseAuditEvents: () => ipcRenderer.invoke('enterprise:audit:list'),

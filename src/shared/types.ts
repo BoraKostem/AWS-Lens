@@ -595,6 +595,13 @@ export type Ec2SshKeySuggestion = {
   hasPublicKey: boolean
 }
 
+export type Ec2ChosenSshKey = {
+  stagedPath: string
+  originalPath: string
+  vaultEntryId: string
+  vaultEntryName: string
+}
+
 export type Ec2SnapshotSummary = {
   snapshotId: string
   volumeId: string
@@ -1231,6 +1238,13 @@ export type VaultEntryUsageInput = {
   region?: string
   resourceId?: string
   resourceLabel?: string
+}
+
+export type VaultImportSelection = {
+  filePath: string
+  fileName: string
+  content: string
+  suggestedKind: VaultEntryKind
 }
 
 export type DbVaultCredentialSummary = {

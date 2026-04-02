@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { CollapsibleInfoPanel } from './CollapsibleInfoPanel'
+import { VaultManagerPanel } from './VaultManagerPanel'
 
 import type {
   AppReleaseInfo,
@@ -20,6 +21,7 @@ import type {
 type SettingsTab = 'general' | 'terminal' | 'refresh' | 'governance' | 'toolchain' | 'updates' | 'security'
 
 type SettingsPageProps = {
+  isVisible: boolean
   appSettings: AppSettings | null
   profiles: AwsProfile[]
   regions: AwsRegionOption[]
@@ -142,6 +144,7 @@ function SettingRow({
 }
 
 export function SettingsPage({
+  isVisible,
   appSettings,
   profiles,
   regions,
@@ -753,18 +756,15 @@ export function SettingsPage({
           </SettingRow>
         </SettingSection>
 
-        <SettingSection title="Vault and Session State">
-          <SettingRow label="Vault entries" description="Counts of encrypted local secrets tracked by AWS Lens.">
-            <div className="settings-static-value">{securitySummary ? `${securitySummary.vaultEntryCounts.all} total` : 'Loading'}</div>
-          </SettingRow>
-          <SettingRow label="Breakdown">
-            <div className="settings-security-inline">
-              <span>AWS {securitySummary?.vaultEntryCounts.awsProfiles ?? '-'}</span>
-              <span>SSH {securitySummary?.vaultEntryCounts.sshKeys ?? '-'}</span>
-              <span>PEM {securitySummary?.vaultEntryCounts.pem ?? '-'}</span>
-              <span>Keys {securitySummary?.vaultEntryCounts.accessKeys ?? '-'}</span>
-            </div>
-          </SettingRow>
+        <SettingSection title="Vault Manager">
+          <VaultManagerPanel
+            active={isVisible && activeTab === 'security'}
+            accessMode={enterpriseSettings.accessMode}
+            securitySummary={securitySummary}
+          />
+        </SettingSection>
+
+        <SettingSection title="Session State">
           <SettingRow label="Active session" description={activeSessionLabel || 'No active session pinned.'}>
             <button type="button" disabled={!activeSessionLabel} onClick={onClearActiveSession}>
               {activeSessionLabel ? 'Clear active session' : 'No active session'}
@@ -873,7 +873,7 @@ export function SettingsPage({
               {activeTab === 'governance' && <p>Governance defaults define reusable ownership tags that AWS Lens can inherit into supported EC2 workflows and reapply from resource consoles.</p>}
               {activeTab === 'toolchain' && <p>Toolchain settings define which local CLI AWS Lens should prefer and let you override executable paths when workstation PATH state is inconsistent.</p>}
               {activeTab === 'updates' && <p>Update preferences let you pin stable versus preview behavior, check release state manually, and decide whether packages download automatically.</p>}
-              {activeTab === 'security' && <p>Security is the operational control plane for workspace mode, vault summary, audit export, diagnostics export, and active session review.</p>}
+              {activeTab === 'security' && <p>Security is the operational control plane for workspace mode, vault inventory, secret handling, audit export, diagnostics export, and active session review.</p>}
             </div>
           </CollapsibleInfoPanel>
 
