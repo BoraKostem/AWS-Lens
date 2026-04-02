@@ -149,11 +149,11 @@ button {
 
 button:hover {
   transform: translateY(-1px);
-  border-color: rgba(223, 105, 42, 0.5);
+  border-color: color-mix(in srgb, var(--accent, #df692a) 50%, transparent);
 }
 
 button.accent {
-  background: linear-gradient(135deg, #c45a1e, #f58540);
+  background: linear-gradient(135deg, var(--accent, #c45a1e), var(--accent-strong, #f58540));
   color: #1a0e06;
   border-color: transparent;
 }
@@ -4357,6 +4357,10 @@ button.overview-tile.clickable.active strong {
   --provider-accent-border-strong: rgba(255, 191, 115, 0.32);
   --provider-accent-glow: rgba(245, 154, 61, 0.12);
   --provider-accent-text: #ffc48c;
+  --accent: var(--provider-accent);
+  --accent-strong: var(--provider-accent-strong);
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--provider-accent) 34%, rgba(210, 220, 235, 0.18));
+  --scrollbar-thumb-active: color-mix(in srgb, var(--provider-accent-strong) 48%, rgba(210, 220, 235, 0.2));
   position: relative;
   height: 100vh;
   display: grid;
@@ -7443,6 +7447,36 @@ textarea {
   color: var(--provider-accent-strong);
 }
 
+.catalog-shell-frame .settings-status-pill-preview {
+  background: var(--provider-accent-soft-strong);
+  border-color: var(--provider-accent-border-strong);
+  color: var(--provider-accent-text);
+}
+
+.catalog-shell-frame .overview-tile:hover {
+  border-color: var(--provider-accent-border);
+}
+
+.catalog-shell-frame .overview-tile.highlight {
+  border-color: var(--provider-accent-border);
+  background:
+    radial-gradient(circle at top right, var(--provider-accent-glow), transparent 36%),
+    linear-gradient(180deg, rgba(35, 52, 42, 0.96), rgba(21, 33, 29, 0.96));
+}
+
+.catalog-shell-frame .overview-tile.highlight:hover {
+  border-color: var(--provider-accent-border-strong);
+}
+
+.catalog-shell-frame button.overview-tile.clickable:hover,
+.catalog-shell-frame button.overview-tile.clickable.active {
+  border-color: var(--provider-accent-border-strong);
+}
+
+.catalog-shell-frame .fab-button {
+  box-shadow: 0 6px 24px var(--provider-accent-glow);
+}
+
 .catalog-shell {
   grid-template-columns: 58px 232px minmax(0, 1fr);
   background:
@@ -7500,7 +7534,7 @@ textarea {
 .rail-actions button.active {
   background: linear-gradient(180deg, var(--provider-accent-soft-strong), rgba(18, 31, 46, 0.4));
   border-color: var(--provider-accent-border-strong);
-  color: #fff4e6;
+  color: var(--provider-accent-text);
 }
 
 .rail-actions button {
@@ -8395,7 +8429,7 @@ textarea {
   font-size: 0.92rem;
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: #fff0e2;
+  color: var(--provider-accent-text);
   background: linear-gradient(135deg, var(--provider-accent-soft-strong), rgba(18, 30, 44, 0.56));
   border: 1px solid var(--provider-accent-border);
 }
