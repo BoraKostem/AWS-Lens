@@ -38,6 +38,8 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
     terraformPathOverride: '',
     opentofuPathOverride: '',
     awsCliPathOverride: '',
+    gcloudPathOverride: '',
+    azureCliPathOverride: '',
     kubectlPathOverride: '',
     dockerPathOverride: ''
   },
@@ -172,6 +174,8 @@ function sanitizeToolchain(value: unknown): AppSettingsToolchain {
     terraformPathOverride: sanitizeString(raw.terraformPathOverride),
     opentofuPathOverride: sanitizeString(raw.opentofuPathOverride),
     awsCliPathOverride: sanitizeString(raw.awsCliPathOverride),
+    gcloudPathOverride: sanitizeString(raw.gcloudPathOverride),
+    azureCliPathOverride: sanitizeString(raw.azureCliPathOverride),
     kubectlPathOverride: sanitizeString(raw.kubectlPathOverride),
     dockerPathOverride: sanitizeString(raw.dockerPathOverride)
   }

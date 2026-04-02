@@ -214,6 +214,8 @@ export function SettingsPage({
     terraformPathOverride: '',
     opentofuPathOverride: '',
     awsCliPathOverride: '',
+    gcloudPathOverride: '',
+    azureCliPathOverride: '',
     kubectlPathOverride: '',
     dockerPathOverride: ''
   })
@@ -541,6 +543,22 @@ export function SettingsPage({
             <input
               value={toolchainDraft.awsCliPathOverride}
               onChange={(event) => setToolchainDraft((current) => ({ ...current, awsCliPathOverride: event.target.value }))}
+              placeholder="Optional executable path"
+              disabled={!appSettings || toolchainBusy}
+            />
+          </SettingRow>
+          <SettingRow label="Google Cloud CLI path override">
+            <input
+              value={toolchainDraft.gcloudPathOverride}
+              onChange={(event) => setToolchainDraft((current) => ({ ...current, gcloudPathOverride: event.target.value }))}
+              placeholder="Optional executable path"
+              disabled={!appSettings || toolchainBusy}
+            />
+          </SettingRow>
+          <SettingRow label="Azure CLI path override">
+            <input
+              value={toolchainDraft.azureCliPathOverride}
+              onChange={(event) => setToolchainDraft((current) => ({ ...current, azureCliPathOverride: event.target.value }))}
               placeholder="Optional executable path"
               disabled={!appSettings || toolchainBusy}
             />
@@ -879,7 +897,7 @@ export function SettingsPage({
               {activeTab === 'terminal' && <p>Terminal preferences control how the embedded shell opens after a session becomes active. Operator mode is still required for command execution.</p>}
               {activeTab === 'refresh' && <p>Use refresh policy to decide whether heavy screens re-query automatically or only on demand. Conservative defaults reduce surprise provider API traffic.</p>}
               {activeTab === 'governance' && <p>Governance defaults define reusable ownership tags that the shell can inherit into supported EC2 workflows and reapply from resource consoles.</p>}
-              {activeTab === 'toolchain' && <p>Toolchain settings define which local CLI the shell should prefer and let you override executable paths when workstation PATH state is inconsistent.</p>}
+              {activeTab === 'toolchain' && <p>Toolchain settings define which local CLI the shell should prefer and let you override Terraform, AWS, Google Cloud, and Azure executable paths when workstation PATH state is inconsistent.</p>}
               {activeTab === 'updates' && <p>Update preferences let you pin stable versus preview behavior, check release state manually, and decide whether packages download automatically.</p>}
               {activeTab === 'security' && <p>Security is the operational control plane for workspace mode, vault inventory, secret handling, audit export, diagnostics export, and active session review.</p>}
             </div>

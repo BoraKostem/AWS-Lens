@@ -27,6 +27,61 @@ type ToolProbeSpec = {
   detailWhenMissing: string
 }
 
+function listGoogleCloudCommandCandidates(): string[] {
+  if (process.platform === 'darwin') {
+    return [
+      'gcloud',
+      '/opt/homebrew/bin/gcloud',
+      '/usr/local/bin/gcloud'
+    ]
+  }
+
+  if (process.platform !== 'win32') {
+    return ['gcloud']
+  }
+
+  const localAppData = process.env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local')
+  const programFiles = process.env.ProgramFiles ?? 'C:\\Program Files'
+  const programFilesX86 = process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)'
+
+  return [
+    path.join(localAppData, 'Google', 'Cloud SDK', 'google-cloud-sdk', 'bin', 'gcloud.cmd'),
+    path.join(programFiles, 'Google', 'Cloud SDK', 'google-cloud-sdk', 'bin', 'gcloud.cmd'),
+    path.join(programFilesX86, 'Google', 'Cloud SDK', 'google-cloud-sdk', 'bin', 'gcloud.cmd'),
+    'C:\\ProgramData\\chocolatey\\lib\\gcloudsdk\\tools\\google-cloud-sdk\\bin\\gcloud.cmd',
+    'gcloud.cmd',
+    'gcloud.exe',
+    'gcloud'
+  ]
+}
+
+function listAzureCliCommandCandidates(): string[] {
+  if (process.platform === 'darwin') {
+    return [
+      'az',
+      '/opt/homebrew/bin/az',
+      '/usr/local/bin/az'
+    ]
+  }
+
+  if (process.platform !== 'win32') {
+    return ['az']
+  }
+
+  const localAppData = process.env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local')
+  const programFiles = process.env.ProgramFiles ?? 'C:\\Program Files'
+  const programFilesX86 = process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)'
+
+  return [
+    path.join(programFiles, 'Microsoft SDKs', 'Azure', 'CLI2', 'wbin', 'az.cmd'),
+    path.join(programFilesX86, 'Microsoft SDKs', 'Azure', 'CLI2', 'wbin', 'az.cmd'),
+    path.join(localAppData, 'Programs', 'Microsoft SDKs', 'Azure', 'CLI2', 'wbin', 'az.cmd'),
+    'az.cmd',
+    'az.exe',
+    'az'
+  ]
+}
+
 const TOOL_SPECS: ToolProbeSpec[] = [
   {
     id: 'aws-cli',
@@ -38,6 +93,28 @@ const TOOL_SPECS: ToolProbeSpec[] = [
     versionPattern: /aws-cli\/([^\s]+)/i,
     remediation: 'Install AWS CLI v2 and ensure the `aws` command is available on your PATH.',
     detailWhenMissing: 'AWS CLI is required for session flows, shell-based integrations, and several operator actions.'
+  },
+  {
+    id: 'gcloud-cli',
+    label: 'Google Cloud CLI',
+    required: false,
+    overrideId: 'gcloud-cli',
+    commands: listGoogleCloudCommandCandidates(),
+    versionArgs: ['--version'],
+    versionPattern: /Google Cloud SDK\s+([^\s]+)/i,
+    remediation: 'Install Google Cloud CLI if you want GCP shell flows, auth inspection, and project-scoped operator actions.',
+    detailWhenMissing: 'GCP terminal and project-aware operator workflows depend on a local gcloud installation.'
+  },
+  {
+    id: 'azure-cli',
+    label: 'Azure CLI',
+    required: false,
+    overrideId: 'azure-cli',
+    commands: listAzureCliCommandCandidates(),
+    versionArgs: ['version', '--output', 'json'],
+    versionPattern: /"azure-cli"\s*:\s*"([^"]+)"/i,
+    remediation: 'Install Azure CLI if you want Azure terminal flows, subscription inspection, and resource-group operator actions.',
+    detailWhenMissing: 'Azure terminal and subscription-scoped operator workflows depend on a local Azure CLI installation.'
   },
   {
     id: 'session-manager-plugin',
@@ -77,24 +154,112 @@ function summarizeOutput(stdout: string, stderr: string): string {
   return `${stdout}\n${stderr}`.trim()
 }
 
+function outputIndicatesMissingCommand(output: string): boolean {
+  const normalized = output.toLowerCase()
+  return normalized.includes('is not recognized as an internal or external command')
+    || normalized.includes('not found')
+    || normalized.includes('no such file or directory')
+ }
+
+function isWindowsBatchCommand(command: string): boolean {
+  if (process.platform !== 'win32') {
+    return false
+  }
+
+  const extension = path.extname(command.trim()).toLowerCase()
+  return extension === '.cmd' || extension === '.bat'
+}
+
+function buildProbeExecution(command: string, args: string[]): { command: string; args: string[] } {
+  if (!isWindowsBatchCommand(command)) {
+    return { command, args }
+  }
+
+  return {
+    command: 'cmd.exe',
+    args: ['/d', '/c', command, ...args]
+  }
+}
+
 function probeCommand(
   command: string,
   args: string[],
   env: Record<string, string>
 ): Promise<{ found: boolean; path: string; output: string }> {
   return new Promise((resolve) => {
-    execFile(command, args, { env, timeout: 12000, windowsHide: true }, async (error, stdout, stderr) => {
-      if (error) {
-        resolve({ found: false, path: '', output: '' })
+    if (!command.trim()) {
+      resolve({ found: false, path: '', output: '' })
+      return
+    }
+
+    let settled = false
+    let safetyTimer: NodeJS.Timeout | null = null
+    const finish = (result: { found: boolean; path: string; output: string }) => {
+      if (settled) {
         return
       }
 
-      resolve({
-        found: true,
-        path: await resolveExecutablePath(command, env),
-        output: summarizeOutput(stdout, stderr)
+      settled = true
+      if (safetyTimer) {
+        clearTimeout(safetyTimer)
+      }
+      resolve(result)
+    }
+
+    try {
+      const execution = buildProbeExecution(command, args)
+      const child = execFile(execution.command, execution.args, { env, timeout: 12000, windowsHide: true }, async (error, stdout, stderr) => {
+        const output = summarizeOutput(stdout, stderr)
+
+        if (error) {
+          const errorCode = typeof error === 'object' && error && 'code' in error ? String(error.code ?? '') : ''
+          const canTreatAsInstalled =
+            Boolean(output)
+            && errorCode !== 'ENOENT'
+            && errorCode !== 'EINVAL'
+            && !outputIndicatesMissingCommand(output)
+
+          if (!canTreatAsInstalled) {
+            finish({ found: false, path: '', output: '' })
+            return
+          }
+
+          let resolvedPath = command
+          try {
+            resolvedPath = await resolveExecutablePath(command, env)
+          } catch {
+            resolvedPath = command
+          }
+
+          finish({
+            found: true,
+            path: resolvedPath,
+            output
+          })
+          return
+        }
+
+        let resolvedPath = command
+        try {
+          resolvedPath = await resolveExecutablePath(command, env)
+        } catch {
+          resolvedPath = command
+        }
+
+        finish({
+          found: true,
+          path: resolvedPath,
+          output
+        })
       })
-    })
+
+      safetyTimer = setTimeout(() => {
+        child.kill()
+        finish({ found: false, path: '', output: '' })
+      }, 15000)
+    } catch {
+      finish({ found: false, path: '', output: '' })
+    }
   })
 }
 
@@ -108,16 +273,30 @@ async function detectTool(spec: ToolProbeSpec, env: Record<string, string>): Pro
     const versionMatch = result.output.match(spec.versionPattern)
     const version = versionMatch?.[1] ?? result.output.slice(0, 80)
 
+    if (versionMatch) {
+      return {
+        id: spec.id,
+        label: spec.label,
+        status: 'available',
+        found: true,
+        required: spec.required,
+        version,
+        path: result.path,
+        detail: `${spec.label} is available on this machine.`,
+        remediation: ''
+      }
+    }
+
     return {
       id: spec.id,
       label: spec.label,
-      status: 'available',
+      status: 'warning',
       found: true,
       required: spec.required,
-      version,
+      version: version || 'detected',
       path: result.path,
-      detail: `${spec.label} is available on this machine.`,
-      remediation: ''
+      detail: `${spec.label} executable was found, but the version probe did not return the expected output.`,
+      remediation: spec.remediation
     }
   }
 

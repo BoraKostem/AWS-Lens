@@ -158,7 +158,14 @@ export async function resolveExecutablePath(command: string, env?: Record<string
 
   const baseEnv = env ?? await getResolvedProcessEnv()
   const probeCommand = process.platform === 'win32' ? 'where.exe' : 'which'
-  const output = await execFileText(probeCommand, [command], baseEnv)
+  let output = ''
+
+  try {
+    output = await execFileText(probeCommand, [command], baseEnv)
+  } catch {
+    return command
+  }
+
   const resolved = output
     .split(/\r?\n/)
     .map((line) => line.trim())

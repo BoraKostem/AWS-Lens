@@ -762,6 +762,8 @@ export function App() {
   const [settingsMessage, setSettingsMessage] = useState('')
   const [environmentHealth, setEnvironmentHealth] = useState<EnvironmentHealthReport | null>(null)
   const [environmentBusy, setEnvironmentBusy] = useState(false)
+  const settingsEnvironmentHydratedRef = useRef(false)
+  const onboardingEnvironmentHydratedRef = useRef(false)
   const [governanceDefaults, setGovernanceDefaults] = useState<GovernanceTagDefaults | null>(null)
   const [toolchainInfo, setToolchainInfo] = useState<TerraformCliInfo | null>(null)
   const [toolchainBusy, setToolchainBusy] = useState(false)
@@ -884,10 +886,11 @@ export function App() {
       return
     }
 
-    if (environmentHealth || environmentBusy) {
+    if (environmentHealth || environmentBusy || settingsEnvironmentHydratedRef.current) {
       return
     }
 
+    settingsEnvironmentHydratedRef.current = true
     setEnvironmentBusy(true)
     void getEnvironmentHealth()
       .then(setEnvironmentHealth)
@@ -906,10 +909,11 @@ export function App() {
   }, [])
 
   useEffect(() => {
-    if (!showEnvironmentOnboarding || environmentHealth || environmentBusy) {
+    if (!showEnvironmentOnboarding || environmentHealth || environmentBusy || onboardingEnvironmentHydratedRef.current) {
       return
     }
 
+    onboardingEnvironmentHydratedRef.current = true
     setEnvironmentBusy(true)
     void getEnvironmentHealth()
       .then(setEnvironmentHealth)

@@ -460,6 +460,8 @@ export type AppSettingsToolchain = {
   terraformPathOverride: string
   opentofuPathOverride: string
   awsCliPathOverride: string
+  gcloudPathOverride: string
+  azureCliPathOverride: string
   kubectlPathOverride: string
   dockerPathOverride: string
 }
@@ -489,6 +491,8 @@ export type AppSecuritySummary = {
 
 export type EnvironmentToolId =
   | 'aws-cli'
+  | 'gcloud-cli'
+  | 'azure-cli'
   | 'session-manager-plugin'
   | 'terraform'
   | 'opentofu'
