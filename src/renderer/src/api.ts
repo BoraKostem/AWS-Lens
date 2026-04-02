@@ -97,6 +97,7 @@ import type {
   LambdaFunctionDetail,
   LambdaFunctionSummary,
   LambdaInvokeResult,
+  Ec2InstanceDetail,
   Ec2InstanceSummary,
   KeyPairSummary,
   KmsDecryptResult,
@@ -156,6 +157,7 @@ import type {
   RelationshipMap,
   TagSearchResult,
   VpcTopology,
+  SecurityGroupDetail,
   SecurityGroupSummary,
   WafCreateWebAclInput,
   WafRuleInput,
@@ -1114,6 +1116,10 @@ export async function listEc2Instances(connection: AwsConnection): Promise<Ec2In
   return unwrap((await awsBridge().listEc2Instances(connection)) as Wrapped<Ec2InstanceSummary[]>)
 }
 
+export async function describeEc2Instance(connection: AwsConnection, instanceId: string): Promise<Ec2InstanceDetail> {
+  return unwrap((await awsBridge().describeEc2Instance(connection, instanceId)) as Wrapped<Ec2InstanceDetail>)
+}
+
 export async function listSsmManagedInstances(connection: AwsConnection): Promise<SsmManagedInstanceSummary[]> {
   return unwrap((await awsBridge().listSsmManagedInstances(connection)) as Wrapped<SsmManagedInstanceSummary[]>)
 }
@@ -1316,6 +1322,10 @@ export async function listNetworkInterfaces(connection: AwsConnection, vpcId?: s
 
 export async function listSecurityGroupsForVpc(connection: AwsConnection, vpcId?: string): Promise<SecurityGroupSummary[]> {
   return unwrap((await awsBridge().listSecurityGroupsForVpc(connection, vpcId)) as Wrapped<SecurityGroupSummary[]>)
+}
+
+export async function describeSecurityGroup(connection: AwsConnection, groupId: string): Promise<SecurityGroupDetail> {
+  return unwrap((await awsBridge().describeSecurityGroup(connection, groupId)) as Wrapped<SecurityGroupDetail>)
 }
 
 export async function getVpcTopology(connection: AwsConnection, vpcId: string): Promise<VpcTopology> {

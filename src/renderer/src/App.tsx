@@ -1688,6 +1688,7 @@ export function App() {
             <DirectResourceConsole
               connection={connectionState.connection}
               onNavigate={(focus) => navigateWithFocus(focus)}
+              onNavigateService={(serviceId) => navigateToService(serviceId)}
             />
           ) : (
             <section className="empty-hero">
