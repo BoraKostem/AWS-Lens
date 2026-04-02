@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { CollapsibleInfoPanel } from './CollapsibleInfoPanel'
+import { ProviderPermissionDiagnosticsPanel } from './ProviderPermissionDiagnosticsPanel'
 import { VaultManagerPanel } from './VaultManagerPanel'
 
 import type {
@@ -17,6 +18,7 @@ import type {
   GovernanceTagDefaults,
   TerraformCliInfo
 } from '@shared/types'
+import type { ProviderPermissionDiagnosticsReport } from './providerPermissionDiagnostics'
 
 type SettingsTab = 'general' | 'terminal' | 'refresh' | 'governance' | 'toolchain' | 'updates' | 'security'
 
@@ -39,6 +41,7 @@ type SettingsPageProps = {
   releaseStateLabel: string
   releaseStateTone: string
   environmentHealth: EnvironmentHealthReport | null
+  providerPermissionDiagnostics: ProviderPermissionDiagnosticsReport
   environmentBusy: boolean
   governanceDefaults: GovernanceTagDefaults | null
   toolchainBusy: boolean
@@ -158,6 +161,7 @@ export function SettingsPage({
   releaseStateLabel,
   releaseStateTone,
   environmentHealth,
+  providerPermissionDiagnostics,
   environmentBusy,
   governanceDefaults,
   toolchainBusy,
@@ -799,6 +803,10 @@ export function SettingsPage({
             ))}
             {auditEvents.length === 0 && <div className="settings-static-muted">No audit events yet.</div>}
           </div>
+        </SettingSection>
+
+        <SettingSection title="Provider Permission Diagnostics">
+          <ProviderPermissionDiagnosticsPanel report={providerPermissionDiagnostics} compact title="Current Provider" />
         </SettingSection>
       </>
     )

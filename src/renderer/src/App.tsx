@@ -93,6 +93,7 @@ import { TerraformConsole } from './TerraformConsole'
 import { VpcWorkspace } from './VpcWorkspace'
 import { WafConsole } from './WafConsole'
 import { WorkspaceApp } from './WorkspaceApp'
+import { buildProviderPermissionDiagnostics } from './providerPermissionDiagnostics'
 
 type Screen = 'profiles' | 'settings' | 'direct-access' | ServiceId
 type PendingTerminalCommand = { id: number; command: string } | null
@@ -1092,6 +1093,13 @@ export function App() {
           env: buildPreviewProviderTerminalEnv(activeProviderId, activeProvider.label, selectedPreviewMode)
         }
       : null
+  const providerPermissionDiagnostics = buildProviderPermissionDiagnostics({
+    providerId: activeProviderId,
+    providerLabel: activeProvider.label,
+    accessMode: enterpriseSettings.accessMode,
+    awsSelectedContextLabel: connectionState.activeSession?.sourceProfile || connectionState.selectedProfile?.name || connectionState.profile || null,
+    selectedPreviewModeLabel: selectedPreviewMode?.label ?? null
+  })
   const activityLabel = awsActivity.pendingCount > 0
     ? `Fetching ${awsActivity.pendingCount} ${activeProvider.shortLabel} request${awsActivity.pendingCount === 1 ? '' : 's'}`
     : activeShellConnection
@@ -2217,6 +2225,7 @@ export function App() {
           releaseStateLabel={releaseStateLabel}
           releaseStateTone={releaseStateTone}
           environmentHealth={environmentHealth}
+          providerPermissionDiagnostics={providerPermissionDiagnostics}
           environmentBusy={environmentBusy}
           governanceDefaults={governanceDefaults}
           toolchainBusy={toolchainBusy}
