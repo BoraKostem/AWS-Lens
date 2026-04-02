@@ -4,15 +4,14 @@ import { LEGACY_STORAGE_NAMESPACE } from '@shared/branding'
 import { FitAddon } from 'xterm-addon-fit'
 import { Terminal } from 'xterm'
 
-import type { AwsConnection } from '@shared/types'
+import type { ProviderTerminalTarget } from './api'
 import {
   closeAwsTerminal,
-  openAwsTerminal,
+  openProviderTerminal,
   resizeAwsTerminal,
-  runAwsTerminalCommand,
   sendAwsTerminalInput,
   subscribeToAwsTerminal,
-  updateAwsTerminalContext,
+  updateProviderTerminalContext,
   type TerminalEvent
 } from './api'
 
@@ -23,7 +22,7 @@ type TerminalBundle = {
 
 type TerminalTab = {
   id: string
-  connection: AwsConnection
+  target: ProviderTerminalTarget
   title: string
   status: 'starting' | 'running' | 'exited'
   exitCode: number | null
@@ -32,23 +31,23 @@ type TerminalTab = {
 const DEFAULT_PANEL_HEIGHT = 320
 const MIN_PANEL_HEIGHT = 220
 const MAX_PANEL_HEIGHT = 640
-const HEIGHT_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:terminal-height`
+const HEIGHT_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:provider-terminal-height`
 
 function makeTerminalId(): string {
   return `terminal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-function makeTabLabel(connection: AwsConnection, duplicateCount: number): string {
+function makeTabLabel(target: ProviderTerminalTarget, duplicateCount: number): string {
   const suffix = duplicateCount > 0 ? ` ${duplicateCount + 1}` : ''
-  return `${connection.label}${suffix}`
+  return `${target.label}${suffix}`
 }
 
 function clampPanelHeight(nextHeight: number): number {
   return Math.min(MAX_PANEL_HEIGHT, Math.max(MIN_PANEL_HEIGHT, Math.round(nextHeight)))
 }
 
-function matchesConnection(left: AwsConnection, right: AwsConnection): boolean {
-  return left.sessionId === right.sessionId && left.region === right.region
+function matchesTarget(left: ProviderTerminalTarget, right: ProviderTerminalTarget): boolean {
+  return left.providerId === right.providerId && left.modeId === right.modeId
 }
 
 function TerminalTabSurface({
@@ -119,7 +118,6 @@ function TerminalTabSurface({
     }
 
     function normalizeTerminalInput(data: string): string {
-      // SSM interactive shells often expect DEL (0x7f) as the erase character.
       return data.replace(/\x08/g, '\x7f')
     }
 
@@ -167,7 +165,7 @@ function TerminalTabSurface({
     })
     observer.observe(hostRef.current)
 
-    void openAwsTerminal(tab.id, tab.connection, initialCommandRef.current).then(async (result) => {
+    void openProviderTerminal(tab.id, tab.target, initialCommandRef.current).then(async (result) => {
       if (result.history) {
         term.write(result.history)
       }
@@ -186,7 +184,7 @@ function TerminalTabSurface({
       term.dispose()
       bundleRef.current = null
     }
-  }, [fontSize, tab.connection, tab.id])
+  }, [fontSize, tab.id, tab.target])
 
   useEffect(() => {
     if (!active || !drawerOpen || !bundleRef.current) {
@@ -201,22 +199,18 @@ function TerminalTabSurface({
   return <div ref={hostRef} className={`terminal-surface ${active ? 'is-active' : 'is-hidden'}`} />
 }
 
-export function AwsTerminalPanel({
-  connection,
+export function ProviderTerminalPanel({
+  target,
   open,
   onClose,
   defaultCommand,
-  fontSize = 13,
-  commandToRun,
-  onCommandHandled
+  fontSize = 13
 }: {
-  connection: AwsConnection | null
+  target: ProviderTerminalTarget
   open: boolean
   onClose: () => void
   defaultCommand?: string
   fontSize?: number
-  commandToRun: { id: number; command: string } | null
-  onCommandHandled: (id: number) => void
 }) {
   const tabsRef = useRef<TerminalTab[]>([])
   const resizeStateRef = useRef<{ startY: number; startHeight: number } | null>(null)
@@ -241,54 +235,33 @@ export function AwsTerminalPanel({
   }, [panelHeight])
 
   useEffect(() => {
-    if (!open || tabsRef.current.length > 0 || !connection || commandToRun) {
+    if (!open || tabsRef.current.length > 0) {
       return
     }
 
-    const tabId = createTab(connection, defaultCommand)
+    const tabId = createTab(target, defaultCommand)
     setActiveTabId(tabId)
-  }, [commandToRun, connection, defaultCommand, open])
+  }, [defaultCommand, open, target])
 
   useEffect(() => {
-    if (!open || !connection) {
-      return
-    }
-
     const existing = tabsRef.current.find((tab) => tab.id === activeTabId)
-    if (existing && !matchesConnection(existing.connection, connection)) {
-      void updateAwsTerminalContext(existing.id, connection)
-      setTabs((current) =>
-        current.map((tab) =>
-          tab.id === existing.id
-            ? {
-                ...tab,
-                connection,
-                title: connection.label
-              }
-            : tab
-        )
+    if (!open || !existing || matchesTarget(existing.target, target)) {
+      return
+    }
+
+    void updateProviderTerminalContext(existing.id, target)
+    setTabs((current) =>
+      current.map((tab) =>
+        tab.id === existing.id
+          ? {
+              ...tab,
+              target,
+              title: target.label
+            }
+          : tab
       )
-    }
-  }, [activeTabId, connection, open])
-
-  useEffect(() => {
-    if (!open || !connection || !commandToRun) {
-      return
-    }
-
-    const matchingTab = tabsRef.current.find((tab) => matchesConnection(tab.connection, connection))
-    if (matchingTab) {
-      setActiveTabId(matchingTab.id)
-      void runAwsTerminalCommand(matchingTab.id, commandToRun.command).then(() => {
-        onCommandHandled(commandToRun.id)
-      })
-      return
-    }
-
-    const tabId = createTab(connection, commandToRun.command)
-    setActiveTabId(tabId)
-    onCommandHandled(commandToRun.id)
-  }, [commandToRun, connection, onCommandHandled, open])
+    )
+  }, [activeTabId, open, target])
 
   useEffect(() => {
     return () => {
@@ -298,13 +271,13 @@ export function AwsTerminalPanel({
     }
   }, [])
 
-  function createTab(targetConnection: AwsConnection, initialCommand?: string): string {
+  function createTab(nextTarget: ProviderTerminalTarget, initialCommand?: string): string {
     const id = makeTerminalId()
-    const duplicateCount = tabsRef.current.filter((tab) => tab.connection.label === targetConnection.label).length
+    const duplicateCount = tabsRef.current.filter((tab) => tab.target.label === nextTarget.label).length
     const nextTab: TerminalTab = {
       id,
-      connection: targetConnection,
-      title: makeTabLabel(targetConnection, duplicateCount),
+      target: nextTarget,
+      title: makeTabLabel(nextTarget, duplicateCount),
       status: 'starting',
       exitCode: null
     }
@@ -343,11 +316,7 @@ export function AwsTerminalPanel({
   }
 
   function handleCreateTab(): void {
-    if (!connection) {
-      return
-    }
-
-    const tabId = createTab(connection)
+    const tabId = createTab(target)
     setActiveTabId(tabId)
   }
 
@@ -450,7 +419,6 @@ export function AwsTerminalPanel({
             type="button"
             className="terminal-toolbar-button is-add"
             onClick={handleCreateTab}
-            disabled={!connection}
             aria-label="Open new terminal tab"
             title="New tab"
           >
@@ -468,7 +436,7 @@ export function AwsTerminalPanel({
       {tabs.length === 0 ? (
         <div className="terminal-empty-state">
           <p>Open a terminal tab.</p>
-          <button type="button" className="terminal-toolbar-button" onClick={handleCreateTab} disabled={!connection}>
+          <button type="button" className="terminal-toolbar-button" onClick={handleCreateTab}>
             +
           </button>
         </div>

@@ -2,7 +2,7 @@ import { execFile, spawn } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
 
-import type { AppSettingsTerminalShellPreference, AwsConnection } from '@shared/types'
+import type { AppSettingsTerminalShellPreference, AwsConnection, CloudProviderId } from '@shared/types'
 import { getAppSettings } from './appSettings'
 import { getConnectionEnv } from './sessionHub'
 import { getToolCommand } from './toolchain'
@@ -274,6 +274,16 @@ function unsetPosix(name: string): string {
   return `unset ${name}`
 }
 
+function buildShellEnvCommands(env: Record<string, string>): string[] {
+  const shell = getShellConfig()
+
+  return Object.entries(env).map(([key, value]) =>
+    shell.kind === 'powershell'
+      ? `$env:${key} = ${quotePowerShell(value)}`
+      : `export ${key}=${quotePosix(value)}`
+  )
+}
+
 function buildEnvCommands(connection: AwsConnection): string[] {
   const shell = getShellConfig()
   const env = getConnectionEnv(connection)
@@ -291,11 +301,7 @@ function buildEnvCommands(connection: AwsConnection): string[] {
         unsetPosix('AWS_SESSION_TOKEN')
       ]
 
-  const assignments = Object.entries(env).map(([key, value]) =>
-    shell.kind === 'powershell'
-      ? `$env:${key} = ${quotePowerShell(value)}`
-      : `export ${key}=${quotePosix(value)}`
-  )
+  const assignments = buildShellEnvCommands(env)
 
   return [...baseCommands, ...assignments]
 }
@@ -318,6 +324,37 @@ export function buildAwsContextCommand(connection: AwsConnection): string {
     connection.kind === 'profile'
       ? 'printf "AWS context: profile=%s region=%s\\n" "$AWS_PROFILE" "$AWS_REGION"'
       : `printf "AWS context: session=%s region=%s account=%s\\n" ${quotePosix(connection.label)} "$AWS_REGION" ${quotePosix(connection.accountId)}`
+  ].join('; ')
+}
+
+export function buildProviderShellContextCommand(
+  providerId: Exclude<CloudProviderId, 'aws'>,
+  label: string,
+  modeLabel: string,
+  env: Record<string, string>
+): string {
+  const shell = getShellConfig()
+  const envCommands = buildShellEnvCommands(env)
+  const guidance = providerId === 'gcp'
+    ? 'Use gcloud auth list, gcloud config list, and project-scoped commands in this shell.'
+    : 'Use az account show, az account list, and tenant or subscription-scoped commands in this shell.'
+  const modeSummary = `${providerId === 'gcp' ? 'Google Cloud' : 'Azure'} mode: ${modeLabel}`
+
+  if (shell.kind === 'powershell') {
+    return [
+      buildPowerShellUtf8Command(),
+      ...envCommands,
+      `Write-Host ${quotePowerShell(`${label} shell ready`)}`,
+      `Write-Host ${quotePowerShell(modeSummary)}`,
+      `Write-Host ${quotePowerShell(guidance)}`
+    ].join('; ')
+  }
+
+  return [
+    ...envCommands,
+    `printf "%s\\n" ${quotePosix(`${label} shell ready`)}`,
+    `printf "%s\\n" ${quotePosix(modeSummary)}`,
+    `printf "%s\\n" ${quotePosix(guidance)}`
   ].join('; ')
 }
 

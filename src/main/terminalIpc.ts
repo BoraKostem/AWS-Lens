@@ -1,8 +1,8 @@
 import { BrowserWindow, ipcMain, type WebContents } from 'electron'
 import { spawn, type IPty } from 'node-pty'
 
-import type { AwsConnection } from '@shared/types'
-import { buildAwsContextCommand, getShellConfig, getTerminalCwd } from './shell'
+import type { AwsConnection, CloudProviderId } from '@shared/types'
+import { buildAwsContextCommand, buildProviderShellContextCommand, getShellConfig, getTerminalCwd } from './shell'
 import { getConnectionEnv } from './sessionHub'
 
 type TerminalEvent =
@@ -14,11 +14,24 @@ type TerminalOpenResult = {
   history: string
 }
 
+type ProviderTerminalTarget = {
+  providerId: Exclude<CloudProviderId, 'aws'>
+  label: string
+  modeId: string
+  modeLabel: string
+  env: Record<string, string>
+}
+
+type TerminalSessionContext = {
+  contextKey: string
+  contextCommand: string
+  env: Record<string, string>
+}
+
 type TerminalSession = {
   id: string
   pty: IPty
   ownerId: number
-  connection: AwsConnection
   contextKey: string
   history: string
 }
@@ -31,12 +44,28 @@ function emitToOwner(ownerId: number, payload: TerminalEvent): void {
   window?.webContents.send('terminal:event', payload)
 }
 
-function getContextKey(connection: AwsConnection): string {
+function getAwsContextKey(connection: AwsConnection): string {
   return `${connection.sessionId}:${connection.region}`
 }
 
-function buildContextCommand(connection: AwsConnection): string {
-  return buildAwsContextCommand(connection)
+function getProviderContextKey(target: ProviderTerminalTarget): string {
+  return `${target.providerId}:${target.modeId}`
+}
+
+function buildAwsSessionContext(connection: AwsConnection): TerminalSessionContext {
+  return {
+    contextKey: getAwsContextKey(connection),
+    contextCommand: buildAwsContextCommand(connection),
+    env: getConnectionEnv(connection)
+  }
+}
+
+function buildProviderSessionContext(target: ProviderTerminalTarget): TerminalSessionContext {
+  return {
+    contextKey: getProviderContextKey(target),
+    contextCommand: buildProviderShellContextCommand(target.providerId, target.label, target.modeLabel, target.env),
+    env: target.env
+  }
 }
 
 function appendHistory(targetSession: TerminalSession, text: string): void {
@@ -45,17 +74,15 @@ function appendHistory(targetSession: TerminalSession, text: string): void {
     nextHistory.length > MAX_HISTORY_CHARS ? nextHistory.slice(nextHistory.length - MAX_HISTORY_CHARS) : nextHistory
 }
 
-function updateContext(targetSession: TerminalSession, connection: AwsConnection): void {
-  const nextKey = getContextKey(connection)
-  targetSession.connection = connection
-
-  if (targetSession.contextKey === nextKey) {
+function updateContext(targetSession: TerminalSession, context: TerminalSessionContext): void {
+  if (targetSession.contextKey === context.contextKey) {
     return
   }
 
-  targetSession.contextKey = nextKey
-  targetSession.connection = connection
-  targetSession.pty.write(`${buildContextCommand(connection)}\r`)
+  targetSession.contextKey = context.contextKey
+  if (context.contextCommand.trim()) {
+    targetSession.pty.write(`${context.contextCommand}\r`)
+  }
 }
 
 function runCommandInSession(targetSession: TerminalSession, command: string, delayMs = 0): void {
@@ -80,7 +107,7 @@ function runCommandInSession(targetSession: TerminalSession, command: string, de
   write()
 }
 
-function createSession(sessionId: string, sender: WebContents, connection: AwsConnection): TerminalSession {
+function createSession(sessionId: string, sender: WebContents, context: TerminalSessionContext): TerminalSession {
   const shell = getShellConfig()
   const pty = spawn(shell.command, shell.args, {
     name: 'xterm-color',
@@ -89,7 +116,7 @@ function createSession(sessionId: string, sender: WebContents, connection: AwsCo
     cwd: getTerminalCwd(),
     env: {
       ...process.env,
-      ...getConnectionEnv(connection),
+      ...context.env,
       LANG: 'en_US.UTF-8',
       LC_ALL: 'en_US.UTF-8',
       PYTHONIOENCODING: 'utf-8'
@@ -100,8 +127,7 @@ function createSession(sessionId: string, sender: WebContents, connection: AwsCo
     id: sessionId,
     pty,
     ownerId: sender.id,
-    connection,
-    contextKey: getContextKey(connection),
+    contextKey: context.contextKey,
     history: ''
   }
 
@@ -116,20 +142,22 @@ function createSession(sessionId: string, sender: WebContents, connection: AwsCo
     emitToOwner(nextSession.ownerId, { sessionId, type: 'exit', code: exitCode })
   })
 
-  pty.write(`${buildContextCommand(connection)}\r`)
+  if (context.contextCommand.trim()) {
+    pty.write(`${context.contextCommand}\r`)
+  }
   return nextSession
 }
 
-function ensureSession(sessionId: string, sender: WebContents, connection: AwsConnection): { session: TerminalSession; created: boolean } {
+function ensureSession(sessionId: string, sender: WebContents, context: TerminalSessionContext): { session: TerminalSession; created: boolean } {
   const existing = sessions.get(sessionId)
   if (!existing) {
-    const created = createSession(sessionId, sender, connection)
+    const created = createSession(sessionId, sender, context)
     sessions.set(sessionId, created)
     return { session: created, created: true }
   }
 
   existing.ownerId = sender.id
-  updateContext(existing, connection)
+  updateContext(existing, context)
   return { session: existing, created: false }
 }
 
@@ -160,7 +188,7 @@ function closeAllSessions(): void {
 
 export function registerTerminalIpcHandlers(): void {
   ipcMain.handle('terminal:open-aws', async (event, sessionId: string, connection: AwsConnection, initialCommand?: string): Promise<TerminalOpenResult> => {
-    const { session: currentSession, created } = ensureSession(sessionId, event.sender, connection)
+    const { session: currentSession, created } = ensureSession(sessionId, event.sender, buildAwsSessionContext(connection))
 
     if (created) {
       runCommandInSession(currentSession, initialCommand ?? '', 120)
@@ -173,7 +201,24 @@ export function registerTerminalIpcHandlers(): void {
   })
 
   ipcMain.handle('terminal:update-aws-context', async (_event, sessionId: string, connection: AwsConnection) => {
-    updateContext(requireSession(sessionId), connection)
+    updateContext(requireSession(sessionId), buildAwsSessionContext(connection))
+  })
+
+  ipcMain.handle('terminal:open-provider-context', async (event, sessionId: string, target: ProviderTerminalTarget, initialCommand?: string): Promise<TerminalOpenResult> => {
+    const { session: currentSession, created } = ensureSession(sessionId, event.sender, buildProviderSessionContext(target))
+
+    if (created) {
+      runCommandInSession(currentSession, initialCommand ?? '', 120)
+    }
+
+    return {
+      created,
+      history: currentSession.history
+    }
+  })
+
+  ipcMain.handle('terminal:update-provider-context', async (_event, sessionId: string, target: ProviderTerminalTarget) => {
+    updateContext(requireSession(sessionId), buildProviderSessionContext(target))
   })
 
   ipcMain.handle('terminal:input', async (_event, sessionId: string, input: string) => {
