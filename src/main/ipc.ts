@@ -5,10 +5,10 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { dialog, ipcMain, shell, app, type BrowserWindow, type OpenDialogOptions } from 'electron'
 
-import type { AppSecuritySummary, AppSettings, AwsConnection, Ec2ChosenSshKey, TerraformCommandRequest, TerraformInputConfiguration, TerraformRunHistoryFilter } from '@shared/types'
+import type { AppSecuritySummary, AppSettings, AwsConnection, CloudProviderId, Ec2ChosenSshKey, TerraformCommandRequest, TerraformInputConfiguration, TerraformRunHistoryFilter } from '@shared/types'
 import { getAppSettings, resetAppSettings, updateAppSettings } from './appSettings'
 import { importAwsConfigFile } from './aws/profiles'
-import { SERVICE_CATALOG } from './catalog'
+import { listServiceCatalog } from './catalog'
 import { exportDiagnosticsBundle } from './diagnostics'
 import { getEnvironmentHealthReport } from './environment'
 import { exportEnterpriseAuditEvents, getEnterpriseSettings, listEnterpriseAuditEvents, setEnterpriseAccessMode } from './enterprise'
@@ -41,6 +41,7 @@ import {
 import { getTerraformDriftReport } from './terraformDrift'
 import { listRunRecords, getRunOutput, deleteRunRecord } from './terraformHistoryStore'
 import { detectGovernanceTools, getCachedGovernanceToolkit, runGovernanceChecks, getGovernanceReport } from './terraformGovernance'
+import { listProviders } from './providerRegistry'
 import {
   addUserToGroup, attachGroupPolicy, attachRolePolicy, attachUserPolicy,
   createAccessKey, createGroup, createLoginProfile, createPolicy,
@@ -277,7 +278,10 @@ async function openInVisualStudioCode(targetPath: string): Promise<void> {
 }
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
-  ipcMain.handle('services:list', async () => wrap(() => SERVICE_CATALOG))
+  ipcMain.handle('providers:list', async () => wrap(() => listProviders()))
+  ipcMain.handle('services:list', async (_event, providerId?: CloudProviderId) =>
+    wrap(() => listServiceCatalog(providerId ?? 'aws'))
+  )
   ipcMain.handle('terraform:cli:detect', async () => wrap(() => detectTerraformCli()))
   ipcMain.handle('terraform:cli:info', async () => wrap(() => getCachedCliInfo()))
   ipcMain.handle('terraform:cli:set-kind', async (_event, kind: 'terraform' | 'opentofu') => wrap(() => setActiveTerraformCli(kind)))

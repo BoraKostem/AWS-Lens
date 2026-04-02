@@ -56,6 +56,68 @@ export type AwsAssumedRoleConnection = {
 
 export type AwsConnection = AwsBaseConnection | AwsAssumedRoleConnection
 
+export type CloudProviderId = 'aws' | 'gcp' | 'azure'
+
+export type ProviderAvailability = 'available' | 'planned'
+
+export type ProviderWorkspaceKind = 'shared' | 'provider'
+
+export type ProviderConnectionKind =
+  | 'profile'
+  | 'assumed-role'
+  | 'application-default'
+  | 'service-account'
+  | 'subscription'
+  | 'tenant'
+
+export type ProviderLocationKind =
+  | 'global'
+  | 'region'
+  | 'zone'
+  | 'project'
+  | 'subscription'
+  | 'tenant'
+
+export type ProviderDescriptor = {
+  id: CloudProviderId
+  label: string
+  shortLabel: string
+  availability: ProviderAvailability
+  profileLabel: string
+  locationLabel: string
+  connectionLabel: string
+}
+
+export type ProviderProfileDescriptor = {
+  providerId: CloudProviderId
+  id: string
+  label: string
+  source: string
+  defaultLocationId: string
+  state: 'available' | 'connected' | 'expired'
+}
+
+export type ProviderLocationDescriptor = {
+  providerId: CloudProviderId
+  id: string
+  label: string
+  kind: ProviderLocationKind
+  parentId?: string
+}
+
+export type ProviderConnectionDescriptor = {
+  providerId: CloudProviderId
+  kind: ProviderConnectionKind
+  sessionId: string
+  label: string
+  profileId: string
+  profileLabel: string
+  sourceProfileId?: string
+  locationId: string
+  locationLabel: string
+  accountId?: string
+}
+
 export type AwsSessionStatus = 'active' | 'expired'
 
 export type AwsSessionSummary = {
@@ -1380,6 +1442,11 @@ export type ServiceDescriptor = {
   category: string
   migrated: boolean
   maturity: ServiceMaturity
+  providerId: CloudProviderId | 'shared'
+  providerLabel: string
+  workspaceKind: ProviderWorkspaceKind
+  supports: CloudProviderId[]
+  requiresConnection: boolean
 }
 
 export type EnterpriseAccessMode = 'read-only' | 'operator'
@@ -1421,7 +1488,7 @@ export type AppDiagnosticsExportResult = {
 
 /* ── Navigation Focus ────────────────────────────────────── */
 
-export type NavigationFocus =
+export type NavigationFocus = (
   | { service: 'route53'; record: Route53RecordChange }
   | { service: 'load-balancers'; loadBalancerArn: string }
   | { service: 'lambda'; functionName: string }
@@ -1436,9 +1503,13 @@ export type NavigationFocus =
       sourceLabel?: string
       serviceHint?: ServiceId | ''
     }
-  | { service: 'vpc'; vpcId: string }
-  | { service: 'security-groups'; securityGroupId: string }
-  | { service: 'waf'; webAclName: string }
+    | { service: 'vpc'; vpcId: string }
+    | { service: 'security-groups'; securityGroupId: string }
+    | { service: 'waf'; webAclName: string }
+  ) & {
+    providerId?: CloudProviderId
+    locationId?: string
+  }
 
 export type DirectAccessServiceTarget =
   | 's3'

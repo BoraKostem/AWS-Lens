@@ -5,12 +5,14 @@ import type {
   AppReleaseInfo,
   AppSecuritySummary,
   AppSettings,
+  CloudProviderId,
   ComparisonRequest,
   EnvironmentHealthReport,
   EnterpriseAccessMode,
   EnterpriseAuditEvent,
   GovernanceTagDefaults,
   NavigationFocus,
+  ProviderDescriptor,
   ServiceDescriptor,
   ServiceId,
   ServiceMaturity,
@@ -36,6 +38,7 @@ import {
   invalidatePageCache,
   installAppUpdate,
   listEnterpriseAuditEvents,
+  listProviders,
   listServices,
   openExternalUrl,
   saveCredentials,
@@ -189,6 +192,8 @@ const IMPLEMENTED_SCREENS = new Set<ServiceId>([
   'waf'
 ])
 
+const DEFAULT_PROVIDER_ID: CloudProviderId = 'aws'
+
 const SOFT_REFRESH_SCREENS = new Set<Screen>([
   'overview',
   'compare',
@@ -311,7 +316,7 @@ function InitialLoadingScreen(): JSX.Element {
         <img src={appLogoUrl} alt="AWS Lens" className="initial-loading-logo" />
         <div className="eyebrow">AWS Lens</div>
         <h1>AWS Lens is loading</h1>
-        <p>Initializing workspace shell, settings, and service catalog.</p>
+        <p>Initializing workspace shell, provider registry, settings, and service catalog.</p>
         <div className="initial-loading-progress" aria-hidden="true">
           <span />
         </div>
@@ -423,6 +428,8 @@ export function App() {
   const [screen, setScreen] = useState<Screen>('profiles')
   const [navOpen, setNavOpen] = useState(true)
   const [visitedScreens, setVisitedScreens] = useState<Screen[]>(['profiles'])
+  const [providers, setProviders] = useState<ProviderDescriptor[]>([])
+  const [activeProviderId] = useState<CloudProviderId>(DEFAULT_PROVIDER_ID)
   const [services, setServices] = useState<ServiceDescriptor[]>([])
   const [pinnedServiceIds, setPinnedServiceIds] = useState<ServiceId[]>([])
   const [catalogError, setCatalogError] = useState('')
@@ -465,15 +472,16 @@ export function App() {
   const terminalAutoOpenedScopeRef = useRef('')
 
   useEffect(() => {
-    void listServices()
-      .then((loadedServices) => {
+    void Promise.all([listProviders(), listServices(activeProviderId)])
+      .then(([loadedProviders, loadedServices]) => {
+        setProviders(loadedProviders)
         setServices(loadedServices)
       })
       .catch((error) => {
         setCatalogError(error instanceof Error ? error.message : String(error))
       })
       .finally(() => setServicesHydrated(true))
-  }, [])
+  }, [activeProviderId])
 
   useEffect(() => {
     void getAppReleaseInfo().then(setReleaseInfo).catch(() => {
@@ -649,6 +657,16 @@ export function App() {
   const totalProfiles = connectionState.profiles.length
   const totalPinnedProfiles = connectionState.pinnedProfileNames.length
   const totalVisibleServices = services.filter((service) => !NAV_HIDDEN_SERVICE_IDS.has(service.id)).length
+  const activeProvider =
+    providers.find((provider) => provider.id === activeProviderId) ?? {
+      id: DEFAULT_PROVIDER_ID,
+      label: 'AWS',
+      shortLabel: 'AWS',
+      availability: 'available',
+      profileLabel: 'Profile',
+      locationLabel: 'Region',
+      connectionLabel: 'AWS profile or assumed role'
+    }
   const auditSummary = useMemo<AuditSummary>(() => ({
     total: auditEvents.length,
     blocked: auditEvents.filter((event) => event.outcome === 'blocked').length,
@@ -696,10 +714,13 @@ export function App() {
     : connectionState.selectedProfile
       ? `${connectionState.selectedProfile.source} profile`
       : 'Click to select a profile'
+  const providerMetaLabel = connectionState.providerConnection
+    ? `${activeProvider.locationLabel}: ${connectionState.providerConnection.locationLabel}`
+    : activeProvider.connectionLabel
   const overviewService = services.find((service) => service.id === 'overview')
   const sessionHubService = services.find((service) => service.id === 'session-hub')
   const activityLabel = awsActivity.pendingCount > 0
-    ? `Fetching ${awsActivity.pendingCount} AWS request${awsActivity.pendingCount === 1 ? '' : 's'}`
+    ? `Fetching ${awsActivity.pendingCount} ${activeProvider.shortLabel} request${awsActivity.pendingCount === 1 ? '' : 's'}`
     : connectionState.connection
       ? `Ready${awsActivity.lastCompletedAt ? ` · last response ${new Date(awsActivity.lastCompletedAt).toLocaleTimeString()}` : ''}`
       : 'Idle'
@@ -709,9 +730,9 @@ export function App() {
   const activePageNonce = pageRefreshNonceByScreen[screen] ?? 0
   const isCurrentScreenRefreshing = refreshState?.screen === screen
   const prefersSoftRefresh = SOFT_REFRESH_SCREENS.has(screen)
-  const showCatalogFab = screen === 'profiles'
+  const showCatalogFab = screen === 'profiles' && !showEnvironmentOnboarding
   const connectionScopeKey = connectionState.connection
-    ? `${connectionState.connection.sessionId}:${connectionState.connection.region}`
+    ? `${activeProviderId}:${connectionState.connection.sessionId}:${connectionState.connection.region}`
     : 'disconnected'
   const versionLabel = releaseInfo?.currentVersion ?? ''
   const releaseStateLabel = !releaseInfo?.supportsAutoUpdate
@@ -767,13 +788,22 @@ export function App() {
 
   function navigateWithFocus(focus: NavigationFocus, region?: string): void {
     if (region) connectionState.setRegion(region)
-    setFocusMap(prev => ({ ...prev, [focus.service]: { ...focus, token: Date.now() } }))
+    setFocusMap(prev => ({
+      ...prev,
+      [focus.service]: {
+        ...focus,
+        providerId: focus.providerId ?? activeProviderId,
+        locationId: focus.locationId ?? region ?? connectionState.region,
+        token: Date.now()
+      }
+    }))
     setScreen(focus.service)
   }
 
   function getFocus<S extends NavigationFocus['service']>(service: S): TokenizedFocus<S> | null {
     const f = focusMap[service]
     if (!f || f.service !== service) return null
+    if (f.providerId && f.providerId !== activeProviderId) return null
     return f as TokenizedFocus<S>
   }
 
@@ -1317,7 +1347,7 @@ export function App() {
     onboardingSecondaryAction = connectionState.connected ? () => setScreen('overview') : null
     onboardingDetailContent = (
       <div className="environment-onboarding-grid">
-        <section className="environment-onboarding-section">
+        <section className="environment-onboarding-section environment-onboarding-section-wide">
           <div className="eyebrow">Region Model</div>
           <div className="settings-environment-row">
             <div>
@@ -1350,7 +1380,7 @@ export function App() {
     onboardingSecondaryAction = () => dismissEnvironmentOnboarding('settings')
     onboardingDetailContent = (
       <div className="environment-onboarding-grid">
-        <section className="environment-onboarding-section">
+        <section className="environment-onboarding-section environment-onboarding-section-wide">
           <div className="eyebrow">Tooling</div>
           {environmentHealth?.tools.map((tool) => (
             <div key={tool.id} className="settings-environment-row">
@@ -1372,7 +1402,7 @@ export function App() {
           )}
         </section>
 
-        <section className="environment-onboarding-section">
+        <section className="environment-onboarding-section environment-onboarding-section-wide">
           <div className="eyebrow">Permissions</div>
           {environmentHealth?.permissions.map((item) => (
             <div key={item.id} className="settings-environment-row">
@@ -1469,6 +1499,15 @@ export function App() {
       </div>
     )
   }
+
+  const showOnboardingPrimaryAction =
+    onboardingPrimaryAction !== null &&
+    onboardingPrimaryActionLabel !== 'Open profile catalog' &&
+    onboardingPrimaryActionLabel !== 'Open settings'
+
+  const showOnboardingSecondaryAction =
+    onboardingSecondaryAction !== null &&
+    onboardingSecondaryActionLabel !== 'Open settings'
 
   function renderScreenContent(targetScreen: Screen): React.ReactNode {
     const targetService = services.find((service) => service.id === targetScreen)
@@ -1824,6 +1863,7 @@ export function App() {
             </button>
             <div className="service-nav-title">
               <h1>AWS Lens</h1>
+              <span className="service-nav-provider-badge">{activeProvider.label}</span>
             </div>
             <div className="app-version-row service-nav-version-row">
                 {versionLabel && <span className="app-version-badge">v{versionLabel}</span>}
@@ -1841,15 +1881,20 @@ export function App() {
             </div>
           </div>
           <div className="service-nav-controls">
+            <div className="enterprise-sidebar-note provider-sidebar-note">
+              <span>Provider</span>
+              <strong>{activeProvider.label}</strong>
+              <small>{providerMetaLabel}</small>
+            </div>
             <div className="field">
-              <span>Profile</span>
+              <span>{activeProvider.profileLabel}</span>
               <button type="button" className="selector-trigger sidebar-selector" onClick={() => setScreen('profiles')}>
                 <strong>{primaryProfileLabel}</strong>
                 <span>{profileMetaLabel}</span>
               </button>
             </div>
             <label className="field">
-              <span>Region</span>
+              <span>{activeProvider.locationLabel}</span>
               <select value={connectionState.region} onChange={(event) => connectionState.setRegion(event.target.value)}>
                 {connectionState.regions.map((entry) => (
                   <option key={entry.id} value={entry.id}>
@@ -1957,53 +2002,6 @@ export function App() {
       <main className="catalog-main">
         {(globalWarning || catalogError || connectionState.error) && <div className="error-banner">{globalWarning || catalogError || connectionState.error}</div>}
         {screen === 'profiles' && profileActionMsg && <div className="success-banner">{profileActionMsg}</div>}
-        {showEnvironmentOnboarding && (
-          <section className="environment-onboarding-shell">
-            <div className="environment-onboarding-backdrop" aria-hidden="true" />
-            <div className="environment-onboarding-card">
-              <div className="environment-onboarding-hero">
-                <div>
-                  <div className="eyebrow">First Run</div>
-                  <h2>{onboardingTitle}</h2>
-                  <p className="hero-path">{onboardingDescription}</p>
-                </div>
-                <span className={`settings-status-pill settings-status-pill-${environmentHealth ? (environmentIssueCount > 0 ? 'preview' : 'stable') : 'unknown'}`}>
-                  Step {onboardingStepIndex + 1} / {ENVIRONMENT_ONBOARDING_STEPS.length}
-                </span>
-              </div>
-
-              <div className="environment-onboarding-summary">
-                <strong>{onboardingSummary}</strong>
-                <span>Environment: {environmentHealth?.overallSeverity ?? (environmentBusy ? 'checking' : 'idle')}</span>
-                <span>Checked: {environmentHealth?.checkedAt ? new Date(environmentHealth.checkedAt).toLocaleString() : environmentBusy ? 'Running now' : 'Not checked yet'}</span>
-              </div>
-
-              {onboardingDetailContent}
-
-              <div className="environment-onboarding-actions">
-                <button type="button" disabled={!onboardingBackEnabled} onClick={handleEnvironmentOnboardingBack}>
-                  Back
-                </button>
-                {onboardingPrimaryAction && (
-                  <button type="button" className="accent" disabled={environmentBusy && environmentOnboardingStep === 'tooling'} onClick={onboardingPrimaryAction}>
-                    {onboardingPrimaryActionLabel}
-                  </button>
-                )}
-                {onboardingSecondaryAction && (
-                  <button type="button" onClick={onboardingSecondaryAction}>
-                    {onboardingSecondaryActionLabel}
-                  </button>
-                )}
-                <button type="button" onClick={handleEnvironmentOnboardingNext}>
-                  {onboardingNextLabel}
-                </button>
-                <button type="button" onClick={() => dismissEnvironmentOnboarding()}>
-                  Skip for now
-                </button>
-              </div>
-            </div>
-          </section>
-        )}
         {visitedScreens.map((visitedScreen) => {
           const shouldSoftRefresh = SOFT_REFRESH_SCREENS.has(visitedScreen)
           const sectionKey = shouldSoftRefresh
@@ -2239,6 +2237,55 @@ export function App() {
         )}
       </main>
       </div>
+      {showEnvironmentOnboarding && (
+        <section className="environment-onboarding-shell" aria-modal="true" role="dialog" aria-label="First run onboarding">
+          <div className="environment-onboarding-backdrop" aria-hidden="true" />
+          <div className="environment-onboarding-card">
+            <div className="environment-onboarding-content">
+              <div className="environment-onboarding-hero">
+                <div>
+                  <div className="eyebrow">First Run</div>
+                  <h2>{onboardingTitle}</h2>
+                  <p className="hero-path">{onboardingDescription}</p>
+                </div>
+                <span className={`settings-status-pill settings-status-pill-${environmentHealth ? (environmentIssueCount > 0 ? 'preview' : 'stable') : 'unknown'}`}>
+                  Step {onboardingStepIndex + 1} / {ENVIRONMENT_ONBOARDING_STEPS.length}
+                </span>
+              </div>
+
+              <div className="environment-onboarding-summary">
+                <strong>{onboardingSummary}</strong>
+                <span>Environment: {environmentHealth?.overallSeverity ?? (environmentBusy ? 'checking' : 'idle')}</span>
+                <span>Checked: {environmentHealth?.checkedAt ? new Date(environmentHealth.checkedAt).toLocaleString() : environmentBusy ? 'Running now' : 'Not checked yet'}</span>
+              </div>
+
+              {onboardingDetailContent}
+
+              <div className="environment-onboarding-actions">
+                <button type="button" disabled={!onboardingBackEnabled} onClick={handleEnvironmentOnboardingBack}>
+                  Back
+                </button>
+                {showOnboardingPrimaryAction && onboardingPrimaryAction && (
+                  <button type="button" className="accent" disabled={environmentBusy && environmentOnboardingStep === 'tooling'} onClick={onboardingPrimaryAction}>
+                    {onboardingPrimaryActionLabel}
+                  </button>
+                )}
+                {showOnboardingSecondaryAction && onboardingSecondaryAction && (
+                  <button type="button" onClick={onboardingSecondaryAction}>
+                    {onboardingSecondaryActionLabel}
+                  </button>
+                )}
+                <button type="button" onClick={handleEnvironmentOnboardingNext}>
+                  {onboardingNextLabel}
+                </button>
+                <button type="button" onClick={() => dismissEnvironmentOnboarding()}>
+                  Skip for now
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
       <footer className="app-footer">
         <div className="app-footer-status">
           <strong>{activityLabel}</strong>

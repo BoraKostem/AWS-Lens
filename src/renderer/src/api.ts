@@ -17,6 +17,7 @@ import type {
   EnvironmentHealthReport,
   AppReleaseInfo,
   AppSecuritySummary,
+  CloudProviderId,
   CloudWatchQueryFilter,
   CloudWatchQueryExecutionInput,
   CloudWatchQueryExecutionResult,
@@ -56,6 +57,7 @@ import type {
   EnterpriseAuditEvent,
   EnterpriseAuditExportResult,
   EnterpriseSettings,
+  ProviderDescriptor,
   ServiceDescriptor,
   CloudWatchLogEventSummary,
   CloudWatchLogGroupSummary,
@@ -908,8 +910,12 @@ export async function assumeSavedRoleTarget(targetId: string): Promise<AssumeRol
   return unwrap((await awsBridge().assumeSavedRoleTarget(targetId)) as Wrapped<AssumeRoleResult>)
 }
 
-export async function listServices(): Promise<ServiceDescriptor[]> {
-  return unwrap((await awsBridge().listServices()) as Wrapped<ServiceDescriptor[]>)
+export async function listProviders(): Promise<ProviderDescriptor[]> {
+  return unwrap((await awsBridge().listProviders()) as Wrapped<ProviderDescriptor[]>)
+}
+
+export async function listServices(providerId?: CloudProviderId): Promise<ServiceDescriptor[]> {
+  return unwrap((await awsBridge().listServices(providerId)) as Wrapped<ServiceDescriptor[]>)
 }
 
 export async function getGovernanceTagDefaults(): Promise<GovernanceTagDefaults> {

@@ -27,6 +27,28 @@ import { hasActiveTerraformApplyOrDestroy } from './terraform'
 let mainWindow: BrowserWindow | null = null
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+function ensureDirectory(targetPath: string): void {
+  fs.mkdirSync(targetPath, { recursive: true })
+}
+
+function configureAppStoragePaths(): void {
+  const appDataPath = app.getPath('appData')
+  const rootDataPath = path.join(appDataPath, 'aws-lens')
+  const sessionDataPath = path.join(rootDataPath, 'session')
+  const cachePath = path.join(sessionDataPath, 'Cache')
+  const gpuCachePath = path.join(sessionDataPath, 'GPUCache')
+
+  ensureDirectory(rootDataPath)
+  ensureDirectory(sessionDataPath)
+  ensureDirectory(cachePath)
+  ensureDirectory(gpuCachePath)
+
+  app.setPath('userData', rootDataPath)
+  app.setPath('sessionData', sessionDataPath)
+  app.commandLine.appendSwitch('disk-cache-dir', cachePath)
+  app.commandLine.appendSwitch('disk-cache-size', `${64 * 1024 * 1024}`)
+}
+
 function showTerraformCloseWarning(owner?: BrowserWindow): number {
   const options = {
     type: 'warning' as const,
@@ -117,6 +139,7 @@ ipcMain.handle = (channel: string, listener: (...args: any[]) => any) => {
   })
 }
 
+configureAppStoragePaths()
 initializeObservability()
 
 function resolvePreloadPath(): string {

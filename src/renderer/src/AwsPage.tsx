@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
-import type { AwsConnection, AwsProfile, AwsRegionOption, AwsSessionSummary, AwsAssumeRoleTarget, CallerIdentity } from '@shared/types'
+import type {
+  AwsConnection,
+  AwsProfile,
+  AwsRegionOption,
+  AwsSessionSummary,
+  AwsAssumeRoleTarget,
+  CallerIdentity,
+  ProviderConnectionDescriptor,
+  ProviderLocationDescriptor,
+  ProviderProfileDescriptor
+} from '@shared/types'
 import { getCallerIdentity, getSessionHubState, listProfiles, listRegions } from './api'
 
 const PROFILE_STORAGE_KEY = 'aws-lens:selected-profile'
@@ -211,6 +221,49 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProf
     return pinnedProfileNames.map((name) => profileMap.get(name)).filter((entry): entry is AwsProfile => Boolean(entry))
   }, [pinnedProfileNames, profiles])
 
+  const providerProfiles = useMemo<ProviderProfileDescriptor[]>(
+    () =>
+      profiles.map((entry) => ({
+        providerId: 'aws',
+        id: entry.name,
+        label: entry.name,
+        source: entry.source,
+        defaultLocationId: entry.region,
+        state: entry.name === profile ? 'connected' : 'available'
+      })),
+    [profile, profiles]
+  )
+
+  const providerLocations = useMemo<ProviderLocationDescriptor[]>(
+    () =>
+      regions.map((entry) => ({
+        providerId: 'aws',
+        id: entry.id,
+        label: entry.name || entry.id,
+        kind: 'region'
+      })),
+    [regions]
+  )
+
+  const providerConnection = useMemo<ProviderConnectionDescriptor | null>(() => {
+    if (!connection) {
+      return null
+    }
+
+    return {
+      providerId: 'aws',
+      kind: connection.kind,
+      sessionId: connection.sessionId,
+      label: connection.label,
+      profileId: connection.profile,
+      profileLabel: connection.profile,
+      sourceProfileId: 'sourceProfile' in connection ? connection.sourceProfile : undefined,
+      locationId: connection.region,
+      locationLabel: selectedRegion?.name || connection.region,
+      accountId: 'accountId' in connection ? connection.accountId : undefined
+    }
+  }, [connection, selectedRegion])
+
   function togglePinnedProfile(name: string): void {
     setPinnedProfileNames((current) => {
       if (current.includes(name)) {
@@ -284,8 +337,11 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProf
   }
 
   return {
+    providerId: 'aws' as const,
     profiles,
+    providerProfiles,
     regions,
+    providerLocations,
     profile,
     setProfile,
     selectProfile,
@@ -308,6 +364,7 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProf
     error,
     setError,
     connection,
+    providerConnection,
     connect,
     refreshProfiles
   }

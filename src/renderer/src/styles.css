@@ -4347,6 +4347,7 @@ button.overview-tile.clickable.active strong {
 }
 
 .catalog-shell-frame {
+  --app-footer-height: 46px;
   position: relative;
   height: 100vh;
   display: grid;
@@ -5859,30 +5860,48 @@ button.overview-tile.clickable.active strong {
 }
 
 .environment-onboarding-shell {
-  position: sticky;
-  top: 0;
-  z-index: 12;
-  margin-bottom: 0.9rem;
+  position: absolute;
+  inset: 0 0 var(--app-footer-height) 0;
+  z-index: 32;
+  padding: 0.8rem;
+  display: flex;
+  min-height: 0;
 }
 
 .environment-onboarding-backdrop {
   position: absolute;
   inset: 0;
-  border-radius: 26px;
+  border-radius: 0;
   background:
-    linear-gradient(180deg, rgba(7, 10, 15, 0.9), rgba(7, 10, 15, 0.78)),
-    radial-gradient(circle at top left, rgba(223, 105, 42, 0.16), transparent 34%);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: 0 28px 68px rgba(0, 0, 0, 0.36);
-  backdrop-filter: blur(18px);
+    linear-gradient(180deg, rgba(7, 10, 15, 0.94), rgba(7, 10, 15, 0.88)),
+    radial-gradient(circle at top left, rgba(223, 105, 42, 0.14), transparent 34%);
+  backdrop-filter: blur(22px);
 }
 
 .environment-onboarding-card {
   position: relative;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  width: 100%;
+  min-height: 0;
+  overflow: auto;
   gap: 0.9rem;
   padding: 1.15rem;
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background:
+    linear-gradient(180deg, rgba(8, 13, 20, 0.9), rgba(8, 13, 20, 0.84)),
+    radial-gradient(circle at top right, rgba(245, 154, 61, 0.08), transparent 28%);
+  box-shadow: 0 28px 68px rgba(0, 0, 0, 0.36);
+}
+
+.environment-onboarding-content {
+  width: min(1480px, 100%);
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
 }
 
 .environment-onboarding-hero {
@@ -5926,6 +5945,10 @@ button.overview-tile.clickable.active strong {
   gap: 0.55rem;
 }
 
+.environment-onboarding-section-wide {
+  grid-column: 1 / -1;
+}
+
 .environment-onboarding-actions {
   display: flex;
   flex-wrap: wrap;
@@ -5960,6 +5983,8 @@ button.overview-tile.clickable.active strong {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-height: var(--app-footer-height);
+  box-sizing: border-box;
   gap: 0.55rem;
   padding: 0.3rem 0.65rem;
   border-top: 1px solid rgba(200, 200, 215, 0.12);
@@ -7286,6 +7311,21 @@ textarea {
   flex: 1;
 }
 
+.service-nav-provider-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid rgba(245, 154, 61, 0.28);
+  background: rgba(245, 154, 61, 0.12);
+  color: #ffc48c;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .service-nav-header h1 {
   font-size: 1rem;
   letter-spacing: -0.04em;
@@ -7795,6 +7835,21 @@ textarea {
   font-size: 0.72rem;
   line-height: 1.2;
   max-width: 16ch;
+}
+
+.provider-sidebar-note {
+  border-color: rgba(245, 154, 61, 0.2);
+  background:
+    radial-gradient(circle at top right, rgba(245, 154, 61, 0.12), transparent 38%),
+    linear-gradient(180deg, rgba(18, 28, 41, 0.98), rgba(10, 17, 27, 0.98));
+}
+
+.provider-sidebar-note strong {
+  color: #f7c28d;
+}
+
+.provider-sidebar-note small {
+  max-width: none;
 }
 
 .profile-catalog-toolbar {

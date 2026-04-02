@@ -8,6 +8,7 @@ import type {
   AssumeRoleRequest,
   AwsAssumeRoleTarget,
   AwsConnection,
+  CloudProviderId,
   BastionLaunchConfig,
   CloudWatchQueryFilter,
   CloudWatchQueryExecutionInput,
@@ -50,7 +51,8 @@ declare global {
       deleteAssumedSession: (sessionId: string) => Promise<unknown>
       assumeRoleSession: (request: AssumeRoleRequest) => Promise<unknown>
       assumeSavedRoleTarget: (targetId: string) => Promise<unknown>
-      listServices: () => Promise<unknown>
+      listProviders: () => Promise<unknown>
+      listServices: (providerId?: CloudProviderId) => Promise<unknown>
       getGovernanceTagDefaults: () => Promise<unknown>
       updateGovernanceTagDefaults: (update: unknown) => Promise<unknown>
       listCloudWatchSavedQueries: (filter?: CloudWatchQueryFilter) => Promise<unknown>
