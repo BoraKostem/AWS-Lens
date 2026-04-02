@@ -1006,6 +1006,7 @@ export function App() {
   const totalProfiles = isAwsProviderActive ? connectionState.profiles.length : activeProviderModes.length
   const totalPinnedProfiles = isAwsProviderActive ? connectionState.pinnedProfileNames.length : providerWorkspaceCount
   const totalVisibleServices = services.length
+  const awsReturnTargetLabel = formatScreenLabel(lastAwsScreen)
   const selectedPreviewModeId = activePreviewProviderId ? selectedPreviewModeIds[activePreviewProviderId] ?? '' : ''
   const selectedPreviewMode = activePreviewProviderId
     ? activeProviderModes.find((mode) => mode.id === selectedPreviewModeId) ?? null
@@ -2086,7 +2087,7 @@ export function App() {
                 <h3>{isAwsProviderActive ? 'Choose an AWS profile from the catalog' : `${activeProvider.label} connection modes`}</h3>
                 <p className="hero-path">
                   {isAwsProviderActive
-                    ? 'Search by profile name, pin frequent targets, or remove credentials managed by the app.'
+                    ? `Search by profile name, pin frequent targets, or remove credentials managed by the app. Selecting a profile returns you to ${awsReturnTargetLabel}.`
                     : `${activeProvider.label} onboarding is staged here first so the adaptive rail, terminal, and diagnostics can attach to the same provider-aware selector later.`}
                 </p>
               </div>
@@ -2428,7 +2429,7 @@ export function App() {
                 className={`rail-avatar ${connectionState.profile === pinnedName ? 'active' : ''}`}
                 onClick={() => {
                   setProfileContextMenu(null)
-                  handleSelectAwsProfile(pinnedName, 'overview')
+                  handleSelectAwsProfile(pinnedName)
                 }}
                 onContextMenu={(event) => {
                   event.preventDefault()
