@@ -1474,6 +1474,21 @@ export type ServiceDescriptor = {
   requiresConnection: boolean
 }
 
+export type WorkspaceCatalogSection = {
+  id: string
+  label: string
+  providerId: CloudProviderId | 'shared'
+  workspaceKind: ProviderWorkspaceKind
+  items: ServiceDescriptor[]
+}
+
+export type WorkspaceCatalog = {
+  providerId: CloudProviderId
+  sharedWorkspaces: WorkspaceCatalogSection[]
+  providerWorkspaces: WorkspaceCatalogSection[]
+  allServices: ServiceDescriptor[]
+}
+
 export type EnterpriseAccessMode = 'read-only' | 'operator'
 
 export type EnterpriseSettings = {

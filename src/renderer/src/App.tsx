@@ -17,7 +17,9 @@ import type {
   ServiceId,
   ServiceMaturity,
   TerraformCliInfo,
-  TokenizedFocus
+  TokenizedFocus,
+  WorkspaceCatalog,
+  WorkspaceCatalogSection
 } from '@shared/types'
 import {
   checkForAppUpdates,
@@ -34,12 +36,12 @@ import {
   getEnvironmentHealth,
   getEnterpriseSettings,
   getGovernanceTagDefaults,
+  getWorkspaceCatalog,
   invalidateAllPageCaches,
   invalidatePageCache,
   installAppUpdate,
   listEnterpriseAuditEvents,
   listProviders,
-  listServices,
   openExternalUrl,
   saveCredentials,
   setTerraformCliKind,
@@ -107,7 +109,6 @@ type EnvironmentOnboardingState = {
 type FocusMap = Partial<Record<NavigationFocus['service'], TokenizedFocus>>
 const NAV_HIDDEN_SERVICE_IDS = new Set<ServiceId>(['overview', 'session-hub', 'compare'])
 const ENVIRONMENT_ONBOARDING_STEPS: EnvironmentOnboardingStep[] = ['profile', 'region', 'tooling', 'access']
-
 const SERVICE_CATEGORY_ORDER = [
   'Infrastructure',
   'Compute',
@@ -430,6 +431,7 @@ export function App() {
   const [visitedScreens, setVisitedScreens] = useState<Screen[]>(['profiles'])
   const [providers, setProviders] = useState<ProviderDescriptor[]>([])
   const [activeProviderId] = useState<CloudProviderId>(DEFAULT_PROVIDER_ID)
+  const [workspaceCatalog, setWorkspaceCatalog] = useState<WorkspaceCatalog | null>(null)
   const [services, setServices] = useState<ServiceDescriptor[]>([])
   const [pinnedServiceIds, setPinnedServiceIds] = useState<ServiceId[]>([])
   const [catalogError, setCatalogError] = useState('')
@@ -472,12 +474,14 @@ export function App() {
   const terminalAutoOpenedScopeRef = useRef('')
 
   useEffect(() => {
-    void Promise.all([listProviders(), listServices(activeProviderId)])
-      .then(([loadedProviders, loadedServices]) => {
+    void Promise.all([listProviders(), getWorkspaceCatalog(activeProviderId)])
+      .then(([loadedProviders, loadedCatalog]) => {
         setProviders(loadedProviders)
-        setServices(loadedServices)
+        setWorkspaceCatalog(loadedCatalog)
+        setServices(loadedCatalog.allServices)
       })
       .catch((error) => {
+        setWorkspaceCatalog(null)
         setCatalogError(error instanceof Error ? error.message : String(error))
       })
       .finally(() => setServicesHydrated(true))
@@ -672,30 +676,52 @@ export function App() {
     blocked: auditEvents.filter((event) => event.outcome === 'blocked').length,
     failed: auditEvents.filter((event) => event.outcome === 'failed').length
   }), [auditEvents])
-  const groupedServices = useMemo(() => {
-    const grouped = new Map<string, ServiceDescriptor[]>()
+
+  const filterCatalogSections = (sections: WorkspaceCatalogSection[]): WorkspaceCatalogSection[] => {
     const pinnedIds = new Set(pinnedServiceIds)
-    for (const service of services) {
-      const category = service.category || 'General'
-      const list = grouped.get(category) ?? []
-      list.push(service)
-      grouped.set(category, list)
+    return sections
+      .map((section) => ({
+        ...section,
+        items: section.items.filter((service) => !NAV_HIDDEN_SERVICE_IDS.has(service.id) && !pinnedIds.has(service.id))
+      }))
+      .filter((section) => section.items.length > 0)
+  }
+
+  const sharedWorkspaceSections = useMemo(
+    () => filterCatalogSections(workspaceCatalog?.sharedWorkspaces ?? []),
+    [pinnedServiceIds, workspaceCatalog]
+  )
+
+  const providerWorkspaceSections = useMemo(
+    () => filterCatalogSections(workspaceCatalog?.providerWorkspaces ?? []),
+    [pinnedServiceIds, workspaceCatalog]
+  )
+
+  const categorizedProviderSections = useMemo(() => {
+    const grouped = new Map<string, ServiceDescriptor[]>()
+    for (const section of providerWorkspaceSections) {
+      for (const service of section.items) {
+        const category = service.category || 'General'
+        const items = grouped.get(category) ?? []
+        items.push(service)
+        grouped.set(category, items)
+      }
     }
+
     const order = new Map<string, number>(SERVICE_CATEGORY_ORDER.map((category, index) => [category, index]))
 
     return [...grouped.entries()]
-      .map(([category, items]) => [
-        category,
-        items
-          .filter((service) => !NAV_HIDDEN_SERVICE_IDS.has(service.id) && !pinnedIds.has(service.id))
-          .sort((a, b) => a.label.localeCompare(b.label))
-      ] as const)
-      .sort(([left], [right]) => {
-        const leftIndex = order.get(left) ?? Number.MAX_SAFE_INTEGER
-        const rightIndex = order.get(right) ?? Number.MAX_SAFE_INTEGER
-        return leftIndex - rightIndex || left.localeCompare(right)
+      .map(([category, items]) => ({
+        id: `provider-category-${category.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+        label: category,
+        items: items.sort((left, right) => left.label.localeCompare(right.label))
+      }))
+      .sort((left, right) => {
+        const leftIndex = order.get(left.label) ?? Number.MAX_SAFE_INTEGER
+        const rightIndex = order.get(right.label) ?? Number.MAX_SAFE_INTEGER
+        return leftIndex - rightIndex || left.label.localeCompare(right.label)
       })
-  }, [pinnedServiceIds, services])
+  }, [providerWorkspaceSections])
 
   const filteredProfiles = useMemo(() => {
     const query = profileSearch.trim().toLowerCase()
@@ -1985,15 +2011,21 @@ export function App() {
             )}
               </div>
             </section>
-            {groupedServices.map(([category, items]) => (
-              items.length > 0 && (
-                <section key={category} className="service-group">
-                  <div className="service-group-title">{category}</div>
-                  <div className="service-group-list">
-                    {items.map((service) => renderServiceLink(service))}
-                  </div>
-                </section>
-              )
+            {sharedWorkspaceSections.map((section) => (
+              <section key={section.id} className="service-group">
+                <div className="service-group-title">{section.label}</div>
+                <div className="service-group-list">
+                  {section.items.map((service) => renderServiceLink(service))}
+                </div>
+              </section>
+            ))}
+            {categorizedProviderSections.map((section) => (
+              <section key={section.id} className="service-group">
+                <div className="service-group-title">{section.label}</div>
+                <div className="service-group-list">
+                  {section.items.map((service) => renderServiceLink(service))}
+                </div>
+              </section>
             ))}
           </div>
         </div>

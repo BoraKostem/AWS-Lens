@@ -52,6 +52,7 @@ declare global {
       assumeRoleSession: (request: AssumeRoleRequest) => Promise<unknown>
       assumeSavedRoleTarget: (targetId: string) => Promise<unknown>
       listProviders: () => Promise<unknown>
+      getWorkspaceCatalog: (providerId?: CloudProviderId) => Promise<unknown>
       listServices: (providerId?: CloudProviderId) => Promise<unknown>
       getGovernanceTagDefaults: () => Promise<unknown>
       updateGovernanceTagDefaults: (update: unknown) => Promise<unknown>

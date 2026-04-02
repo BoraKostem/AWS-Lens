@@ -1,4 +1,9 @@
-import type { CloudProviderId, ServiceDescriptor } from '@shared/types'
+import type {
+  CloudProviderId,
+  ServiceDescriptor,
+  WorkspaceCatalog,
+  WorkspaceCatalogSection
+} from '@shared/types'
 
 const SHARED_WORKSPACES: ServiceDescriptor[] = [
   {
@@ -91,12 +96,49 @@ const AWS_WORKSPACES: ServiceDescriptor[] = [
   { id: 'key-pairs', label: 'Key Pairs', category: 'Security', migrated: false, maturity: 'beta', providerId: 'aws', providerLabel: 'AWS', workspaceKind: 'provider', supports: ['aws'], requiresConnection: true }
 ]
 
-export function listServiceCatalog(providerId: CloudProviderId = 'aws'): ServiceDescriptor[] {
-  if (providerId === 'aws') {
-    return [...SHARED_WORKSPACES, ...AWS_WORKSPACES]
-  }
+function sortServices(items: ServiceDescriptor[]): ServiceDescriptor[] {
+  return [...items].sort((left, right) => left.label.localeCompare(right.label))
+}
 
-  return [...SHARED_WORKSPACES]
+function buildSharedSections(): WorkspaceCatalogSection[] {
+  return [
+    {
+      id: 'shared-core',
+      label: 'Shared Workspaces',
+      providerId: 'shared',
+      workspaceKind: 'shared',
+      items: sortServices(SHARED_WORKSPACES)
+    }
+  ]
+}
+
+function buildAwsProviderSections(): WorkspaceCatalogSection[] {
+  return [
+    {
+      id: 'aws-workspaces',
+      label: 'AWS Workspaces',
+      providerId: 'aws',
+      workspaceKind: 'provider',
+      items: sortServices(AWS_WORKSPACES)
+    }
+  ]
+}
+
+export function getWorkspaceCatalog(providerId: CloudProviderId = 'aws'): WorkspaceCatalog {
+  const sharedWorkspaces = buildSharedSections()
+  const providerWorkspaces = providerId === 'aws' ? buildAwsProviderSections() : []
+  const allServices = [...sharedWorkspaces.flatMap((section) => section.items), ...providerWorkspaces.flatMap((section) => section.items)]
+
+  return {
+    providerId,
+    sharedWorkspaces,
+    providerWorkspaces,
+    allServices
+  }
+}
+
+export function listServiceCatalog(providerId: CloudProviderId = 'aws'): ServiceDescriptor[] {
+  return getWorkspaceCatalog(providerId).allServices
 }
 
 export const SERVICE_CATALOG: ServiceDescriptor[] = listServiceCatalog('aws')

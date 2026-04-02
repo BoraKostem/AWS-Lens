@@ -8,7 +8,7 @@ import { dialog, ipcMain, shell, app, type BrowserWindow, type OpenDialogOptions
 import type { AppSecuritySummary, AppSettings, AwsConnection, CloudProviderId, Ec2ChosenSshKey, TerraformCommandRequest, TerraformInputConfiguration, TerraformRunHistoryFilter } from '@shared/types'
 import { getAppSettings, resetAppSettings, updateAppSettings } from './appSettings'
 import { importAwsConfigFile } from './aws/profiles'
-import { listServiceCatalog } from './catalog'
+import { getWorkspaceCatalog, listServiceCatalog } from './catalog'
 import { exportDiagnosticsBundle } from './diagnostics'
 import { getEnvironmentHealthReport } from './environment'
 import { exportEnterpriseAuditEvents, getEnterpriseSettings, listEnterpriseAuditEvents, setEnterpriseAccessMode } from './enterprise'
@@ -279,6 +279,9 @@ async function openInVisualStudioCode(targetPath: string): Promise<void> {
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('providers:list', async () => wrap(() => listProviders()))
+  ipcMain.handle('workspace-catalog:get', async (_event, providerId?: CloudProviderId) =>
+    wrap(() => getWorkspaceCatalog(providerId ?? 'aws'))
+  )
   ipcMain.handle('services:list', async (_event, providerId?: CloudProviderId) =>
     wrap(() => listServiceCatalog(providerId ?? 'aws'))
   )

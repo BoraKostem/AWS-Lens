@@ -59,6 +59,7 @@ import type {
   EnterpriseSettings,
   ProviderDescriptor,
   ServiceDescriptor,
+  WorkspaceCatalog,
   CloudWatchLogEventSummary,
   CloudWatchLogGroupSummary,
   CloudWatchMetricSeries,
@@ -296,6 +297,7 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   chooseAndImportConfig: 'shell',
   saveCredentials: 'shell',
   listRegions: 'shell',
+  getWorkspaceCatalog: 'shell',
   listServices: 'shell',
   getCallerIdentity: 'shell',
   runComparison: 'compare',
@@ -912,6 +914,10 @@ export async function assumeSavedRoleTarget(targetId: string): Promise<AssumeRol
 
 export async function listProviders(): Promise<ProviderDescriptor[]> {
   return unwrap((await awsBridge().listProviders()) as Wrapped<ProviderDescriptor[]>)
+}
+
+export async function getWorkspaceCatalog(providerId?: CloudProviderId): Promise<WorkspaceCatalog> {
+  return unwrap((await awsBridge().getWorkspaceCatalog(providerId)) as Wrapped<WorkspaceCatalog>)
 }
 
 export async function listServices(providerId?: CloudProviderId): Promise<ServiceDescriptor[]> {
