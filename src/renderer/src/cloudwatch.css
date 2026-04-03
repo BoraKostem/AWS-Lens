@@ -745,6 +745,13 @@
   gap: 16px;
 }
 
+.cw-correlation-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
 .cw-query-main,
 .cw-query-card {
   display: flex;
@@ -847,6 +854,18 @@
   color: var(--muted);
 }
 
+.cw-correlation-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.cw-correlation-copy strong,
+.cw-correlation-copy span,
+.cw-correlation-copy small {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .cw-timeline-pill-success {
   color: #c8f0d6;
 }
@@ -866,7 +885,8 @@
 @media (max-width: 1100px) {
   .cw-shell-hero,
   .cw-charts-row,
-  .cw-query-layout {
+  .cw-query-layout,
+  .cw-correlation-grid {
     grid-template-columns: 1fr;
   }
 }
