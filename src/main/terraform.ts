@@ -38,6 +38,7 @@ import type {
   TerraformProjectMetadata,
   TerraformProjectStatus,
   TerraformSavedPlanMetadata,
+  TerraformBackendHealth,
   TerraformResolvedRuntimeInputs,
   TerraformResourceInventoryItem,
   TerraformResourceRow,
@@ -1445,6 +1446,79 @@ function readStateLockInfo(rootPath: string, backendType: string): TerraformStat
   }
 }
 
+function buildBackendHealth(metadata: TerraformProjectMetadata, lockInfo: TerraformStateLockInfo | null): TerraformBackendHealth {
+  const details: string[] = []
+  const backend = metadata.backend
+
+  if (backend.type === 'local' && 'stateLocation' in backend) {
+    details.push(`State path: ${backend.stateLocation}`)
+  } else if (backend.type === 's3' && 'bucket' in backend && 'effectiveStateKey' in backend && 'region' in backend) {
+    details.push(`Bucket: ${backend.bucket}`)
+    details.push(`State key: ${backend.effectiveStateKey}`)
+    details.push(`Region: ${backend.region || '(not set in backend config)'}`)
+  } else {
+    details.push(`Backend detail: ${backend.label}`)
+  }
+
+  if (lockInfo?.infoPath) {
+    details.push(`Lock metadata file: ${lockInfo.infoPath}`)
+  }
+  if (lockInfo?.message) {
+    details.push(lockInfo.message)
+  }
+
+  if (backend.type === 's3' && !metadata.s3Backend) {
+    return {
+      status: 'error',
+      summary: 'S3 backend declared but configuration could not be parsed.',
+      details,
+      lockVisibility: 'limited',
+      lockSummary: 'Remote lock inspection is limited without readable backend details.'
+    }
+  }
+
+  if (lockInfo?.message === 'Lock metadata exists but could not be parsed.') {
+    return {
+      status: 'warning',
+      summary: 'Backend is configured, but lock metadata could not be parsed.',
+      details,
+      lockVisibility: 'parse_error',
+      lockSummary: 'A lock info file exists, but its contents were unreadable.'
+    }
+  }
+
+  if (lockInfo?.lockId) {
+    return {
+      status: 'warning',
+      summary: 'Backend is reachable and a Terraform lock is currently detectable.',
+      details,
+      lockVisibility: 'detected',
+      lockSummary: `Lock ${lockInfo.lockId} is present${lockInfo.operation ? ` for ${lockInfo.operation}` : ''}.`
+    }
+  }
+
+  if (backend.type === 's3' && 'region' in backend) {
+    const regionMissing = !backend.region.trim()
+    return {
+      status: regionMissing ? 'warning' : 'limited',
+      summary: regionMissing
+        ? 'S3 backend is configured, but backend region is missing from config.'
+        : 'S3 backend is configured. Remote lock visibility remains limited unless Terraform leaves local lock metadata.',
+      details,
+      lockVisibility: 'limited',
+      lockSummary: 'Remote backend locks are not directly inspectable here unless Terraform wrote a local lock info file.'
+    }
+  }
+
+  return {
+    status: 'healthy',
+    summary: 'Backend is configured and no active local lock was detected.',
+    details,
+    lockVisibility: 'not_detected',
+    lockSummary: 'No lock metadata is present.'
+  }
+}
+
 function readPlanSnapshot(rootPath: string): {
   planChanges: TerraformPlanChange[]
   lastPlanSummary: TerraformPlanSummary
@@ -2335,6 +2409,7 @@ function loadProject(project: StoredProject, profileName = '', connection?: AwsC
       resourceCount: 0, moduleCount: 0, variableCount: 0, outputsCount: 0, tfFileCount: 0,
       lastScannedAt: '', s3Backend: null
     }
+    const backendHealth = buildBackendHealth(emptyMeta, null)
     const currentWorkspace = project.environment?.workspaceName || 'default'
     const inputConfig = normalizeInputConfig(project)
     const inputValidation = { valid: true, missing: [], unresolvedSecrets: [] }
@@ -2366,6 +2441,7 @@ function loadProject(project: StoredProject, profileName = '', connection?: AwsC
       stateAddresses: [], rawStateJson: '', stateSource: 'none',
       stateBackups,
       latestStateBackup: stateBackups[0] ?? null,
+      backendHealth,
       stateLockInfo: null,
       hasSavedPlan: savedPlanPaths.has(project.id) || hasSavedPlanArtifacts(project.rootPath),
       savedPlanMetadata: readPlanMetadata(project.rootPath)
@@ -2383,6 +2459,7 @@ function loadProject(project: StoredProject, profileName = '', connection?: AwsC
   const environment = buildEnvironmentMetadata(project, profileName, connection, metadata, currentWorkspace, inventory)
   const stateBackups = listStateBackups(project.id)
   const stateLockInfo = readStateLockInfo(project.rootPath, metadata.backendType)
+  const backendHealth = buildBackendHealth(metadata, stateLockInfo)
   const inputConfig = normalizeInputConfig(project)
   const inputView = buildProjectInputsView(project, variables)
   const inputValidation = buildStoredInputValidation(project, variables)
@@ -2404,6 +2481,7 @@ function loadProject(project: StoredProject, profileName = '', connection?: AwsC
     stateAddresses, rawStateJson, stateSource,
     stateBackups,
     latestStateBackup: stateBackups[0] ?? null,
+    backendHealth,
     stateLockInfo,
     hasSavedPlan: savedPlanPaths.has(project.id) || hasSavedPlanArtifacts(project.rootPath),
     savedPlanMetadata: readPlanMetadata(project.rootPath)

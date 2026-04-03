@@ -2181,7 +2181,9 @@ function StateTab({
   const stateAddresses = useMemo(() => project.stateAddresses.slice().sort(), [project.stateAddresses])
   const latestBackup = project.latestStateBackup
   const lockInfo = project.stateLockInfo
+  const backendHealth = project.backendHealth
   const lastStateLog = lastLog && ['import', 'state-mv', 'state-rm', 'force-unlock'].includes(lastLog.command) ? lastLog : null
+  const backendHealthCardClass = `tf-state-meta-card tf-state-health-card tf-state-health-${backendHealth.status}`
 
   useEffect(() => {
     setUnlockId(project.stateLockInfo?.lockId ?? '')
@@ -2233,6 +2235,11 @@ function StateTab({
             <div className="tf-state-meta-subtle">
               {latestBackup ? latestBackup.path : 'Stored under Electron userData in a project-scoped backup folder.'}
             </div>
+          </div>
+          <div className={backendHealthCardClass}>
+            <div className="tf-state-meta-label">Backend health</div>
+            <div className="tf-state-meta-value">{backendHealth.summary}</div>
+            <div className="tf-state-meta-subtle">{backendHealth.lockSummary}</div>
           </div>
         </div>
       </div>
@@ -2309,17 +2316,20 @@ function StateTab({
       <div className="tf-section">
         <div className="tf-state-card-grid">
           <div className="tf-state-card">
-            <h3>Lock Status</h3>
+            <h3>Backend Health</h3>
             <div className="tf-kv">
               <div className="tf-kv-row"><div className="tf-kv-label">Backend</div><div className="tf-kv-value">{project.metadata.backendType}</div></div>
+              <div className="tf-kv-row"><div className="tf-kv-label">Health</div><div className="tf-kv-value">{backendHealth.summary}</div></div>
+              <div className="tf-kv-row"><div className="tf-kv-label">Lock visibility</div><div className="tf-kv-value">{backendHealth.lockSummary}</div></div>
               <div className="tf-kv-row"><div className="tf-kv-label">Inspection</div><div className="tf-kv-value">{lockInfo?.supported ? 'Available' : 'Limited'}</div></div>
               <div className="tf-kv-row"><div className="tf-kv-label">Lock ID</div><div className="tf-kv-value">{lockInfo?.lockId || '(not detected)'}</div></div>
               <div className="tf-kv-row"><div className="tf-kv-label">Operation</div><div className="tf-kv-value">{lockInfo?.operation || '-'}</div></div>
               <div className="tf-kv-row"><div className="tf-kv-label">Who</div><div className="tf-kv-value">{lockInfo?.who || '-'}</div></div>
               <div className="tf-kv-row"><div className="tf-kv-label">Created</div><div className="tf-kv-value">{lockInfo?.created ? formatIsoDate(lockInfo.created) : '-'}</div></div>
             </div>
-            {lockInfo?.message && <div className="tf-state-inline-note">{lockInfo.message}</div>}
-            {lockInfo?.infoPath && <div className="tf-state-inline-note">Lock info file: {lockInfo.infoPath}</div>}
+            {backendHealth.details.map((detail) => (
+              <div key={detail} className="tf-state-inline-note">{detail}</div>
+            ))}
           </div>
 
           <div className="tf-state-card tf-state-card-danger">

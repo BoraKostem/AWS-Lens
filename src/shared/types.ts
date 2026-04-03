@@ -3125,6 +3125,16 @@ export type TerraformStateLockInfo = {
   canUnlock: boolean
 }
 
+export type TerraformBackendHealthStatus = 'healthy' | 'warning' | 'limited' | 'error'
+
+export type TerraformBackendHealth = {
+  status: TerraformBackendHealthStatus
+  summary: string
+  details: string[]
+  lockVisibility: 'detected' | 'not_detected' | 'limited' | 'parse_error'
+  lockSummary: string
+}
+
 export type TerraformProjectEnvironmentMetadata = {
   environmentLabel: string
   workspaceName: string
@@ -3566,6 +3576,7 @@ export type TerraformProject = {
   stateSource: string
   stateBackups: TerraformStateBackupSummary[]
   latestStateBackup: TerraformStateBackupSummary | null
+  backendHealth: TerraformBackendHealth
   stateLockInfo: TerraformStateLockInfo | null
   hasSavedPlan: boolean
   savedPlanMetadata: TerraformSavedPlanMetadata | null
