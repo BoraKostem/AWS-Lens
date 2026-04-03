@@ -914,6 +914,7 @@ export function App() {
   const [pinnedServiceIds, setPinnedServiceIds] = useState<ServiceId[]>([])
   const [catalogError, setCatalogError] = useState('')
   const [profileSearch, setProfileSearch] = useState('')
+  const [gcpProjectSearch, setGcpProjectSearch] = useState('')
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [pendingTerminalCommand, setPendingTerminalCommand] = useState<PendingTerminalCommand>(null)
   const [pageRefreshNonceByScreen, setPageRefreshNonceByScreen] = useState<Record<string, number>>({})
@@ -1293,6 +1294,25 @@ export function App() {
     if (!query) return connectionState.profiles
     return connectionState.profiles.filter((entry) => entry.name.toLowerCase().includes(query))
   }, [connectionState.profiles, profileSearch])
+  const filteredGcpProjects = useMemo(() => {
+    const query = gcpProjectSearch.trim().toLowerCase()
+
+    return gcpCatalogProjects.filter((project) => {
+      if (!query) {
+        return true
+      }
+
+      const haystack = [
+        project.projectId,
+        project.name,
+        project.projectNumber,
+        project.lifecycleState,
+        gcpCatalogAccount
+      ].join(' ').toLowerCase()
+
+      return haystack.includes(query)
+      })
+  }, [activeGcpConfiguration?.projectId, activeGcpConnectionDraft?.projectId, gcpCatalogAccount, gcpCatalogProjects, gcpCliContext?.activeProjectId, gcpProjectSearch])
 
   const primaryProfileLabel = isAwsProviderActive
     ? connectionState.activeSession?.sourceProfile || connectionState.selectedProfile?.name || connectionState.profile || 'No profile selected'
@@ -1424,15 +1444,6 @@ export function App() {
   const onboardingStepIndex = ENVIRONMENT_ONBOARDING_STEPS.indexOf(environmentOnboardingStep)
   const onboardingBackEnabled = onboardingStepIndex > 0
   const onboardingNextLabel = onboardingStepIndex === ENVIRONMENT_ONBOARDING_STEPS.length - 1 ? 'Finish onboarding' : 'Next step'
-
-  useEffect(() => {
-    if (activeProviderId !== 'gcp' || !gcpCliContext?.detected || selectedPreviewModeId) {
-      return
-    }
-
-    const inferredModeId = inferGcpModeIdFromContext(gcpCliContext)
-    setSelectedPreviewModeIds((current) => current.gcp ? current : { ...current, gcp: inferredModeId })
-  }, [activeProviderId, gcpCliContext, selectedPreviewModeId])
 
   useEffect(() => {
     if (activeProviderId !== 'gcp' || !gcpCliContext?.detected) {
@@ -2471,25 +2482,35 @@ export function App() {
                   />
                 </label>
               ) : activeProviderId === 'gcp' ? (
-                <div className="provider-selector-summary provider-selector-summary-actions">
-                  <div className="provider-selector-summary-copy">
-                    <span>GCP catalog</span>
-                    <strong>{gcpCliContext?.detected ? detectedGcpProjectCount : 0}</strong>
-                    <small>
-                      {gcpCliBusy && !gcpCliContext?.detected
-                        ? 'Loading gcloud catalog from the active CLI session.'
-                        : gcpCliContext?.detected
-                          ? `${detectedGcpConfigurationCount} configs | ${gcpCatalogAccount}`
-                          : gcpCliError || 'Refresh gcloud to import projects from the active CLI session.'}
-                    </small>
+                <div className="provider-selector-tools">
+                  <label className="profile-search-field">
+                    <span>Search GCP projects</span>
+                    <input
+                      value={gcpProjectSearch}
+                      onChange={(event) => setGcpProjectSearch(event.target.value)}
+                      placeholder="Search project id or name"
+                    />
+                  </label>
+                  <div className="provider-selector-summary provider-selector-summary-actions">
+                    <div className="provider-selector-summary-copy">
+                      <span>GCP catalog</span>
+                      <strong>{gcpCliContext?.detected ? detectedGcpProjectCount : 0}</strong>
+                      <small>
+                        {gcpCliBusy && !gcpCliContext?.detected
+                          ? 'Loading gcloud catalog from the active CLI session.'
+                          : gcpCliContext?.detected
+                            ? `${detectedGcpConfigurationCount} configs | ${gcpCatalogAccount}`
+                            : gcpCliError || 'Refresh gcloud to import projects from the active CLI session.'}
+                      </small>
+                    </div>
+                    <button type="button" onClick={() => void loadGcpCliContext()} disabled={gcpCliBusy}>
+                      {gcpCliBusy ? 'Refreshing...' : 'Refresh gcloud'}
+                    </button>
                   </div>
-                  <button type="button" onClick={() => void loadGcpCliContext()} disabled={gcpCliBusy}>
-                    {gcpCliBusy ? 'Refreshing...' : 'Refresh gcloud'}
-                  </button>
                 </div>
               ) : null}
             </div>
-            <div className="profile-catalog-grid">
+            <div className={`profile-catalog-grid ${activeProviderId === 'gcp' ? 'profile-catalog-grid-gcp' : ''} ${activeProviderId === 'gcp' && filteredGcpProjects.length === 1 ? 'profile-catalog-grid-gcp-single' : ''}`}>
               {isAwsProviderActive ? (
                 filteredProfiles.length > 0 ? (
                   filteredProfiles.map((entry) => (
@@ -2540,8 +2561,8 @@ export function App() {
                   </div>
                 )
               ) : activeProviderId === 'gcp' ? (
-                gcpCatalogProjects.length > 0 ? (
-                  gcpCatalogProjects.map((project) => {
+                filteredGcpProjects.length > 0 ? (
+                  filteredGcpProjects.map((project) => {
                     const isSelected = activeGcpConnectionDraft?.projectId.trim() === project.projectId
                     return (
                       <div key={project.projectId} className={`profile-catalog-card ${isSelected ? 'active' : ''}`}>
@@ -2573,14 +2594,32 @@ export function App() {
                   })
                 ) : (
                   <div className="profile-catalog-empty">
-                    <div className="eyebrow">{gcpCliBusy ? 'Loading gcloud' : gcpCliContext?.detected ? 'No Projects' : 'Loading gcloud'}</div>
-                    <h3>{gcpCliBusy ? 'Loading Google Cloud projects' : gcpCliContext?.detected ? 'No Google Cloud projects were imported' : 'Loading Google Cloud projects'}</h3>
+                    <div className="eyebrow">
+                      {gcpCliBusy
+                        ? 'Loading gcloud'
+                        : gcpCliContext?.detected
+                          ? gcpProjectSearch.trim()
+                            ? 'No Matches'
+                            : 'No Projects'
+                          : 'Loading gcloud'}
+                    </div>
+                    <h3>
+                      {gcpCliBusy
+                        ? 'Loading Google Cloud projects'
+                        : gcpCliContext?.detected
+                          ? gcpProjectSearch.trim()
+                            ? `No Google Cloud projects match "${gcpProjectSearch.trim()}"`
+                            : 'No Google Cloud projects were imported'
+                          : 'Loading Google Cloud projects'}
+                    </h3>
                     <p className="hero-path">
                       {gcpCliBusy
                         ? 'Importing projects from the active gcloud session.'
                         : gcpCliContext?.detected
-                        ? 'Sign in with gcloud or switch to a configuration that can see projects, then refresh the catalog.'
-                        : 'The simple GCP selector fills itself from the active gcloud session. Install or sign in, then refresh gcloud.'}
+                          ? gcpProjectSearch.trim()
+                            ? 'Try a different project id or name, or clear the search to see the full imported catalog.'
+                            : 'Sign in with gcloud or switch to a configuration that can see projects, then refresh the catalog.'
+                          : 'The simple GCP selector fills itself from the active gcloud session. Install or sign in, then refresh gcloud.'}
                     </p>
                   </div>
                 )
