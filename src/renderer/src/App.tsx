@@ -113,6 +113,7 @@ const PINNED_SERVICES_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:pinned-services
 const ENVIRONMENT_ONBOARDING_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:environment-onboarding-v1`
 const GCP_CONNECTION_CONTEXT_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:gcp-connection-context-v1`
 const GCP_CLI_CONTEXT_CACHE_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:gcp-cli-context-cache-v1`
+const GCP_RECENT_PROJECTS_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:gcp-recent-projects-v1`
 type EnvironmentOnboardingStep = 'profile' | 'region' | 'tooling' | 'access'
 type EnvironmentOnboardingState = {
   dismissed: boolean
@@ -788,6 +789,28 @@ function writeGcpCliContextCache(context: GcpCliContext | null): void {
   }
 }
 
+function readGcpRecentProjectIds(): string[] {
+  try {
+    const raw = window.localStorage.getItem(GCP_RECENT_PROJECTS_STORAGE_KEY)
+    if (!raw) {
+      return []
+    }
+
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function writeGcpRecentProjectIds(projectIds: string[]): void {
+  try {
+    window.localStorage.setItem(GCP_RECENT_PROJECTS_STORAGE_KEY, JSON.stringify(projectIds))
+  } catch {
+    // Ignore recent project persistence failures and keep the current in-memory state.
+  }
+}
+
 function getGcpCredentialFieldCopy(modeId?: string): { label: string; placeholder: string; helper: string } {
   switch (modeId) {
     case 'gcp-service-account':
@@ -907,6 +930,7 @@ export function App() {
   const [selectedPreviewModeIds, setSelectedPreviewModeIds] = useState<Partial<Record<PreviewProviderId, string>>>({})
   const [gcpConnectionDrafts, setGcpConnectionDrafts] = useState<GcpConnectionDraftByMode>(() => readGcpConnectionDrafts())
   const [gcpCliContext, setGcpCliContext] = useState<GcpCliContext | null>(() => readGcpCliContextCache())
+  const [recentGcpProjectIds, setRecentGcpProjectIds] = useState<string[]>(() => readGcpRecentProjectIds())
   const [gcpCliBusy, setGcpCliBusy] = useState(false)
   const [gcpCliError, setGcpCliError] = useState('')
   const [workspaceCatalog, setWorkspaceCatalog] = useState<WorkspaceCatalog | null>(null)
@@ -1156,6 +1180,10 @@ export function App() {
   }, [gcpConnectionDrafts])
 
   useEffect(() => {
+    writeGcpRecentProjectIds(recentGcpProjectIds)
+  }, [recentGcpProjectIds])
+
+  useEffect(() => {
     if (services.length === 0) return
     const validServiceIds = new Set(services.map((service) => service.id))
     setPinnedServiceIds((current) => current.filter((serviceId) => validServiceIds.has(serviceId) && !NAV_SECTION_EXCLUDED_SERVICE_IDS.has(serviceId)))
@@ -1311,8 +1339,15 @@ export function App() {
       ].join(' ').toLowerCase()
 
       return haystack.includes(query)
-      })
+    })
   }, [activeGcpConfiguration?.projectId, activeGcpConnectionDraft?.projectId, gcpCatalogAccount, gcpCatalogProjects, gcpCliContext?.activeProjectId, gcpProjectSearch])
+  const recentGcpProjects = useMemo(() => {
+    const projectMap = new Map(gcpCatalogProjects.map((project) => [project.projectId, project]))
+    return recentGcpProjectIds
+      .map((projectId) => projectMap.get(projectId) ?? null)
+      .filter((project): project is NonNullable<typeof project> => project !== null)
+      .slice(0, 4)
+  }, [gcpCatalogProjects, recentGcpProjectIds])
 
   const primaryProfileLabel = isAwsProviderActive
     ? connectionState.activeSession?.sourceProfile || connectionState.selectedProfile?.name || connectionState.profile || 'No profile selected'
@@ -1631,7 +1666,40 @@ export function App() {
         projectId
       }
     }))
+    setRecentGcpProjectIds((current) => [projectId, ...current.filter((entry) => entry !== projectId)].slice(0, 6))
     setNavOpen(true)
+  }
+
+  function renderGcpProjectCard(project: NonNullable<GcpCliContext['projects'][number]>, compact = false) {
+    const isSelected = activeGcpConnectionDraft?.projectId.trim() === project.projectId
+
+    return (
+      <div key={`${compact ? 'recent-' : ''}${project.projectId}`} className={`profile-catalog-card ${compact ? 'profile-catalog-card-compact' : ''} ${isSelected ? 'active' : ''}`}>
+        <div className="profile-catalog-card-header">
+          <div className="profile-catalog-card-badge">{getProfileBadge(project.projectId)}</div>
+          <div>
+            <div className="project-card-title">{project.projectId}</div>
+            <div className="project-card-meta">
+              <span>{project.name || 'Unnamed project'}</span>
+              <span>{gcpCatalogLocation}</span>
+            </div>
+          </div>
+        </div>
+        <div className="profile-catalog-status">
+          <span>{isSelected ? 'Active context' : gcpCatalogAccount}</span>
+          <div className="enterprise-card-status">
+            <span className={`enterprise-mode-pill ${project.lifecycleState === 'ACTIVE' ? 'operator' : 'read-only'}`}>
+              {project.lifecycleState || 'Detected'}
+            </span>
+          </div>
+        </div>
+        <div className="button-row profile-catalog-actions">
+          <button type="button" className={isSelected ? 'accent' : ''} onClick={() => handleApplyGcpProject(project.projectId)}>
+            {isSelected ? 'Selected' : 'Select'}
+          </button>
+        </div>
+      </div>
+    )
   }
 
   function storeCompareSeed(request: ComparisonRequest): void {
@@ -2510,6 +2578,17 @@ export function App() {
                 </div>
               ) : null}
             </div>
+            {activeProviderId === 'gcp' && !gcpProjectSearch.trim() && recentGcpProjects.length > 0 && (
+              <section className="profile-catalog-recent">
+                <div className="profile-catalog-recent-header">
+                  <div className="eyebrow">Recent Projects</div>
+                  <span>{recentGcpProjects.length} recent</span>
+                </div>
+                <div className="profile-catalog-grid profile-catalog-grid-gcp-recent">
+                  {recentGcpProjects.map((project) => renderGcpProjectCard(project, true))}
+                </div>
+              </section>
+            )}
             <div className={`profile-catalog-grid ${activeProviderId === 'gcp' ? 'profile-catalog-grid-gcp' : ''} ${activeProviderId === 'gcp' && filteredGcpProjects.length === 1 ? 'profile-catalog-grid-gcp-single' : ''}`}>
               {isAwsProviderActive ? (
                 filteredProfiles.length > 0 ? (
@@ -2562,36 +2641,7 @@ export function App() {
                 )
               ) : activeProviderId === 'gcp' ? (
                 filteredGcpProjects.length > 0 ? (
-                  filteredGcpProjects.map((project) => {
-                    const isSelected = activeGcpConnectionDraft?.projectId.trim() === project.projectId
-                    return (
-                      <div key={project.projectId} className={`profile-catalog-card ${isSelected ? 'active' : ''}`}>
-                        <div className="profile-catalog-card-header">
-                          <div className="profile-catalog-card-badge">{getProfileBadge(project.projectId)}</div>
-                          <div>
-                            <div className="project-card-title">{project.projectId}</div>
-                            <div className="project-card-meta">
-                              <span>{project.name || 'Unnamed project'}</span>
-                              <span>{gcpCatalogLocation}</span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="profile-catalog-status">
-                          <span>{isSelected ? 'Active context' : gcpCatalogAccount}</span>
-                          <div className="enterprise-card-status">
-                            <span className={`enterprise-mode-pill ${project.lifecycleState === 'ACTIVE' ? 'operator' : 'read-only'}`}>
-                              {project.lifecycleState || 'Detected'}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="button-row profile-catalog-actions">
-                          <button type="button" className={isSelected ? 'accent' : ''} onClick={() => handleApplyGcpProject(project.projectId)}>
-                            {isSelected ? 'Selected' : 'Select'}
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  })
+                  filteredGcpProjects.map((project) => renderGcpProjectCard(project))
                 ) : (
                   <div className="profile-catalog-empty">
                     <div className="eyebrow">
