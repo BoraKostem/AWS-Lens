@@ -21,6 +21,7 @@ import { getCallerIdentity, getSessionHubState, listProfiles, listRegions } from
 
 const PROFILE_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:selected-profile`
 const REGION_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:selected-region`
+const REGION_BY_PROFILE_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:selected-region-by-profile`
 const PINNED_PROFILES_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:pinned-profiles`
 const ACTIVE_SESSION_ID_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:active-session-id`
 
@@ -53,6 +54,25 @@ function readStoredList(key: string): string[] {
   }
 }
 
+function readStoredRecord(key: string): Record<string, string> {
+  if (typeof window === 'undefined') {
+    return {}
+  }
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(key) ?? '{}')
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {}
+    }
+
+    return Object.fromEntries(
+      Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[0] === 'string' && typeof entry[1] === 'string')
+    )
+  } catch {
+    return {}
+  }
+}
+
 function writeStoredValue(key: string, value: string): void {
   if (typeof window === 'undefined') {
     return
@@ -74,6 +94,14 @@ function writeStoredList(key: string, values: string[]): void {
   window.localStorage.setItem(key, JSON.stringify(values))
 }
 
+function writeStoredRecord(key: string, values: Record<string, string>): void {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  window.localStorage.setItem(key, JSON.stringify(values))
+}
+
 export function formatDateTime(value?: string): string {
   return value ? new Date(value).toLocaleString() : '-'
 }
@@ -83,6 +111,7 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProf
   const [regions, setRegions] = useState<AwsRegionOption[]>([])
   const [profile, setProfile] = useState(() => readStoredValue(PROFILE_STORAGE_KEY, ''))
   const [region, setRegion] = useState(() => readStoredValue(REGION_STORAGE_KEY, defaultRegion))
+  const [regionByProfile, setRegionByProfile] = useState<Record<string, string>>(() => readStoredRecord(REGION_BY_PROFILE_STORAGE_KEY))
   const [pinnedProfileNames, setPinnedProfileNames] = useState<string[]>(() => readStoredList(PINNED_PROFILES_STORAGE_KEY))
   const [targets, setTargets] = useState<AwsAssumeRoleTarget[]>([])
   const [sessions, setSessions] = useState<AwsSessionSummary[]>([])
@@ -116,6 +145,10 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProf
   }, [region])
 
   useEffect(() => {
+    writeStoredRecord(REGION_BY_PROFILE_STORAGE_KEY, regionByProfile)
+  }, [regionByProfile])
+
+  useEffect(() => {
     writeStoredList(PINNED_PROFILES_STORAGE_KEY, pinnedProfileNames)
   }, [pinnedProfileNames])
 
@@ -127,10 +160,27 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProf
     setProfile(name)
     setActiveSessionId('')
     const match = profiles.find((entry) => entry.name === name)
+    const rememberedRegion = regionByProfile[name]
+    if (rememberedRegion) {
+      setRegion(rememberedRegion)
+      return
+    }
     if (match?.region) {
       setRegion(match.region)
     }
   }
+
+  useEffect(() => {
+    if (!profile || !region || activeSessionId) {
+      return
+    }
+
+    setRegionByProfile((current) => (
+      current[profile] === region
+        ? current
+        : { ...current, [profile]: region }
+    ))
+  }, [activeSessionId, profile, region])
 
   // Profile is only set by explicit user selection — no auto-select
 
