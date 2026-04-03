@@ -19,6 +19,20 @@ The reconciliation workspace currently scans these Terraform-managed AWS resourc
 - `aws_rds_cluster`
 - `aws_ecr_repository`
 - `aws_eks_cluster`
+- `aws_lb`
+- `aws_ecs_service`
+- `aws_cloudwatch_metric_alarm`
+- `aws_route53_record`
+- `aws_ecs_cluster`
+- `aws_ecs_cluster_capacity_providers`
+- `aws_eks_node_group`
+- `aws_iam_role`
+- `aws_iam_role_policy_attachment`
+- `aws_eip`
+- `aws_db_subnet_group`
+- `aws_rds_cluster_instance`
+- `aws_route_table_association`
+- `aws_security_group_rule`
 
 Unsupported Terraform-managed resource types remain visible in the drift tab with status `unsupported`. They are intentionally not hidden, so operators can see where the app still requires `terraform plan` or `terraform state show`.
 
