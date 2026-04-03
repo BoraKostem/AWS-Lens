@@ -98,6 +98,12 @@ export type ComparisonContextInput =
       region: string
       label?: string
     }
+  | {
+      kind: 'saved-target'
+      targetId: string
+      region: string
+      label?: string
+    }
 
 export type ComparisonContextDescriptor = {
   kind: ComparisonContextInput['kind']
@@ -242,6 +248,27 @@ export type ComparisonBaselineInput = {
   description: string
   request: ComparisonRequest
   result: ComparisonResult
+}
+
+export type ComparisonPresetSummary = {
+  id: string
+  name: string
+  description: string
+  createdAt: string
+  updatedAt: string
+  leftLabel: string
+  rightLabel: string
+}
+
+export type ComparisonPreset = ComparisonPresetSummary & {
+  request: ComparisonRequest
+}
+
+export type ComparisonPresetInput = {
+  id?: string
+  name: string
+  description: string
+  request: ComparisonRequest
 }
 
 export type AssumeRoleRequest = {

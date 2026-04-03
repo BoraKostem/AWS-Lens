@@ -8,16 +8,22 @@ import type {
   ComparisonDiffRow,
   ComparisonDiffStatus,
   ComparisonFocusMode,
+  ComparisonPreset,
+  ComparisonPresetSummary,
   ComparisonRequest,
   ComparisonResult,
   ServiceId
 } from '@shared/types'
 import {
   deleteComparisonBaseline,
+  deleteComparisonPreset,
   getComparisonBaseline,
+  getComparisonPreset,
   listComparisonBaselines,
+  listComparisonPresets,
   runComparison,
-  saveComparisonBaseline
+  saveComparisonBaseline,
+  saveComparisonPreset
 } from './api'
 import type { useAwsPageConnection } from './AwsPage'
 
@@ -32,6 +38,7 @@ type SelectorOption = {
   requestBase:
     | { kind: 'profile'; profile: string; label?: string }
     | { kind: 'assumed-role'; sessionId: string; label?: string }
+    | { kind: 'saved-target'; targetId: string; label?: string }
 }
 
 type CompareViewMode = 'flat' | 'grouped'
@@ -76,10 +83,14 @@ function defaultRightKey(leftKey: string, options: SelectorOption[]): string {
 function requestKey(request: ComparisonRequest): string {
   const left = request.left.kind === 'profile'
     ? `profile:${request.left.profile}:${request.left.region}`
-    : `session:${request.left.sessionId}:${request.left.region}`
+    : request.left.kind === 'saved-target'
+      ? `target:${request.left.targetId}:${request.left.region}`
+      : `session:${request.left.sessionId}:${request.left.region}`
   const right = request.right.kind === 'profile'
     ? `profile:${request.right.profile}:${request.right.region}`
-    : `session:${request.right.sessionId}:${request.right.region}`
+    : request.right.kind === 'saved-target'
+      ? `target:${request.right.targetId}:${request.right.region}`
+      : `session:${request.right.sessionId}:${request.right.region}`
   return `${left}=>${right}`
 }
 
@@ -138,6 +149,11 @@ export function CompareWorkspace({
       label: `Profile: ${profile.name}`,
       requestBase: { kind: 'profile' as const, profile: profile.name, label: profile.name }
     }))
+    const targetOptions = connectionState.targets.map((target) => ({
+      key: `target:${target.id}`,
+      label: `Saved target: ${target.label} (${target.sourceProfile})`,
+      requestBase: { kind: 'saved-target' as const, targetId: target.id, label: target.label }
+    }))
     const sessionOptions = connectionState.sessions
       .filter((session) => session.status === 'active')
       .map((session) => ({
@@ -146,8 +162,8 @@ export function CompareWorkspace({
         requestBase: { kind: 'assumed-role' as const, sessionId: session.id, label: session.label }
       }))
 
-    return [...profileOptions, ...sessionOptions]
-  }, [connectionState.profiles, connectionState.sessions])
+    return [...profileOptions, ...targetOptions, ...sessionOptions]
+  }, [connectionState.profiles, connectionState.sessions, connectionState.targets])
 
   const [leftKey, setLeftKey] = useState('')
   const [rightKey, setRightKey] = useState('')
@@ -165,6 +181,15 @@ export function CompareWorkspace({
   const [baselines, setBaselines] = useState<ComparisonBaselineSummary[]>([])
   const [selectedBaselineId, setSelectedBaselineId] = useState('')
   const [loadedBaseline, setLoadedBaseline] = useState<ComparisonBaseline | null>(null)
+  const [presets, setPresets] = useState<ComparisonPresetSummary[]>([])
+  const [selectedPresetId, setSelectedPresetId] = useState('')
+  const [loadedPreset, setLoadedPreset] = useState<ComparisonPreset | null>(null)
+  const [presetLoading, setPresetLoading] = useState(false)
+  const [presetSaving, setPresetSaving] = useState(false)
+  const [presetDeleting, setPresetDeleting] = useState(false)
+  const [presetName, setPresetName] = useState('')
+  const [presetDescription, setPresetDescription] = useState('')
+  const [presetMessage, setPresetMessage] = useState('')
   const [baselineLoading, setBaselineLoading] = useState(false)
   const [baselineSaving, setBaselineSaving] = useState(false)
   const [baselineDeleting, setBaselineDeleting] = useState(false)
@@ -195,9 +220,13 @@ export function CompareWorkspace({
 
     const nextLeftKey = seed.request.left.kind === 'profile'
       ? `profile:${seed.request.left.profile}`
+      : seed.request.left.kind === 'saved-target'
+        ? `target:${seed.request.left.targetId}`
       : `session:${seed.request.left.sessionId}`
     const nextRightKey = seed.request.right.kind === 'profile'
       ? `profile:${seed.request.right.profile}`
+      : seed.request.right.kind === 'saved-target'
+        ? `target:${seed.request.right.targetId}`
       : `session:${seed.request.right.sessionId}`
 
     setLeftKey(nextLeftKey)
@@ -223,6 +252,23 @@ export function CompareWorkspace({
 
   useEffect(() => {
     void refreshBaselines()
+  }, [])
+
+  async function refreshPresets(): Promise<void> {
+    try {
+      const next = await listComparisonPresets()
+      setPresets(next)
+      setSelectedPresetId((current) => {
+        if (current && next.some((preset) => preset.id === current)) return current
+        return next[0]?.id ?? ''
+      })
+    } catch (presetError) {
+      setPresetMessage(presetError instanceof Error ? presetError.message : String(presetError))
+    }
+  }
+
+  useEffect(() => {
+    void refreshPresets()
   }, [])
 
   const selectedRow = useMemo(() => {
@@ -304,10 +350,97 @@ export function CompareWorkspace({
   }
 
   function applyRequestToSelectors(request: ComparisonRequest): void {
-    setLeftKey(request.left.kind === 'profile' ? `profile:${request.left.profile}` : `session:${request.left.sessionId}`)
-    setRightKey(request.right.kind === 'profile' ? `profile:${request.right.profile}` : `session:${request.right.sessionId}`)
+    setLeftKey(
+      request.left.kind === 'profile'
+        ? `profile:${request.left.profile}`
+        : request.left.kind === 'saved-target'
+          ? `target:${request.left.targetId}`
+          : `session:${request.left.sessionId}`
+    )
+    setRightKey(
+      request.right.kind === 'profile'
+        ? `profile:${request.right.profile}`
+        : request.right.kind === 'saved-target'
+          ? `target:${request.right.targetId}`
+          : `session:${request.right.sessionId}`
+    )
     setLeftRegion(request.left.region)
     setRightRegion(request.right.region)
+  }
+
+  async function handleLoadPreset(): Promise<void> {
+    if (!selectedPresetId) return
+    setPresetLoading(true)
+    setPresetMessage('')
+    try {
+      const preset = await getComparisonPreset(selectedPresetId)
+      if (!preset) {
+        setLoadedPreset(null)
+        setPresetMessage('Selected compare preset no longer exists.')
+        await refreshPresets()
+        return
+      }
+      setLoadedPreset(preset)
+      applyRequestToSelectors(preset.request)
+      setPresetName(preset.name)
+      setPresetDescription(preset.description)
+      setPresetMessage(`Loaded compare preset "${preset.name}".`)
+    } catch (presetError) {
+      setPresetMessage(presetError instanceof Error ? presetError.message : String(presetError))
+    } finally {
+      setPresetLoading(false)
+    }
+  }
+
+  async function handleSavePreset(): Promise<void> {
+    const request = buildRequest()
+    if (!request) {
+      setPresetMessage('Choose two contexts before saving a compare preset.')
+      return
+    }
+    if (!presetName.trim()) {
+      setPresetMessage('Enter a compare preset name.')
+      return
+    }
+
+    setPresetSaving(true)
+    setPresetMessage('')
+    try {
+      const summary = await saveComparisonPreset({
+        id: loadedPreset?.id,
+        name: presetName.trim(),
+        description: presetDescription.trim(),
+        request
+      })
+      await refreshPresets()
+      setSelectedPresetId(summary.id)
+      setLoadedPreset(await getComparisonPreset(summary.id))
+      setPresetMessage(`Saved compare preset "${summary.name}".`)
+    } catch (presetError) {
+      setPresetMessage(presetError instanceof Error ? presetError.message : String(presetError))
+    } finally {
+      setPresetSaving(false)
+    }
+  }
+
+  async function handleDeletePreset(): Promise<void> {
+    if (!selectedPresetId) return
+    setPresetDeleting(true)
+    setPresetMessage('')
+    try {
+      await deleteComparisonPreset(selectedPresetId)
+      if (loadedPreset?.id === selectedPresetId) {
+        setLoadedPreset(null)
+      }
+      setPresetName('')
+      setPresetDescription('')
+      await refreshPresets()
+      setPresetMessage('Compare preset deleted.')
+    } catch (presetError) {
+      setPresetMessage(presetError instanceof Error ? presetError.message : String(presetError))
+    } finally {
+      setPresetDeleting(false)
+    }
   }
 
   async function handleLoadBaseline(): Promise<void> {
@@ -544,6 +677,71 @@ export function CompareWorkspace({
             <strong>{viewMode === 'flat' ? `${flatRows.length} visible rows` : `${filteredGroups.length} visible groups`}</strong>
           </div>
         </div>
+      </section>
+
+      <section className="compare-baseline-panel">
+        <div className="compare-pane-head">
+          <div>
+            <span className="compare-pane-kicker">Saved compare presets</span>
+            <h3>Create reusable Session Hub and Compare Workspace context pairs</h3>
+          </div>
+          <span className="compare-pane-summary">{presets.length} saved</span>
+        </div>
+        <div className="compare-baseline-grid">
+          <label className="field">
+            <span>Saved presets</span>
+            <select value={selectedPresetId} onChange={(event) => setSelectedPresetId(event.target.value)}>
+              <option value="">Select a preset</option>
+              {presets.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.name} ({preset.leftLabel} vs {preset.rightLabel})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Preset name</span>
+            <input
+              value={presetName}
+              onChange={(event) => setPresetName(event.target.value)}
+              placeholder="Prod vs staging roles"
+            />
+          </label>
+          <label className="field compare-baseline-description">
+            <span>Description</span>
+            <input
+              value={presetDescription}
+              onChange={(event) => setPresetDescription(event.target.value)}
+              placeholder="Optional note about this reusable compare context"
+            />
+          </label>
+        </div>
+        <div className="compare-baseline-actions">
+          <button type="button" className="tf-toolbar-btn" disabled={!selectedPresetId || presetLoading} onClick={() => void handleLoadPreset()}>
+            {presetLoading ? 'Loading...' : 'Load preset'}
+          </button>
+          <button type="button" className="tf-toolbar-btn accent" disabled={presetSaving} onClick={() => void handleSavePreset()}>
+            {presetSaving ? 'Saving...' : (loadedPreset ? 'Update preset' : 'Save current as preset')}
+          </button>
+          <button type="button" className="tf-toolbar-btn" disabled={!selectedPresetId || presetDeleting} onClick={() => void handleDeletePreset()}>
+            {presetDeleting ? 'Deleting...' : 'Delete preset'}
+          </button>
+        </div>
+        <div className="compare-baseline-meta">
+          <div className="compare-shell-meta-pill">
+            <span>Loaded preset</span>
+            <strong>{loadedPreset?.name ?? 'None'}</strong>
+          </div>
+          <div className="compare-shell-meta-pill">
+            <span>Preset request</span>
+            <strong>{loadedPreset ? `${loadedPreset.leftLabel} vs ${loadedPreset.rightLabel}` : 'No preset selected'}</strong>
+          </div>
+          <div className="compare-shell-meta-pill">
+            <span>Current selectors</span>
+            <strong>{buildRequest() ? 'Ready to save or run' : 'Choose two contexts'}</strong>
+          </div>
+        </div>
+        {presetMessage && <div className="compare-baseline-message">{presetMessage}</div>}
       </section>
 
       <section className="compare-baseline-panel">

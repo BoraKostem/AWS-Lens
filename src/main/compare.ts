@@ -31,7 +31,13 @@ import type {
   VpcSummary,
   WafWebAclSummary
 } from '@shared/types'
-import { createBaseConnection, createConnectionFromSession, getSessionSummary } from './sessionHub'
+import {
+  assumeRoleSession,
+  createBaseConnection,
+  createConnectionFromSession,
+  getAssumeRoleTarget,
+  getSessionSummary
+} from './sessionHub'
 import { listAcmCertificates } from './aws/acm'
 import { getComplianceReport } from './aws/compliance'
 import { listEc2Instances } from './aws/ec2'
@@ -427,9 +433,29 @@ function normalizeInventory(input: {
 }
 
 async function resolveConnection(input: ComparisonContextInput): Promise<AwsConnection> {
-  return input.kind === 'profile'
-    ? createBaseConnection(input.profile, input.region)
-    : createConnectionFromSession(input.sessionId, input.region)
+  if (input.kind === 'profile') {
+    return createBaseConnection(input.profile, input.region)
+  }
+
+  if (input.kind === 'assumed-role') {
+    return createConnectionFromSession(input.sessionId, input.region)
+  }
+
+  const target = getAssumeRoleTarget(input.targetId)
+  if (!target) {
+    throw new Error('Saved compare target was not found. Update the preset or recreate the target in Session Hub.')
+  }
+
+  const assumed = await assumeRoleSession({
+    label: input.label?.trim() || target.label,
+    roleArn: target.roleArn,
+    sessionName: target.defaultSessionName,
+    externalId: target.externalId || undefined,
+    sourceProfile: target.sourceProfile,
+    region: input.region || target.defaultRegion
+  })
+
+  return createConnectionFromSession(assumed.sessionId, input.region)
 }
 
 async function loadDataset(input: ComparisonContextInput): Promise<ContextDataset> {
@@ -454,7 +480,9 @@ async function loadDataset(input: ComparisonContextInput): Promise<ContextDatase
     listWebAcls(connection, 'REGIONAL').catch(() => [])
   ])
 
-  const summary = input.kind === 'assumed-role' ? getSessionSummary(input.sessionId) : null
+  const summary = input.kind === 'assumed-role'
+    ? getSessionSummary(input.sessionId)
+    : null
   const descriptor = makeDescriptor(connection, identity.account || summary?.accountId || '', identity.arn)
 
   return {

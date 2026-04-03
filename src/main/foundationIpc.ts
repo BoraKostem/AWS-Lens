@@ -3,6 +3,7 @@ import { ipcMain } from 'electron'
 import type {
   AwsCapabilitySubject,
   ComparisonBaselineInput,
+  ComparisonPresetInput,
   CloudWatchInvestigationHistoryInput,
   CloudWatchQueryFilter,
   CloudWatchQueryHistoryInput,
@@ -26,6 +27,12 @@ import {
   listComparisonBaselines,
   saveComparisonBaseline
 } from './compareBaselineStore'
+import {
+  deleteComparisonPreset,
+  getComparisonPreset,
+  listComparisonPresets,
+  saveComparisonPreset
+} from './comparePresetStore'
 import { resolveDbConnectionMaterial } from './dbConnectionResolver'
 import { resolveDirectAccessInput } from './directAccessGuidance'
 import { buildEksUpgradePlan } from './eksUpgradePlanner'
@@ -141,14 +148,26 @@ export function registerFoundationIpcHandlers(): void {
   ipcMain.handle('phase2:list-comparison-baselines', async () =>
     wrap(() => listComparisonBaselines())
   )
+  ipcMain.handle('phase2:list-comparison-presets', async () =>
+    wrap(() => listComparisonPresets())
+  )
   ipcMain.handle('phase2:get-comparison-baseline', async (_event, baselineId: string) =>
     wrap(() => getComparisonBaseline(baselineId))
+  )
+  ipcMain.handle('phase2:get-comparison-preset', async (_event, presetId: string) =>
+    wrap(() => getComparisonPreset(presetId))
   )
   ipcMain.handle('phase2:save-comparison-baseline', async (_event, input: ComparisonBaselineInput) =>
     wrap(() => saveComparisonBaseline(input))
   )
+  ipcMain.handle('phase2:save-comparison-preset', async (_event, input: ComparisonPresetInput) =>
+    wrap(() => saveComparisonPreset(input))
+  )
   ipcMain.handle('phase2:delete-comparison-baseline', async (_event, baselineId: string) =>
     wrap(() => deleteComparisonBaseline(baselineId))
+  )
+  ipcMain.handle('phase2:delete-comparison-preset', async (_event, presetId: string) =>
+    wrap(() => deleteComparisonPreset(presetId))
   )
   ipcMain.handle('phase2:build-eks-upgrade-plan', async (_event, connection: AwsConnection, request: EksUpgradePlannerRequest) =>
     wrap(() => buildEksUpgradePlan(connection, request))

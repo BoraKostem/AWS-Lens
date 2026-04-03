@@ -1704,6 +1704,10 @@ button.overview-tile.clickable.active strong {
   gap: 0.9rem;
 }
 
+.session-hub-compare-description {
+  grid-column: 1 / -1;
+}
+
 .session-hub-picker {
   position: relative;
 }

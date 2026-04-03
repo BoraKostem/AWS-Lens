@@ -1,13 +1,26 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import type { AssumeRoleRequest, AwsAssumeRoleTarget, AwsConnection, AwsSessionSummary, ComparisonRequest, IamRoleSummary } from '@shared/types'
+import type {
+  AssumeRoleRequest,
+  AwsAssumeRoleTarget,
+  AwsConnection,
+  AwsSessionSummary,
+  ComparisonPreset,
+  ComparisonPresetSummary,
+  ComparisonRequest,
+  IamRoleSummary
+} from '@shared/types'
 import {
   assumeRoleSession,
   assumeSavedRoleTarget,
   deleteAssumedSession,
   deleteAssumeRoleTarget,
+  deleteComparisonPreset,
+  getComparisonPreset,
   listIamRoles,
+  listComparisonPresets,
   refreshAssumedSession,
+  saveComparisonPreset,
   saveAssumeRoleTarget
 } from './api'
 import { CollapsibleInfoPanel } from './CollapsibleInfoPanel'
@@ -174,6 +187,13 @@ export function SessionHub({
   const [rolesLoading, setRolesLoading] = useState(false)
   const [roleArnPickerOpen, setRoleArnPickerOpen] = useState(false)
   const [sourceProfilePickerOpen, setSourceProfilePickerOpen] = useState(false)
+  const [comparePresets, setComparePresets] = useState<ComparisonPresetSummary[]>([])
+  const [selectedComparePresetId, setSelectedComparePresetId] = useState('')
+  const [loadedComparePreset, setLoadedComparePreset] = useState<ComparisonPreset | null>(null)
+  const [comparePresetName, setComparePresetName] = useState('')
+  const [comparePresetDescription, setComparePresetDescription] = useState('')
+  const [comparePresetBusy, setComparePresetBusy] = useState('')
+  const [comparePresetMessage, setComparePresetMessage] = useState('')
   const {
     freshness,
     beginRefresh,
@@ -229,6 +249,7 @@ export function SessionHub({
       requestBase:
         | { kind: 'profile'; profile: string; label?: string }
         | { kind: 'assumed-role'; sessionId: string; label?: string }
+        | { kind: 'saved-target'; targetId: string; label?: string }
     }> = []
 
     for (const profile of connectionState.profiles) {
@@ -239,6 +260,18 @@ export function SessionHub({
           kind: 'profile',
           profile: profile.name,
           label: profile.name
+        }
+      })
+    }
+
+    for (const target of connectionState.targets) {
+      options.push({
+        id: `target:${target.id}`,
+        label: `Saved target: ${target.label} (${target.sourceProfile})`,
+        requestBase: {
+          kind: 'saved-target',
+          targetId: target.id,
+          label: target.label
         }
       })
     }
@@ -256,7 +289,7 @@ export function SessionHub({
     }
 
     return options
-  }, [connectionState.profiles, connectionState.sessions])
+  }, [connectionState.profiles, connectionState.sessions, connectionState.targets])
 
   useEffect(() => {
     const sourceProfile = draft.sourceProfile.trim()
@@ -311,6 +344,10 @@ export function SessionHub({
       setCompareRight(compareOptions[1].id)
     }
   }, [compareLeft, compareOptions, compareRight])
+
+  useEffect(() => {
+    void refreshComparePresets()
+  }, [])
 
   function updateDraft<K extends keyof typeof draft>(key: K, value: (typeof draft)[K]): void {
     setDraft((current) => ({ ...current, [key]: value }))
@@ -495,18 +532,139 @@ export function SessionHub({
     }
   }
 
-  function handleCompareLaunch(): void {
+  function buildCompareRequest(): ComparisonRequest | null {
     const left = compareOptions.find((entry) => entry.id === compareLeft)
     const right = compareOptions.find((entry) => entry.id === compareRight)
     if (!left || !right) {
+      return null
+    }
+
+    return {
+      left: { ...left.requestBase, region: connectionState.region },
+      right: { ...right.requestBase, region: connectionState.region }
+    }
+  }
+
+  function applyCompareRequest(request: ComparisonRequest): void {
+    setCompareLeft(
+      request.left.kind === 'profile'
+        ? `profile:${request.left.profile}`
+        : request.left.kind === 'saved-target'
+          ? `target:${request.left.targetId}`
+          : `session:${request.left.sessionId}`
+    )
+    setCompareRight(
+      request.right.kind === 'profile'
+        ? `profile:${request.right.profile}`
+        : request.right.kind === 'saved-target'
+          ? `target:${request.right.targetId}`
+          : `session:${request.right.sessionId}`
+    )
+  }
+
+  async function refreshComparePresets(): Promise<void> {
+    try {
+      const next = await listComparisonPresets()
+      setComparePresets(next)
+      setSelectedComparePresetId((current) => {
+        if (current && next.some((preset) => preset.id === current)) return current
+        return next[0]?.id ?? ''
+      })
+    } catch (err) {
+      setComparePresetMessage(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleLoadComparePreset(): Promise<void> {
+    if (!selectedComparePresetId) {
+      return
+    }
+
+    setComparePresetBusy('load')
+    setComparePresetMessage('')
+    try {
+      const preset = await getComparisonPreset(selectedComparePresetId)
+      if (!preset) {
+        setLoadedComparePreset(null)
+        setComparePresetMessage('Selected compare preset no longer exists.')
+        await refreshComparePresets()
+        return
+      }
+
+      setLoadedComparePreset(preset)
+      setComparePresetName(preset.name)
+      setComparePresetDescription(preset.description)
+      applyCompareRequest(preset.request)
+      setComparePresetMessage(`Loaded compare preset "${preset.name}".`)
+    } catch (err) {
+      setComparePresetMessage(err instanceof Error ? err.message : String(err))
+    } finally {
+      setComparePresetBusy('')
+    }
+  }
+
+  async function handleSaveComparePreset(): Promise<void> {
+    const request = buildCompareRequest()
+    if (!request) {
+      setComparePresetMessage('Choose two contexts before saving a compare preset.')
+      return
+    }
+    if (!comparePresetName.trim()) {
+      setComparePresetMessage('Enter a compare preset name.')
+      return
+    }
+
+    setComparePresetBusy('save')
+    setComparePresetMessage('')
+    try {
+      const summary = await saveComparisonPreset({
+        id: loadedComparePreset?.id,
+        name: comparePresetName.trim(),
+        description: comparePresetDescription.trim(),
+        request
+      })
+      await refreshComparePresets()
+      setSelectedComparePresetId(summary.id)
+      setLoadedComparePreset(await getComparisonPreset(summary.id))
+      setComparePresetMessage(`Saved compare preset "${summary.name}".`)
+    } catch (err) {
+      setComparePresetMessage(err instanceof Error ? err.message : String(err))
+    } finally {
+      setComparePresetBusy('')
+    }
+  }
+
+  async function handleDeleteComparePreset(): Promise<void> {
+    if (!selectedComparePresetId) {
+      return
+    }
+
+    setComparePresetBusy('delete')
+    setComparePresetMessage('')
+    try {
+      await deleteComparisonPreset(selectedComparePresetId)
+      if (loadedComparePreset?.id === selectedComparePresetId) {
+        setLoadedComparePreset(null)
+      }
+      setComparePresetName('')
+      setComparePresetDescription('')
+      await refreshComparePresets()
+      setComparePresetMessage('Compare preset deleted.')
+    } catch (err) {
+      setComparePresetMessage(err instanceof Error ? err.message : String(err))
+    } finally {
+      setComparePresetBusy('')
+    }
+  }
+
+  function handleCompareLaunch(): void {
+    const request = buildCompareRequest()
+    if (!request) {
       setError('Choose two contexts to compare.')
       return
     }
 
-    onOpenCompare({
-      left: { ...left.requestBase, region: connectionState.region },
-      right: { ...right.requestBase, region: connectionState.region }
-    })
+    onOpenCompare(request)
   }
 
   function loadTargetIntoForm(target: AwsAssumeRoleTarget): void {
@@ -582,7 +740,7 @@ export function SessionHub({
           <div className="session-hub-shell-stat-card">
             <span>Diff contexts</span>
             <strong>{compareOptions.length}</strong>
-            <small>Profiles and sessions available to compare</small>
+            <small>Profiles, saved targets, and sessions available to compare</small>
           </div>
         </div>
       </section>
@@ -850,12 +1008,61 @@ export function SessionHub({
               {compareOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
             </select>
           </label>
+          <label className="field">
+            <span>Saved Preset</span>
+            <select value={selectedComparePresetId} onChange={(event) => setSelectedComparePresetId(event.target.value)}>
+              <option value="">Select...</option>
+              {comparePresets.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.name} ({preset.leftLabel} vs {preset.rightLabel})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Preset Name</span>
+            <input
+              value={comparePresetName}
+              onChange={(event) => setComparePresetName(event.target.value)}
+              placeholder="Prod vs staging"
+            />
+          </label>
+          <label className="field session-hub-compare-description">
+            <span>Preset Description</span>
+            <input
+              value={comparePresetDescription}
+              onChange={(event) => setComparePresetDescription(event.target.value)}
+              placeholder="Optional note for this reusable compare pair"
+            />
+          </label>
         </div>
         <div className="button-row session-hub-toolbar">
+          <button
+            type="button"
+            disabled={!selectedComparePresetId || comparePresetBusy === 'load'}
+            onClick={() => void handleLoadComparePreset()}
+          >
+            {comparePresetBusy === 'load' ? 'Loading...' : 'Load Preset'}
+          </button>
+          <button
+            type="button"
+            disabled={comparePresetBusy === 'save'}
+            onClick={() => void handleSaveComparePreset()}
+          >
+            {comparePresetBusy === 'save' ? 'Saving...' : loadedComparePreset ? 'Update Preset' : 'Save Preset'}
+          </button>
+          <button
+            type="button"
+            disabled={!selectedComparePresetId || comparePresetBusy === 'delete'}
+            onClick={() => void handleDeleteComparePreset()}
+          >
+            {comparePresetBusy === 'delete' ? 'Deleting...' : 'Delete Preset'}
+          </button>
           <button type="button" className="accent" onClick={handleCompareLaunch}>
             Open Compare Workspace
           </button>
         </div>
+        {comparePresetMessage && <div className="empty-state compact">{comparePresetMessage}</div>}
         <div className="empty-state compact">Diff Mode opens a dedicated workspace with inventory, posture, ownership, cost, and risk-focused comparisons.</div>
       </section>
 
