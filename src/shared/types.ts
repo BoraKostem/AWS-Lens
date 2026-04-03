@@ -2705,6 +2705,22 @@ export type ResilienceExperimentSuggestion = {
   artifact?: GeneratedArtifact
 }
 
+export type InvestigationPackStep = {
+  id: string
+  title: string
+  detail: string
+  artifact?: GeneratedArtifact
+}
+
+export type InvestigationPack = {
+  id: string
+  title: string
+  summary: string
+  problem: string
+  labels: string[]
+  steps: InvestigationPackStep[]
+}
+
 export type ObservabilityPostureArea = {
   id: string
   label: string
@@ -2727,6 +2743,7 @@ export type ObservabilityPostureReport = {
   summary: ObservabilityPostureArea[]
   findings: ObservabilityFinding[]
   recommendations: ObservabilityRecommendation[]
+  investigationPacks: InvestigationPack[]
   experiments: ResilienceExperimentSuggestion[]
   artifacts: GeneratedArtifact[]
   safetyNotes: Array<{

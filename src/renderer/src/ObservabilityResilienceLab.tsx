@@ -146,6 +146,35 @@ export function ObservabilityResilienceLab({
             </div>
           </div>
 
+          {report.investigationPacks.length > 0 && (
+            <div className="obs-lab-section">
+              <div className="obs-lab-section-title">Investigation Packs</div>
+              <div className="obs-lab-list">
+                {report.investigationPacks.map((pack) => (
+                  <article key={pack.id} className="obs-lab-card">
+                    <div className="obs-lab-card-top">
+                      <h4>{pack.title}</h4>
+                      <span className="obs-lab-type">{pack.problem}</span>
+                    </div>
+                    <p>{pack.summary}</p>
+                    <div className="obs-lab-tags">
+                      {pack.labels.map((label) => <span key={label} className="obs-lab-tag">{label}</span>)}
+                    </div>
+                    <div className="obs-lab-list">
+                      {pack.steps.map((step) => (
+                        <article key={step.id} className="obs-lab-card">
+                          <h4>{step.title}</h4>
+                          <div className="obs-lab-detail">{step.detail}</div>
+                          {step.artifact && renderArtifactActions(step.artifact)}
+                        </article>
+                      ))}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="obs-lab-section">
             <div className="obs-lab-section-title">Generated Artifacts</div>
             <div className="obs-lab-list">

@@ -347,6 +347,18 @@ function formatProjectPath(path: string): string {
   return `...${path.slice(-53)}`
 }
 
+function isWindowsShell(): boolean {
+  return /win/i.test(navigator.platform || navigator.userAgent)
+}
+
+function wrapProjectCommand(rootPath: string, command: string): string {
+  if (isWindowsShell()) {
+    return `Set-Location -LiteralPath '${rootPath.replace(/'/g, "''")}'; ${command}`
+  }
+
+  return `cd '${rootPath.replace(/'/g, `'\\''`)}' && ${command}`
+}
+
 function truncateMiddle(value: string, options?: { start?: number; end?: number }): string {
   const start = options?.start ?? 20
   const end = options?.end ?? 14
@@ -4293,7 +4305,8 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   }
 
   function handleLabArtifactRun(artifact: GeneratedArtifact) {
-    onRunTerminalCommand?.(artifact.content)
+    const command = detail ? wrapProjectCommand(detail.rootPath, artifact.content) : artifact.content
+    onRunTerminalCommand?.(command)
     setMsg(`${cliDisplayName(cliInfo)} artifact opened in terminal`)
   }
 
