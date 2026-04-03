@@ -8390,6 +8390,87 @@ textarea {
   max-width: 640px;
 }
 
+.provider-discovery-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+}
+
+.provider-discovery-toolbar__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+
+.provider-discovery-toolbar__meta strong {
+  font-size: 0.92rem;
+}
+
+.provider-discovery-toolbar__meta small {
+  color: #95a9be;
+}
+
+.provider-discovery-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.provider-discovery-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.75rem;
+  border-radius: 14px;
+  border: 1px solid rgba(145, 176, 207, 0.12);
+  background: rgba(11, 18, 28, 0.72);
+}
+
+.provider-discovery-column__label {
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--provider-accent-text);
+}
+
+.provider-discovery-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.provider-discovery-item {
+  width: 100%;
+  min-height: 58px;
+  padding: 0.7rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid rgba(145, 176, 207, 0.12);
+  background: linear-gradient(180deg, rgba(16, 25, 37, 0.95), rgba(10, 17, 27, 0.95));
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+
+.provider-discovery-item.active {
+  border-color: var(--provider-accent-border-strong);
+  background: var(--provider-accent-soft);
+}
+
+.provider-discovery-item small {
+  color: #96adc2;
+}
+
+.provider-discovery-empty {
+  padding: 0.85rem;
+  border-radius: 12px;
+  border: 1px dashed rgba(145, 176, 207, 0.16);
+  color: #95a9be;
+}
+
 .provider-diagnostics-shell {
   display: flex;
   flex-direction: column;
@@ -8651,6 +8732,10 @@ textarea {
   .provider-context-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .provider-discovery-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 920px) {
@@ -8694,6 +8779,7 @@ textarea {
   }
 
   .provider-diagnostics-header,
+  .provider-discovery-toolbar,
   .provider-context-shell__header,
   .provider-context-shell__footer {
     flex-direction: column;

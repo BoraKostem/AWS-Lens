@@ -531,6 +531,34 @@ export type EnvironmentHealthReport = {
   permissions: EnvironmentPermissionCheck[]
 }
 
+export type GcpCliConfiguration = {
+  name: string
+  isActive: boolean
+  account: string
+  projectId: string
+  region: string
+  zone: string
+}
+
+export type GcpCliProject = {
+  projectId: string
+  name: string
+  projectNumber: string
+  lifecycleState: string
+}
+
+export type GcpCliContext = {
+  detected: boolean
+  cliPath: string
+  activeConfigurationName: string
+  activeAccount: string
+  activeProjectId: string
+  activeRegion: string
+  activeZone: string
+  configurations: GcpCliConfiguration[]
+  projects: GcpCliProject[]
+}
+
 export type Ec2SsmStatus = 'managed-online' | 'managed-offline' | 'not-managed'
 
 export type SsmManagedInstanceSummary = {

@@ -15,6 +15,7 @@ import type {
   EnvironmentHealthReport,
   EnterpriseAccessMode,
   EnterpriseAuditEvent,
+  GcpCliContext,
   GovernanceTagDefaults,
   NavigationFocus,
   ProviderDescriptor,
@@ -39,6 +40,7 @@ import {
   getAppSecuritySummary,
   getAppSettings,
   getEnvironmentHealth,
+  getGcpCliContext,
   getEnterpriseSettings,
   getGovernanceTagDefaults,
   getWorkspaceCatalog,
@@ -775,6 +777,31 @@ function isGcpContextReady(mode: ProviderConnectionMode | null, draft: GcpConnec
   return Boolean(mode && draft?.projectId.trim() && draft.location.trim())
 }
 
+function inferGcpModeIdFromContext(context: GcpCliContext): string {
+  if (context.activeAccount.endsWith('.iam.gserviceaccount.com')) {
+    return 'gcp-service-account'
+  }
+
+  return 'gcp-adc'
+}
+
+function buildGcpDraftFromContext(context: GcpCliContext, modeId: string, current?: GcpConnectionDraft | null): GcpConnectionDraft {
+  const defaultDraft = createDefaultGcpConnectionDraft(modeId)
+  const inferredLocation = context.activeRegion || context.activeZone || defaultDraft.location
+  const inferredCredentialHint =
+    modeId === 'gcp-service-account'
+      ? context.activeAccount
+      : modeId === 'gcp-project-context'
+        ? context.activeConfigurationName || context.activeAccount
+        : context.activeConfigurationName || context.activeAccount
+
+  return {
+    projectId: current?.projectId.trim() || context.activeProjectId || current?.projectId || '',
+    location: current?.location.trim() || inferredLocation,
+    credentialHint: current?.credentialHint.trim() || inferredCredentialHint || ''
+  }
+}
+
 function screenCacheTag(screen: Screen): CacheTag | null {
   switch (screen) {
     case 'overview':
@@ -841,6 +868,9 @@ export function App() {
   const [activeProviderId, setActiveProviderId] = useState<CloudProviderId>(DEFAULT_PROVIDER_ID)
   const [selectedPreviewModeIds, setSelectedPreviewModeIds] = useState<Partial<Record<PreviewProviderId, string>>>({})
   const [gcpConnectionDrafts, setGcpConnectionDrafts] = useState<GcpConnectionDraftByMode>(() => readGcpConnectionDrafts())
+  const [gcpCliContext, setGcpCliContext] = useState<GcpCliContext | null>(null)
+  const [gcpCliBusy, setGcpCliBusy] = useState(false)
+  const [gcpCliError, setGcpCliError] = useState('')
   const [workspaceCatalog, setWorkspaceCatalog] = useState<WorkspaceCatalog | null>(null)
   const [services, setServices] = useState<ServiceDescriptor[]>([])
   const [pinnedServiceIds, setPinnedServiceIds] = useState<ServiceId[]>([])
@@ -945,6 +975,19 @@ export function App() {
     }
   }
 
+  async function loadGcpCliContext(): Promise<void> {
+    setGcpCliBusy(true)
+    setGcpCliError('')
+    try {
+      setGcpCliContext(await getGcpCliContext())
+    } catch (error) {
+      setGcpCliContext(null)
+      setGcpCliError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setGcpCliBusy(false)
+    }
+  }
+
   useEffect(() => {
     if (!appSettings || launchScreenInitializedRef.current) {
       return
@@ -980,6 +1023,14 @@ export function App() {
       // Ignore audit hydration failures in the catalog shell.
     })
   }, [])
+
+  useEffect(() => {
+    if (activeProviderId !== 'gcp') {
+      return
+    }
+
+    void loadGcpCliContext()
+  }, [activeProviderId])
 
   useEffect(() => {
     if (screen !== 'settings') {
@@ -1109,6 +1160,11 @@ export function App() {
     ? getGcpCredentialFieldCopy(selectedPreviewMode?.id)
     : null
   const gcpContextReady = activeProviderId === 'gcp' && isGcpContextReady(selectedPreviewMode, activeGcpConnectionDraft)
+  const activeGcpConfiguration = activeProviderId === 'gcp'
+    ? gcpCliContext?.configurations.find((entry) => entry.isActive) ?? gcpCliContext?.configurations[0] ?? null
+    : null
+  const detectedGcpConfigurationCount = gcpCliContext?.configurations.length ?? 0
+  const detectedGcpProjectCount = gcpCliContext?.projects.length ?? 0
   const serviceNavEnabled = activeProvider.availability === 'available' && (isAwsProviderActive ? connectionState.connected : selectedPreviewMode !== null)
   const selectorPrimaryStatLabel = isAwsProviderActive ? 'Profiles' : 'Connection modes'
   const selectorSecondaryStatLabel = isAwsProviderActive ? 'Pinned' : 'Provider workspaces'
@@ -1304,6 +1360,31 @@ export function App() {
   const onboardingNextLabel = onboardingStepIndex === ENVIRONMENT_ONBOARDING_STEPS.length - 1 ? 'Finish onboarding' : 'Next step'
 
   useEffect(() => {
+    if (activeProviderId !== 'gcp' || !gcpCliContext?.detected || selectedPreviewModeId) {
+      return
+    }
+
+    const inferredModeId = inferGcpModeIdFromContext(gcpCliContext)
+    setSelectedPreviewModeIds((current) => current.gcp ? current : { ...current, gcp: inferredModeId })
+  }, [activeProviderId, gcpCliContext, selectedPreviewModeId])
+
+  useEffect(() => {
+    if (activeProviderId !== 'gcp' || !gcpCliContext?.detected) {
+      return
+    }
+
+    const targetModeId = selectedPreviewModeId || inferGcpModeIdFromContext(gcpCliContext)
+    if (!targetModeId) {
+      return
+    }
+
+    setGcpConnectionDrafts((current) => ({
+      ...current,
+      [targetModeId]: buildGcpDraftFromContext(gcpCliContext, targetModeId, current[targetModeId] ?? null)
+    }))
+  }, [activeProviderId, gcpCliContext, selectedPreviewModeId])
+
+  useEffect(() => {
     if (activeProviderId !== 'aws' || !activeAwsScreenMemoryKey || !isRestorableAwsScreen(screen)) {
       return
     }
@@ -1470,6 +1551,55 @@ export function App() {
     setGcpConnectionDrafts((current) => ({
       ...current,
       [selectedPreviewMode.id]: createDefaultGcpConnectionDraft(selectedPreviewMode.id)
+    }))
+  }
+
+  function handleApplyGcpConfiguration(configurationName: string): void {
+    const configuration = gcpCliContext?.configurations.find((entry) => entry.name === configurationName)
+    if (!configuration) {
+      return
+    }
+
+    const nextModeId = configuration.account.endsWith('.iam.gserviceaccount.com')
+      ? 'gcp-service-account'
+      : 'gcp-adc'
+
+    setSelectedPreviewModeIds((current) => ({ ...current, gcp: nextModeId }))
+    setGcpConnectionDrafts((current) => ({
+      ...current,
+      [nextModeId]: {
+        ...(current[nextModeId] ?? createDefaultGcpConnectionDraft(nextModeId)),
+        projectId: configuration.projectId || current[nextModeId]?.projectId || '',
+        location: configuration.region || configuration.zone || current[nextModeId]?.location || createDefaultGcpConnectionDraft(nextModeId).location,
+        credentialHint: configuration.account || configuration.name
+      }
+    }))
+  }
+
+  function handleApplyGcpProject(projectId: string): void {
+    if (activeProviderId !== 'gcp') {
+      return
+    }
+
+    const targetModeId = selectedPreviewMode?.id || inferGcpModeIdFromContext(gcpCliContext ?? {
+      detected: false,
+      cliPath: '',
+      activeConfigurationName: '',
+      activeAccount: '',
+      activeProjectId: '',
+      activeRegion: '',
+      activeZone: '',
+      configurations: [],
+      projects: []
+    })
+
+    setSelectedPreviewModeIds((current) => ({ ...current, gcp: targetModeId }))
+    setGcpConnectionDrafts((current) => ({
+      ...current,
+      [targetModeId]: {
+        ...(current[targetModeId] ?? createDefaultGcpConnectionDraft(targetModeId)),
+        projectId
+      }
     }))
   }
 
@@ -2320,7 +2450,9 @@ export function App() {
                     {activeProviderId === 'gcp'
                       ? gcpContextReady
                         ? `${activeGcpConnectionDraft?.location.trim()} · ${selectedPreviewMode?.label}`
-                        : 'Select a connection mode, project, and location to finish the Google Cloud shell context.'
+                        : gcpCliContext?.detected
+                          ? `${detectedGcpConfigurationCount} configs · ${detectedGcpProjectCount} projects detected from gcloud`
+                          : 'Select a connection mode, project, and location to finish the Google Cloud shell context.'
                       : `${providerWorkspaceCount} provider-specific entries will populate as rollout branches land.`}
                   </small>
                 </div>
@@ -2424,6 +2556,63 @@ export function App() {
                     <small>{gcpContextReady ? `${activeGcpConnectionDraft?.location.trim()} · gcloud env ready` : 'Terminal stays locked until project and location are set.'}</small>
                   </div>
                 </div>
+                <div className="provider-discovery-toolbar">
+                  <div className="provider-discovery-toolbar__meta">
+                    <strong>{gcpCliContext?.detected ? 'gcloud detected' : 'gcloud not detected'}</strong>
+                    <small>
+                      {gcpCliContext?.detected
+                        ? `${detectedGcpConfigurationCount} configs · ${detectedGcpProjectCount} projects · ${activeGcpConfiguration?.account || 'account pending'}`
+                        : gcpCliError || 'Install or sign in to Google Cloud CLI to auto-import configurations and projects.'}
+                    </small>
+                  </div>
+                  <button type="button" onClick={() => void loadGcpCliContext()} disabled={gcpCliBusy}>
+                    {gcpCliBusy ? 'Refreshing...' : 'Refresh gcloud'}
+                  </button>
+                </div>
+                {gcpCliContext?.detected && (
+                  <div className="provider-discovery-grid">
+                    <div className="provider-discovery-column">
+                      <span className="provider-discovery-column__label">Configurations</span>
+                      <div className="provider-discovery-list">
+                        {gcpCliContext.configurations.length > 0 ? (
+                          gcpCliContext.configurations.map((configuration) => (
+                            <button
+                              key={configuration.name}
+                              type="button"
+                              className={`provider-discovery-item ${configuration.isActive ? 'active' : ''}`}
+                              onClick={() => handleApplyGcpConfiguration(configuration.name)}
+                            >
+                              <strong>{configuration.name}</strong>
+                              <small>{configuration.account || 'No account'} · {configuration.projectId || 'No project'}</small>
+                            </button>
+                          ))
+                        ) : (
+                          <div className="provider-discovery-empty">No gcloud configurations were returned.</div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="provider-discovery-column">
+                      <span className="provider-discovery-column__label">Projects</span>
+                      <div className="provider-discovery-list">
+                        {gcpCliContext.projects.length > 0 ? (
+                          gcpCliContext.projects.slice(0, 12).map((project) => (
+                            <button
+                              key={project.projectId}
+                              type="button"
+                              className={`provider-discovery-item ${activeGcpConnectionDraft?.projectId === project.projectId ? 'active' : ''}`}
+                              onClick={() => handleApplyGcpProject(project.projectId)}
+                            >
+                              <strong>{project.projectId}</strong>
+                              <small>{project.name || 'Unnamed project'}{project.lifecycleState ? ` · ${project.lifecycleState}` : ''}</small>
+                            </button>
+                          ))
+                        ) : (
+                          <div className="provider-discovery-empty">No projects were returned from the active gcloud session.</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {selectedPreviewMode ? (
                   <>
                     <div className="provider-context-grid">

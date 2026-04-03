@@ -88,6 +88,7 @@ declare global {
       resetAppSettings: () => Promise<unknown>
       getAppSecuritySummary: () => Promise<unknown>
       getEnvironmentHealth: () => Promise<unknown>
+      getGcpCliContext: () => Promise<unknown>
       checkForAppUpdates: () => Promise<unknown>
       downloadAppUpdate: () => Promise<unknown>
       installAppUpdate: () => Promise<unknown>

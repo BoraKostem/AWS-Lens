@@ -16,6 +16,7 @@ import type {
   AcmRequestCertificateInput,
   AppDiagnosticsExportResult,
   EnvironmentHealthReport,
+  GcpCliContext,
   AppReleaseInfo,
   AppSecuritySummary,
   CloudProviderId,
@@ -1115,6 +1116,10 @@ export async function resetAppSettings(): Promise<AppSettings> {
 
 export async function getEnvironmentHealth(): Promise<EnvironmentHealthReport> {
   return unwrap((await rawAwsBridge().getEnvironmentHealth()) as Wrapped<EnvironmentHealthReport>)
+}
+
+export async function getGcpCliContext(): Promise<GcpCliContext> {
+  return unwrap((await rawAwsBridge().getGcpCliContext()) as Wrapped<GcpCliContext>)
 }
 
 export async function checkForAppUpdates(): Promise<AppReleaseInfo> {
