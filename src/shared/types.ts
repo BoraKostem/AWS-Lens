@@ -1129,6 +1129,30 @@ export type CloudWatchQueryHistoryEntry = {
 
 export type CloudWatchQueryHistoryInput = Omit<CloudWatchQueryHistoryEntry, 'id' | 'executedAt'>
 
+export type CloudWatchInvestigationEventKind =
+  | 'focus'
+  | 'open-log-group'
+  | 'investigate-log-group'
+  | 'run-query'
+  | 'save-query'
+
+export type CloudWatchInvestigationEventSeverity = 'info' | 'success' | 'warning' | 'error'
+
+export type CloudWatchInvestigationHistoryEntry = {
+  id: string
+  profile: string
+  region: string
+  serviceHint: ServiceId | ''
+  logGroupNames: string[]
+  kind: CloudWatchInvestigationEventKind
+  title: string
+  detail: string
+  severity: CloudWatchInvestigationEventSeverity
+  occurredAt: string
+}
+
+export type CloudWatchInvestigationHistoryInput = Omit<CloudWatchInvestigationHistoryEntry, 'id' | 'occurredAt'>
+
 export type CloudWatchQueryExecutionInput = {
   queryString: string
   logGroupNames: string[]

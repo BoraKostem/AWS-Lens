@@ -7,6 +7,7 @@ import type {
   ComparisonRequest,
   AssumeRoleRequest,
   AwsAssumeRoleTarget,
+  CloudWatchInvestigationHistoryInput,
   CloudWatchQueryFilter,
   CloudWatchQueryExecutionInput,
   CloudWatchQueryHistoryInput,
@@ -69,6 +70,9 @@ const awsLensApi = {
   listCloudWatchQueryHistory: (filter?: CloudWatchQueryFilter) => ipcRenderer.invoke('phase1:list-cloudwatch-query-history', filter),
   recordCloudWatchQueryHistory: (input: CloudWatchQueryHistoryInput) => ipcRenderer.invoke('phase1:record-cloudwatch-query-history', input),
   clearCloudWatchQueryHistory: (filter?: CloudWatchQueryFilter) => ipcRenderer.invoke('phase1:clear-cloudwatch-query-history', filter),
+  listCloudWatchInvestigationHistory: (filter?: CloudWatchQueryFilter) => ipcRenderer.invoke('phase1:list-cloudwatch-investigation-history', filter),
+  recordCloudWatchInvestigationHistory: (input: CloudWatchInvestigationHistoryInput) => ipcRenderer.invoke('phase1:record-cloudwatch-investigation-history', input),
+  clearCloudWatchInvestigationHistory: (filter?: CloudWatchQueryFilter) => ipcRenderer.invoke('phase1:clear-cloudwatch-investigation-history', filter),
   listDbConnectionPresets: (filter?: DbConnectionPresetFilter) => ipcRenderer.invoke('phase1:list-db-connection-presets', filter),
   saveDbConnectionPreset: (input: DbConnectionPresetInput) => ipcRenderer.invoke('phase1:save-db-connection-preset', input),
   deleteDbConnectionPreset: (id: string) => ipcRenderer.invoke('phase1:delete-db-connection-preset', id),
@@ -675,7 +679,13 @@ contextBridge.exposeInMainWorld('awsLens', awsLensApi)
 
 /* ── Terraform Workspace bridge ───────────────────────────── */
 
-const listenerMap = new Map<(event: unknown) => void, (...args: unknown[]) => void>()
+const terraformEventListeners = new Set<(event: unknown) => void>()
+const terraformEventDispatcher = (_event: unknown, payload: unknown) => {
+  for (const listener of terraformEventListeners) {
+    listener(payload)
+  }
+}
+let terraformEventSubscribed = false
 
 const api = {
   detectCli: () => ipcRenderer.invoke('terraform:cli:detect'),
@@ -723,17 +733,18 @@ const api = {
     ipcRenderer.invoke('terraform:governance:run-checks', profileName, projectId, connection),
   getGovernanceReport: (projectId: string) => ipcRenderer.invoke('terraform:governance:get-report', projectId),
   subscribe: (listener: (event: unknown) => void) => {
-    const wrapped = (_event: unknown, payload: unknown) => listener(payload)
-    listenerMap.set(listener, wrapped)
-    ipcRenderer.on('terraform:event', wrapped)
+    terraformEventListeners.add(listener)
+    if (!terraformEventSubscribed) {
+      ipcRenderer.on('terraform:event', terraformEventDispatcher)
+      terraformEventSubscribed = true
+    }
   },
   unsubscribe: (listener: (event: unknown) => void) => {
-    const wrapped = listenerMap.get(listener)
-    if (!wrapped) {
-      return
+    terraformEventListeners.delete(listener)
+    if (terraformEventSubscribed && terraformEventListeners.size === 0) {
+      ipcRenderer.removeListener('terraform:event', terraformEventDispatcher)
+      terraformEventSubscribed = false
     }
-    ipcRenderer.removeListener('terraform:event', wrapped)
-    listenerMap.delete(listener)
   }
 }
 

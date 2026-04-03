@@ -17,6 +17,8 @@ import type {
   EnvironmentHealthReport,
   AppReleaseInfo,
   AppSecuritySummary,
+  CloudWatchInvestigationHistoryEntry,
+  CloudWatchInvestigationHistoryInput,
   CloudWatchQueryFilter,
   CloudWatchQueryExecutionInput,
   CloudWatchQueryExecutionResult,
@@ -271,6 +273,9 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   listCloudWatchQueryHistory: 'phase1-foundations',
   recordCloudWatchQueryHistory: 'phase1-foundations',
   clearCloudWatchQueryHistory: 'phase1-foundations',
+  listCloudWatchInvestigationHistory: 'phase1-foundations',
+  recordCloudWatchInvestigationHistory: 'phase1-foundations',
+  clearCloudWatchInvestigationHistory: 'phase1-foundations',
   listDbConnectionPresets: 'phase1-foundations',
   saveDbConnectionPreset: 'phase1-foundations',
   deleteDbConnectionPreset: 'phase1-foundations',
@@ -422,6 +427,8 @@ const MUTATING_METHODS = new Set<keyof AwsLensBridge>([
   'deleteCloudWatchSavedQuery',
   'recordCloudWatchQueryHistory',
   'clearCloudWatchQueryHistory',
+  'recordCloudWatchInvestigationHistory',
+  'clearCloudWatchInvestigationHistory',
   'saveDbConnectionPreset',
   'deleteDbConnectionPreset',
   'markDbConnectionPresetUsed',
@@ -942,6 +949,18 @@ export async function recordCloudWatchQueryHistory(input: CloudWatchQueryHistory
 
 export async function clearCloudWatchQueryHistory(filter?: CloudWatchQueryFilter): Promise<number> {
   return unwrap((await awsBridge().clearCloudWatchQueryHistory(filter)) as Wrapped<number>)
+}
+
+export async function listCloudWatchInvestigationHistory(filter?: CloudWatchQueryFilter): Promise<CloudWatchInvestigationHistoryEntry[]> {
+  return unwrap((await awsBridge().listCloudWatchInvestigationHistory(filter)) as Wrapped<CloudWatchInvestigationHistoryEntry[]>)
+}
+
+export async function recordCloudWatchInvestigationHistory(input: CloudWatchInvestigationHistoryInput): Promise<CloudWatchInvestigationHistoryEntry> {
+  return unwrap((await awsBridge().recordCloudWatchInvestigationHistory(input)) as Wrapped<CloudWatchInvestigationHistoryEntry>)
+}
+
+export async function clearCloudWatchInvestigationHistory(filter?: CloudWatchQueryFilter): Promise<number> {
+  return unwrap((await awsBridge().clearCloudWatchInvestigationHistory(filter)) as Wrapped<number>)
 }
 
 export async function listDbConnectionPresets(filter?: DbConnectionPresetFilter): Promise<DbConnectionPreset[]> {

@@ -847,6 +847,22 @@
   color: var(--muted);
 }
 
+.cw-timeline-pill-success {
+  color: #c8f0d6;
+}
+
+.cw-timeline-pill-error {
+  color: #ffd4d4;
+}
+
+.cw-timeline-pill-warning {
+  color: #ffe4b5;
+}
+
+.cw-timeline-pill-info {
+  color: #d5e8ff;
+}
+
 @media (max-width: 1100px) {
   .cw-shell-hero,
   .cw-charts-row,

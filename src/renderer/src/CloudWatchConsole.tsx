@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 
 import type {
   AwsConnection,
+  CloudWatchInvestigationHistoryEntry,
   CloudWatchDatapoint,
   CloudWatchLogEventSummary,
   CloudWatchLogGroupSummary,
@@ -17,16 +18,19 @@ import type {
   TokenizedFocus
 } from '@shared/types'
 import {
+  clearCloudWatchInvestigationHistory,
   clearCloudWatchQueryHistory,
   deleteCloudWatchSavedQuery,
   getEc2AllMetricSeries,
   getMetricStatistics,
+  listCloudWatchInvestigationHistory,
   listCloudWatchLogGroups,
   listCloudWatchMetrics,
   listCloudWatchQueryHistory,
   listCloudWatchRecentEvents,
   listCloudWatchSavedQueries,
   listEc2InstanceMetrics,
+  recordCloudWatchInvestigationHistory,
   recordCloudWatchQueryHistory,
   runCloudWatchQuery,
   saveCloudWatchSavedQuery
@@ -38,6 +42,14 @@ type TimeRange = 1 | 3 | 12 | 24 | 72 | 168
 type OpenTab = { type: 'overview' } | { type: 'log-group'; name: string }
 type CloudWatchFocus = TokenizedFocus<'cloudwatch'> | null | undefined
 type QueryPreset = { id: string; label: string; queryString: string }
+type InvestigationTimelineItem = {
+  id: string
+  title: string
+  detail: string
+  timestamp: string
+  tone: 'info' | 'success' | 'warning' | 'error'
+  actionLabel: string
+}
 
 const TIME_RANGE_OPTIONS: { value: TimeRange; label: string }[] = [
   { value: 1, label: '1 hour' },
@@ -266,6 +278,7 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
   const [logGroupToAdd, setLogGroupToAdd] = useState('')
   const [savedQueries, setSavedQueries] = useState<CloudWatchSavedQuery[]>([])
   const [queryHistory, setQueryHistory] = useState<CloudWatchQueryHistoryEntry[]>([])
+  const [investigationHistory, setInvestigationHistory] = useState<CloudWatchInvestigationHistoryEntry[]>([])
   const [queryResult, setQueryResult] = useState<CloudWatchQueryExecutionResult | null>(null)
   const [queryBusy, setQueryBusy] = useState(false)
   const [queryFeedback, setQueryFeedback] = useState('')
@@ -288,6 +301,16 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
       focusEc2Instance.sourceLabel ?? focusEc2Instance.ec2InstanceId ?? 'current context'
     ))
     setActiveTabIndex(0)
+    void recordCloudWatchInvestigationHistory({
+      profile: connection.profile,
+      region: connection.region,
+      serviceHint: focusEc2Instance.serviceHint ?? (focusEc2Instance.ec2InstanceId ? 'ec2' : ''),
+      logGroupNames: focusEc2Instance.logGroupNames ?? [],
+      kind: 'focus',
+      title: 'Focused investigation context',
+      detail: `Opened CloudWatch from ${focusEc2Instance.sourceLabel ?? focusEc2Instance.ec2InstanceId ?? 'current context'}.`,
+      severity: 'info'
+    }).then(() => refreshQueryLibrary()).catch(() => {})
   }, [appliedFocusToken, focusEc2Instance])
 
   useEffect(() => {
@@ -319,10 +342,12 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
   useEffect(() => {
     void Promise.all([
       listCloudWatchSavedQueries({ profile: connection.profile, region: connection.region, limit: 8 }),
-      listCloudWatchQueryHistory({ profile: connection.profile, region: connection.region, limit: 8 })
-    ]).then(([nextSaved, nextHistory]) => {
+      listCloudWatchQueryHistory({ profile: connection.profile, region: connection.region, limit: 8 }),
+      listCloudWatchInvestigationHistory({ profile: connection.profile, region: connection.region, limit: 16 })
+    ]).then(([nextSaved, nextHistory, nextInvestigation]) => {
       setSavedQueries(nextSaved)
       setQueryHistory(nextHistory)
+      setInvestigationHistory(nextInvestigation)
     }).catch(() => {
       // Keep the screen usable if query history hydration fails.
     })
@@ -359,15 +384,27 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
     const nextTabs = [...tabs, { type: 'log-group' as const, name: group.name }]
     setTabs(nextTabs)
     setActiveTabIndex(nextTabs.length - 1)
+    void recordCloudWatchInvestigationHistory({
+      profile: connection.profile,
+      region: connection.region,
+      serviceHint: queryServiceHint,
+      logGroupNames: [group.name],
+      kind: 'open-log-group',
+      title: 'Opened log group stream',
+      detail: `Drilled into ${group.name} from the investigation workspace.`,
+      severity: 'info'
+    }).then(() => refreshQueryLibrary()).catch(() => {})
   }
 
   function refreshQueryLibrary(): Promise<void> {
     return Promise.all([
       listCloudWatchSavedQueries({ profile: connection.profile, region: connection.region, limit: 8 }),
-      listCloudWatchQueryHistory({ profile: connection.profile, region: connection.region, limit: 8 })
-    ]).then(([nextSaved, nextHistory]) => {
+      listCloudWatchQueryHistory({ profile: connection.profile, region: connection.region, limit: 8 }),
+      listCloudWatchInvestigationHistory({ profile: connection.profile, region: connection.region, limit: 16 })
+    ]).then(([nextSaved, nextHistory, nextInvestigation]) => {
       setSavedQueries(nextSaved)
       setQueryHistory(nextHistory)
+      setInvestigationHistory(nextInvestigation)
     })
   }
 
@@ -420,6 +457,16 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
         durationMs: Date.now() - started,
         resultSummary: summarizeResult(result)
       })
+      await recordCloudWatchInvestigationHistory({
+        profile: connection.profile,
+        region: connection.region,
+        serviceHint,
+        logGroupNames,
+        kind: 'run-query',
+        title: 'Query run succeeded',
+        detail: `${sourceLabel} -> ${summarizeResult(result)}`,
+        severity: 'success'
+      })
       await refreshQueryLibrary()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -434,6 +481,16 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
         status: 'failed',
         durationMs: Date.now() - started,
         resultSummary: message
+      }).catch(() => {})
+      await recordCloudWatchInvestigationHistory({
+        profile: connection.profile,
+        region: connection.region,
+        serviceHint,
+        logGroupNames,
+        kind: 'run-query',
+        title: 'Query run failed',
+        detail: `${sourceLabel} -> ${message}`,
+        severity: 'error'
       }).catch(() => {})
       await refreshQueryLibrary().catch(() => {})
     } finally {
@@ -455,8 +512,47 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
     setSaveName('')
     setSaveDescription('')
     setQueryFeedback('Saved query stored.')
+    await recordCloudWatchInvestigationHistory({
+      profile: connection.profile,
+      region: connection.region,
+      serviceHint: queryServiceHint,
+      logGroupNames: selectedQueryLogGroups,
+      kind: 'save-query',
+      title: 'Saved reusable query',
+      detail: `${saveName.trim()} stored for ${selectedQueryLogGroups.length} log group(s).`,
+      severity: 'info'
+    }).catch(() => {})
     await refreshQueryLibrary()
   }
+
+  function clearQueryResults() {
+    setQueryResult(null)
+    setQueryFeedback('')
+    setQueryError('')
+  }
+
+  const incidentTimeline = useMemo<InvestigationTimelineItem[]>(() => {
+    const queryEvents: InvestigationTimelineItem[] = queryHistory.map((entry) => ({
+      id: `query-${entry.id}`,
+      title: entry.status === 'success' ? 'Query run' : 'Query failure',
+      detail: `${entry.resultSummary || entry.queryString} (${entry.logGroupNames.join(', ') || 'no log group'})`,
+      timestamp: entry.executedAt,
+      tone: entry.status === 'success' ? 'success' : 'error',
+      actionLabel: `${entry.durationMs} ms`
+    }))
+    const investigationEvents: InvestigationTimelineItem[] = investigationHistory.map((entry) => ({
+      id: `investigation-${entry.id}`,
+      title: entry.title,
+      detail: entry.detail,
+      timestamp: entry.occurredAt,
+      tone: entry.severity,
+      actionLabel: entry.kind
+    }))
+
+    return [...investigationEvents, ...queryEvents]
+      .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
+      .slice(0, 16)
+  }, [investigationHistory, queryHistory])
 
   return (
     <div className="cw-console">
@@ -527,13 +623,23 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
                   <input className="cw-table-filter" placeholder="Saved query name" value={saveName} onChange={(event) => setSaveName(event.target.value)} />
                   <input className="cw-table-filter" placeholder="Description" value={saveDescription} onChange={(event) => setSaveDescription(event.target.value)} />
                   <button type="button" className="cw-expand-btn" onClick={() => void saveCurrentQuery()}>Save Query</button>
-                  <button type="button" className="cw-toggle" disabled={queryHistory.length === 0} onClick={() => void clearCloudWatchQueryHistory({ profile: connection.profile, region: connection.region }).then(() => refreshQueryLibrary())}>Clear History</button>
+                  <button
+                    type="button"
+                    className="cw-toggle"
+                    disabled={queryHistory.length === 0 && investigationHistory.length === 0}
+                    onClick={() => void Promise.all([
+                      clearCloudWatchQueryHistory({ profile: connection.profile, region: connection.region }),
+                      clearCloudWatchInvestigationHistory({ profile: connection.profile, region: connection.region })
+                    ]).then(() => refreshQueryLibrary())}
+                  >
+                    Clear History
+                  </button>
                 </div>
                 {queryFeedback && <div className="cw-query-feedback success">{queryFeedback}</div>}
                 {queryError && <div className="cw-query-feedback error">{queryError}</div>}
                 {queryResult && (
                   <div className="cw-query-results">
-                    <div className="cw-section-head"><div><h3>Query Results</h3><p className="cw-section-subtitle">{queryResult.status} - {summarizeResult(queryResult)}</p></div><div className="cw-query-headline"><span className="cw-toolbar-pill">{formatCompactNumber(queryResult.statistics.recordsMatched)} matched</span><span className="cw-toolbar-pill">{formatCompactNumber(queryResult.statistics.recordsScanned)} scanned</span></div></div>
+                    <div className="cw-section-head"><div><h3>Query Results</h3><p className="cw-section-subtitle">{queryResult.status} - {summarizeResult(queryResult)}</p></div><div className="cw-query-headline"><button type="button" className="cw-toggle" onClick={clearQueryResults}>Clear Results</button><span className="cw-toolbar-pill">{formatCompactNumber(queryResult.statistics.recordsMatched)} matched</span><span className="cw-toolbar-pill">{formatCompactNumber(queryResult.statistics.recordsScanned)} scanned</span></div></div>
                     <div className="cw-table-scroll"><table className="cw-table"><thead><tr>{queryResult.fields.map((field) => <th key={field}>{field}</th>)}</tr></thead><tbody>{queryResult.rows.length === 0 ? <tr><td className="cw-empty" colSpan={Math.max(1, queryResult.fields.length)}>No results returned.</td></tr> : queryResult.rows.map((row, index) => <tr key={`${queryResult.queryId}-${index}`}>{queryResult.fields.map((field) => <td key={field}><span className="cw-query-cell">{row[field] || '-'}</span></td>)}</tr>)}</tbody></table></div>
                   </div>
                 )}
@@ -544,8 +650,8 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
                   {savedQueries.length === 0 ? <div className="cw-table-hint">No saved queries yet.</div> : <div className="cw-query-list">{savedQueries.map((saved) => <div key={saved.id} className="cw-query-list-item"><div><strong>{saved.name}</strong><span>{saved.description || saved.logGroupNames.join(', ')}</span><small>Last run {saved.lastRunAt ? formatDateTime(saved.lastRunAt) : 'never'}</small></div><div className="cw-query-list-actions"><button type="button" className="cw-toggle" onClick={() => { setQueryDraft(saved.queryString); setSelectedQueryLogGroups(saved.logGroupNames); setQueryServiceHint(saved.serviceHint); setQuerySourceLabel(saved.name) }}>Load</button><button type="button" className="cw-expand-btn" onClick={() => void runQuery({ queryString: saved.queryString, logGroupNames: saved.logGroupNames, savedQueryId: saved.id, serviceHint: saved.serviceHint, sourceLabel: saved.name })}>Run</button><button type="button" className="cw-toggle" onClick={() => void deleteCloudWatchSavedQuery(saved.id).then(() => refreshQueryLibrary())}>Delete</button></div></div>)}</div>}
                 </div>
                 <div className="cw-query-card">
-                  <div className="cw-panel-head"><div><h3>Recent Runs</h3><p className="cw-chart-subtitle">Quick rerun for recent investigations.</p></div></div>
-                  {queryHistory.length === 0 ? <div className="cw-table-hint">No query history yet.</div> : <div className="cw-query-list">{queryHistory.map((entry) => <div key={entry.id} className="cw-query-list-item"><div><strong>{entry.status === 'success' ? 'Successful run' : 'Failed run'}</strong><span>{entry.resultSummary}</span><small>{formatDateTime(entry.executedAt)} - {entry.durationMs} ms</small></div><div className="cw-query-list-actions"><button type="button" className="cw-expand-btn" onClick={() => void runQuery({ queryString: entry.queryString, logGroupNames: entry.logGroupNames, savedQueryId: entry.savedQueryId, serviceHint: entry.serviceHint, sourceLabel: querySourceLabel })}>Rerun</button></div></div>)}</div>}
+                  <div className="cw-panel-head"><div><h3>Incident Timeline</h3><p className="cw-chart-subtitle">Profile and region scoped investigation history with query runs inline.</p></div></div>
+                  {incidentTimeline.length === 0 ? <div className="cw-table-hint">No investigation history yet.</div> : <div className="cw-query-list">{incidentTimeline.map((entry) => <div key={entry.id} className="cw-query-list-item"><div><strong>{entry.title}</strong><span>{entry.detail}</span><small>{formatDateTime(entry.timestamp)} - {entry.actionLabel}</small></div><div className="cw-query-list-actions">{entry.id.startsWith('query-') ? <button type="button" className="cw-expand-btn" onClick={() => { const queryEntry = queryHistory.find((candidate) => `query-${candidate.id}` === entry.id); if (!queryEntry) return; void runQuery({ queryString: queryEntry.queryString, logGroupNames: queryEntry.logGroupNames, savedQueryId: queryEntry.savedQueryId, serviceHint: queryEntry.serviceHint, sourceLabel: querySourceLabel }) }}>Rerun</button> : <span className={`cw-toolbar-pill cw-timeline-pill-${entry.tone}`}>{entry.tone}</span>}</div></div>)}</div>}
                 </div>
               </div>
             </div>
@@ -574,7 +680,22 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
           </div>
         </>
       ) : (
-        <LogGroupViewer connection={connection} logGroupName={activeTab.name} timeRange={timeRange} onInvestigate={(logGroupName) => { setSelectedQueryLogGroups([logGroupName]); setQuerySourceLabel(logGroupName); setQueryDraft(defaultQuery(queryServiceHint, logGroupName)); setActiveTabIndex(0) }} />
+        <LogGroupViewer connection={connection} logGroupName={activeTab.name} timeRange={timeRange} onInvestigate={(logGroupName) => {
+          setSelectedQueryLogGroups([logGroupName])
+          setQuerySourceLabel(logGroupName)
+          setQueryDraft(defaultQuery(queryServiceHint, logGroupName))
+          setActiveTabIndex(0)
+          void recordCloudWatchInvestigationHistory({
+            profile: connection.profile,
+            region: connection.region,
+            serviceHint: queryServiceHint,
+            logGroupNames: [logGroupName],
+            kind: 'investigate-log-group',
+            title: 'Pivoted log stream into query workspace',
+            detail: `Moved ${logGroupName} into the main investigation timeline.`,
+            severity: 'info'
+          }).then(() => refreshQueryLibrary()).catch(() => {})
+        }} />
       )}
     </div>
   )
