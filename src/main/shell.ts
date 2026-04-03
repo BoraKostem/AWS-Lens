@@ -288,7 +288,29 @@ function buildShellEnvCommands(env: Record<string, string>): string[] {
     shell.kind === 'powershell'
       ? `$env:${key} = ${quotePowerShell(value)}`
       : `export ${key}=${quotePosix(value)}`
-  )
+    )
+}
+
+function buildProviderCliBindingCommands(providerId: Exclude<CloudProviderId, 'aws'>, env: Record<string, string>): string[] {
+  const shell = getShellConfig()
+  const cliPath = providerId === 'gcp'
+    ? env.CLOUD_LENS_GCP_CLI_PATH?.trim()
+    : env.CLOUD_LENS_AZURE_CLI_PATH?.trim()
+  const commandName = providerId === 'gcp' ? 'gcloud' : 'az'
+
+  if (!cliPath) {
+    return []
+  }
+
+  if (shell.kind === 'powershell') {
+    return [
+      `function global:${commandName} { & ${quotePowerShell(cliPath)} @args }`
+    ]
+  }
+
+  return [
+    `${commandName}() { ${quotePosix(cliPath)} "$@"; }`
+  ]
 }
 
 function buildEnvCommands(connection: AwsConnection): string[] {
@@ -342,6 +364,7 @@ export function buildProviderShellContextCommand(
 ): string {
   const shell = getShellConfig()
   const envCommands = buildShellEnvCommands(env)
+  const cliBindingCommands = buildProviderCliBindingCommands(providerId, env)
   const guidance = providerId === 'gcp'
     ? 'Use gcloud auth list, gcloud config list, and project-scoped commands in this shell.'
     : 'Use az account show, az account list, and tenant or subscription-scoped commands in this shell.'
@@ -351,6 +374,7 @@ export function buildProviderShellContextCommand(
     return [
       buildPowerShellUtf8Command(),
       ...envCommands,
+      ...cliBindingCommands,
       `Write-Host ${quotePowerShell(`${label} shell ready`)}`,
       `Write-Host ${quotePowerShell(modeSummary)}`,
       `Write-Host ${quotePowerShell(guidance)}`
@@ -359,6 +383,7 @@ export function buildProviderShellContextCommand(
 
   return [
     ...envCommands,
+    ...cliBindingCommands,
     `printf "%s\\n" ${quotePosix(`${label} shell ready`)}`,
     `printf "%s\\n" ${quotePosix(modeSummary)}`,
     `printf "%s\\n" ${quotePosix(guidance)}`

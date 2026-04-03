@@ -9,6 +9,7 @@ import {
   closeAwsTerminal,
   openProviderTerminal,
   resizeAwsTerminal,
+  runAwsTerminalCommand,
   sendAwsTerminalInput,
   subscribeToAwsTerminal,
   updateProviderTerminalContext,
@@ -26,6 +27,12 @@ type TerminalTab = {
   title: string
   status: 'starting' | 'running' | 'exited'
   exitCode: number | null
+}
+
+type TerminalQuickCommand = {
+  id: string
+  label: string
+  command: string
 }
 
 const DEFAULT_PANEL_HEIGHT = 320
@@ -48,6 +55,60 @@ function clampPanelHeight(nextHeight: number): number {
 
 function matchesTarget(left: ProviderTerminalTarget, right: ProviderTerminalTarget): boolean {
   return left.providerId === right.providerId && left.modeId === right.modeId
+}
+
+function escapeShellArg(value: string): string {
+  return value.replace(/"/g, '\\"')
+}
+
+function buildQuickCommands(target: ProviderTerminalTarget): TerminalQuickCommand[] {
+  if (target.providerId !== 'gcp') {
+    return []
+  }
+
+  const projectId = target.env.CLOUD_LENS_GCP_PROJECT?.trim() || ''
+  const location = target.env.CLOUD_LENS_GCP_LOCATION?.trim() || ''
+  if (!projectId) {
+    return []
+  }
+
+  const quotedProject = `"${escapeShellArg(projectId)}"`
+  const quotedLocation = location ? `"${escapeShellArg(location)}"` : '""'
+
+  return [
+    {
+      id: 'auth',
+      label: 'Auth',
+      command: 'gcloud auth list'
+    },
+    {
+      id: 'config',
+      label: 'Config',
+      command: 'gcloud config list'
+    },
+    {
+      id: 'project',
+      label: 'Project',
+      command: `gcloud projects describe ${quotedProject}`
+    },
+    {
+      id: 'services',
+      label: 'Services',
+      command: `gcloud services list --enabled --project ${quotedProject}`
+    },
+    {
+      id: 'artifacts',
+      label: 'Storage',
+      command: `gcloud storage ls --project ${quotedProject}`
+    },
+    {
+      id: 'location',
+      label: 'Location',
+      command: location
+        ? `gcloud compute regions describe ${quotedLocation} --project ${quotedProject}`
+        : `echo No location configured for ${quotedProject}`
+    }
+  ]
 }
 
 function TerminalTabSurface({
@@ -374,6 +435,7 @@ export function ProviderTerminalPanel({
   }
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null
+  const quickCommands = buildQuickCommands(target)
   const activeStatusLabel =
     activeTab?.status === 'exited'
       ? `Exited${activeTab.exitCode === null ? '' : ` (${activeTab.exitCode})`}`
@@ -432,6 +494,30 @@ export function ProviderTerminalPanel({
           </button>
         </div>
       </div>
+
+      {quickCommands.length > 0 ? (
+        <div className="terminal-command-strip">
+          <div className="terminal-command-context">
+            <span className="terminal-command-provider">{target.providerId.toUpperCase()}</span>
+            <strong>{target.env.CLOUD_LENS_GCP_PROJECT || target.label}</strong>
+            <span>{target.env.CLOUD_LENS_GCP_LOCATION || 'location pending'}</span>
+          </div>
+          <div className="terminal-command-actions">
+            {quickCommands.map((entry) => (
+              <button
+                key={entry.id}
+                type="button"
+                className="terminal-command-chip"
+                disabled={!activeTab || activeTab.status === 'exited'}
+                onClick={() => activeTab ? void runAwsTerminalCommand(activeTab.id, entry.command) : undefined}
+                title={entry.command}
+              >
+                {entry.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {tabs.length === 0 ? (
         <div className="terminal-empty-state">

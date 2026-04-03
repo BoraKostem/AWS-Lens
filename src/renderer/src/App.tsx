@@ -450,6 +450,8 @@ function buildPreviewProviderTerminalEnv(
   mode: ProviderConnectionMode,
   options?: {
     gcpContext?: GcpConnectionDraft | null
+    gcpCliPath?: string
+    azureCliPath?: string
   }
 ): Record<string, string> {
   const baseEnv = {
@@ -467,14 +469,16 @@ function buildPreviewProviderTerminalEnv(
       CLOUD_LENS_GCP_MODE_ID: mode.id,
       CLOUD_LENS_GCP_PROJECT: options?.gcpContext?.projectId.trim() || '',
       CLOUD_LENS_GCP_LOCATION: options?.gcpContext?.location.trim() || '',
-      CLOUD_LENS_GCP_CREDENTIAL_HINT: options?.gcpContext?.credentialHint.trim() || ''
+      CLOUD_LENS_GCP_CREDENTIAL_HINT: options?.gcpContext?.credentialHint.trim() || '',
+      CLOUD_LENS_GCP_CLI_PATH: options?.gcpCliPath?.trim() || ''
     }
   }
 
   return {
     ...baseEnv,
     CLOUD_LENS_AZURE_MODE: mode.label,
-    CLOUD_LENS_AZURE_MODE_ID: mode.id
+    CLOUD_LENS_AZURE_MODE_ID: mode.id,
+    CLOUD_LENS_AZURE_CLI_PATH: options?.azureCliPath?.trim() || ''
   }
 }
 
@@ -1242,6 +1246,10 @@ export function App() {
   const detectedGcpConfigurationCount = gcpCliContext?.configurations.length ?? 0
   const detectedGcpProjectCount = gcpCliContext?.projects.length ?? 0
   const gcpCatalogProjects = activeProviderId === 'gcp' ? gcpCliContext?.projects ?? [] : []
+  const detectedGcloudCliPath = environmentHealth?.tools.find((tool) => tool.id === 'gcloud-cli' && tool.found)?.path
+    || gcpCliContext?.cliPath
+    || ''
+  const detectedAzureCliPath = environmentHealth?.tools.find((tool) => tool.id === 'azure-cli' && tool.found)?.path || ''
   const gcpCatalogAccount = activeProviderId === 'gcp'
     ? activeGcpConfiguration?.account || gcpCliContext?.activeAccount || 'Account pending'
     : ''
@@ -1399,7 +1407,9 @@ export function App() {
           modeId: selectedPreviewMode.id,
           modeLabel: selectedPreviewMode.label,
           env: buildPreviewProviderTerminalEnv(activeProviderId, activeProvider.label, selectedPreviewMode, {
-            gcpContext: activeProviderId === 'gcp' ? activeGcpConnectionDraft : null
+            gcpContext: activeProviderId === 'gcp' ? activeGcpConnectionDraft : null,
+            gcpCliPath: activeProviderId === 'gcp' ? detectedGcloudCliPath : '',
+            azureCliPath: activeProviderId === 'azure' ? detectedAzureCliPath : ''
           })
         }
       : null
