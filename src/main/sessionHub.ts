@@ -23,6 +23,7 @@ type PersistedState = {
 type InMemorySession = {
   id: string
   label: string
+  sessionName: string
   roleArn: string
   sourceProfile: string
   region: string
@@ -43,6 +44,8 @@ const REGION_NORMALIZATIONS: Record<string, string> = {
   'me-cental-1': 'me-central-1',
   'il-cental-1': 'il-central-1'
 }
+
+const EXPIRING_SESSION_WINDOW_MS = 15 * 60 * 1000
 
 function normalizeRegion(value: string): string {
   const trimmed = value.trim()
@@ -99,14 +102,31 @@ function sortSessions(sessions: AwsSessionSummary[]): AwsSessionSummary[] {
   return [...sessions].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
 }
 
+function getExpiryState(expiration: string): AwsSessionSummary['expiryState'] {
+  const expiresAt = new Date(expiration).getTime()
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    return 'expired'
+  }
+
+  if (expiresAt - Date.now() <= EXPIRING_SESSION_WINDOW_MS) {
+    return 'expiring'
+  }
+
+  return 'healthy'
+}
+
 function toSessionSummary(session: InMemorySession): AwsSessionSummary {
+  const expiryState = getExpiryState(session.credentials.expiration)
+
   return {
     id: session.id,
     kind: 'assumed-role',
     label: session.label,
+    sessionName: session.sessionName,
     profile: session.sourceProfile,
     region: session.region,
-    status: isExpired(session.credentials.expiration) ? 'expired' : 'active',
+    status: expiryState === 'expired' ? 'expired' : 'active',
+    expiryState,
     sourceProfile: session.sourceProfile,
     roleArn: session.roleArn,
     assumedRoleArn: session.assumedRoleArn,
@@ -202,6 +222,17 @@ export function getSessionSummary(sessionId: string): AwsSessionSummary | null {
   return session ? toSessionSummary(session) : null
 }
 
+function buildAssumeRoleRequestFromSession(session: InMemorySession): AssumeRoleRequest {
+  return {
+    label: session.label,
+    roleArn: session.roleArn,
+    sessionName: session.sessionName,
+    externalId: session.externalId || undefined,
+    sourceProfile: session.sourceProfile,
+    region: session.region
+  }
+}
+
 export function getSessionCredentials(sessionId: string): AwsCredentialSnapshot {
   const session = sessionStore.get(sessionId)
   if (!session) {
@@ -267,6 +298,15 @@ export function createConnectionFromSession(sessionId: string, region?: string):
   }
 }
 
+export async function refreshAssumedSession(sessionId: string): Promise<AssumeRoleResult> {
+  const session = sessionStore.get(sessionId)
+  if (!session) {
+    throw new Error('Assumed session was not found. Re-assume the role to continue.')
+  }
+
+  return assumeRoleSession(buildAssumeRoleRequestFromSession(session))
+}
+
 export async function assumeRoleSession(request: AssumeRoleRequest): Promise<AssumeRoleResult> {
   const roleArn = request.roleArn.trim()
   const sessionName = request.sessionName.trim()
@@ -314,6 +354,7 @@ export async function assumeRoleSession(request: AssumeRoleRequest): Promise<Ass
   const assumedSession: InMemorySession = {
     id: sessionId,
     label: request.label.trim() || roleArn,
+    sessionName,
     roleArn,
     sourceProfile,
     region,

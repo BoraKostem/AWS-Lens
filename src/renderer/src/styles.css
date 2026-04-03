@@ -355,6 +355,7 @@ textarea {
 }
 
 .active-chip,
+.warning-chip,
 .inactive-chip {
   padding: 0.45rem 0.7rem;
   border-radius: 999px;
@@ -364,6 +365,12 @@ textarea {
   background: linear-gradient(135deg, #c45a1e, #f58540);
   color: #1a0e06;
   border-color: transparent;
+}
+
+.warning-chip {
+  background: linear-gradient(135deg, rgba(245, 154, 61, 0.24), rgba(240, 193, 94, 0.2));
+  color: #f8d19e;
+  border: 1px solid rgba(245, 154, 61, 0.28);
 }
 
 .inactive-chip {
@@ -1606,6 +1613,28 @@ button.overview-tile.clickable.active strong {
 .session-hub-shell-status .freshness-indicator__summary strong {
   color: #edf4fb;
   font-family: "Space Grotesk", "Segoe UI", sans-serif;
+}
+
+.session-hub-refresh-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(245, 154, 61, 0.24);
+  background:
+    linear-gradient(135deg, rgba(245, 154, 61, 0.14), rgba(240, 193, 94, 0.08)),
+    rgba(10, 15, 22, 0.94);
+}
+
+.session-hub-refresh-banner strong {
+  color: #f8d19e;
+}
+
+.session-hub-refresh-banner p {
+  margin: 0.25rem 0 0;
+  color: #c8d6e4;
 }
 
 .session-hub-toolbar-btn {
@@ -3342,9 +3371,12 @@ button.overview-tile.clickable.active strong {
     flex-direction: column;
   }
 
+  .session-hub-refresh-banner,
   .session-hub-shell-status {
     width: 100%;
     justify-content: stretch;
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .session-hub-shell-status .freshness-indicator,

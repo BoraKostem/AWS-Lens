@@ -12,6 +12,7 @@ import {
   deleteSession,
   getAssumeRoleTarget,
   listSessionHubState,
+  refreshAssumedSession,
   saveAssumeRoleTarget
 } from './sessionHub'
 
@@ -35,6 +36,9 @@ export function registerAwsIpcHandlers(): void {
   )
   ipcMain.handle('session-hub:assume', async (_event, request: AssumeRoleRequest) =>
     wrap(() => assumeRoleSession(request))
+  )
+  ipcMain.handle('session-hub:session:refresh', async (_event, sessionId: string) =>
+    wrap(() => refreshAssumedSession(sessionId))
   )
   ipcMain.handle('session-hub:assume-target', async (_event, targetId: string) =>
     wrap(async () => {

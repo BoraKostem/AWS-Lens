@@ -178,10 +178,9 @@ export async function listIamRoles(connection: AwsConnection): Promise<IamRoleSu
     const output = await client.send(new ListRolesCommand({ Marker: marker }))
     for (const r of output.Roles ?? []) {
       const roleName = r.RoleName ?? ''
-
-      const attachedRes = await client.send(
-        new ListAttachedRolePoliciesCommand({ RoleName: roleName })
-      )
+      const attachedRes = await client
+        .send(new ListAttachedRolePoliciesCommand({ RoleName: roleName }))
+        .catch(() => ({ AttachedPolicies: [] }))
 
       roles.push({
         roleName,

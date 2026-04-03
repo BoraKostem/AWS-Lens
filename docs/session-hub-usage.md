@@ -65,6 +65,7 @@ When the assume call succeeds, the app:
 The session list then shows:
 
 - status: `active` or `expired`
+- expiry hint: `expiring soon` when less than 15 minutes remain
 - account ID
 - access key ID
 - expiration timestamp
@@ -76,8 +77,14 @@ In `Assumed Sessions`:
 
 - `Activate` makes that session the active app connection
 - `Terminal` opens the embedded terminal with that session's AWS environment
-- `Re-Assume` requests a fresh STS session using the same role details
+- `Re-Assume` requests a fresh STS session using the same role details and original STS session name
 - `Forget` removes the stored in-memory session
+
+When a session is close to expiring, Session Hub also surfaces:
+
+- an `expiring soon` status chip in the session table
+- a top-level refresh recommendation banner
+- `Refresh Expiring` and `Refresh Active Context` shortcuts for one-click renewal
 
 At the top of the page:
 

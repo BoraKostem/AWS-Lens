@@ -60,6 +60,7 @@ const awsLensApi = {
   deleteAssumeRoleTarget: (targetId: string) => ipcRenderer.invoke('session-hub:target:delete', targetId),
   deleteAssumedSession: (sessionId: string) => ipcRenderer.invoke('session-hub:session:delete', sessionId),
   assumeRoleSession: (request: AssumeRoleRequest) => ipcRenderer.invoke('session-hub:assume', request),
+  refreshAssumedSession: (sessionId: string) => ipcRenderer.invoke('session-hub:session:refresh', sessionId),
   assumeSavedRoleTarget: (targetId: string) => ipcRenderer.invoke('session-hub:assume-target', targetId),
   listServices: () => ipcRenderer.invoke('services:list'),
   getGovernanceTagDefaults: () => ipcRenderer.invoke('phase1:get-governance-tag-defaults'),

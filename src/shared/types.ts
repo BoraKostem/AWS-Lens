@@ -58,13 +58,17 @@ export type AwsConnection = AwsBaseConnection | AwsAssumedRoleConnection
 
 export type AwsSessionStatus = 'active' | 'expired'
 
+export type AwsSessionExpiryState = 'healthy' | 'expiring' | 'expired'
+
 export type AwsSessionSummary = {
   id: string
   kind: AwsConnection['kind']
   label: string
+  sessionName: string
   profile: string
   region: string
   status: AwsSessionStatus
+  expiryState: AwsSessionExpiryState
   sourceProfile: string
   roleArn: string
   assumedRoleArn: string

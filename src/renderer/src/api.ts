@@ -726,12 +726,13 @@ export function trackedAwsBridge(): AwsLensBridge {
   return awsBridge()
 }
 
-function normalizeUserFacingError(rawError: string): AwsLensApiError {
+function normalizeUserFacingError(rawError: string, operationLabel?: string): AwsLensApiError {
   const normalized = rawError.toLowerCase()
+  const requestDetail = operationLabel ? ` Request: ${operationLabel}.` : ''
 
   if (normalized.includes('read-only mode')) {
     return new AwsLensApiError(
-      'This action is blocked in read-only mode. Switch to operator mode to make changes.',
+      `This action is blocked in read-only mode.${requestDetail} Switch to operator mode to make changes.`,
       rawError,
       'Read-Only Mode'
     )
@@ -739,7 +740,7 @@ function normalizeUserFacingError(rawError: string): AwsLensApiError {
 
   if (normalized.includes('accessdenied') || normalized.includes('access denied') || normalized.includes('not authorized')) {
     return new AwsLensApiError(
-      'AWS denied this request. Check the active IAM role or policy scope for the selected account and region.',
+      `AWS denied this request.${requestDetail} Check the active IAM role or policy scope for the selected account and region.`,
       rawError,
       'Access Denied'
     )
@@ -747,7 +748,7 @@ function normalizeUserFacingError(rawError: string): AwsLensApiError {
 
   if (normalized.includes('expired token') || normalized.includes('expiredtoken') || normalized.includes('security token')) {
     return new AwsLensApiError(
-      'The current AWS session has expired. Refresh credentials or assume the role again, then retry.',
+      `The current AWS session has expired.${requestDetail} Refresh credentials or assume the role again, then retry.`,
       rawError,
       'Session Expired'
     )
@@ -755,7 +756,7 @@ function normalizeUserFacingError(rawError: string): AwsLensApiError {
 
   if (normalized.includes('throttl') || normalized.includes('rate exceeded') || normalized.includes('too many requests')) {
     return new AwsLensApiError(
-      'AWS is rate-limiting this operation. Retry in a moment or narrow the request scope.',
+      `AWS is rate-limiting this operation.${requestDetail} Retry in a moment or narrow the request scope.`,
       rawError,
       'Request Throttled'
     )
@@ -763,7 +764,7 @@ function normalizeUserFacingError(rawError: string): AwsLensApiError {
 
   if (normalized.includes('timed out') || normalized.includes('timeout')) {
     return new AwsLensApiError(
-      'The operation timed out before AWS or the local tool completed. Retry or reduce the amount of data being requested.',
+      `The operation timed out before AWS or the local tool completed.${requestDetail} Retry or reduce the amount of data being requested.`,
       rawError,
       'Operation Timed Out'
     )
@@ -802,17 +803,17 @@ function normalizeUserFacingError(rawError: string): AwsLensApiError {
   }
 
   return new AwsLensApiError(
-    'The operation failed. Review the current context and export diagnostics if the problem persists.',
+    `The operation failed.${requestDetail} Review the current context and export diagnostics if the problem persists.`,
     rawError
   )
 }
 
-function unwrap<T>(result: Wrapped<T>): T {
+function unwrap<T>(result: Wrapped<T>, operationLabel?: string): T {
   if (!result.ok) {
     if (typeof window !== 'undefined' && result.error.includes('read-only mode')) {
       window.dispatchEvent(new CustomEvent('aws-lens:blocked-action', { detail: result.error }))
     }
-    throw normalizeUserFacingError(result.error)
+    throw normalizeUserFacingError(result.error, operationLabel)
   }
   return result.data
 }
@@ -909,6 +910,10 @@ export async function deleteAssumedSession(sessionId: string): Promise<void> {
 
 export async function assumeRoleSession(request: AssumeRoleRequest): Promise<AssumeRoleResult> {
   return unwrap((await awsBridge().assumeRoleSession(request)) as Wrapped<AssumeRoleResult>)
+}
+
+export async function refreshAssumedSession(sessionId: string): Promise<AssumeRoleResult> {
+  return unwrap((await awsBridge().refreshAssumedSession(sessionId)) as Wrapped<AssumeRoleResult>)
 }
 
 export async function assumeSavedRoleTarget(targetId: string): Promise<AssumeRoleResult> {
@@ -2051,7 +2056,9 @@ export async function simulateSsoPermissions(c: AwsConnection, instanceArn: stri
 
 export async function listIamUsers(c: AwsConnection): Promise<IamUserSummary[]> { return unwrap((await awsBridge().listIamUsers(c)) as Wrapped<IamUserSummary[]>) }
 export async function listIamGroups(c: AwsConnection): Promise<IamGroupSummary[]> { return unwrap((await awsBridge().listIamGroups(c)) as Wrapped<IamGroupSummary[]>) }
-export async function listIamRoles(c: AwsConnection): Promise<IamRoleSummary[]> { return unwrap((await awsBridge().listIamRoles(c)) as Wrapped<IamRoleSummary[]>) }
+export async function listIamRoles(c: AwsConnection): Promise<IamRoleSummary[]> {
+  return unwrap((await awsBridge().listIamRoles(c)) as Wrapped<IamRoleSummary[]>, 'List IAM roles for Role ARN suggestions')
+}
 export async function listIamPolicies(c: AwsConnection, scope: string): Promise<IamPolicySummary[]> { return unwrap((await awsBridge().listIamPolicies(c, scope)) as Wrapped<IamPolicySummary[]>) }
 export async function getIamAccountSummary(c: AwsConnection): Promise<IamAccountSummary> { return unwrap((await awsBridge().getIamAccountSummary(c)) as Wrapped<IamAccountSummary>) }
 export async function listIamAccessKeys(c: AwsConnection, u: string): Promise<IamAccessKeySummary[]> { return unwrap((await awsBridge().listIamAccessKeys(c, u)) as Wrapped<IamAccessKeySummary[]>) }
