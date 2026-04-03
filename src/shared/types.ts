@@ -2697,6 +2697,8 @@ export type ObservabilityRecommendation = {
   expectedBenefit: string
   risk: string
   rollback: string
+  owner?: string
+  verificationStep?: string
   prerequisiteLevel: PrerequisiteLevel
   setupEffort: SetupEffort
   labels: string[]

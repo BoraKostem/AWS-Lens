@@ -96,6 +96,17 @@ function hasAccessDeniedSignal(values: string[]): boolean {
   return values.some((value) => /access.?denied|unauthorized|forbidden/i.test(value))
 }
 
+function enrichRecommendations(
+  recommendations: ObservabilityRecommendation[],
+  defaults: { owner: string; verificationPrefix: string }
+): ObservabilityRecommendation[] {
+  return recommendations.map((recommendation) => ({
+    ...recommendation,
+    owner: defaults.owner,
+    verificationStep: `${defaults.verificationPrefix}: validate "${recommendation.title}" by checking the related signal turns healthy and no new critical findings appear.`
+  }))
+}
+
 function buildEksInvestigationPacks(clusterName: string, findings: ObservabilityFinding[]): InvestigationPack[] {
   const packs: InvestigationPack[] = [
     {
@@ -949,7 +960,10 @@ function buildEksRecommendations(region: string, cluster: EksClusterDetail, find
     })
   }
 
-  return recommendations
+  return enrichRecommendations(recommendations, {
+    owner: 'Platform / Kubernetes owner',
+    verificationPrefix: 'After the EKS change'
+  })
 }
 
 function buildEksExperiments(clusterName: string): ResilienceExperimentSuggestion[] {
@@ -1278,7 +1292,10 @@ function buildEcsRecommendations(
     })
   }
 
-  return recommendations
+  return enrichRecommendations(recommendations, {
+    owner: 'Service owner / ECS operator',
+    verificationPrefix: 'After the ECS change'
+  })
 }
 
 function buildEcsExperiments(serviceName: string): ResilienceExperimentSuggestion[] {
@@ -1483,7 +1500,7 @@ function buildTerraformFindings(project: TerraformProject, drift: TerraformDrift
 }
 
 function buildTerraformRecommendations(project: TerraformProject): ObservabilityRecommendation[] {
-  return [
+  return enrichRecommendations([
     {
       id: 'tf-add-alarm',
       title: 'Generate a baseline CloudWatch alarm resource',
@@ -1554,7 +1571,10 @@ function buildTerraformRecommendations(project: TerraformProject): Observability
       setupEffort: 'medium',
       labels: ['No extra install']
     }
-  ]
+  ], {
+    owner: 'Infrastructure owner / Terraform maintainer',
+    verificationPrefix: 'After the Terraform change'
+  })
 }
 
 function buildTerraformExperiments(projectName: string): ResilienceExperimentSuggestion[] {

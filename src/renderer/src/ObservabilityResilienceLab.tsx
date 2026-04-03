@@ -131,10 +131,14 @@ export function ObservabilityResilienceLab({
                     <span className="obs-lab-type">{item.type}</span>
                   </div>
                   <p>{item.summary}</p>
-                  <div className="obs-lab-meta"><strong>Why:</strong> {item.rationale}</div>
-                  <div className="obs-lab-meta"><strong>Benefit:</strong> {item.expectedBenefit}</div>
-                  <div className="obs-lab-meta"><strong>Risk:</strong> {item.risk}</div>
-                  <div className="obs-lab-meta"><strong>Rollback:</strong> {item.rollback}</div>
+                  <div className="obs-lab-rec-grid">
+                    <div className="obs-lab-meta"><strong>Why:</strong> {item.rationale}</div>
+                    <div className="obs-lab-meta"><strong>Benefit:</strong> {item.expectedBenefit}</div>
+                    <div className="obs-lab-meta"><strong>Risk:</strong> {item.risk}</div>
+                    <div className="obs-lab-meta"><strong>Rollback:</strong> {item.rollback}</div>
+                    <div className="obs-lab-meta"><strong>Owner:</strong> {item.owner || 'Unassigned'}</div>
+                    <div className="obs-lab-meta"><strong>Verification:</strong> {item.verificationStep || 'Verify the related signal and findings after the change.'}</div>
+                  </div>
                   <div className="obs-lab-tags">
                     {item.labels.map((label) => <span key={label} className="obs-lab-tag">{label}</span>)}
                     <span className="obs-lab-tag">Prereq: {item.prerequisiteLevel}</span>

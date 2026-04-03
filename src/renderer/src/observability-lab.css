@@ -93,6 +93,12 @@
   gap: 10px;
 }
 
+.obs-lab-rec-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
 .obs-lab-severity,
 .obs-lab-category,
 .obs-lab-type,
