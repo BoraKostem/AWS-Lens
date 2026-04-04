@@ -62,6 +62,50 @@ function describePayerVisibility(value: OverviewAccountContext['payerVisibility'
   }
 }
 
+function flattenOrganizationNodes(accountContext: OverviewAccountContext): Array<{ id: string; depth: number; label: string; type: string; isCurrent: boolean }> {
+  const organization = accountContext.organization
+  if (!organization?.nodes.length) {
+    return []
+  }
+
+  const byParent = new Map<string, typeof organization.nodes>()
+  for (const node of organization.nodes) {
+    const bucket = byParent.get(node.parentId) ?? []
+    bucket.push(node)
+    byParent.set(node.parentId, bucket)
+  }
+
+  for (const bucket of byParent.values()) {
+    bucket.sort((left, right) => {
+      if (left.type === right.type) {
+        return left.name.localeCompare(right.name)
+      }
+      if (left.type === 'account') return 1
+      if (right.type === 'account') return -1
+      return left.name.localeCompare(right.name)
+    })
+  }
+
+  const rows: Array<{ id: string; depth: number; label: string; type: string; isCurrent: boolean }> = []
+
+  function visit(parentId: string, depth: number): void {
+    const children = byParent.get(parentId) ?? []
+    for (const node of children) {
+      rows.push({
+        id: node.id,
+        depth,
+        label: node.name,
+        type: node.type,
+        isCurrent: node.type === 'account' && node.accountId === accountContext.caller.account
+      })
+      visit(node.id, depth + 1)
+    }
+  }
+
+  visit('', 0)
+  return rows
+}
+
 function sumMetricField(regions: RegionMetric[], key: keyof RegionMetric): number {
   return regions.reduce((s, r) => {
     const v = r[key]
@@ -399,18 +443,18 @@ export function OverviewConsole({
                                 <span>Billing home</span>
                                 <strong>{accountContext.billingHomeRegion}</strong>
                               </div>
-                              <div>
-                                <span>Visibility</span>
-                                <strong>{describePayerVisibility(accountContext.payerVisibility)}</strong>
+                                <div>
+                                  <span>Visibility</span>
+                                  <strong>{describePayerVisibility(accountContext.payerVisibility)}</strong>
+                                </div>
+                                <div>
+                                  <span>Payer / management</span>
+                                  <strong>{accountContext.payerAccountLabel}</strong>
+                                </div>
                               </div>
-                              <div>
-                                <span>Linked accounts</span>
-                                <strong>{accountContext.linkedAccounts.length}</strong>
-                              </div>
-                            </div>
-                            <div className="overview-note-list">
-                              {accountContext.notes.map((note) => (
-                                <div key={note} className="overview-note-item">{note}</div>
+                              <div className="overview-note-list">
+                                {accountContext.notes.map((note) => (
+                                  <div key={note} className="overview-note-item">{note}</div>
                               ))}
                             </div>
                           </article>
@@ -432,15 +476,66 @@ export function OverviewConsole({
                                   </div>
                                 ))}
                               </div>
-                            ) : (
-                              <SvcState
-                                variant="empty"
-                                message="Linked-account rollups are not visible with the current billing context."
-                                compact
-                              />
-                            )}
-                          </article>
-                        </section>
+                              ) : (
+                                <SvcState
+                                  variant="empty"
+                                  message="Linked-account rollups are not visible with the current billing context."
+                                  compact
+                                />
+                              )}
+                            </article>
+
+                            <article className="overview-account-card overview-org-card">
+                              <div className="panel-header minor">
+                                <h3>Organization Context</h3>
+                                <span className="hero-path" style={{ margin: 0 }}>
+                                  {accountContext.organization?.status === 'available'
+                                    ? 'Live tree'
+                                    : accountContext.organization?.status === 'limited'
+                                      ? 'Partial visibility'
+                                      : 'Unavailable'}
+                                </span>
+                              </div>
+                              <div className="overview-account-kv">
+                                <div>
+                                  <span>Org ID</span>
+                                  <strong>{accountContext.organization?.organizationId || '-'}</strong>
+                                </div>
+                                <div>
+                                  <span>Current OU path</span>
+                                  <strong>{accountContext.organization?.currentAccountPath.join(' / ') || 'Not available'}</strong>
+                                </div>
+                              </div>
+                              {accountContext.organization?.warning && (
+                                <div className="overview-note-item">{accountContext.organization.warning}</div>
+                              )}
+                              {flattenOrganizationNodes(accountContext).length ? (
+                                <div className="overview-org-tree">
+                                  {flattenOrganizationNodes(accountContext).slice(0, 40).map((node) => (
+                                    <div
+                                      key={node.id}
+                                      className={`overview-org-row ${node.isCurrent ? 'active' : ''}`}
+                                      style={{ paddingLeft: `${node.depth * 16 + 10}px` }}
+                                    >
+                                      <span className={`overview-org-type overview-org-type-${node.type}`}>
+                                        {node.type === 'organizational-unit' ? 'OU' : node.type === 'root' ? 'Root' : 'Acct'}
+                                      </span>
+                                      <strong>{node.label}</strong>
+                                    </div>
+                                  ))}
+                                  {flattenOrganizationNodes(accountContext).length > 40 && (
+                                    <div className="overview-note-item">Showing first 40 nodes to keep the overview compact.</div>
+                                  )}
+                                </div>
+                              ) : (
+                                <SvcState
+                                  variant="empty"
+                                  message="Organization tree is not visible with the current credentials."
+                                  compact
+                                />
+                              )}
+                            </article>
+                          </section>
 
                         <div className="overview-section-title">Capability Hints</div>
                         <section className="overview-hint-grid">

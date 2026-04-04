@@ -19,6 +19,13 @@ import { SecretsManagerClient, ListSecretsCommand } from '@aws-sdk/client-secret
 import { CloudWatchClient, DescribeAlarmsCommand, ListTagsForResourceCommand as ListCloudWatchTagsForResourceCommand } from '@aws-sdk/client-cloudwatch'
 import { CloudTrailClient, DescribeTrailsCommand, ListTagsCommand as ListCloudTrailTagsCommand } from '@aws-sdk/client-cloudtrail'
 import { IAMClient, ListRolesCommand, ListRoleTagsCommand, ListUsersCommand, ListUserTagsCommand } from '@aws-sdk/client-iam'
+import {
+  DescribeOrganizationCommand,
+  ListAccountsForParentCommand,
+  ListOrganizationalUnitsForParentCommand,
+  ListRootsCommand,
+  OrganizationsClient
+} from '@aws-sdk/client-organizations'
 
 import { awsClientConfig, readTags } from './client'
 import { getAwsCapabilitySnapshot } from './capabilities'
@@ -33,6 +40,8 @@ import type {
   GovernanceTagKey,
   InsightItem,
   OverviewAccountContext,
+  OverviewOrganizationContext,
+  OverviewOrganizationNode,
   OverviewMetrics,
   OverviewStat,
   OverviewStatistics,
@@ -71,6 +80,9 @@ const COST_CW_ALARM = 0.1
 const COST_EXPLORER_METRIC = 'UnblendedCost' as const
 const BILLING_HOME_REGION = 'us-east-1'
 const OWNERSHIP_TAG_KEYS: GovernanceTagKey[] = ['Owner', 'Environment', 'Project', 'CostCenter']
+const ORGANIZATIONS_HOME_REGION = 'us-east-1'
+const ORGANIZATION_TREE_DEPTH_LIMIT = 4
+const ORGANIZATION_TREE_NODE_LIMIT = 250
 
 /* ── helpers ──────────────────────────────────────────────── */
 
@@ -1375,6 +1387,196 @@ async function getMonthlyCostForTag(
   return roundCurrency(total)
 }
 
+function createOrganizationsClient(connection: AwsConnection): OrganizationsClient {
+  return new OrganizationsClient({
+    ...awsClientConfig(connection),
+    region: ORGANIZATIONS_HOME_REGION
+  })
+}
+
+function buildAccountPath(nodes: OverviewOrganizationNode[], currentAccountId: string): string[] {
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  const currentNode = nodes.find((node) => node.type === 'account' && node.accountId === currentAccountId)
+  if (!currentNode) {
+    return []
+  }
+
+  const path: string[] = []
+  let cursor: OverviewOrganizationNode | undefined = currentNode
+  while (cursor) {
+    path.unshift(cursor.name)
+    cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined
+  }
+
+  return path
+}
+
+async function listRootNodes(client: OrganizationsClient): Promise<OverviewOrganizationNode[]> {
+  const roots: OverviewOrganizationNode[] = []
+  let nextToken: string | undefined
+
+  do {
+    const output = await client.send(new ListRootsCommand({ NextToken: nextToken }))
+    for (const root of output.Roots ?? []) {
+      roots.push({
+        id: root.Id ?? '',
+        parentId: '',
+        type: 'root',
+        name: root.Name ?? 'Root',
+        arn: root.Arn ?? '',
+        accountId: '',
+        email: ''
+      })
+    }
+    nextToken = output.NextToken
+  } while (nextToken)
+
+  return roots.filter((node) => node.id)
+}
+
+async function listOuNodes(client: OrganizationsClient, parentId: string): Promise<OverviewOrganizationNode[]> {
+  const ous: OverviewOrganizationNode[] = []
+  let nextToken: string | undefined
+
+  do {
+    const output = await client.send(new ListOrganizationalUnitsForParentCommand({ ParentId: parentId, NextToken: nextToken }))
+    for (const ou of output.OrganizationalUnits ?? []) {
+      ous.push({
+        id: ou.Id ?? '',
+        parentId,
+        type: 'organizational-unit',
+        name: ou.Name ?? 'OU',
+        arn: ou.Arn ?? '',
+        accountId: '',
+        email: ''
+      })
+    }
+    nextToken = output.NextToken
+  } while (nextToken)
+
+  return ous.filter((node) => node.id)
+}
+
+async function listAccountNodes(client: OrganizationsClient, parentId: string): Promise<OverviewOrganizationNode[]> {
+  const accounts: OverviewOrganizationNode[] = []
+  let nextToken: string | undefined
+
+  do {
+    const output = await client.send(new ListAccountsForParentCommand({ ParentId: parentId, NextToken: nextToken }))
+    for (const account of output.Accounts ?? []) {
+      accounts.push({
+        id: account.Id ?? '',
+        parentId,
+        type: 'account',
+        name: account.Name ?? account.Id ?? 'Account',
+        arn: account.Arn ?? '',
+        accountId: account.Id ?? '',
+        email: account.Email ?? ''
+      })
+    }
+    nextToken = output.NextToken
+  } while (nextToken)
+
+  return accounts.filter((node) => node.id)
+}
+
+async function fetchOrganizationContext(connection: AwsConnection, currentAccountId: string): Promise<OverviewOrganizationContext | null> {
+  const client = createOrganizationsClient(connection)
+
+  try {
+    const [organizationOutput, roots] = await Promise.all([
+      client.send(new DescribeOrganizationCommand({})),
+      listRootNodes(client)
+    ])
+
+    const organization = organizationOutput.Organization
+    const root = roots[0]
+    if (!organization || !root) {
+      return {
+        status: 'limited',
+        organizationId: organization?.Id ?? '',
+        organizationArn: organization?.Arn ?? '',
+        managementAccountId: organization?.MasterAccountId ?? '',
+        managementAccountName: organization?.MasterAccountEmail ?? '',
+        rootId: root?.id ?? '',
+        rootName: root?.name ?? 'Root',
+        currentAccountId,
+        currentAccountPath: [],
+        nodes: roots,
+        warning: 'Organizations metadata is partially available, but the root tree could not be fully resolved.'
+      }
+    }
+
+    const nodes: OverviewOrganizationNode[] = [...roots]
+    let truncated = false
+
+    async function walk(parentId: string, depth: number): Promise<void> {
+      if (depth > ORGANIZATION_TREE_DEPTH_LIMIT || nodes.length >= ORGANIZATION_TREE_NODE_LIMIT) {
+        truncated = true
+        return
+      }
+
+      const [ous, accounts] = await Promise.all([
+        listOuNodes(client, parentId),
+        listAccountNodes(client, parentId)
+      ])
+
+      for (const node of [...ous, ...accounts]) {
+        if (nodes.some((existing) => existing.id === node.id)) {
+          continue
+        }
+        nodes.push(node)
+        if (nodes.length >= ORGANIZATION_TREE_NODE_LIMIT) {
+          truncated = true
+          return
+        }
+      }
+
+      for (const ou of ous) {
+        await walk(ou.id, depth + 1)
+        if (truncated) {
+          return
+        }
+      }
+    }
+
+    await walk(root.id, 1)
+
+    const currentAccountPath = buildAccountPath(nodes, currentAccountId)
+    const managementAccountId = organization.MasterAccountId ?? ''
+    const managementAccountNode = nodes.find((node) => node.type === 'account' && node.accountId === managementAccountId) ?? null
+
+    return {
+      status: truncated ? 'limited' : 'available',
+      organizationId: organization.Id ?? '',
+      organizationArn: organization.Arn ?? '',
+      managementAccountId,
+      managementAccountName: managementAccountNode?.name || organization.MasterAccountEmail || managementAccountId,
+      rootId: root.id,
+      rootName: root.name,
+      currentAccountId,
+      currentAccountPath,
+      nodes,
+      warning: truncated ? 'Organization tree was truncated to keep the overview responsive.' : ''
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      status: /access|denied|not authorized|unauthorized/i.test(message) ? 'limited' : 'unavailable',
+      organizationId: '',
+      organizationArn: '',
+      managementAccountId: '',
+      managementAccountName: '',
+      rootId: '',
+      rootName: '',
+      currentAccountId,
+      currentAccountPath: [],
+      nodes: [],
+      warning: message
+    }
+  }
+}
+
 export async function getOverviewAccountContext(connection: AwsConnection): Promise<OverviewAccountContext> {
   const caller = await getCallerIdentity(connection)
   const capabilitySnapshot = getAwsCapabilitySnapshot(connection.region, ['billing', 'organizations', 'local-zones'])
@@ -1383,6 +1585,7 @@ export async function getOverviewAccountContext(connection: AwsConnection): Prom
     `Billing aggregation is normalized through ${BILLING_HOME_REGION} even when the active region is ${connection.region}.`,
     'Linked-account visibility depends on payer, management-account, or delegated billing access.'
   ]
+  const organization = await fetchOrganizationContext(connection, caller.account)
   const emptyOwnershipHints: BillingTagOwnershipHint[] = OWNERSHIP_TAG_KEYS.map((key) => ({
     key,
     coveragePercent: 0,
@@ -1423,6 +1626,8 @@ export async function getOverviewAccountContext(connection: AwsConnection): Prom
       : totalCost.total > 0
         ? 'member-or-standalone'
         : 'unavailable'
+    const payerAccountId = organization?.managementAccountId || (payerVisibility === 'member-or-standalone' ? caller.account : '')
+    const payerAccountLabel = organization?.managementAccountName || payerAccountId || 'Unavailable'
 
     const ownershipHints: BillingTagOwnershipHint[] = ownershipGroups.map(({ key, groups }) => {
       const taggedValues = groups
@@ -1462,12 +1667,21 @@ export async function getOverviewAccountContext(connection: AwsConnection): Prom
       notes.push('Ownership hints are empty for the current month. AWS cost allocation tags may not be activated for Owner, Environment, Project, or CostCenter.')
     }
 
+    if (organization?.currentAccountPath.length) {
+      notes.push(`Organization path: ${organization.currentAccountPath.join(' / ')}.`)
+    } else if (organization?.warning) {
+      notes.push(`Organizations: ${organization.warning}`)
+    }
+
     return {
       caller,
       billingHomeRegion: BILLING_HOME_REGION,
       payerVisibility,
+      payerAccountId,
+      payerAccountLabel,
       linkedAccounts,
       ownershipHints,
+      organization,
       capabilitySnapshot,
       notes,
       generatedAt
@@ -1479,8 +1693,11 @@ export async function getOverviewAccountContext(connection: AwsConnection): Prom
       caller,
       billingHomeRegion: BILLING_HOME_REGION,
       payerVisibility: 'unavailable',
+      payerAccountId: organization?.managementAccountId || caller.account,
+      payerAccountLabel: organization?.managementAccountName || caller.account || 'Unavailable',
       linkedAccounts: [],
       ownershipHints: emptyOwnershipHints,
+      organization,
       capabilitySnapshot,
       notes,
       generatedAt
