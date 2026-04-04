@@ -160,6 +160,7 @@ The Overview screen is the landing surface for day-to-day AWS navigation. It giv
 - Optional global overview across multiple regions with service totals and region breakdowns
 - Cost visibility using Cost Explorer when available, with heuristic fallback when it is not
 - Account and billing posture with payer visibility, linked-account cost rollups, ownership-tag hints, and region capability guidance
+- Organization context with payer or management visibility, OU path context, and compact organization-tree rendering when permissions allow
 - Relationship mapping between resources with filterable edge lists and drill-down navigation
 - Statistics and insight panels grouped by compute, storage, networking, security, management, and messaging
 - Search-by-tag workflow that returns matching resources and a cost-oriented rollup
@@ -182,11 +183,14 @@ Cross-account session management for assume-role workflows:
 
 The Session Hub is more than a credential switcher. It keeps a local catalog of role targets, tracks active and expired sessions, shows expiration countdowns, and lets you jump into the embedded terminal or diff mode using the assumed-role context. This makes cross-account workflows practical without rewriting local AWS config files or copying short-lived credentials around by hand.
 
+Recent Session Hub upgrades add expiring-session refresh guidance, reusable compare preset creation, richer saved-target metadata (`environment`, `critical access`, `tags`, `last used`), clearer assume-role failure classification, and one-click terminal command templates for `aws`, `kubectl`, and `terraform` follow-up actions.
+
 ### Compare Workspace
 
 AWS Lens includes a dedicated compare mode for side-by-side inspection of two AWS contexts. Each side can be a base profile or an active assumed-role session, and each side can target a different region.
 
 - Compare inventory, posture, ownership tags, cost signals, and operational risk
+- Save reusable compare presets from both Compare Workspace and Session Hub, including saved assume-role targets as stable context references
 - Save, reload, and delete local compare baselines for repeat review against the same context pair
 - Track compliance delta summaries alongside the existing detailed posture rows
 - Filter results by focus area: security, compute, networking, storage, drift/compliance, and cost
@@ -272,6 +276,8 @@ AWS Lens also includes a direct-access screen for situations where list permissi
 
 The terminal updates automatically when you change profiles, regions, or assumed-role sessions. Service workspaces can push follow-up commands into it, which makes the terminal a continuation of the GUI instead of a separate tool.
 
+Session Hub also ships terminal-ready command templates so operators can send context-aware `aws`, `kubectl`, and `terraform` snippets into the embedded shell without rebuilding the active AWS environment by hand.
+
 ---
 
 ### Feature `v1.1.0` Highlights
@@ -309,6 +315,15 @@ The terminal updates automatically when you change profiles, regions, or assumed
 - CloudWatch now keeps a profile/region-scoped incident timeline alongside query history, reruns, saved queries, and focused investigation events
 - A dedicated Investigation tab correlates metric signals, recent log events, and CloudTrail activity without overwhelming the main query workspace
 - Observability remediation recommendations now include owner and verification details in addition to risk and rollback guidance
+
+### Feature `v1.5.0` Highlights
+
+- Session Hub now flags expiring assumed-role sessions, recommends refresh before failure, and supports one-click refresh for the active context or all expiring sessions
+- Compare presets can now be created from Session Hub and reused in Compare Workspace, including saved assume-role targets as persistent comparison contexts
+- Overview now surfaces AWS Organizations payer or management context, OU path visibility, and a compact organization tree when access is available
+- Saved role targets now include environment, critical-access classification, freeform tags, and last-used tracking to make high-risk cross-account roles easier to manage
+- Assume-role failures now distinguish common STS causes such as trust or permission denial, missing roles, MFA requirements, malformed requests, and external-ID mismatch
+- Session Hub can now send context-aware `aws`, `kubectl`, `terraform`, and shell-debug command templates directly into the embedded terminal
 
 ---
 
