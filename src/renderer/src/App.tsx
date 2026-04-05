@@ -1064,7 +1064,9 @@ function GcpCloudStorageConsole({
   const [editContent, setEditContent] = useState('')
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
+  const [bucketSearch, setBucketSearch] = useState('')
   const [objectSearch, setObjectSearch] = useState('')
+  const [detailTab, setDetailTab] = useState<'objects' | 'posture'>('objects')
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   async function browseBucket(bucketName: string, nextPrefix = ''): Promise<void> {
@@ -1186,10 +1188,28 @@ function GcpCloudStorageConsole({
 
     return objects.filter((object) => object.key.toLowerCase().includes(query))
   }, [objectSearch, objects])
+  const filteredBuckets = useMemo(() => {
+    const query = bucketSearch.trim().toLowerCase()
+    if (!query) {
+      return buckets
+    }
+
+    return buckets.filter((bucket) => bucket.name.toLowerCase().includes(query))
+  }, [bucketSearch, buckets])
   const selectedObject = useMemo(
     () => objects.find((object) => object.key === selectedKey) ?? null,
     [objects, selectedKey]
   )
+  const objectFileCount = objects.filter((object) => !object.isFolder).length
+  const objectFolderCount = objects.filter((object) => object.isFolder).length
+  const previewableSelectedObject = selectedObject && !selectedObject.isFolder && isPreviewableGcpStorageTextFile(selectedObject.key)
+  const selectedBucketAligned = selectedBucketSummary
+    ? !normalizedLocation || normalizedLocation === 'global' || selectedBucketSummary.location.trim().toLowerCase() === normalizedLocation
+    : false
+  const selectedBucketTone = selectedBucketAligned ? 'success' : 'info'
+  const selectedObjectSizeLabel = selectedObject && !selectedObject.isFolder
+    ? formatGcpStorageObjectSize(selectedObject.size)
+    : 'None'
   const enableAction = error ? getGcpApiEnableAction(
     error,
     `gcloud services enable storage.googleapis.com --project ${projectId}`,
@@ -1198,29 +1218,65 @@ function GcpCloudStorageConsole({
 
   return (
     <>
-      <section className="panel stack">
-        <div className="catalog-page-header">
-          <div>
-            <div className="eyebrow">Cloud Storage</div>
-            <h3>{projectId}</h3>
-            <p>Bucket posture is loaded live from gcloud and aligned against the selected project context and operator location.</p>
-          </div>
-          <div className="hero-connection">
-            <div className="connection-summary">
+      {message ? <div className="s3-msg s3-msg-ok">{message}<button type="button" className="s3-msg-close" onClick={() => setMessage('')}>x</button></div> : null}
+      <section className="s3-shell-hero">
+        <div className="s3-shell-hero-copy">
+          <div className="s3-eyebrow">Object storage posture</div>
+          <h2>Cloud Storage Operations</h2>
+          <p>Bucket inventory, object browsing, and inline editing now use the same shell language and visual frame as AWS S3.</p>
+          <div className="s3-shell-meta-strip">
+            <div className="s3-shell-meta-pill">
               <span>Project</span>
               <strong>{projectId}</strong>
             </div>
-            <div className="connection-summary">
-              <span>Location lens</span>
-              <strong>{locationLabel}</strong>
+            <div className="s3-shell-meta-pill">
+              <span>Selected bucket</span>
+              <strong>{selectedBucket || 'No bucket selected'}</strong>
             </div>
-            <div className="connection-summary">
-              <span>Last sync</span>
-              <strong>{loading ? 'Syncing...' : lastLoadedLabel}</strong>
+            <div className="s3-shell-meta-pill">
+              <span>Path</span>
+              <strong>/{prefix || ''}</strong>
+            </div>
+            <div className="s3-shell-meta-pill">
+              <span>Mode</span>
+              <strong>Object browser</strong>
             </div>
           </div>
         </div>
+        <div className="s3-shell-hero-stats">
+          <div className="s3-shell-stat-card s3-shell-stat-card-accent">
+            <span>Tracked buckets</span>
+            <strong>{buckets.length}</strong>
+            <small>Inventory loaded from the active gcloud session.</small>
+          </div>
+          <div className="s3-shell-stat-card">
+            <span>Aligned buckets</span>
+            <strong>{inScopeBuckets}</strong>
+            <small>{normalizedLocation && normalizedLocation !== 'global' ? 'Buckets matching the selected location lens.' : 'All discovered buckets are in scope.'}</small>
+          </div>
+          <div className="s3-shell-stat-card">
+            <span>Objects in view</span>
+            <strong>{objectFileCount}</strong>
+            <small>{objectFolderCount} folders in the current prefix.</small>
+          </div>
+          <div className="s3-shell-stat-card">
+            <span>Last sync</span>
+            <strong>{loading ? 'Syncing...' : lastLoadedLabel}</strong>
+            <small>{objectsLoading ? 'Object inventory is refreshing.' : 'Console ready.'}</small>
+          </div>
+        </div>
       </section>
+      <div className="s3-shell-toolbar">
+        <div className="s3-toolbar">
+          <button className="s3-btn" type="button" onClick={() => void browseBucket(selectedBucket || selectedBucketSummary?.name || buckets[0]?.name || '', prefix)} disabled={loading || (!selectedBucket && buckets.length === 0)}>Refresh</button>
+          <button className="s3-btn" type="button" onClick={() => void browseBucket(selectedBucketSummary?.name || '', parentGcpStoragePrefix(prefix))} disabled={!selectedBucketSummary || !prefix}>Go Up</button>
+          <button className="s3-btn" type="button" onClick={() => selectedBucketSummary && onRunTerminalCommand(`gcloud storage buckets describe gs://${selectedBucketSummary.name} --project ${projectId}`)} disabled={!selectedBucketSummary || !canRunTerminalCommand}>Open Bucket</button>
+          <button className="s3-btn" type="button" disabled={!selectedObject || selectedObject.isFolder} onClick={() => selectedObject && selectedBucketSummary && void previewObject(selectedBucketSummary.name, selectedObject)}>Open / Preview</button>
+        </div>
+        <div className="s3-shell-status">
+          <div className="s3-inline-note">{objectsLoading ? 'Refreshing inventory...' : 'Console ready'}</div>
+        </div>
+      </div>
       {error ? (
         <section className="panel stack">
           {enableAction ? (
@@ -1271,312 +1327,420 @@ function GcpCloudStorageConsole({
           </div>
         </section>
       ) : (
-        <section className="panel stack">
-          <div className="catalog-page-header">
+        <div className="s3-layout">
+          <section className="s3-bucket-panel">
+          <div className="s3-pane-head">
             <div>
-              <div className="eyebrow">Bucket Inventory</div>
-              <h3>{buckets.length} bucket{buckets.length === 1 ? '' : 's'}</h3>
-              <p>
-                {normalizedLocation && normalizedLocation !== 'global'
-                  ? `${inScopeBuckets} bucket${inScopeBuckets === 1 ? '' : 's'} align exactly with ${locationLabel}; multi-region buckets stay visible for governance review.`
-                  : 'Project-wide bucket posture from the active gcloud session.'}
-              </p>
+              <span className="s3-pane-kicker">Tracked buckets</span>
+              <h3>Workspace inventory</h3>
             </div>
+            <span className="s3-pane-summary">{filteredBuckets.length} visible</span>
           </div>
-          <div className="profile-catalog-grid">
-            {buckets.map((bucket) => {
+          <input className="s3-filter-input" placeholder="Filter buckets..." value={bucketSearch} onChange={(event) => setBucketSearch(event.target.value)} />
+          <div className="s3-bucket-list">
+            {filteredBuckets.map((bucket) => {
               const locationMatches = normalizedLocation && normalizedLocation !== 'global'
                 ? bucket.location.trim().toLowerCase() === normalizedLocation
                 : true
-              const inspectCommand = `gcloud storage buckets describe gs://${bucket.name} --project ${projectId}`
 
               return (
-                <article key={bucket.name} className="profile-catalog-card">
-                  <div className="profile-catalog-status">
-                    <span>{bucket.location || 'Unknown location'}</span>
-                    <strong>{bucket.storageClass || 'Class unavailable'}</strong>
+                <button key={bucket.name} type="button" className={`s3-bucket-row ${selectedBucket === bucket.name ? 'active' : ''}`} onClick={() => void browseBucket(bucket.name, '')}>
+                  <div className="s3-bucket-row-top">
+                    <div className="s3-bucket-row-identity">
+                      <div className="s3-bucket-row-glyph">GCS</div>
+                      <div className="s3-bucket-row-copy">
+                        <span className="s3-bucket-row-kicker">Bucket</span>
+                        <strong>{bucket.name}</strong>
+                        <span>{bucket.location || 'Location pending'} | {bucket.locationType || 'Location type pending'}</span>
+                      </div>
+                    </div>
+                    <span className={`s3-status-badge ${locationMatches ? 'success' : 'info'}`}>{locationMatches ? 'Aligned' : 'Visible'}</span>
                   </div>
-                  <div className="project-card-title">{bucket.name}</div>
-                  <div className="project-card-subtitle">
-                    {bucket.locationType || 'Location type unavailable'}
-                    {normalizedLocation && normalizedLocation !== 'global'
-                      ? ` | ${locationMatches ? 'Aligned with selected context' : 'Outside selected context'}`
-                      : ''}
+                  <div className="s3-bucket-row-meta">
+                    <span>Class: {bucket.storageClass || 'Unavailable'}</span>
+                    <span>Access: {bucket.publicAccessPrevention || 'Inherited'}</span>
                   </div>
-                  <div className="hero-path" style={{ marginTop: 12 }}>
-                    Public access prevention: {bucket.publicAccessPrevention || 'inherited'}
-                    <br />
-                    Uniform access: {bucket.uniformBucketLevelAccessEnabled ? 'enabled' : 'not enforced'}
-                    <br />
-                    Versioning: {bucket.versioningEnabled ? 'enabled' : 'disabled'}
-                    <br />
-                    Labels: {bucket.labelCount}
+                  <div className="s3-bucket-row-metrics">
+                    <div className="s3-bucket-row-metric is-primary">
+                      <span>Versioning</span>
+                      <strong>{bucket.versioningEnabled ? 'Enabled' : 'Disabled'}</strong>
+                    </div>
+                    <div className="s3-bucket-row-metric">
+                      <span>Uniform access</span>
+                      <strong>{bucket.uniformBucketLevelAccessEnabled ? 'Enabled' : 'Not enforced'}</strong>
+                    </div>
+                    <div className="s3-bucket-row-metric">
+                      <span>Labels</span>
+                      <strong>{bucket.labelCount}</strong>
+                    </div>
                   </div>
-                  <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
-                    <button
-                      type="button"
-                      className={selectedBucket === bucket.name ? 'accent' : ''}
-                      onClick={() => void browseBucket(bucket.name, '')}
-                    >
-                      {selectedBucket === bucket.name ? 'Active bucket' : 'Open bucket'}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!canRunTerminalCommand}
-                      onClick={() => onRunTerminalCommand(inspectCommand)}
-                      title={canRunTerminalCommand ? inspectCommand : 'Switch to Operator mode to enable terminal actions'}
-                    >
-                      Inspect in terminal
-                    </button>
-                  </div>
-                </article>
+                  <div className="s3-bucket-row-note">{locationMatches ? 'Aligned with selected context.' : 'Visible outside the selected location lens for posture review.'}</div>
+                </button>
               )
             })}
           </div>
-        </section>
-      )}
-      {!loading && !error && selectedBucketSummary && (
-        <section className="panel stack">
-          <div className="catalog-page-header">
-            <div>
-              <div className="eyebrow">Object Browser</div>
-              <h3>{selectedBucketSummary.name}</h3>
-              <p>
-                {selectedBucketSummary.location || 'Unknown location'}
-                {' | '}
-                /{prefix || ''}
-              </p>
-            </div>
-            <div className="hero-connection">
-              <div className="connection-summary">
-                <span>Visible items</span>
-                <strong>{objectsLoading ? 'Syncing...' : filteredObjects.length}</strong>
-              </div>
-              <div className="connection-summary">
-                <span>Location type</span>
-                <strong>{selectedBucketSummary.locationType || 'Unknown'}</strong>
-              </div>
-              <div className="connection-summary">
-                <span>Versioning</span>
-                <strong>{selectedBucketSummary.versioningEnabled ? 'Enabled' : 'Disabled'}</strong>
-              </div>
-            </div>
-          </div>
-          {message ? <div className="svc-success">{message}</div> : null}
-          {objectError ? <div className="error-banner">{objectError}</div> : null}
-          <div className="s3-action-bar">
-            <button className="s3-btn" type="button" onClick={() => void browseBucket(selectedBucketSummary.name, prefix)} disabled={objectsLoading}>
-              {objectsLoading ? 'Refreshing...' : 'Refresh'}
-            </button>
-            <button
-              className="s3-btn"
-              type="button"
-              onClick={() => void browseBucket(selectedBucketSummary.name, parentGcpStoragePrefix(prefix))}
-              disabled={!prefix}
-            >
-              Up one level
-            </button>
-            <button className="s3-btn s3-btn-upload" type="button" onClick={() => fileInputRef.current?.click()}>
-              Upload
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              style={{ display: 'none' }}
-              onChange={(event) => {
-                const file = event.target.files?.[0]
-                if (file) {
-                  void (async () => {
-                    try {
-                      const localPath = (file as File & { path?: string }).path?.trim() ?? ''
-                      const objectKey = `${prefix}${file.name}`
+          </section>
+          <div className="s3-browser-panel">
+            {!selectedBucketSummary ? (
+              <SvcState variant="no-selection" resourceName="bucket" message="Select a bucket to view objects or bucket posture." />
+            ) : (
+              <>
+                {objectError ? <div className="s3-msg s3-msg-error">{objectError}<button type="button" className="s3-msg-close" onClick={() => setObjectError('')}>x</button></div> : null}
+                <section className="s3-detail-hero">
+                  <div className="s3-detail-hero-copy">
+                    <div className="s3-eyebrow">Bucket posture</div>
+                    <h3>{selectedBucketSummary.name}</h3>
+                    <p>{selectedBucketSummary.location || 'Unknown location'} | /{prefix || ''}</p>
+                    <div className="s3-detail-meta-strip">
+                      <div className="s3-detail-meta-pill">
+                        <span>Location</span>
+                        <strong>{selectedBucketSummary.location || 'Unknown'}</strong>
+                      </div>
+                      <div className="s3-detail-meta-pill">
+                        <span>Location type</span>
+                        <strong>{selectedBucketSummary.locationType || 'Unknown'}</strong>
+                      </div>
+                      <div className="s3-detail-meta-pill">
+                        <span>Public access</span>
+                        <strong>{selectedBucketSummary.publicAccessPrevention || 'Inherited'}</strong>
+                      </div>
+                      <div className="s3-detail-meta-pill">
+                        <span>Versioning</span>
+                        <strong>{selectedBucketSummary.versioningEnabled ? 'Enabled' : 'Disabled'}</strong>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="s3-detail-hero-stats">
+                    <div className={`s3-detail-stat-card ${selectedBucketTone}`}>
+                      <span>Bucket state</span>
+                      <strong>{selectedBucketAligned ? 'Aligned' : 'Visible'}</strong>
+                      <small>{selectedBucketAligned ? 'Bucket aligns with the selected location lens.' : 'Bucket remains visible outside the selected location for review.'}</small>
+                    </div>
+                    <div className="s3-detail-stat-card">
+                      <span>Objects in view</span>
+                      <strong>{objectFileCount}</strong>
+                      <small>{objectFolderCount} folders in the current prefix.</small>
+                    </div>
+                    <div className="s3-detail-stat-card">
+                      <span>Storage class</span>
+                      <strong>{selectedBucketSummary.storageClass || 'Unavailable'}</strong>
+                      <small>Bucket default class from active gcloud inventory.</small>
+                    </div>
+                    <div className="s3-detail-stat-card">
+                      <span>Selected object</span>
+                      <strong>{selectedObjectSizeLabel}</strong>
+                      <small>{selectedObject ? selectedObject.key : 'Choose an object to preview or edit.'}</small>
+                    </div>
+                  </div>
+                </section>
 
-                      if (localPath) {
-                        await uploadGcpStorageObject(projectId, selectedBucketSummary.name, objectKey, localPath)
-                      } else if (isPreviewableGcpStorageTextFile(file.name)) {
-                        await putGcpStorageObjectContent(projectId, selectedBucketSummary.name, objectKey, await file.text())
-                      } else {
-                        throw new Error('The selected file could not be uploaded because the local filesystem path was not exposed to the app.')
-                      }
+                <div className="s3-detail-tabs">
+                  <button className={detailTab === 'objects' ? 'active' : ''} type="button" onClick={() => setDetailTab('objects')}>Objects</button>
+                  <button className={detailTab === 'posture' ? 'active' : ''} type="button" onClick={() => setDetailTab('posture')}>Bucket posture</button>
+                </div>
 
-                      setMessage(`Uploaded ${file.name}`)
-                      await browseBucket(selectedBucketSummary.name, prefix)
-                    } catch (err) {
-                      setObjectError(err instanceof Error ? err.message : String(err))
-                    }
-                  })()
-                }
+                <div className="s3-path-bar">
+                  <span className="s3-path-label">Bucket: {selectedBucketSummary.name} Path: /{prefix}</span>
+                  <div className="s3-path-actions">
+                    <button className="s3-btn" type="button" onClick={() => void browseBucket(selectedBucketSummary.name, parentGcpStoragePrefix(prefix))} disabled={!prefix || detailTab !== 'objects'}>Up</button>
+                    <button className="s3-btn" type="button" disabled={!selectedObject || selectedObject.isFolder || detailTab !== 'objects'} onClick={() => selectedObject && void previewObject(selectedBucketSummary.name, selectedObject)}>Open / Preview</button>
+                  </div>
+                </div>
 
-                event.target.value = ''
-              }}
-            />
-            <button
-              className="s3-btn"
-              type="button"
-              disabled={!selectedObject || selectedObject.isFolder}
-              onClick={() => void (async () => {
-                if (!selectedObject || selectedObject.isFolder) {
-                  return
-                }
+                {detailTab === 'objects' ? (
+                  <>
+                    <input
+                      className="s3-filter-input"
+                      value={objectSearch}
+                      onChange={(event) => setObjectSearch(event.target.value)}
+                      placeholder="Filter objects..."
+                    />
+                    <div className="s3-object-table-wrap">
+                      <table className="s3-object-table">
+                        <thead>
+                          <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Key</th>
+                            <th>Size</th>
+                            <th>Modified</th>
+                            <th>Storage Class</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredObjects.map((object) => (
+                            <tr
+                              key={object.key}
+                              className={object.key === selectedKey ? 'active' : ''}
+                              onClick={() => {
+                                if (object.isFolder) {
+                                  void browseBucket(selectedBucketSummary.name, object.key)
+                                } else {
+                                  void previewObject(selectedBucketSummary.name, object)
+                                }
+                              }}
+                            >
+                              <td>{displayGcpStorageObjectName(object.key, prefix)}</td>
+                              <td>{object.isFolder ? 'Folder' : 'Object'}</td>
+                              <td>{object.key}</td>
+                              <td>{object.isFolder ? '-' : formatGcpStorageObjectSize(object.size)}</td>
+                              <td>{object.lastModified !== '-' ? new Date(object.lastModified).toLocaleString() : '-'}</td>
+                              <td>{object.storageClass || '-'}</td>
+                            </tr>
+                          ))}
+                          {filteredObjects.length === 0 && (
+                            <tr>
+                              <td colSpan={6}>
+                                {objectsLoading
+                                  ? <SvcState variant="loading" resourceName="objects" compact />
+                                  : <SvcState variant="empty" message="No objects found for this prefix." compact />}
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                    {selectedObject && !selectedObject.isFolder && (
+                      <div className="s3-preview-panel">
+                        <div className="s3-preview-header">
+                          <span className="s3-preview-title">{selectedObject.key.split('/').pop()}</span>
+                          <div className="s3-preview-actions">
+                            {previewableSelectedObject && !editing && !previewLoading && !previewError && (
+                              <button className="s3-btn s3-btn-edit" type="button" onClick={() => { setEditing(true); setEditContent(previewContent) }}>
+                                Edit
+                              </button>
+                            )}
+                            {editing && (
+                              <>
+                                <button
+                                  className="s3-btn s3-btn-ok"
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={() => void (async () => {
+                                    try {
+                                      setSaving(true)
+                                      await putGcpStorageObjectContent(projectId, selectedBucketSummary.name, selectedObject.key, editContent)
+                                      setPreviewContent(editContent)
+                                      setEditing(false)
+                                      setMessage(`Saved ${selectedObject.key}`)
+                                      await browseBucket(selectedBucketSummary.name, prefix)
+                                    } catch (err) {
+                                      setPreviewError(err instanceof Error ? err.message : String(err))
+                                    } finally {
+                                      setSaving(false)
+                                    }
+                                  })()}
+                                >
+                                  {saving ? 'Saving...' : 'Save'}
+                                </button>
+                                <button className="s3-btn" type="button" onClick={() => { setEditing(false); setEditContent(previewContent) }}>
+                                  Cancel
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <div className="s3-preview-body">
+                          {previewLoading ? (
+                            <SvcState variant="loading" resourceName="preview" compact />
+                          ) : previewError ? (
+                            <SvcState variant="empty" message={previewError} compact />
+                          ) : editing ? (
+                            <textarea className="s3-edit-area" value={editContent} onChange={(event) => setEditContent(event.target.value)} />
+                          ) : previewContent ? (
+                            <pre className="s3-preview-text">{previewContent}</pre>
+                          ) : (
+                            <SvcState variant="empty" message={`Content type ${previewContentType || 'unknown'} is not shown inline. Download the object for direct inspection.`} compact />
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    <div className="s3-action-bar">
+                      <button className="s3-btn" type="button" onClick={() => void browseBucket(selectedBucketSummary.name, prefix)} disabled={objectsLoading}>
+                        {objectsLoading ? 'Refreshing...' : 'Refresh'}
+                      </button>
+                      <button className="s3-btn" type="button" onClick={() => void browseBucket(selectedBucketSummary.name, parentGcpStoragePrefix(prefix))} disabled={!prefix}>
+                        Up one level
+                      </button>
+                      <button className="s3-btn s3-btn-upload" type="button" onClick={() => fileInputRef.current?.click()}>
+                        Upload
+                      </button>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        style={{ display: 'none' }}
+                        onChange={(event) => {
+                          const file = event.target.files?.[0]
+                          if (file) {
+                            void (async () => {
+                              try {
+                                const localPath = (file as File & { path?: string }).path?.trim() ?? ''
+                                const objectKey = `${prefix}${file.name}`
 
-                try {
-                  const filePath = await downloadGcpStorageObjectToPath(projectId, selectedBucketSummary.name, selectedObject.key)
-                  if (filePath) {
-                    setMessage(`Downloaded to ${filePath}`)
-                  }
-                } catch (err) {
-                  setObjectError(err instanceof Error ? err.message : String(err))
-                }
-              })()}
-            >
-              Download
-            </button>
-            <button
-              className="s3-btn"
-              type="button"
-              disabled={!selectedObject || selectedObject.isFolder || !canRunTerminalCommand}
-              onClick={() => selectedObject && onRunTerminalCommand(`gcloud storage objects describe gs://${selectedBucketSummary.name}/${selectedObject.key} --format=json`)}
-              title={canRunTerminalCommand ? undefined : 'Switch to Operator mode to enable terminal actions'}
-            >
-              Inspect object
-            </button>
-            <button
-              className="s3-btn s3-btn-danger"
-              type="button"
-              disabled={!selectedObject || selectedObject.isFolder}
-              onClick={() => void (async () => {
-                if (!selectedObject || selectedObject.isFolder) {
-                  return
-                }
+                                if (localPath) {
+                                  await uploadGcpStorageObject(projectId, selectedBucketSummary.name, objectKey, localPath)
+                                } else if (isPreviewableGcpStorageTextFile(file.name)) {
+                                  await putGcpStorageObjectContent(projectId, selectedBucketSummary.name, objectKey, await file.text())
+                                } else {
+                                  throw new Error('The selected file could not be uploaded because the local filesystem path was not exposed to the app.')
+                                }
 
-                if (!window.confirm(`Delete ${selectedObject.key}?`)) {
-                  return
-                }
+                                setMessage(`Uploaded ${file.name}`)
+                                await browseBucket(selectedBucketSummary.name, prefix)
+                              } catch (err) {
+                                setObjectError(err instanceof Error ? err.message : String(err))
+                              }
+                            })()
+                          }
 
-                try {
-                  await deleteGcpStorageObject(projectId, selectedBucketSummary.name, selectedObject.key)
-                  setMessage(`Deleted ${selectedObject.key}`)
-                  setSelectedKey('')
-                  setPreviewContent('')
-                  setPreviewError('')
-                  await browseBucket(selectedBucketSummary.name, prefix)
-                } catch (err) {
-                  setObjectError(err instanceof Error ? err.message : String(err))
-                }
-              })()}
-            >
-              Delete
-            </button>
-          </div>
-          <div className="s3-inline-form">
-            <input
-              value={objectSearch}
-              onChange={(event) => setObjectSearch(event.target.value)}
-              placeholder="Filter objects by key"
-            />
-            <span className="hero-path">Bucket: {selectedBucketSummary.name} | Path: /{prefix || ''}</span>
-          </div>
-          <div className="s3-object-table-wrap">
-            <table className="s3-object-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Type</th>
-                  <th>Key</th>
-                  <th>Size</th>
-                  <th>Modified</th>
-                  <th>Storage Class</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredObjects.map((object) => (
-                  <tr
-                    key={object.key}
-                    className={object.key === selectedKey ? 'active' : ''}
-                    onClick={() => {
-                      if (object.isFolder) {
-                        void browseBucket(selectedBucketSummary.name, object.key)
-                      } else {
-                        void previewObject(selectedBucketSummary.name, object)
-                      }
-                    }}
-                  >
-                    <td>{displayGcpStorageObjectName(object.key, prefix)}</td>
-                    <td>{object.isFolder ? 'Folder' : 'Object'}</td>
-                    <td>{object.key}</td>
-                    <td>{object.isFolder ? '-' : formatGcpStorageObjectSize(object.size)}</td>
-                    <td>{object.lastModified !== '-' ? new Date(object.lastModified).toLocaleString() : '-'}</td>
-                    <td>{object.storageClass || '-'}</td>
-                  </tr>
-                ))}
-                {filteredObjects.length === 0 && (
-                  <tr>
-                    <td colSpan={6}>
-                      {objectsLoading
-                        ? <SvcState variant="loading" resourceName="objects" compact />
-                        : <SvcState variant="empty" message="No objects found for this prefix." compact />}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          {selectedObject && !selectedObject.isFolder && (
-            <div className="s3-preview-panel">
-              <div className="s3-preview-header">
-                <span className="s3-preview-title">{selectedObject.key.split('/').pop()}</span>
-                <div className="s3-preview-actions">
-                  {isPreviewableGcpStorageTextFile(selectedObject.key) && !editing && !previewLoading && !previewError && (
-                    <button className="s3-btn s3-btn-edit" type="button" onClick={() => { setEditing(true); setEditContent(previewContent) }}>
-                      Edit
-                    </button>
-                  )}
-                  {editing && (
-                    <>
+                          event.target.value = ''
+                        }}
+                      />
                       <button
-                        className="s3-btn s3-btn-ok"
+                        className="s3-btn"
                         type="button"
-                        disabled={saving}
+                        disabled={!selectedObject || selectedObject.isFolder}
                         onClick={() => void (async () => {
+                          if (!selectedObject || selectedObject.isFolder) {
+                            return
+                          }
+
                           try {
-                            setSaving(true)
-                            await putGcpStorageObjectContent(projectId, selectedBucketSummary.name, selectedObject.key, editContent)
-                            setPreviewContent(editContent)
-                            setEditing(false)
-                            setMessage(`Saved ${selectedObject.key}`)
-                            await browseBucket(selectedBucketSummary.name, prefix)
+                            const filePath = await downloadGcpStorageObjectToPath(projectId, selectedBucketSummary.name, selectedObject.key)
+                            if (filePath) {
+                              setMessage(`Downloaded to ${filePath}`)
+                            }
                           } catch (err) {
-                            setPreviewError(err instanceof Error ? err.message : String(err))
-                          } finally {
-                            setSaving(false)
+                            setObjectError(err instanceof Error ? err.message : String(err))
                           }
                         })()}
                       >
-                        {saving ? 'Saving...' : 'Save'}
+                        Download
                       </button>
-                      <button className="s3-btn" type="button" onClick={() => { setEditing(false); setEditContent(previewContent) }}>
-                        Cancel
+                      <button
+                        className="s3-btn"
+                        type="button"
+                        disabled={!selectedObject || selectedObject.isFolder || !canRunTerminalCommand}
+                        onClick={() => selectedObject && onRunTerminalCommand(`gcloud storage objects describe gs://${selectedBucketSummary.name}/${selectedObject.key} --format=json`)}
+                        title={canRunTerminalCommand ? undefined : 'Switch to Operator mode to enable terminal actions'}
+                      >
+                        Inspect object
                       </button>
-                    </>
-                  )}
-                </div>
-              </div>
-              <div className="s3-preview-body">
-                {previewLoading ? (
-                  <SvcState variant="loading" resourceName="preview" compact />
-                ) : previewError ? (
-                  <SvcState variant="empty" message={previewError} compact />
-                ) : editing ? (
-                  <textarea className="s3-edit-area" value={editContent} onChange={(event) => setEditContent(event.target.value)} />
-                ) : previewContent ? (
-                  <pre className="s3-preview-text">{previewContent}</pre>
+                      <button
+                        className="s3-btn s3-btn-danger"
+                        type="button"
+                        disabled={!selectedObject || selectedObject.isFolder}
+                        onClick={() => void (async () => {
+                          if (!selectedObject || selectedObject.isFolder) {
+                            return
+                          }
+
+                          if (!window.confirm(`Delete ${selectedObject.key}?`)) {
+                            return
+                          }
+
+                          try {
+                            await deleteGcpStorageObject(projectId, selectedBucketSummary.name, selectedObject.key)
+                            setMessage(`Deleted ${selectedObject.key}`)
+                            setSelectedKey('')
+                            setPreviewContent('')
+                            setPreviewError('')
+                            await browseBucket(selectedBucketSummary.name, prefix)
+                          } catch (err) {
+                            setObjectError(err instanceof Error ? err.message : String(err))
+                          }
+                        })()}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </>
                 ) : (
-                  <SvcState variant="empty" message={`Content type ${previewContentType || 'unknown'} is not shown inline. Download the object for direct inspection.`} compact />
+                  <>
+                    <div className="s3-summary-strip">
+                      <div className="s3-summary-card">
+                        <span>Storage class</span>
+                        <strong>{selectedBucketSummary.storageClass || 'Unavailable'}</strong>
+                      </div>
+                      <div className="s3-summary-card">
+                        <span>Public access prevention</span>
+                        <strong>{selectedBucketSummary.publicAccessPrevention || 'Inherited'}</strong>
+                      </div>
+                      <div className="s3-summary-card">
+                        <span>Uniform access</span>
+                        <strong>{selectedBucketSummary.uniformBucketLevelAccessEnabled ? 'Enabled' : 'Not enforced'}</strong>
+                      </div>
+                      <div className="s3-summary-card">
+                        <span>Versioning</span>
+                        <strong>{selectedBucketSummary.versioningEnabled ? 'Enabled' : 'Disabled'}</strong>
+                      </div>
+                      <div className="s3-summary-card">
+                        <span>Labels</span>
+                        <strong>{selectedBucketSummary.labelCount}</strong>
+                      </div>
+                      <div className="s3-summary-card">
+                        <span>Objects in prefix</span>
+                        <strong>{filteredObjects.length}</strong>
+                      </div>
+                    </div>
+                    <div className="s3-bucket-focus">
+                      <div className="s3-bucket-focus-main">
+                        <div className="s3-bucket-focus-top">
+                          <div>
+                            <span className="s3-bucket-focus-kicker">Selected bucket</span>
+                            <h3>{selectedBucketSummary.name}</h3>
+                            <p>Project {projectId} | Location lens {locationLabel}</p>
+                          </div>
+                        </div>
+                        <div className="s3-bucket-focus-summary">
+                          <div className="s3-bucket-focus-stat">
+                            <span>Location type</span>
+                            <strong>{selectedBucketSummary.locationType || 'Unknown'}</strong>
+                          </div>
+                          <div className="s3-bucket-focus-stat">
+                            <span>Aligned objects</span>
+                            <strong>{objectFileCount}</strong>
+                          </div>
+                          <div className="s3-bucket-focus-stat">
+                            <span>Folder prefixes</span>
+                            <strong>{objectFolderCount}</strong>
+                          </div>
+                        </div>
+                        <div className="s3-bucket-focus-badges">
+                          <span className={`s3-mini-badge ${selectedBucketSummary.versioningEnabled ? 'ok' : 'warn'}`}>{selectedBucketSummary.versioningEnabled ? 'Versioning Enabled' : 'Versioning Disabled'}</span>
+                          <span className={`s3-mini-badge ${selectedBucketSummary.uniformBucketLevelAccessEnabled ? 'ok' : 'warn'}`}>{selectedBucketSummary.uniformBucketLevelAccessEnabled ? 'Uniform Access Enabled' : 'Uniform Access Not Enforced'}</span>
+                          <span className={`s3-mini-badge ${selectedBucketSummary.publicAccessPrevention?.toLowerCase() === 'enforced' ? 'ok' : 'warn'}`}>{selectedBucketSummary.publicAccessPrevention || 'Public Access Inherited'}</span>
+                        </div>
+                      </div>
+                      <div className="s3-next-actions-panel">
+                        <div className="s3-next-action-card editable">
+                          <div className="s3-next-action-copy">
+                            <span className="s3-action-mode editable">Operator</span>
+                            <strong>Inspect bucket in terminal</strong>
+                            <span>Run the bucket describe command with the same project context used by this console.</span>
+                          </div>
+                          <button className="s3-btn s3-next-action-btn" type="button" disabled={!canRunTerminalCommand} onClick={() => onRunTerminalCommand(`gcloud storage buckets describe gs://${selectedBucketSummary.name} --project ${projectId}`)}>
+                            Open Bucket
+                          </button>
+                        </div>
+                        <div className="s3-next-action-card editable">
+                          <div className="s3-next-action-copy">
+                            <span className="s3-action-mode editable">Workflow</span>
+                            <strong>Return to object operations</strong>
+                            <span>Jump back to the object table to preview, upload, download, edit, or delete content.</span>
+                          </div>
+                          <button className="s3-btn s3-next-action-btn" type="button" onClick={() => setDetailTab('objects')}>
+                            Open Objects
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </>
                 )}
-              </div>
-            </div>
-          )}
-        </section>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </>
   )
