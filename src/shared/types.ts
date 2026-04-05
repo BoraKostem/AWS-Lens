@@ -579,6 +579,17 @@ export type GcpGkeClusterSummary = {
   endpoint: string
 }
 
+export type GcpStorageBucketSummary = {
+  name: string
+  location: string
+  locationType: string
+  storageClass: string
+  publicAccessPrevention: string
+  versioningEnabled: boolean
+  uniformBucketLevelAccessEnabled: boolean
+  labelCount: number
+}
+
 export type Ec2SsmStatus = 'managed-online' | 'managed-offline' | 'not-managed'
 
 export type SsmManagedInstanceSummary = {
