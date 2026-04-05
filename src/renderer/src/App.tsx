@@ -1217,7 +1217,7 @@ function GcpCloudStorageConsole({
   ) : null
 
   return (
-    <>
+    <div className="gcp-storage-shell">
       {message ? <div className="s3-msg s3-msg-ok">{message}<button type="button" className="s3-msg-close" onClick={() => setMessage('')}>x</button></div> : null}
       <section className="s3-shell-hero">
         <div className="s3-shell-hero-copy">
@@ -1742,7 +1742,7 @@ function GcpCloudStorageConsole({
           </div>
         </div>
       )}
-    </>
+    </div>
   )
 }
 

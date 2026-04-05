@@ -5,6 +5,85 @@
   min-width: 0;
 }
 
+.gcp-storage-shell .s3-shell-hero,
+.gcp-storage-shell .s3-detail-hero {
+  background:
+    radial-gradient(circle at top left, rgba(52, 168, 83, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(129, 201, 149, 0.12), transparent 30%),
+    linear-gradient(180deg, rgba(17, 31, 25, 0.98), rgba(8, 17, 14, 0.98));
+}
+
+.gcp-storage-shell .s3-shell-stat-card-accent,
+.gcp-storage-shell .s3-status-badge.success,
+.gcp-storage-shell .s3-detail-stat-card.success {
+  border-color: rgba(52, 168, 83, 0.32);
+  background:
+    radial-gradient(circle at top right, rgba(52, 168, 83, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(24, 46, 32, 0.96), rgba(14, 30, 20, 0.96));
+}
+
+.gcp-storage-shell .s3-bucket-row {
+  background:
+    linear-gradient(180deg, rgba(18, 31, 25, 0.98), rgba(9, 18, 14, 0.98)),
+    linear-gradient(135deg, rgba(52, 168, 83, 0.08), rgba(129, 201, 149, 0.03));
+}
+
+.gcp-storage-shell .s3-bucket-row.active {
+  border-color: rgba(52, 168, 83, 0.38);
+  background:
+    radial-gradient(circle at top right, rgba(52, 168, 83, 0.18), transparent 40%),
+    linear-gradient(180deg, rgba(24, 42, 32, 0.98), rgba(13, 26, 20, 0.98));
+  box-shadow: inset 0 0 0 1px rgba(52, 168, 83, 0.1), 0 18px 42px rgba(0, 0, 0, 0.22);
+}
+
+.gcp-storage-shell .s3-bucket-row-glyph {
+  background:
+    radial-gradient(circle at top left, rgba(52, 168, 83, 0.26), transparent 58%),
+    linear-gradient(135deg, rgba(35, 66, 46, 0.98), rgba(18, 32, 23, 0.98));
+}
+
+.gcp-storage-shell .s3-tab-btn.active,
+.gcp-storage-shell .s3-detail-tabs button.active,
+.gcp-storage-shell .s3-chip.active,
+.gcp-storage-shell .s3-summary-button.active {
+  border-color: rgba(52, 168, 83, 0.3);
+  box-shadow: inset 0 0 0 1px rgba(52, 168, 83, 0.08);
+  background: rgba(52, 168, 83, 0.12);
+  color: #d9f6df;
+}
+
+.gcp-storage-shell .s3-btn-ok,
+.gcp-storage-shell .s3-btn-upload {
+  background: linear-gradient(135deg, rgba(44, 136, 72, 0.96), rgba(20, 92, 46, 0.96));
+  border-color: rgba(52, 168, 83, 0.24);
+}
+
+.gcp-storage-shell .s3-mini-badge.ok,
+.gcp-storage-shell .s3-check-enabled,
+.gcp-storage-shell .s3-check-present {
+  background: rgba(52, 168, 83, 0.18);
+  color: #9ce2ae;
+}
+
+.gcp-storage-shell .s3-summary-risk {
+  background:
+    radial-gradient(circle at top right, rgba(52, 168, 83, 0.16), transparent 42%),
+    linear-gradient(180deg, rgba(22, 35, 27, 0.96), rgba(13, 22, 17, 0.96));
+}
+
+.gcp-storage-shell .s3-bucket-focus {
+  background:
+    radial-gradient(circle at top left, rgba(52, 168, 83, 0.14), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(129, 201, 149, 0.1), transparent 30%),
+    linear-gradient(180deg, rgba(18, 31, 25, 0.98), rgba(10, 18, 14, 0.98));
+}
+
+.gcp-storage-shell .s3-inline-note {
+  color: #d8f3df;
+  border-color: rgba(52, 168, 83, 0.16);
+  background: linear-gradient(180deg, rgba(18, 33, 25, 0.94), rgba(11, 21, 16, 0.94));
+}
+
 .s3-shell-hero,
 .s3-detail-hero {
   display: grid;
