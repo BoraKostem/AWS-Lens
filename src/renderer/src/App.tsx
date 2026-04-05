@@ -18,9 +18,11 @@ import type {
   EnterpriseAuditEvent,
   GcpCliContext,
   GcpBillingOverview,
+  GcpIamOverview,
   GcpComputeInstanceSummary,
   GcpGkeClusterSummary,
   GcpLogQueryResult,
+  GcpProjectOverview,
   GcpSqlInstanceSummary,
   GcpStorageObjectContent,
   GcpStorageObjectSummary,
@@ -51,6 +53,8 @@ import {
   getEnvironmentHealth,
   getGcpCliContext,
   getGcpBillingOverview,
+  getGcpIamOverview,
+  getGcpProjectOverview,
   listGcpComputeInstances,
   listGcpGkeClusters,
   listGcpLogEntries,
@@ -233,6 +237,8 @@ const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   sts: 'Caller identity, auth decoding, access key lookup, and assume-role credentials.',
   kms: 'Key inventory, key detail panel, and ciphertext blob decryption.',
   waf: 'Web ACL inventory, rule editing, associations, and scope switching.',
+  'gcp-projects': 'Project-aware metadata, enabled APIs, labels, hierarchy hints, and shell-linked project posture.',
+  'gcp-iam': 'Project-aware IAM posture with bindings, principals, risky role surfacing, and service-account visibility.',
   'gcp-compute-engine': 'Project-aware Compute Engine inventory with live instance status, networking context, and refresh-aware discovery.',
   'gcp-gke': 'Project-aware GKE inventory with live cluster status, version context, and refresh-aware discovery.',
   'gcp-cloud-storage': 'Project-aware Cloud Storage inventory with bucket posture, object browser workflows, preview/edit paths, and shell handoff.',
@@ -610,6 +616,38 @@ function describeGcpBillingVisibility(value: GcpBillingOverview['visibility']): 
 function summarizeGcpBillingAccount(value: string): string {
   const normalized = value.trim()
   return normalized ? normalized.replace(/^billingAccounts\//, '') : 'Not linked'
+}
+
+function describeGcpProjectParent(type: string, id: string): string {
+  const normalizedType = type.trim()
+  const normalizedId = id.trim()
+  if (!normalizedType || !normalizedId) {
+    return 'Not surfaced'
+  }
+
+  if (normalizedType === 'folders') {
+    return `Folder ${normalizedId}`
+  }
+
+  if (normalizedType === 'organizations') {
+    return `Organization ${normalizedId}`
+  }
+
+  return `${normalizedType} ${normalizedId}`
+}
+
+function summarizeGcpMember(member: string): string {
+  const normalized = member.trim()
+  if (!normalized) {
+    return '-'
+  }
+
+  if (normalized === 'allUsers' || normalized === 'allAuthenticatedUsers') {
+    return normalized
+  }
+
+  const parts = normalized.split(':')
+  return parts.length > 1 ? parts.slice(1).join(':') : normalized
 }
 
 function getProfileBadge(name?: string | null): string {
@@ -2314,6 +2352,526 @@ function GcpLoggingConsole({
   )
 }
 
+function GcpProjectsConsole({
+  projectId,
+  location,
+  refreshNonce,
+  onRunTerminalCommand,
+  canRunTerminalCommand
+}: {
+  projectId: string
+  location: string
+  refreshNonce: number
+  onRunTerminalCommand: (command: string) => void
+  canRunTerminalCommand: boolean
+}) {
+  const [overview, setOverview] = useState<GcpProjectOverview | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+
+    setLoading(true)
+    setError('')
+
+    void getGcpProjectOverview(projectId)
+      .then((nextOverview) => {
+        if (!cancelled) {
+          setOverview(nextOverview)
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err))
+          setOverview(null)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [projectId, refreshNonce])
+
+  const locationLabel = location.trim() || 'global'
+  const enableAction = error ? getGcpApiEnableAction(
+    error,
+    `gcloud services enable cloudresourcemanager.googleapis.com serviceusage.googleapis.com --project ${projectId}`,
+    `Project metadata visibility is incomplete for project ${projectId}.`
+  ) : null
+  const inspectProjectCommand = `gcloud projects describe ${projectId}`
+  const listApisCommand = `gcloud services list --enabled --project ${projectId}`
+
+  return (
+    <div className="overview-surface gcp-projects-console">
+      <div className="overview-hero-card">
+        <div className="overview-hero-copy">
+          <div className="eyebrow">Projects</div>
+          <h3>{projectId}</h3>
+          <p>Project metadata, labels, hierarchy, and enabled API posture use the same summary-first operator flow as the AWS posture screens.</p>
+          <div className="overview-meta-strip">
+            <div className="overview-meta-pill">
+              <span>Project</span>
+              <strong>{projectId}</strong>
+            </div>
+            <div className="overview-meta-pill">
+              <span>Lens</span>
+              <strong>{locationLabel}</strong>
+            </div>
+            <div className="overview-meta-pill">
+              <span>Lifecycle</span>
+              <strong>{overview?.lifecycleState || 'Pending'}</strong>
+            </div>
+            <div className="overview-meta-pill">
+              <span>Parent</span>
+              <strong>{overview ? describeGcpProjectParent(overview.parentType, overview.parentId) : 'Pending'}</strong>
+            </div>
+          </div>
+        </div>
+        <div className="overview-hero-stats">
+          <div className="overview-glance-card overview-glance-card-accent">
+            <span>Enabled APIs</span>
+            <strong>{overview?.enabledApiCount ?? 0}</strong>
+            <small>Service Usage snapshot for the selected project.</small>
+          </div>
+          <div className="overview-glance-card">
+            <span>Labels</span>
+            <strong>{overview?.labels.length ?? 0}</strong>
+            <small>Ownership and environment metadata on the project.</small>
+          </div>
+          <div className="overview-glance-card">
+            <span>Hierarchy</span>
+            <strong>{overview?.parentId ? 'Visible' : 'Partial'}</strong>
+            <small>Folder or organization hint for this shell context.</small>
+          </div>
+          <div className="overview-glance-card">
+            <span>Capability hints</span>
+            <strong>{overview?.capabilityHints.length ?? 0}</strong>
+            <small>Signals about missing APIs, labels, or parent visibility.</small>
+          </div>
+        </div>
+      </div>
+
+      {enableAction ? (
+        <div className="error-banner gcp-enable-error-banner">
+          <div className="gcp-enable-error-copy">
+            <strong>{enableAction.summary}</strong>
+            <p>
+              {canRunTerminalCommand
+                ? 'Run the enable command in the terminal, wait for propagation, then retry.'
+                : 'Switch Settings > Access Mode to Operator to enable terminal actions for this command.'}
+            </p>
+          </div>
+          <div className="gcp-enable-error-actions">
+            <button
+              type="button"
+              className="accent"
+              disabled={!canRunTerminalCommand}
+              onClick={() => onRunTerminalCommand(enableAction.command)}
+              title={canRunTerminalCommand ? enableAction.command : 'Switch to Operator mode to enable terminal actions'}
+            >
+              Run enable command in terminal
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {error && !enableAction ? <SvcState variant="error" error={error} /> : null}
+      {loading ? <SvcState variant="loading" resourceName="project overview" compact /> : null}
+
+      {overview ? (
+        <>
+          <div className="overview-section-title">Project Context</div>
+          <section className="overview-account-grid">
+            <article className="overview-account-card">
+              <div className="panel-header minor">
+                <h3>Metadata</h3>
+              </div>
+              <div className="overview-account-kv">
+                <div>
+                  <span>Display name</span>
+                  <strong>{overview.displayName || '-'}</strong>
+                </div>
+                <div>
+                  <span>Project number</span>
+                  <strong>{overview.projectNumber || '-'}</strong>
+                </div>
+                <div>
+                  <span>Lifecycle state</span>
+                  <strong>{overview.lifecycleState || '-'}</strong>
+                </div>
+                <div>
+                  <span>Created</span>
+                  <strong>{overview.createTime ? new Date(overview.createTime).toLocaleDateString() : '-'}</strong>
+                </div>
+              </div>
+              <div className="overview-note-list">
+                <div className="overview-note-item">
+                  Parent: {describeGcpProjectParent(overview.parentType, overview.parentId)}
+                </div>
+                {overview.notes.map((note) => (
+                  <div key={note} className="overview-note-item">{note}</div>
+                ))}
+              </div>
+              <div className="catalog-toolbar" style={{ marginTop: '0.75rem' }}>
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={!canRunTerminalCommand}
+                  onClick={() => onRunTerminalCommand(inspectProjectCommand)}
+                  title={canRunTerminalCommand ? inspectProjectCommand : 'Switch to Operator mode to enable terminal actions'}
+                >
+                  Inspect in terminal
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={!canRunTerminalCommand}
+                  onClick={() => onRunTerminalCommand(listApisCommand)}
+                  title={canRunTerminalCommand ? listApisCommand : 'Switch to Operator mode to enable terminal actions'}
+                >
+                  Enabled APIs in terminal
+                </button>
+              </div>
+            </article>
+
+            <article className="overview-account-card">
+              <div className="panel-header minor">
+                <h3>Labels</h3>
+                <span className="hero-path" style={{ margin: 0 }}>{overview.labels.length} labels</span>
+              </div>
+              {overview.labels.length ? (
+                <div className="overview-linked-account-list">
+                  {overview.labels.slice(0, 8).map((label) => (
+                    <div key={label.key} className="overview-linked-account-row">
+                      <div>
+                        <strong>{label.key}</strong>
+                        <span>{label.value}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <SvcState variant="empty" message="No labels are attached to this project." compact />
+              )}
+            </article>
+          </section>
+
+          <div className="overview-section-title">Capability Hints</div>
+          <section className="overview-hint-grid">
+            {overview.capabilityHints.map((hint) => (
+              <article key={hint.id} className={`overview-hint-card ${hint.severity}`}>
+                <span className="overview-hint-kicker">{hint.subject}</span>
+                <strong>{hint.title}</strong>
+                <p>{hint.summary}</p>
+                <small>{hint.recommendedAction}</small>
+              </article>
+            ))}
+          </section>
+
+          <div className="overview-section-title">Enabled API Posture</div>
+          <section className="overview-ownership-grid">
+            {overview.enabledApis.map((api) => (
+              <article key={api.name} className="overview-ownership-card">
+                <div className="overview-ownership-header">
+                  <div>
+                    <span>API</span>
+                    <strong>{api.title}</strong>
+                  </div>
+                  <div className="overview-ownership-metrics">
+                    <span>{api.name}</span>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </section>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+function GcpIamConsole({
+  projectId,
+  location,
+  refreshNonce,
+  onRunTerminalCommand,
+  canRunTerminalCommand
+}: {
+  projectId: string
+  location: string
+  refreshNonce: number
+  onRunTerminalCommand: (command: string) => void
+  canRunTerminalCommand: boolean
+}) {
+  const [overview, setOverview] = useState<GcpIamOverview | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+
+    setLoading(true)
+    setError('')
+
+    void getGcpIamOverview(projectId)
+      .then((nextOverview) => {
+        if (!cancelled) {
+          setOverview(nextOverview)
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err))
+          setOverview(null)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [projectId, refreshNonce])
+
+  const locationLabel = location.trim() || 'global'
+  const enableAction = error ? getGcpApiEnableAction(
+    error,
+    `gcloud services enable cloudresourcemanager.googleapis.com iam.googleapis.com --project ${projectId}`,
+    `IAM visibility is incomplete for project ${projectId}.`
+  ) : null
+  const inspectPolicyCommand = `gcloud projects get-iam-policy ${projectId}`
+  const listServiceAccountsCommand = `gcloud iam service-accounts list --project ${projectId}`
+
+  return (
+    <div className="overview-surface gcp-iam-console">
+      <div className="overview-hero-card">
+        <div className="overview-hero-copy">
+          <div className="eyebrow">IAM Posture</div>
+          <h3>{projectId}</h3>
+          <p>Project-level bindings, risky roles, principal rollups, and workload identities stay in a consistent summary-first shell pattern.</p>
+          <div className="overview-meta-strip">
+            <div className="overview-meta-pill">
+              <span>Project</span>
+              <strong>{projectId}</strong>
+            </div>
+            <div className="overview-meta-pill">
+              <span>Lens</span>
+              <strong>{locationLabel}</strong>
+            </div>
+            <div className="overview-meta-pill">
+              <span>Bindings</span>
+              <strong>{overview?.bindingCount ?? 0}</strong>
+            </div>
+            <div className="overview-meta-pill">
+              <span>Principals</span>
+              <strong>{overview?.principalCount ?? 0}</strong>
+            </div>
+          </div>
+        </div>
+        <div className="overview-hero-stats">
+          <div className="overview-glance-card overview-glance-card-accent">
+            <span>Risky bindings</span>
+            <strong>{overview?.riskyBindingCount ?? 0}</strong>
+            <small>Owner, editor, or admin-level grants in the project policy.</small>
+          </div>
+          <div className="overview-glance-card">
+            <span>Public principals</span>
+            <strong>{overview?.publicPrincipalCount ?? 0}</strong>
+            <small>`allUsers` and `allAuthenticatedUsers` grants in scope.</small>
+          </div>
+          <div className="overview-glance-card">
+            <span>Service accounts</span>
+            <strong>{overview?.serviceAccounts.length ?? 0}</strong>
+            <small>Workload identities surfaced for this project.</small>
+          </div>
+          <div className="overview-glance-card">
+            <span>Capability hints</span>
+            <strong>{overview?.capabilityHints.length ?? 0}</strong>
+            <small>Privilege, exposure, and sprawl signals for operators.</small>
+          </div>
+        </div>
+      </div>
+
+      {enableAction ? (
+        <div className="error-banner gcp-enable-error-banner">
+          <div className="gcp-enable-error-copy">
+            <strong>{enableAction.summary}</strong>
+            <p>
+              {canRunTerminalCommand
+                ? 'Run the enable command in the terminal, wait for propagation, then retry.'
+                : 'Switch Settings > Access Mode to Operator to enable terminal actions for this command.'}
+            </p>
+          </div>
+          <div className="gcp-enable-error-actions">
+            <button
+              type="button"
+              className="accent"
+              disabled={!canRunTerminalCommand}
+              onClick={() => onRunTerminalCommand(enableAction.command)}
+              title={canRunTerminalCommand ? enableAction.command : 'Switch to Operator mode to enable terminal actions'}
+            >
+              Run enable command in terminal
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {error && !enableAction ? <SvcState variant="error" error={error} /> : null}
+      {loading ? <SvcState variant="loading" resourceName="IAM posture" compact /> : null}
+
+      {overview ? (
+        <>
+          <div className="overview-section-title">Project IAM Context</div>
+          <section className="overview-account-grid">
+            <article className="overview-account-card">
+              <div className="panel-header minor">
+                <h3>Policy Summary</h3>
+              </div>
+              <div className="overview-account-kv">
+                <div>
+                  <span>Bindings</span>
+                  <strong>{overview.bindingCount}</strong>
+                </div>
+                <div>
+                  <span>Distinct principals</span>
+                  <strong>{overview.principalCount}</strong>
+                </div>
+                <div>
+                  <span>High privilege</span>
+                  <strong>{overview.riskyBindingCount}</strong>
+                </div>
+                <div>
+                  <span>Public exposure</span>
+                  <strong>{overview.publicPrincipalCount}</strong>
+                </div>
+              </div>
+              <div className="overview-note-list">
+                {overview.notes.map((note) => (
+                  <div key={note} className="overview-note-item">{note}</div>
+                ))}
+              </div>
+              <div className="catalog-toolbar" style={{ marginTop: '0.75rem' }}>
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={!canRunTerminalCommand}
+                  onClick={() => onRunTerminalCommand(inspectPolicyCommand)}
+                  title={canRunTerminalCommand ? inspectPolicyCommand : 'Switch to Operator mode to enable terminal actions'}
+                >
+                  Policy in terminal
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={!canRunTerminalCommand}
+                  onClick={() => onRunTerminalCommand(listServiceAccountsCommand)}
+                  title={canRunTerminalCommand ? listServiceAccountsCommand : 'Switch to Operator mode to enable terminal actions'}
+                >
+                  Service accounts in terminal
+                </button>
+              </div>
+            </article>
+
+            <article className="overview-account-card">
+              <div className="panel-header minor">
+                <h3>Service Accounts</h3>
+                <span className="hero-path" style={{ margin: 0 }}>{overview.serviceAccounts.length} visible</span>
+              </div>
+              {overview.serviceAccounts.length ? (
+                <div className="overview-linked-account-list">
+                  {overview.serviceAccounts.slice(0, 8).map((account) => (
+                    <div key={account.email} className="overview-linked-account-row">
+                      <div>
+                        <strong>{account.displayName || account.email}</strong>
+                        <span>{account.email}</span>
+                      </div>
+                      <strong>{account.disabled ? 'Disabled' : 'Active'}</strong>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <SvcState variant="empty" message="No project service accounts were surfaced." compact />
+              )}
+            </article>
+          </section>
+
+          <div className="overview-section-title">Capability Hints</div>
+          <section className="overview-hint-grid">
+            {overview.capabilityHints.map((hint) => (
+              <article key={hint.id} className={`overview-hint-card ${hint.severity}`}>
+                <span className="overview-hint-kicker">{hint.subject}</span>
+                <strong>{hint.title}</strong>
+                <p>{hint.summary}</p>
+                <small>{hint.recommendedAction}</small>
+              </article>
+            ))}
+          </section>
+
+          <div className="overview-section-title">Risky And Broad Bindings</div>
+          <section className="overview-ownership-grid">
+            {overview.bindings.filter((binding) => binding.risky || binding.publicAccess).slice(0, 8).map((binding) => (
+              <article key={`${binding.role}:${binding.members.join(',')}`} className="overview-ownership-card">
+                <div className="overview-ownership-header">
+                  <div>
+                    <span>{binding.publicAccess ? 'Public or shared' : 'High privilege'}</span>
+                    <strong>{binding.role}</strong>
+                  </div>
+                  <div className="overview-ownership-metrics">
+                    <span>{binding.memberCount} members</span>
+                    {binding.conditionTitle ? <span>{binding.conditionTitle}</span> : null}
+                  </div>
+                </div>
+                <div className="overview-note-list" style={{ marginTop: 0 }}>
+                  {binding.members.slice(0, 4).map((member) => (
+                    <div key={`${binding.role}:${member}`} className="overview-note-item">{summarizeGcpMember(member)}</div>
+                  ))}
+                </div>
+              </article>
+            ))}
+            {overview.bindings.filter((binding) => binding.risky || binding.publicAccess).length === 0 ? (
+              <article className="overview-ownership-card">
+                <p className="hero-path" style={{ margin: 0 }}>No risky or public project-level bindings were surfaced.</p>
+              </article>
+            ) : null}
+          </section>
+
+          <div className="overview-section-title">Principal Rollup</div>
+          <section className="overview-ownership-grid">
+            {overview.principals.slice(0, 8).map((principal) => (
+              <article key={principal.principal} className="overview-ownership-card">
+                <div className="overview-ownership-header">
+                  <div>
+                    <span>Principal</span>
+                    <strong>{summarizeGcpMember(principal.principal)}</strong>
+                  </div>
+                  <div className="overview-ownership-metrics">
+                    <span>{principal.bindingCount} bindings</span>
+                    <span>{principal.highPrivilegeRoleCount} high privilege</span>
+                  </div>
+                </div>
+                <div className="overview-note-list" style={{ marginTop: 0 }}>
+                  {principal.sampleRoles.map((role) => (
+                    <div key={`${principal.principal}:${role}`} className="overview-note-item">{role}</div>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </section>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
 function GcpBillingConsole({
   projectId,
   location,
@@ -2933,6 +3491,8 @@ function screenCacheTag(screen: Screen): CacheTag | null {
     case 'waf':
     case 'identity-center':
       return screen
+    case 'gcp-projects':
+    case 'gcp-iam':
     case 'gcp-compute-engine':
     case 'gcp-gke':
     case 'gcp-cloud-storage':
@@ -4965,12 +5525,48 @@ export function App() {
       )
     }
 
-    if (
-      activeProviderId === 'gcp'
-      && targetScreen === 'gcp-compute-engine'
-      && targetService?.id === 'gcp-compute-engine'
-      && gcpContextReady
-      && activeGcpConnectionDraft
+      if (
+        activeProviderId === 'gcp'
+        && targetScreen === 'gcp-projects'
+        && targetService?.id === 'gcp-projects'
+        && gcpContextReady
+        && activeGcpConnectionDraft
+      ) {
+        return (
+          <GcpProjectsConsole
+            projectId={activeGcpConnectionDraft.projectId.trim()}
+            location={activeGcpConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['gcp-projects'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'gcp'
+        && targetScreen === 'gcp-iam'
+        && targetService?.id === 'gcp-iam'
+        && gcpContextReady
+        && activeGcpConnectionDraft
+      ) {
+        return (
+          <GcpIamConsole
+            projectId={activeGcpConnectionDraft.projectId.trim()}
+            location={activeGcpConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['gcp-iam'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'gcp'
+        && targetScreen === 'gcp-compute-engine'
+        && targetService?.id === 'gcp-compute-engine'
+        && gcpContextReady
+        && activeGcpConnectionDraft
     ) {
       return (
         <GcpComputeEngineConsole

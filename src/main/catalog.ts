@@ -97,6 +97,8 @@ const AWS_WORKSPACES: ServiceDescriptor[] = [
 ]
 
 const GCP_WORKSPACES: ServiceDescriptor[] = [
+  { id: 'gcp-projects', label: 'Projects', category: 'Management', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true },
+  { id: 'gcp-iam', label: 'IAM Posture', category: 'Security', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true },
   { id: 'gcp-compute-engine', label: 'Compute Engine', category: 'Compute', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true },
   { id: 'gcp-gke', label: 'GKE', category: 'Compute', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true },
   { id: 'gcp-cloud-storage', label: 'Cloud Storage', category: 'Data', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true },

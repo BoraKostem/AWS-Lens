@@ -560,6 +560,84 @@ export type GcpCliContext = {
   locations: string[]
 }
 
+export type GcpProjectLabelSummary = {
+  key: string
+  value: string
+}
+
+export type GcpEnabledApiSummary = {
+  name: string
+  title: string
+}
+
+export type GcpProjectCapabilityHint = {
+  id: string
+  subject: string
+  severity: 'info' | 'warning' | 'error'
+  title: string
+  summary: string
+  recommendedAction: string
+}
+
+export type GcpProjectOverview = {
+  projectId: string
+  projectNumber: string
+  displayName: string
+  lifecycleState: string
+  parentType: string
+  parentId: string
+  createTime: string
+  labels: GcpProjectLabelSummary[]
+  enabledApis: GcpEnabledApiSummary[]
+  enabledApiCount: number
+  capabilityHints: GcpProjectCapabilityHint[]
+  notes: string[]
+}
+
+export type GcpIamBindingSummary = {
+  role: string
+  memberCount: number
+  risky: boolean
+  publicAccess: boolean
+  conditionTitle: string
+  members: string[]
+}
+
+export type GcpIamPrincipalSummary = {
+  principal: string
+  bindingCount: number
+  highPrivilegeRoleCount: number
+  sampleRoles: string[]
+}
+
+export type GcpServiceAccountSummary = {
+  email: string
+  displayName: string
+  disabled: boolean
+}
+
+export type GcpIamCapabilityHint = {
+  id: string
+  subject: string
+  severity: 'info' | 'warning' | 'error'
+  title: string
+  summary: string
+  recommendedAction: string
+}
+
+export type GcpIamOverview = {
+  projectId: string
+  bindingCount: number
+  principalCount: number
+  riskyBindingCount: number
+  publicPrincipalCount: number
+  bindings: GcpIamBindingSummary[]
+  principals: GcpIamPrincipalSummary[]
+  serviceAccounts: GcpServiceAccountSummary[]
+  capabilityHints: GcpIamCapabilityHint[]
+  notes: string[]
+}
+
 export type GcpComputeInstanceSummary = {
   name: string
   zone: string
@@ -1355,6 +1433,8 @@ export type ServiceId =
   | 'sts'
   | 'kms'
   | 'waf'
+  | 'gcp-projects'
+  | 'gcp-iam'
   | 'gcp-compute-engine'
   | 'gcp-gke'
   | 'gcp-cloud-storage'

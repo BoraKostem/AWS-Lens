@@ -758,6 +758,179 @@ textarea {
   box-shadow: 0 0 0 1px rgba(52, 168, 83, 0.08);
 }
 
+.gcp-projects-console .overview-hero-card {
+  background:
+    radial-gradient(circle at top right, rgba(52, 168, 83, 0.16), transparent 28%),
+    linear-gradient(180deg, rgba(17, 31, 25, 0.98), rgba(8, 17, 14, 0.98));
+}
+
+.gcp-projects-console .overview-glance-card-accent {
+  border-color: rgba(52, 168, 83, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(52, 168, 83, 0.16), transparent 42%),
+    linear-gradient(180deg, rgba(24, 46, 32, 0.96), rgba(14, 30, 20, 0.96));
+}
+
+.gcp-projects-console .overview-glance-card-accent strong,
+.gcp-projects-console .overview-hint-kicker,
+.gcp-projects-console .eyebrow {
+  color: #9ce2ae;
+}
+
+.gcp-projects-console .overview-meta-pill,
+.gcp-projects-console .overview-account-card,
+.gcp-projects-console .overview-hint-card,
+.gcp-projects-console .overview-ownership-card {
+  border-color: rgba(52, 168, 83, 0.14);
+}
+
+.gcp-projects-console .overview-note-item,
+.gcp-projects-console .overview-linked-account-row,
+.gcp-projects-console .overview-ownership-value {
+  background: linear-gradient(180deg, rgba(18, 31, 25, 0.94), rgba(10, 20, 15, 0.94));
+  border-color: rgba(52, 168, 83, 0.1);
+}
+
+.gcp-projects-console .overview-hint-card.info {
+  border-color: rgba(52, 168, 83, 0.2);
+  background:
+    radial-gradient(circle at top right, rgba(52, 168, 83, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(18, 22, 29, 0.96), rgba(11, 15, 21, 0.96));
+}
+
+.gcp-projects-console .overview-hint-card.warning {
+  border-color: rgba(140, 198, 108, 0.22);
+  background:
+    radial-gradient(circle at top right, rgba(140, 198, 108, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(18, 22, 29, 0.96), rgba(11, 15, 21, 0.96));
+}
+
+.gcp-projects-console .overview-ownership-card {
+  overflow: hidden;
+}
+
+.gcp-projects-console .overview-ownership-header > div,
+.gcp-projects-console .overview-ownership-metrics {
+  min-width: 0;
+}
+
+.gcp-projects-console .overview-ownership-metrics {
+  max-width: 52%;
+}
+
+.gcp-projects-console .overview-ownership-metrics span {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-align: right;
+}
+
+.gcp-projects-console .ghost:hover {
+  border-color: rgba(52, 168, 83, 0.22);
+  box-shadow: 0 0 0 1px rgba(52, 168, 83, 0.08);
+}
+
+.gcp-iam-console .overview-hero-card {
+  background:
+    radial-gradient(circle at top right, rgba(52, 168, 83, 0.16), transparent 28%),
+    linear-gradient(180deg, rgba(17, 31, 25, 0.98), rgba(8, 17, 14, 0.98));
+}
+
+.gcp-iam-console .overview-glance-card-accent {
+  border-color: rgba(52, 168, 83, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(52, 168, 83, 0.16), transparent 42%),
+    linear-gradient(180deg, rgba(24, 46, 32, 0.96), rgba(14, 30, 20, 0.96));
+}
+
+.gcp-iam-console .overview-glance-card-accent strong,
+.gcp-iam-console .overview-hint-kicker,
+.gcp-iam-console .eyebrow {
+  color: #9ce2ae;
+}
+
+.gcp-iam-console .overview-meta-pill,
+.gcp-iam-console .overview-account-card,
+.gcp-iam-console .overview-hint-card,
+.gcp-iam-console .overview-ownership-card {
+  border-color: rgba(52, 168, 83, 0.14);
+}
+
+.gcp-iam-console .overview-note-item,
+.gcp-iam-console .overview-linked-account-row,
+.gcp-iam-console .overview-ownership-value {
+  background: linear-gradient(180deg, rgba(18, 31, 25, 0.94), rgba(10, 20, 15, 0.94));
+  border-color: rgba(52, 168, 83, 0.1);
+}
+
+.gcp-iam-console .overview-hint-card.info {
+  border-color: rgba(52, 168, 83, 0.2);
+  background:
+    radial-gradient(circle at top right, rgba(52, 168, 83, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(18, 22, 29, 0.96), rgba(11, 15, 21, 0.96));
+}
+
+.gcp-iam-console .overview-hint-card.warning {
+  border-color: rgba(140, 198, 108, 0.22);
+  background:
+    radial-gradient(circle at top right, rgba(140, 198, 108, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(18, 22, 29, 0.96), rgba(11, 15, 21, 0.96));
+}
+
+.gcp-iam-console .overview-ownership-card {
+  overflow: hidden;
+}
+
+.gcp-iam-console .overview-ownership-header {
+  gap: 0.55rem;
+}
+
+.gcp-iam-console .overview-ownership-header > div,
+.gcp-iam-console .overview-ownership-metrics,
+.gcp-iam-console .overview-note-item {
+  min-width: 0;
+}
+
+.gcp-iam-console .overview-ownership-header span,
+.gcp-iam-console .overview-ownership-metrics span,
+.gcp-iam-console .overview-note-item {
+  font-size: 0.68rem;
+}
+
+.gcp-iam-console .overview-ownership-header strong,
+.gcp-iam-console .overview-ownership-metrics span,
+.gcp-iam-console .overview-note-item {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.gcp-iam-console .overview-ownership-header strong {
+  font-size: 0.92rem;
+  line-height: 1.28;
+}
+
+.gcp-iam-console .overview-ownership-metrics {
+  flex: 0 0 84px;
+  max-width: 84px;
+  gap: 0.12rem;
+}
+
+.gcp-iam-console .overview-ownership-metrics span {
+  text-align: right;
+  line-height: 1.2;
+}
+
+.gcp-iam-console .overview-note-item {
+  padding: 0.48rem 0.58rem;
+  line-height: 1.3;
+}
+
+.gcp-iam-console .ghost:hover {
+  border-color: rgba(52, 168, 83, 0.22);
+  box-shadow: 0 0 0 1px rgba(52, 168, 83, 0.08);
+}
+
 .overview-tiles {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

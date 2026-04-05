@@ -90,6 +90,8 @@ declare global {
       getEnvironmentHealth: () => Promise<unknown>
       getGcpCliContext: () => Promise<unknown>
       listGcpProjects: () => Promise<unknown>
+      getGcpProjectOverview: (projectId: string) => Promise<unknown>
+      getGcpIamOverview: (projectId: string) => Promise<unknown>
       listGcpComputeInstances: (projectId: string, location: string) => Promise<unknown>
       listGcpGkeClusters: (projectId: string, location: string) => Promise<unknown>
       listGcpStorageBuckets: (projectId: string, location: string) => Promise<unknown>
