@@ -12,7 +12,10 @@ import { getWorkspaceCatalog, listServiceCatalog } from './catalog'
 import { exportDiagnosticsBundle } from './diagnostics'
 import { getEnvironmentHealthReport } from './environment'
 import { exportEnterpriseAuditEvents, getEnterpriseSettings, listEnterpriseAuditEvents, setEnterpriseAccessMode } from './enterprise'
-import { getGcpCliContext, listGcpComputeInstances, listGcpGkeClusters, listGcpProjects, listGcpSqlInstances, listGcpStorageBuckets } from './gcpCli'
+import {
+  getGcpCliContext,
+  listGcpProjects
+} from './gcpCli'
 import { getVaultEntryCounts, listVaultEntries, revealVaultEntrySecret, saveVaultEntry } from './localVault'
 import { createHandlerWrapper, type OperationOptions } from './operations'
 import { checkForAppUpdates, downloadAppUpdate, getReleaseInfo, installAppUpdate } from './releaseCheck'
@@ -68,6 +71,18 @@ const wrap: <T>(
   label?: string,
   options?: OperationOptions
 ) => Promise<HandlerResult<T>> = createHandlerWrapper('ipc', { timeoutMs: 60000 })
+
+type GcpSdkModule = typeof import('./gcpSdk')
+
+let gcpSdkPromise: Promise<GcpSdkModule> | null = null
+
+function loadGcpSdk(): Promise<GcpSdkModule> {
+  if (!gcpSdkPromise) {
+    gcpSdkPromise = import('./gcpSdk')
+  }
+
+  return gcpSdkPromise
+}
 
 async function lockDownPrivateKey(filePath: string): Promise<void> {
   if (process.platform === 'win32') {
@@ -410,10 +425,36 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('app:environment-health', async () => wrap(() => getEnvironmentHealthReport()))
   ipcMain.handle('gcp:cli-context', async () => wrap(() => getGcpCliContext()))
   ipcMain.handle('gcp:projects', async () => wrap(() => listGcpProjects()))
-  ipcMain.handle('gcp:compute-engine:list', async (_event, projectId: string, location: string) => wrap(() => listGcpComputeInstances(projectId, location)))
-  ipcMain.handle('gcp:gke:list', async (_event, projectId: string, location: string) => wrap(() => listGcpGkeClusters(projectId, location)))
-  ipcMain.handle('gcp:cloud-storage:list', async (_event, projectId: string, location: string) => wrap(() => listGcpStorageBuckets(projectId, location)))
-  ipcMain.handle('gcp:cloud-sql:list', async (_event, projectId: string, location: string) => wrap(() => listGcpSqlInstances(projectId, location)))
+  ipcMain.handle('gcp:compute-engine:list', async (_event, projectId: string, location: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpComputeInstances(projectId, location))
+  )
+  ipcMain.handle('gcp:gke:list', async (_event, projectId: string, location: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpGkeClusters(projectId, location))
+  )
+  ipcMain.handle('gcp:cloud-storage:list', async (_event, projectId: string, location: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpStorageBuckets(projectId, location))
+  )
+  ipcMain.handle('gcp:cloud-storage:objects:list', async (_event, projectId: string, bucketName: string, prefix: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpStorageObjects(projectId, bucketName, prefix))
+  )
+  ipcMain.handle('gcp:cloud-storage:object:get-content', async (_event, projectId: string, bucketName: string, key: string) =>
+    wrap(async () => (await loadGcpSdk()).getGcpStorageObjectContent(projectId, bucketName, key))
+  )
+  ipcMain.handle('gcp:cloud-storage:object:put-content', async (_event, projectId: string, bucketName: string, key: string, content: string) =>
+    wrap(async () => (await loadGcpSdk()).putGcpStorageObjectContent(projectId, bucketName, key, content))
+  )
+  ipcMain.handle('gcp:cloud-storage:object:upload', async (_event, projectId: string, bucketName: string, key: string, localPath: string) =>
+    wrap(async () => (await loadGcpSdk()).uploadGcpStorageObject(projectId, bucketName, key, localPath))
+  )
+  ipcMain.handle('gcp:cloud-storage:object:download', async (_event, projectId: string, bucketName: string, key: string) =>
+    wrap(async () => (await loadGcpSdk()).downloadGcpStorageObjectToPath(projectId, bucketName, key))
+  )
+  ipcMain.handle('gcp:cloud-storage:object:delete', async (_event, projectId: string, bucketName: string, key: string) =>
+    wrap(async () => (await loadGcpSdk()).deleteGcpStorageObject(projectId, bucketName, key))
+  )
+  ipcMain.handle('gcp:cloud-sql:list', async (_event, projectId: string, location: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpSqlInstances(projectId, location))
+  )
   ipcMain.handle('app:update:check', async () => wrap(() => checkForAppUpdates()))
   ipcMain.handle('app:update:download', async () => wrap(() => downloadAppUpdate()))
   ipcMain.handle('app:update:install', async () => wrap(() => installAppUpdate()))

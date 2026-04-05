@@ -20,6 +20,8 @@ import type {
   GcpComputeInstanceSummary,
   GcpGkeClusterSummary,
   GcpSqlInstanceSummary,
+  GcpStorageObjectContent,
+  GcpStorageObjectSummary,
   GcpStorageBucketSummary,
   GovernanceTagDefaults,
   NavigationFocus,
@@ -49,7 +51,11 @@ import {
   listGcpComputeInstances,
   listGcpGkeClusters,
   listGcpSqlInstances,
+  deleteGcpStorageObject,
+  downloadGcpStorageObjectToPath,
+  getGcpStorageObjectContent,
   listGcpStorageBuckets,
+  listGcpStorageObjects,
   listGcpProjects,
   getEnterpriseSettings,
   getGovernanceTagDefaults,
@@ -60,9 +66,11 @@ import {
   listEnterpriseAuditEvents,
   listProviders,
   openExternalUrl,
+  putGcpStorageObjectContent,
   saveCredentials,
   setTerraformCliKind,
   setEnterpriseAccessMode,
+  uploadGcpStorageObject,
   updateAppSettings,
   updateGovernanceTagDefaults,
   useAwsActivity,
@@ -223,7 +231,7 @@ const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   waf: 'Web ACL inventory, rule editing, associations, and scope switching.',
   'gcp-compute-engine': 'Project-aware Compute Engine inventory with live instance status, networking context, and refresh-aware discovery.',
   'gcp-gke': 'Project-aware GKE inventory with live cluster status, version context, and refresh-aware discovery.',
-  'gcp-cloud-storage': 'Project-aware Cloud Storage entry point staged for bucket inventory, object posture, and shell handoff.',
+  'gcp-cloud-storage': 'Project-aware Cloud Storage inventory with bucket posture, object browser workflows, preview/edit paths, and shell handoff.',
   'gcp-cloud-sql': 'Project-aware Cloud SQL entry point staged for database posture, instance inventory, and connection helpers.',
   'gcp-logging': 'Project-aware Logging entry point staged for log exploration, query posture, and shell handoff.',
   'gcp-billing': 'Project-aware Billing Basics entry point staged for project cost posture and shared shell context.'
@@ -524,6 +532,46 @@ function getGcpApiEnableAction(error: string, fallbackCommand: string, summary: 
   }
 }
 
+const GCP_STORAGE_TEXT_EXTENSIONS = new Set([
+  'txt', 'json', 'xml', 'csv', 'yaml', 'yml', 'md', 'html', 'htm', 'css', 'js', 'ts',
+  'jsx', 'tsx', 'py', 'rb', 'sh', 'bash', 'env', 'conf', 'cfg', 'ini', 'toml', 'log',
+  'sql', 'graphql', 'svg', 'tf', 'tfvars', 'tfstate', 'hcl', 'dockerfile', 'makefile', 'gitignore'
+])
+
+function gcpStorageExtension(key: string): string {
+  const parts = key.split('.')
+  return parts.length > 1 ? parts.pop()!.toLowerCase() : ''
+}
+
+function isPreviewableGcpStorageTextFile(key: string): boolean {
+  const extension = gcpStorageExtension(key)
+  const name = key.split('/').pop()?.toLowerCase() ?? ''
+  return GCP_STORAGE_TEXT_EXTENSIONS.has(extension) || GCP_STORAGE_TEXT_EXTENSIONS.has(name)
+}
+
+function formatGcpStorageObjectSize(bytes: number): string {
+  if (bytes === 0) return '-'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
+function displayGcpStorageObjectName(key: string, prefix: string): string {
+  const relative = key.startsWith(prefix) ? key.slice(prefix.length) : key
+  return relative.replace(/\/$/, '') || key
+}
+
+function parentGcpStoragePrefix(prefix: string): string {
+  const normalized = prefix.replace(/\/+$/, '')
+  if (!normalized) {
+    return ''
+  }
+
+  const boundary = normalized.lastIndexOf('/')
+  return boundary >= 0 ? `${normalized.slice(0, boundary + 1)}` : ''
+}
+
 function getProfileBadge(name?: string | null): string {
   const parts = (name ?? '')
     .split(/[\s-_]+/)
@@ -764,7 +812,7 @@ function GcpComputeEngineConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">Compute Engine Access</div>
             <h3>Instance inventory could not be loaded</h3>
-            <p className="hero-path">Verify the selected project, enabled APIs, and active gcloud account, then retry the refresh.</p>
+            <p className="hero-path">Verify the selected project, enabled APIs, and active Google credentials, then retry the refresh.</p>
           </div>
         </section>
       ) : loading ? (
@@ -772,7 +820,7 @@ function GcpComputeEngineConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">Loading</div>
             <h3>Importing Compute Engine inventory</h3>
-            <p className="hero-path">Reading instances from the active gcloud session for {projectId} in {locationLabel}.</p>
+            <p className="hero-path">Reading instances from the active Google credentials for {projectId} in {locationLabel}.</p>
           </div>
         </section>
       ) : instances.length === 0 ? (
@@ -780,7 +828,7 @@ function GcpComputeEngineConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">No Instances</div>
             <h3>No Compute Engine instances were found</h3>
-            <p className="hero-path">No instances matched {locationLabel} in project {projectId}. Refresh gcloud after changing project context or region filters.</p>
+            <p className="hero-path">No instances matched {locationLabel} in project {projectId}. Refresh after changing project context or region filters.</p>
           </div>
         </section>
       ) : (
@@ -789,7 +837,7 @@ function GcpComputeEngineConsole({
             <div>
               <div className="eyebrow">Instance Inventory</div>
               <h3>{instances.length} instance{instances.length === 1 ? '' : 's'}</h3>
-              <p>{locationLabel} scope with live data from the active gcloud session.</p>
+          <p>{locationLabel} scope with live data from the active Google credentials.</p>
             </div>
           </div>
           <div className="profile-catalog-grid">
@@ -930,7 +978,7 @@ function GcpGkeConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">GKE Access</div>
             <h3>Cluster inventory could not be loaded</h3>
-            <p className="hero-path">Verify the selected project, enabled APIs, and active gcloud account, then retry the refresh.</p>
+            <p className="hero-path">Verify the selected project, enabled APIs, and active Google credentials, then retry the refresh.</p>
           </div>
         </section>
       ) : loading ? (
@@ -938,7 +986,7 @@ function GcpGkeConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">Loading</div>
             <h3>Importing GKE clusters</h3>
-            <p className="hero-path">Reading clusters from the active gcloud session for {projectId} in {locationLabel}.</p>
+            <p className="hero-path">Reading clusters from the active Google credentials for {projectId} in {locationLabel}.</p>
           </div>
         </section>
       ) : clusters.length === 0 ? (
@@ -946,7 +994,7 @@ function GcpGkeConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">No Clusters</div>
             <h3>No GKE clusters were found</h3>
-            <p className="hero-path">No clusters matched {locationLabel} in project {projectId}. Refresh gcloud after changing project context or location filters.</p>
+            <p className="hero-path">No clusters matched {locationLabel} in project {projectId}. Refresh after changing project context or location filters.</p>
           </div>
         </section>
       ) : (
@@ -955,7 +1003,7 @@ function GcpGkeConsole({
             <div>
               <div className="eyebrow">Cluster Inventory</div>
               <h3>{clusters.length} cluster{clusters.length === 1 ? '' : 's'}</h3>
-              <p>{locationLabel} scope with live data from the active gcloud session.</p>
+          <p>{locationLabel} scope with live data from the active Google credentials.</p>
             </div>
           </div>
           <div className="profile-catalog-grid">
@@ -1002,6 +1050,81 @@ function GcpCloudStorageConsole({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [lastLoadedAt, setLastLoadedAt] = useState('')
+  const [selectedBucket, setSelectedBucket] = useState('')
+  const [prefix, setPrefix] = useState('')
+  const [objects, setObjects] = useState<GcpStorageObjectSummary[]>([])
+  const [objectsLoading, setObjectsLoading] = useState(false)
+  const [objectError, setObjectError] = useState('')
+  const [selectedKey, setSelectedKey] = useState('')
+  const [previewContent, setPreviewContent] = useState('')
+  const [previewContentType, setPreviewContentType] = useState('text/plain')
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState('')
+  const [editing, setEditing] = useState(false)
+  const [editContent, setEditContent] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+  const [bucketSearch, setBucketSearch] = useState('')
+  const [objectSearch, setObjectSearch] = useState('')
+  const [detailTab, setDetailTab] = useState<'objects' | 'posture'>('objects')
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  async function browseBucket(bucketName: string, nextPrefix = ''): Promise<void> {
+    setSelectedBucket(bucketName)
+    setPrefix(nextPrefix)
+    setSelectedKey('')
+    setPreviewContent('')
+    setPreviewError('')
+    setPreviewContentType('text/plain')
+    setEditing(false)
+    setEditContent('')
+    setObjectError('')
+    setObjectsLoading(true)
+
+    try {
+      setObjects(await listGcpStorageObjects(projectId, bucketName, nextPrefix))
+    } catch (err) {
+      setObjects([])
+      setObjectError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setObjectsLoading(false)
+    }
+  }
+
+  async function previewObject(bucketName: string, object: GcpStorageObjectSummary): Promise<void> {
+    setSelectedKey(object.key)
+    setPreviewContent('')
+    setPreviewError('')
+    setPreviewContentType('text/plain')
+    setEditing(false)
+    setEditContent('')
+
+    if (object.isFolder) {
+      await browseBucket(bucketName, object.key)
+      return
+    }
+
+    if (!isPreviewableGcpStorageTextFile(object.key)) {
+      setPreviewError('Preview is currently limited to text-based objects. Use Download for binary content.')
+      return
+    }
+
+    if (object.size > 1024 * 1024) {
+      setPreviewError('Preview is limited to text objects smaller than 1 MB. Download the object to inspect larger files.')
+      return
+    }
+
+    setPreviewLoading(true)
+    try {
+      const content = await getGcpStorageObjectContent(projectId, bucketName, object.key)
+      setPreviewContent(content.body)
+      setPreviewContentType(content.contentType || 'text/plain')
+    } catch (err) {
+      setPreviewError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -1017,6 +1140,16 @@ function GcpCloudStorageConsole({
 
         setBuckets(nextBuckets)
         setLastLoadedAt(new Date().toISOString())
+        const targetBucket = nextBuckets.find((bucket) => bucket.name === selectedBucket)?.name ?? nextBuckets[0]?.name ?? ''
+        if (!targetBucket) {
+          setSelectedBucket('')
+          setObjects([])
+          setPrefix('')
+          setSelectedKey('')
+          return
+        }
+
+        void browseBucket(targetBucket, targetBucket === selectedBucket ? prefix : '')
       })
       .catch((err) => {
         if (cancelled) {
@@ -1043,6 +1176,40 @@ function GcpCloudStorageConsole({
   const inScopeBuckets = normalizedLocation && normalizedLocation !== 'global'
     ? buckets.filter((bucket) => bucket.location.trim().toLowerCase() === normalizedLocation).length
     : buckets.length
+  const selectedBucketSummary = useMemo(
+    () => buckets.find((bucket) => bucket.name === selectedBucket) ?? null,
+    [buckets, selectedBucket]
+  )
+  const filteredObjects = useMemo(() => {
+    const query = objectSearch.trim().toLowerCase()
+    if (!query) {
+      return objects
+    }
+
+    return objects.filter((object) => object.key.toLowerCase().includes(query))
+  }, [objectSearch, objects])
+  const filteredBuckets = useMemo(() => {
+    const query = bucketSearch.trim().toLowerCase()
+    if (!query) {
+      return buckets
+    }
+
+    return buckets.filter((bucket) => bucket.name.toLowerCase().includes(query))
+  }, [bucketSearch, buckets])
+  const selectedObject = useMemo(
+    () => objects.find((object) => object.key === selectedKey) ?? null,
+    [objects, selectedKey]
+  )
+  const objectFileCount = objects.filter((object) => !object.isFolder).length
+  const objectFolderCount = objects.filter((object) => object.isFolder).length
+  const previewableSelectedObject = selectedObject && !selectedObject.isFolder && isPreviewableGcpStorageTextFile(selectedObject.key)
+  const selectedBucketAligned = selectedBucketSummary
+    ? !normalizedLocation || normalizedLocation === 'global' || selectedBucketSummary.location.trim().toLowerCase() === normalizedLocation
+    : false
+  const selectedBucketTone = selectedBucketAligned ? 'success' : 'info'
+  const selectedObjectSizeLabel = selectedObject && !selectedObject.isFolder
+    ? formatGcpStorageObjectSize(selectedObject.size)
+    : 'None'
   const enableAction = error ? getGcpApiEnableAction(
     error,
     `gcloud services enable storage.googleapis.com --project ${projectId}`,
@@ -1050,30 +1217,66 @@ function GcpCloudStorageConsole({
   ) : null
 
   return (
-    <>
-      <section className="panel stack">
-        <div className="catalog-page-header">
-          <div>
-            <div className="eyebrow">Cloud Storage</div>
-            <h3>{projectId}</h3>
-            <p>Bucket posture is loaded live from gcloud and aligned against the selected project context and operator location.</p>
-          </div>
-          <div className="hero-connection">
-            <div className="connection-summary">
+    <div className="gcp-storage-shell">
+      {message ? <div className="s3-msg s3-msg-ok">{message}<button type="button" className="s3-msg-close" onClick={() => setMessage('')}>x</button></div> : null}
+      <section className="s3-shell-hero">
+        <div className="s3-shell-hero-copy">
+          <div className="s3-eyebrow">Object storage posture</div>
+          <h2>Cloud Storage Operations</h2>
+          <p>Bucket inventory, object browsing, and inline editing now use the same shell language and visual frame as AWS S3.</p>
+          <div className="s3-shell-meta-strip">
+            <div className="s3-shell-meta-pill">
               <span>Project</span>
               <strong>{projectId}</strong>
             </div>
-            <div className="connection-summary">
-              <span>Location lens</span>
-              <strong>{locationLabel}</strong>
+            <div className="s3-shell-meta-pill">
+              <span>Selected bucket</span>
+              <strong>{selectedBucket || 'No bucket selected'}</strong>
             </div>
-            <div className="connection-summary">
-              <span>Last sync</span>
-              <strong>{loading ? 'Syncing...' : lastLoadedLabel}</strong>
+            <div className="s3-shell-meta-pill">
+              <span>Path</span>
+              <strong>/{prefix || ''}</strong>
+            </div>
+            <div className="s3-shell-meta-pill">
+              <span>Mode</span>
+              <strong>Object browser</strong>
             </div>
           </div>
         </div>
+        <div className="s3-shell-hero-stats">
+          <div className="s3-shell-stat-card s3-shell-stat-card-accent">
+            <span>Tracked buckets</span>
+            <strong>{buckets.length}</strong>
+            <small>Inventory loaded from the active Google credentials.</small>
+          </div>
+          <div className="s3-shell-stat-card">
+            <span>Aligned buckets</span>
+            <strong>{inScopeBuckets}</strong>
+            <small>{normalizedLocation && normalizedLocation !== 'global' ? 'Buckets matching the selected location lens.' : 'All discovered buckets are in scope.'}</small>
+          </div>
+          <div className="s3-shell-stat-card">
+            <span>Objects in view</span>
+            <strong>{objectFileCount}</strong>
+            <small>{objectFolderCount} folders in the current prefix.</small>
+          </div>
+          <div className="s3-shell-stat-card">
+            <span>Last sync</span>
+            <strong>{loading ? 'Syncing...' : lastLoadedLabel}</strong>
+            <small>{objectsLoading ? 'Object inventory is refreshing.' : 'Console ready.'}</small>
+          </div>
+        </div>
       </section>
+      <div className="s3-shell-toolbar">
+        <div className="s3-toolbar">
+          <button className="s3-btn" type="button" onClick={() => void browseBucket(selectedBucket || selectedBucketSummary?.name || buckets[0]?.name || '', prefix)} disabled={loading || (!selectedBucket && buckets.length === 0)}>Refresh</button>
+          <button className="s3-btn" type="button" onClick={() => void browseBucket(selectedBucketSummary?.name || '', parentGcpStoragePrefix(prefix))} disabled={!selectedBucketSummary || !prefix}>Go Up</button>
+          <button className="s3-btn" type="button" onClick={() => selectedBucketSummary && onRunTerminalCommand(`gcloud storage buckets describe gs://${selectedBucketSummary.name} --project ${projectId}`)} disabled={!selectedBucketSummary || !canRunTerminalCommand}>Open Bucket</button>
+          <button className="s3-btn" type="button" disabled={!selectedObject || selectedObject.isFolder} onClick={() => selectedObject && selectedBucketSummary && void previewObject(selectedBucketSummary.name, selectedObject)}>Open / Preview</button>
+        </div>
+        <div className="s3-shell-status">
+          <div className="s3-inline-note">{objectsLoading ? 'Refreshing inventory...' : 'Console ready'}</div>
+        </div>
+      </div>
       {error ? (
         <section className="panel stack">
           {enableAction ? (
@@ -1104,7 +1307,7 @@ function GcpCloudStorageConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">Cloud Storage Access</div>
             <h3>Bucket inventory could not be loaded</h3>
-            <p className="hero-path">Verify the selected project, enabled APIs, and active gcloud account, then retry the refresh.</p>
+            <p className="hero-path">Verify the selected project, enabled APIs, and active Google credentials, then retry the refresh.</p>
           </div>
         </section>
       ) : loading ? (
@@ -1112,7 +1315,7 @@ function GcpCloudStorageConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">Loading</div>
             <h3>Importing Cloud Storage buckets</h3>
-            <p className="hero-path">Reading bucket posture from the active gcloud session for {projectId}.</p>
+            <p className="hero-path">Reading bucket posture from the active Google credentials for {projectId}.</p>
           </div>
         </section>
       ) : buckets.length === 0 ? (
@@ -1120,68 +1323,426 @@ function GcpCloudStorageConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">No Buckets</div>
             <h3>No Cloud Storage buckets were found</h3>
-            <p className="hero-path">No buckets were returned for project {projectId}. Refresh gcloud after changing project context or billing access.</p>
+            <p className="hero-path">No buckets were returned for project {projectId}. Refresh after changing project context or billing access.</p>
           </div>
         </section>
       ) : (
-        <section className="panel stack">
-          <div className="catalog-page-header">
+        <div className="s3-layout">
+          <section className="s3-bucket-panel">
+          <div className="s3-pane-head">
             <div>
-              <div className="eyebrow">Bucket Inventory</div>
-              <h3>{buckets.length} bucket{buckets.length === 1 ? '' : 's'}</h3>
-              <p>
-                {normalizedLocation && normalizedLocation !== 'global'
-                  ? `${inScopeBuckets} bucket${inScopeBuckets === 1 ? '' : 's'} align exactly with ${locationLabel}; multi-region buckets stay visible for governance review.`
-                  : 'Project-wide bucket posture from the active gcloud session.'}
-              </p>
+              <span className="s3-pane-kicker">Tracked buckets</span>
+              <h3>Workspace inventory</h3>
             </div>
+            <span className="s3-pane-summary">{filteredBuckets.length} visible</span>
           </div>
-          <div className="profile-catalog-grid">
-            {buckets.map((bucket) => {
+          <input className="s3-filter-input" placeholder="Filter buckets..." value={bucketSearch} onChange={(event) => setBucketSearch(event.target.value)} />
+          <div className="s3-bucket-list">
+            {filteredBuckets.map((bucket) => {
               const locationMatches = normalizedLocation && normalizedLocation !== 'global'
                 ? bucket.location.trim().toLowerCase() === normalizedLocation
                 : true
-              const inspectCommand = `gcloud storage buckets describe gs://${bucket.name} --project ${projectId}`
 
               return (
-                <article key={bucket.name} className="profile-catalog-card">
-                  <div className="profile-catalog-status">
-                    <span>{bucket.location || 'Unknown location'}</span>
-                    <strong>{bucket.storageClass || 'Class unavailable'}</strong>
+                <button key={bucket.name} type="button" className={`s3-bucket-row ${selectedBucket === bucket.name ? 'active' : ''}`} onClick={() => void browseBucket(bucket.name, '')}>
+                  <div className="s3-bucket-row-top">
+                    <div className="s3-bucket-row-identity">
+                      <div className="s3-bucket-row-glyph">GCS</div>
+                      <div className="s3-bucket-row-copy">
+                        <span className="s3-bucket-row-kicker">Bucket</span>
+                        <strong>{bucket.name}</strong>
+                        <span>{bucket.location || 'Location pending'} | {bucket.locationType || 'Location type pending'}</span>
+                      </div>
+                    </div>
+                    <span className={`s3-status-badge ${locationMatches ? 'success' : 'info'}`}>{locationMatches ? 'Aligned' : 'Visible'}</span>
                   </div>
-                  <div className="project-card-title">{bucket.name}</div>
-                  <div className="project-card-subtitle">
-                    {bucket.locationType || 'Location type unavailable'}
-                    {normalizedLocation && normalizedLocation !== 'global'
-                      ? ` | ${locationMatches ? 'Aligned with selected context' : 'Outside selected context'}`
-                      : ''}
+                  <div className="s3-bucket-row-meta">
+                    <span>Class: {bucket.storageClass || 'Unavailable'}</span>
+                    <span>Access: {bucket.publicAccessPrevention || 'Inherited'}</span>
                   </div>
-                  <div className="hero-path" style={{ marginTop: 12 }}>
-                    Public access prevention: {bucket.publicAccessPrevention || 'inherited'}
-                    <br />
-                    Uniform access: {bucket.uniformBucketLevelAccessEnabled ? 'enabled' : 'not enforced'}
-                    <br />
-                    Versioning: {bucket.versioningEnabled ? 'enabled' : 'disabled'}
-                    <br />
-                    Labels: {bucket.labelCount}
+                  <div className="s3-bucket-row-metrics">
+                    <div className="s3-bucket-row-metric is-primary">
+                      <span>Versioning</span>
+                      <strong>{bucket.versioningEnabled ? 'Enabled' : 'Disabled'}</strong>
+                    </div>
+                    <div className="s3-bucket-row-metric">
+                      <span>Uniform access</span>
+                      <strong>{bucket.uniformBucketLevelAccessEnabled ? 'Enabled' : 'Not enforced'}</strong>
+                    </div>
+                    <div className="s3-bucket-row-metric">
+                      <span>Labels</span>
+                      <strong>{bucket.labelCount}</strong>
+                    </div>
                   </div>
-                  <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
-                    <button
-                      type="button"
-                      disabled={!canRunTerminalCommand}
-                      onClick={() => onRunTerminalCommand(inspectCommand)}
-                      title={canRunTerminalCommand ? inspectCommand : 'Switch to Operator mode to enable terminal actions'}
-                    >
-                      Inspect in terminal
-                    </button>
-                  </div>
-                </article>
+                  <div className="s3-bucket-row-note">{locationMatches ? 'Aligned with selected context.' : 'Visible outside the selected location lens for posture review.'}</div>
+                </button>
               )
             })}
           </div>
-        </section>
+          </section>
+          <div className="s3-browser-panel">
+            {!selectedBucketSummary ? (
+              <SvcState variant="no-selection" resourceName="bucket" message="Select a bucket to view objects or bucket posture." />
+            ) : (
+              <>
+                {objectError ? <div className="s3-msg s3-msg-error">{objectError}<button type="button" className="s3-msg-close" onClick={() => setObjectError('')}>x</button></div> : null}
+                <section className="s3-detail-hero">
+                  <div className="s3-detail-hero-copy">
+                    <div className="s3-eyebrow">Bucket posture</div>
+                    <h3>{selectedBucketSummary.name}</h3>
+                    <p>{selectedBucketSummary.location || 'Unknown location'} | /{prefix || ''}</p>
+                    <div className="s3-detail-meta-strip">
+                      <div className="s3-detail-meta-pill">
+                        <span>Location</span>
+                        <strong>{selectedBucketSummary.location || 'Unknown'}</strong>
+                      </div>
+                      <div className="s3-detail-meta-pill">
+                        <span>Location type</span>
+                        <strong>{selectedBucketSummary.locationType || 'Unknown'}</strong>
+                      </div>
+                      <div className="s3-detail-meta-pill">
+                        <span>Public access</span>
+                        <strong>{selectedBucketSummary.publicAccessPrevention || 'Inherited'}</strong>
+                      </div>
+                      <div className="s3-detail-meta-pill">
+                        <span>Versioning</span>
+                        <strong>{selectedBucketSummary.versioningEnabled ? 'Enabled' : 'Disabled'}</strong>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="s3-detail-hero-stats">
+                    <div className={`s3-detail-stat-card ${selectedBucketTone}`}>
+                      <span>Bucket state</span>
+                      <strong>{selectedBucketAligned ? 'Aligned' : 'Visible'}</strong>
+                      <small>{selectedBucketAligned ? 'Bucket aligns with the selected location lens.' : 'Bucket remains visible outside the selected location for review.'}</small>
+                    </div>
+                    <div className="s3-detail-stat-card">
+                      <span>Objects in view</span>
+                      <strong>{objectFileCount}</strong>
+                      <small>{objectFolderCount} folders in the current prefix.</small>
+                    </div>
+                    <div className="s3-detail-stat-card">
+                      <span>Storage class</span>
+                      <strong>{selectedBucketSummary.storageClass || 'Unavailable'}</strong>
+                      <small>Bucket default class from the active Google credentials.</small>
+                    </div>
+                    <div className="s3-detail-stat-card">
+                      <span>Selected object</span>
+                      <strong>{selectedObjectSizeLabel}</strong>
+                      <small>{selectedObject ? selectedObject.key : 'Choose an object to preview or edit.'}</small>
+                    </div>
+                  </div>
+                </section>
+
+                <div className="s3-detail-tabs">
+                  <button className={detailTab === 'objects' ? 'active' : ''} type="button" onClick={() => setDetailTab('objects')}>Objects</button>
+                  <button className={detailTab === 'posture' ? 'active' : ''} type="button" onClick={() => setDetailTab('posture')}>Bucket posture</button>
+                </div>
+
+                <div className="s3-path-bar">
+                  <span className="s3-path-label">Bucket: {selectedBucketSummary.name} Path: /{prefix}</span>
+                  <div className="s3-path-actions">
+                    <button className="s3-btn" type="button" onClick={() => void browseBucket(selectedBucketSummary.name, parentGcpStoragePrefix(prefix))} disabled={!prefix || detailTab !== 'objects'}>Up</button>
+                    <button className="s3-btn" type="button" disabled={!selectedObject || selectedObject.isFolder || detailTab !== 'objects'} onClick={() => selectedObject && void previewObject(selectedBucketSummary.name, selectedObject)}>Open / Preview</button>
+                  </div>
+                </div>
+
+                {detailTab === 'objects' ? (
+                  <>
+                    <input
+                      className="s3-filter-input"
+                      value={objectSearch}
+                      onChange={(event) => setObjectSearch(event.target.value)}
+                      placeholder="Filter objects..."
+                    />
+                    <div className="s3-object-table-wrap">
+                      <table className="s3-object-table">
+                        <thead>
+                          <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Key</th>
+                            <th>Size</th>
+                            <th>Modified</th>
+                            <th>Storage Class</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredObjects.map((object) => (
+                            <tr
+                              key={object.key}
+                              className={object.key === selectedKey ? 'active' : ''}
+                              onClick={() => {
+                                if (object.isFolder) {
+                                  void browseBucket(selectedBucketSummary.name, object.key)
+                                } else {
+                                  void previewObject(selectedBucketSummary.name, object)
+                                }
+                              }}
+                            >
+                              <td>{displayGcpStorageObjectName(object.key, prefix)}</td>
+                              <td>{object.isFolder ? 'Folder' : 'Object'}</td>
+                              <td>{object.key}</td>
+                              <td>{object.isFolder ? '-' : formatGcpStorageObjectSize(object.size)}</td>
+                              <td>{object.lastModified !== '-' ? new Date(object.lastModified).toLocaleString() : '-'}</td>
+                              <td>{object.storageClass || '-'}</td>
+                            </tr>
+                          ))}
+                          {filteredObjects.length === 0 && (
+                            <tr>
+                              <td colSpan={6}>
+                                {objectsLoading
+                                  ? <SvcState variant="loading" resourceName="objects" compact />
+                                  : <SvcState variant="empty" message="No objects found for this prefix." compact />}
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                    {selectedObject && !selectedObject.isFolder && (
+                      <div className="s3-preview-panel">
+                        <div className="s3-preview-header">
+                          <span className="s3-preview-title">{selectedObject.key.split('/').pop()}</span>
+                          <div className="s3-preview-actions">
+                            {previewableSelectedObject && !editing && !previewLoading && !previewError && (
+                              <button className="s3-btn s3-btn-edit" type="button" onClick={() => { setEditing(true); setEditContent(previewContent) }}>
+                                Edit
+                              </button>
+                            )}
+                            {editing && (
+                              <>
+                                <button
+                                  className="s3-btn s3-btn-ok"
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={() => void (async () => {
+                                    try {
+                                      setSaving(true)
+                                      await putGcpStorageObjectContent(projectId, selectedBucketSummary.name, selectedObject.key, editContent)
+                                      setPreviewContent(editContent)
+                                      setEditing(false)
+                                      setMessage(`Saved ${selectedObject.key}`)
+                                      await browseBucket(selectedBucketSummary.name, prefix)
+                                    } catch (err) {
+                                      setPreviewError(err instanceof Error ? err.message : String(err))
+                                    } finally {
+                                      setSaving(false)
+                                    }
+                                  })()}
+                                >
+                                  {saving ? 'Saving...' : 'Save'}
+                                </button>
+                                <button className="s3-btn" type="button" onClick={() => { setEditing(false); setEditContent(previewContent) }}>
+                                  Cancel
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <div className="s3-preview-body">
+                          {previewLoading ? (
+                            <SvcState variant="loading" resourceName="preview" compact />
+                          ) : previewError ? (
+                            <SvcState variant="empty" message={previewError} compact />
+                          ) : editing ? (
+                            <textarea className="s3-edit-area" value={editContent} onChange={(event) => setEditContent(event.target.value)} />
+                          ) : previewContent ? (
+                            <pre className="s3-preview-text">{previewContent}</pre>
+                          ) : (
+                            <SvcState variant="empty" message={`Content type ${previewContentType || 'unknown'} is not shown inline. Download the object for direct inspection.`} compact />
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    <div className="s3-action-bar">
+                      <button className="s3-btn" type="button" onClick={() => void browseBucket(selectedBucketSummary.name, prefix)} disabled={objectsLoading}>
+                        {objectsLoading ? 'Refreshing...' : 'Refresh'}
+                      </button>
+                      <button className="s3-btn" type="button" onClick={() => void browseBucket(selectedBucketSummary.name, parentGcpStoragePrefix(prefix))} disabled={!prefix}>
+                        Up one level
+                      </button>
+                      <button className="s3-btn s3-btn-upload" type="button" onClick={() => fileInputRef.current?.click()}>
+                        Upload
+                      </button>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        style={{ display: 'none' }}
+                        onChange={(event) => {
+                          const file = event.target.files?.[0]
+                          if (file) {
+                            void (async () => {
+                              try {
+                                const localPath = (file as File & { path?: string }).path?.trim() ?? ''
+                                const objectKey = `${prefix}${file.name}`
+
+                                if (localPath) {
+                                  await uploadGcpStorageObject(projectId, selectedBucketSummary.name, objectKey, localPath)
+                                } else if (isPreviewableGcpStorageTextFile(file.name)) {
+                                  await putGcpStorageObjectContent(projectId, selectedBucketSummary.name, objectKey, await file.text())
+                                } else {
+                                  throw new Error('The selected file could not be uploaded because the local filesystem path was not exposed to the app.')
+                                }
+
+                                setMessage(`Uploaded ${file.name}`)
+                                await browseBucket(selectedBucketSummary.name, prefix)
+                              } catch (err) {
+                                setObjectError(err instanceof Error ? err.message : String(err))
+                              }
+                            })()
+                          }
+
+                          event.target.value = ''
+                        }}
+                      />
+                      <button
+                        className="s3-btn"
+                        type="button"
+                        disabled={!selectedObject || selectedObject.isFolder}
+                        onClick={() => void (async () => {
+                          if (!selectedObject || selectedObject.isFolder) {
+                            return
+                          }
+
+                          try {
+                            const filePath = await downloadGcpStorageObjectToPath(projectId, selectedBucketSummary.name, selectedObject.key)
+                            if (filePath) {
+                              setMessage(`Downloaded to ${filePath}`)
+                            }
+                          } catch (err) {
+                            setObjectError(err instanceof Error ? err.message : String(err))
+                          }
+                        })()}
+                      >
+                        Download
+                      </button>
+                      <button
+                        className="s3-btn"
+                        type="button"
+                        disabled={!selectedObject || selectedObject.isFolder || !canRunTerminalCommand}
+                        onClick={() => selectedObject && onRunTerminalCommand(`gcloud storage objects describe gs://${selectedBucketSummary.name}/${selectedObject.key} --format=json`)}
+                        title={canRunTerminalCommand ? undefined : 'Switch to Operator mode to enable terminal actions'}
+                      >
+                        Inspect object
+                      </button>
+                      <button
+                        className="s3-btn s3-btn-danger"
+                        type="button"
+                        disabled={!selectedObject || selectedObject.isFolder}
+                        onClick={() => void (async () => {
+                          if (!selectedObject || selectedObject.isFolder) {
+                            return
+                          }
+
+                          if (!window.confirm(`Delete ${selectedObject.key}?`)) {
+                            return
+                          }
+
+                          try {
+                            await deleteGcpStorageObject(projectId, selectedBucketSummary.name, selectedObject.key)
+                            setMessage(`Deleted ${selectedObject.key}`)
+                            setSelectedKey('')
+                            setPreviewContent('')
+                            setPreviewError('')
+                            await browseBucket(selectedBucketSummary.name, prefix)
+                          } catch (err) {
+                            setObjectError(err instanceof Error ? err.message : String(err))
+                          }
+                        })()}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="s3-summary-strip">
+                      <div className="s3-summary-card">
+                        <span>Storage class</span>
+                        <strong>{selectedBucketSummary.storageClass || 'Unavailable'}</strong>
+                      </div>
+                      <div className="s3-summary-card">
+                        <span>Public access prevention</span>
+                        <strong>{selectedBucketSummary.publicAccessPrevention || 'Inherited'}</strong>
+                      </div>
+                      <div className="s3-summary-card">
+                        <span>Uniform access</span>
+                        <strong>{selectedBucketSummary.uniformBucketLevelAccessEnabled ? 'Enabled' : 'Not enforced'}</strong>
+                      </div>
+                      <div className="s3-summary-card">
+                        <span>Versioning</span>
+                        <strong>{selectedBucketSummary.versioningEnabled ? 'Enabled' : 'Disabled'}</strong>
+                      </div>
+                      <div className="s3-summary-card">
+                        <span>Labels</span>
+                        <strong>{selectedBucketSummary.labelCount}</strong>
+                      </div>
+                      <div className="s3-summary-card">
+                        <span>Objects in prefix</span>
+                        <strong>{filteredObjects.length}</strong>
+                      </div>
+                    </div>
+                    <div className="s3-bucket-focus">
+                      <div className="s3-bucket-focus-main">
+                        <div className="s3-bucket-focus-top">
+                          <div>
+                            <span className="s3-bucket-focus-kicker">Selected bucket</span>
+                            <h3>{selectedBucketSummary.name}</h3>
+                            <p>Project {projectId} | Location lens {locationLabel}</p>
+                          </div>
+                        </div>
+                        <div className="s3-bucket-focus-summary">
+                          <div className="s3-bucket-focus-stat">
+                            <span>Location type</span>
+                            <strong>{selectedBucketSummary.locationType || 'Unknown'}</strong>
+                          </div>
+                          <div className="s3-bucket-focus-stat">
+                            <span>Aligned objects</span>
+                            <strong>{objectFileCount}</strong>
+                          </div>
+                          <div className="s3-bucket-focus-stat">
+                            <span>Folder prefixes</span>
+                            <strong>{objectFolderCount}</strong>
+                          </div>
+                        </div>
+                        <div className="s3-bucket-focus-badges">
+                          <span className={`s3-mini-badge ${selectedBucketSummary.versioningEnabled ? 'ok' : 'warn'}`}>{selectedBucketSummary.versioningEnabled ? 'Versioning Enabled' : 'Versioning Disabled'}</span>
+                          <span className={`s3-mini-badge ${selectedBucketSummary.uniformBucketLevelAccessEnabled ? 'ok' : 'warn'}`}>{selectedBucketSummary.uniformBucketLevelAccessEnabled ? 'Uniform Access Enabled' : 'Uniform Access Not Enforced'}</span>
+                          <span className={`s3-mini-badge ${selectedBucketSummary.publicAccessPrevention?.toLowerCase() === 'enforced' ? 'ok' : 'warn'}`}>{selectedBucketSummary.publicAccessPrevention || 'Public Access Inherited'}</span>
+                        </div>
+                      </div>
+                      <div className="s3-next-actions-panel">
+                        <div className="s3-next-action-card editable">
+                          <div className="s3-next-action-copy">
+                            <span className="s3-action-mode editable">Operator</span>
+                            <strong>Inspect bucket in terminal</strong>
+                            <span>Run the bucket describe command with the same project context used by this console.</span>
+                          </div>
+                          <button className="s3-btn s3-next-action-btn" type="button" disabled={!canRunTerminalCommand} onClick={() => onRunTerminalCommand(`gcloud storage buckets describe gs://${selectedBucketSummary.name} --project ${projectId}`)}>
+                            Open Bucket
+                          </button>
+                        </div>
+                        <div className="s3-next-action-card editable">
+                          <div className="s3-next-action-copy">
+                            <span className="s3-action-mode editable">Workflow</span>
+                            <strong>Return to object operations</strong>
+                            <span>Jump back to the object table to preview, upload, download, edit, or delete content.</span>
+                          </div>
+                          <button className="s3-btn s3-next-action-btn" type="button" onClick={() => setDetailTab('objects')}>
+                            Open Objects
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        </div>
       )}
-    </>
+    </div>
   )
 }
 
@@ -1308,7 +1869,7 @@ function GcpCloudSqlConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">Cloud SQL Access</div>
             <h3>Instance inventory could not be loaded</h3>
-            <p className="hero-path">Verify the selected project, enabled APIs, and active gcloud account, then retry the refresh.</p>
+            <p className="hero-path">Verify the selected project, enabled APIs, and active Google credentials, then retry the refresh.</p>
           </div>
         </section>
       ) : loading ? (
@@ -1316,7 +1877,7 @@ function GcpCloudSqlConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">Loading</div>
             <h3>Importing Cloud SQL instances</h3>
-            <p className="hero-path">Reading database posture from the active gcloud session for {projectId}.</p>
+            <p className="hero-path">Reading database posture from the active Google credentials for {projectId}.</p>
           </div>
         </section>
       ) : instances.length === 0 ? (
@@ -1324,7 +1885,7 @@ function GcpCloudSqlConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">No Instances</div>
             <h3>No Cloud SQL instances were found</h3>
-            <p className="hero-path">No instances were returned for project {projectId}. Refresh gcloud after changing project context or Cloud SQL permissions.</p>
+            <p className="hero-path">No instances were returned for project {projectId}. Refresh after changing project context or Cloud SQL permissions.</p>
           </div>
         </section>
       ) : (
@@ -1336,7 +1897,7 @@ function GcpCloudSqlConsole({
               <p>
                 {normalizedLocation && normalizedLocation !== 'global'
                   ? `${inScopeInstances} instance${inScopeInstances === 1 ? '' : 's'} align with ${locationLabel}; out-of-scope regions stay visible for posture review.`
-                  : 'Project-wide Cloud SQL posture from the active gcloud session.'}
+            : 'Project-wide Cloud SQL posture from the active Google credentials.'}
               </p>
             </div>
           </div>
@@ -3573,7 +4134,7 @@ export function App() {
                   {isAwsProviderActive
                     ? 'Search by profile name, pin frequent targets, or remove credentials managed by the app. Each AWS profile returns to its own last workspace.'
                     : activeProviderId === 'gcp'
-                      ? 'Projects are imported from the active gcloud session. Pick one project and the shell reuses that context across the shared workspaces.'
+                      ? 'Projects are loaded from the active Google credentials. Pick one project and the shell reuses that context across the shared workspaces.'
                       : `${activeProvider.label} onboarding is staged here first so the adaptive rail, terminal, and diagnostics can attach to the same provider-aware selector later.`}
                 </p>
               </div>
@@ -3604,16 +4165,16 @@ export function App() {
                         {gcpCliError
                           ? gcpCliError
                           : gcpCliBusy && !gcpCliContext?.detected
-                          ? 'Loading gcloud catalog from the active CLI session.'
+                            ? 'Loading the Google Cloud catalog from the active credentials.'
                           : gcpProjectCatalogBusy
                             ? 'Syncing the full Google Cloud project catalog in the background.'
                           : gcpCliContext?.detected
                             ? `${detectedGcpConfigurationCount} configs | ${gcpCatalogAccount}`
-                            : gcpCliError || 'Refresh gcloud to import projects from the active CLI session.'}
+                            : gcpCliError || 'Refresh the Google Cloud catalog from the active credentials.'}
                       </small>
                     </div>
                     <button type="button" onClick={() => void loadGcpCliContext()} disabled={gcpCliBusy || gcpProjectCatalogBusy}>
-                      {gcpCliBusy ? 'Refreshing...' : gcpProjectCatalogBusy ? 'Syncing projects...' : 'Refresh gcloud'}
+                      {gcpCliBusy ? 'Refreshing...' : gcpProjectCatalogBusy ? 'Syncing projects...' : 'Refresh catalog'}
                     </button>
                   </div>
                 </div>
@@ -3687,16 +4248,16 @@ export function App() {
                   <div className="profile-catalog-empty">
                     <div className="eyebrow">
                       {gcpCliBusy
-                        ? 'Loading gcloud'
+                        ? 'Loading credentials'
                         : gcpCliError
-                          ? 'Gcloud error'
+                          ? 'Google Cloud error'
                         : gcpProjectCatalogBusy
                           ? 'Syncing catalog'
                         : gcpCliContext?.detected
                           ? gcpProjectSearch.trim()
                             ? 'No Matches'
                             : 'No Projects'
-                          : 'Loading gcloud'}
+                          : 'Loading credentials'}
                     </div>
                     <h3>
                       {gcpCliBusy
@@ -3713,7 +4274,7 @@ export function App() {
                     </h3>
                     <p className="hero-path">
                       {gcpCliBusy
-                        ? 'Importing projects from the active gcloud session.'
+                        ? 'Loading projects from the active Google credentials.'
                         : gcpCliError
                           ? gcpCliError
                         : gcpProjectCatalogBusy
@@ -3721,8 +4282,8 @@ export function App() {
                         : gcpCliContext?.detected
                           ? gcpProjectSearch.trim()
                             ? 'Try a different project id or name, or clear the search to see the full imported catalog.'
-                            : 'Sign in with gcloud or switch to a configuration that can see projects, then refresh the catalog.'
-                          : 'The simple GCP selector fills itself from the active gcloud session. Install or sign in, then refresh gcloud.'}
+                            : 'Sign in with application default credentials or switch to credentials that can see projects, then refresh the catalog.'
+                          : 'The simple GCP selector fills itself from the active Google credentials. Configure ADC or local credentials, then refresh the catalog.'}
                     </p>
                   </div>
                 )
@@ -4181,7 +4742,7 @@ export function App() {
                       ? `Project ${activeGcpConnectionDraft?.projectId.trim()} will be injected into the terminal with ${gcpCredentialFieldCopy?.label.toLowerCase()}.`
                       : gcpLocationOptions.length > 0
                         ? 'Choose a Google Cloud location to finish the shared shell context.'
-                        : 'Refresh gcloud to import selectable Google Cloud locations.'
+                        : 'Refresh the catalog to import selectable Google Cloud locations.'
                     : 'Select a Google Cloud connection mode to start binding project context.'}
                 </small>
               </label>
@@ -4226,7 +4787,7 @@ export function App() {
             {providerRefreshReady && (
               <span className="sidebar-refresh-hint">
                 {activeProviderId === 'gcp'
-                  ? 'Refresh re-imports the active gcloud context and keeps the selected project in place.'
+                  ? 'Refresh reloads the active Google Cloud context and keeps the selected project in place.'
                   : prefersSoftRefresh
                     ? 'Refresh keeps your current selection and filters.'
                     : 'Refresh may rebuild the current view.'}

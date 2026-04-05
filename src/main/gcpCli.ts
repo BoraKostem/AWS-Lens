@@ -1,7 +1,9 @@
 import { execFile } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
-import { readFile, readdir } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { BrowserWindow, dialog } from 'electron'
+import { GoogleAuth } from 'google-auth-library'
 
 import type {
   GcpCliConfiguration,
@@ -10,6 +12,8 @@ import type {
   GcpComputeInstanceSummary,
   GcpGkeClusterSummary,
   GcpSqlInstanceSummary,
+  GcpStorageObjectContent,
+  GcpStorageObjectSummary,
   GcpStorageBucketSummary
 } from '@shared/types'
 import { getResolvedProcessEnv, resolveExecutablePath } from './shell'
@@ -175,6 +179,58 @@ function buildGcpCliError(label: string, result: CommandResult, apiServiceName =
   }
 
   return new Error(`Google Cloud CLI failed while ${label}.${detail ? ` ${detail}` : ''}`)
+}
+
+function outputIndicatesAdcIssue(output: string): boolean {
+  const normalized = output.toLowerCase()
+  return normalized.includes('application default credentials')
+    || normalized.includes('could not load the default credentials')
+    || normalized.includes('default credentials')
+    || normalized.includes('could not authenticate')
+}
+
+function outputIndicatesPermissionIssue(output: string): boolean {
+  const normalized = output.toLowerCase()
+  return normalized.includes('permission denied')
+    || normalized.includes('forbidden')
+    || normalized.includes('does not have permission')
+    || normalized.includes('insufficient authentication scopes')
+}
+
+function buildGcpSdkError(label: string, error: unknown, apiServiceName = 'cloudresourcemanager.googleapis.com'): Error {
+  const detail = error instanceof Error ? error.message.trim() : String(error).trim()
+
+  if (outputIndicatesApiDisabled(detail)) {
+    const projectId = extractProjectIdFromOutput(detail)
+    const enableCommand = projectId
+      ? `gcloud services enable ${apiServiceName} --project ${projectId}`
+      : `gcloud services enable ${apiServiceName} --project <project-id>`
+
+    return new Error(
+      `Google Cloud API access failed while ${label}. The required API is disabled for the selected project. Run "${enableCommand}", wait for propagation, and retry.${detail ? ` ${detail}` : ''}`
+    )
+  }
+
+  if (outputIndicatesAdcIssue(detail)) {
+    return new Error(
+      `Google Cloud SDK authorization failed while ${label}. Run "gcloud auth application-default login" or provide GOOGLE_APPLICATION_CREDENTIALS, then try again.${detail ? ` ${detail}` : ''}`
+    )
+  }
+
+  if (outputIndicatesPermissionIssue(detail)) {
+    return new Error(
+      `Google Cloud SDK authorization failed while ${label}. Verify the selected credentials have the required IAM access for this project.${detail ? ` ${detail}` : ''}`
+    )
+  }
+
+  return new Error(`Google Cloud SDK failed while ${label}.${detail ? ` ${detail}` : ''}`)
+}
+
+function getGcpSdkAuth(projectId = ''): GoogleAuth {
+  return new GoogleAuth({
+    projectId: projectId.trim() || undefined,
+    scopes: ['https://www.googleapis.com/auth/cloud-platform']
+  })
 }
 
 function isWindowsBatchCommand(command: string): boolean {
@@ -391,6 +447,192 @@ function normalizeStorageBucket(entry: unknown): GcpStorageBucketSummary | null 
     uniformBucketLevelAccessEnabled: asBoolean(uniformBucketLevelAccess.enabled ?? record.uniformBucketLevelAccessEnabled ?? record.uniform_bucket_level_access_enabled),
     labelCount: labels.length
   }
+}
+
+type GcpStorageObjectRecord = {
+  key: string
+  size: number
+  lastModified: string
+  storageClass: string
+}
+
+function normalizeGcpStorageObjectKey(value: string, bucketName: string): string {
+  const normalized = value.trim().replace(/^gs:\/\//i, '')
+  if (!normalized) {
+    return ''
+  }
+
+  if (normalized === bucketName) {
+    return ''
+  }
+
+  if (normalized.startsWith(`${bucketName}/`)) {
+    return normalized.slice(bucketName.length + 1)
+  }
+
+  const firstSlashIndex = normalized.indexOf('/')
+  return firstSlashIndex >= 0 ? normalized.slice(firstSlashIndex + 1) : normalized
+}
+
+function normalizeNumber(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value.trim())
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+
+  return 0
+}
+
+function normalizeStorageObjectRecord(entry: unknown, bucketName: string): GcpStorageObjectRecord | null {
+  if (!entry || typeof entry !== 'object') {
+    return null
+  }
+
+  const record = entry as Record<string, unknown>
+  const key = normalizeGcpStorageObjectKey(
+    asString(record.name) || asString(record.uri) || asString(record.url) || asString(record.id),
+    bucketName
+  )
+
+  if (!key) {
+    return null
+  }
+
+  return {
+    key,
+    size: normalizeNumber(record.size),
+    lastModified: asString(record.updated) || asString(record.updateTime) || asString(record.timeCreated) || asString(record.lastModified),
+    storageClass: asString(record.storageClass) || asString(record.storage_class)
+  }
+}
+
+function parseGcpStorageLsOutput(value: string, bucketName: string): GcpStorageObjectRecord[] {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('gs://'))
+    .map((line) => ({
+      key: normalizeGcpStorageObjectKey(line, bucketName),
+      size: 0,
+      lastModified: '',
+      storageClass: ''
+    }))
+    .filter((entry) => entry.key)
+}
+
+function buildGcpStorageObjectSummaries(records: GcpStorageObjectRecord[], prefix: string): GcpStorageObjectSummary[] {
+  const normalizedPrefix = prefix.trim()
+  const folders = new Map<string, GcpStorageObjectSummary>()
+  const files = new Map<string, GcpStorageObjectSummary>()
+
+  for (const record of records) {
+    const key = record.key.trim()
+    if (!key || (normalizedPrefix && !key.startsWith(normalizedPrefix))) {
+      continue
+    }
+
+    const suffix = normalizedPrefix ? key.slice(normalizedPrefix.length) : key
+    if (!suffix) {
+      continue
+    }
+
+    const slashIndex = suffix.indexOf('/')
+    if (slashIndex >= 0) {
+      const folderKey = `${normalizedPrefix}${suffix.slice(0, slashIndex + 1)}`
+      if (!folders.has(folderKey)) {
+        folders.set(folderKey, {
+          key: folderKey,
+          size: 0,
+          lastModified: '-',
+          storageClass: '-',
+          isFolder: true
+        })
+      }
+
+      continue
+    }
+
+    files.set(key, {
+      key,
+      size: record.size,
+      lastModified: record.lastModified || '-',
+      storageClass: record.storageClass || '-',
+      isFolder: false
+    })
+  }
+
+  return [
+    ...[...folders.values()].sort((left, right) => left.key.localeCompare(right.key)),
+    ...[...files.values()].sort((left, right) => left.key.localeCompare(right.key))
+  ]
+}
+
+function buildGcsUri(bucketName: string, key: string): string {
+  const normalizedKey = key.trim().replace(/^\/+/, '')
+  return normalizedKey ? `gs://${bucketName}/${normalizedKey}` : `gs://${bucketName}`
+}
+
+function guessContentTypeFromKey(key: string): string {
+  const extension = path.extname(key).toLowerCase()
+
+  switch (extension) {
+    case '.json':
+      return 'application/json'
+    case '.txt':
+    case '.log':
+    case '.md':
+    case '.tf':
+    case '.tfvars':
+    case '.yaml':
+    case '.yml':
+    case '.ini':
+    case '.cfg':
+    case '.conf':
+      return 'text/plain'
+    case '.csv':
+      return 'text/csv'
+    case '.html':
+    case '.htm':
+      return 'text/html'
+    case '.css':
+      return 'text/css'
+    case '.js':
+    case '.mjs':
+    case '.cjs':
+      return 'text/javascript'
+    case '.ts':
+    case '.tsx':
+      return 'text/typescript'
+    case '.xml':
+      return 'application/xml'
+    case '.svg':
+      return 'image/svg+xml'
+    default:
+      return 'text/plain'
+  }
+}
+
+function normalizeStorageObjectContentType(entry: unknown): { contentType: string } | null {
+  if (!entry || typeof entry !== 'object') {
+    return null
+  }
+
+  const record = entry as Record<string, unknown>
+  return {
+    contentType: asString(record.contentType) || asString(record.content_type)
+  }
+}
+
+async function createTempGcpStorageFile(key: string, content: string): Promise<string> {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'cloud-lens-gcs-'))
+  const fileName = path.basename(key.trim()) || 'object.txt'
+  const filePath = path.join(tempDir, fileName)
+  await writeFile(filePath, content, 'utf8')
+  return filePath
 }
 
 function formatMaintenanceWindow(day: unknown, hour: unknown): string {
@@ -635,6 +877,126 @@ function deriveLocationsFromConfigurations(configurations: GcpCliConfiguration[]
   )
 }
 
+async function listGcpProjectsViaSdk(): Promise<GcpCliProject[]> {
+  const auth = getGcpSdkAuth()
+  const client = await auth.getClient()
+  const projects: GcpCliProject[] = []
+  const seen = new Set<string>()
+
+  async function collectFromRequest(url: string): Promise<void> {
+    let nextPageToken = ''
+
+    do {
+      const response = await client.request<{ projects?: Array<Record<string, unknown>>; nextPageToken?: string }>({
+        url,
+        method: 'GET',
+        params: {
+          pageSize: 500,
+          ...(nextPageToken ? { pageToken: nextPageToken } : {})
+        }
+      })
+
+      for (const entry of response.data.projects ?? []) {
+        const projectId = asString(entry.projectId) || asString(entry.projectId)
+        if (!projectId || seen.has(projectId)) {
+          continue
+        }
+
+        seen.add(projectId)
+        projects.push({
+          projectId,
+          name: asString(entry.displayName) || asString(entry.name),
+          projectNumber: asString(entry.projectNumber),
+          lifecycleState: asString(entry.state) || asString(entry.lifecycleState)
+        })
+      }
+
+      nextPageToken = asString(response.data.nextPageToken)
+    } while (nextPageToken)
+  }
+
+  try {
+    await collectFromRequest('https://cloudresourcemanager.googleapis.com/v3/projects:search')
+  } catch (error) {
+    if (!outputIndicatesPermissionIssue(error instanceof Error ? error.message : String(error))) {
+      throw error
+    }
+  }
+
+  if (projects.length === 0) {
+    await collectFromRequest('https://cloudresourcemanager.googleapis.com/v1/projects')
+  }
+
+  return projects
+}
+
+async function listGcpProjectsViaCli(): Promise<GcpCliProject[]> {
+  const env = await getResolvedProcessEnv({ fresh: true })
+  const resolved = await resolveGcloudCommand(env)
+
+  if (!resolved) {
+    return []
+  }
+
+  const projectsResult = await runCommand(
+    resolved.command,
+    buildGcloudArgs([
+      'projects',
+      'list',
+      '--format=json'
+    ]),
+    env,
+    30000
+  )
+
+  const cliProjects = safeParseList(projectsResult.stdout, normalizeProject)
+
+  if (!projectsResult.ok && cliProjects.length === 0) {
+    throw buildGcpCliError('loading the project catalog', projectsResult, 'cloudresourcemanager.googleapis.com')
+  }
+
+  if (projectsResult.ok && cliProjects.length === 0 && projectsResult.stderr.trim()) {
+    throw buildGcpCliError('loading the project catalog', projectsResult, 'cloudresourcemanager.googleapis.com')
+  }
+
+  return cliProjects
+}
+
+async function loadGcpProjectCatalog(derivedProjects: GcpCliProject[]): Promise<GcpCliProject[]> {
+  let sdkProjects: GcpCliProject[] = []
+  let sdkError: unknown = null
+
+  try {
+    sdkProjects = await listGcpProjectsViaSdk()
+  } catch (error) {
+    sdkError = error
+  }
+
+  let cliProjects: GcpCliProject[] = []
+  let cliError: unknown = null
+
+  try {
+    cliProjects = await listGcpProjectsViaCli()
+  } catch (error) {
+    cliError = error
+  }
+
+  const mergedProjects = mergeProjects(cliProjects, sdkProjects, derivedProjects)
+  if (mergedProjects.length > derivedProjects.length || mergedProjects.length > 0) {
+    return mergedProjects
+  }
+
+  if (sdkError) {
+    throw buildGcpSdkError('loading the project catalog', sdkError, 'cloudresourcemanager.googleapis.com')
+  }
+
+  if (cliError) {
+    throw cliError instanceof Error ? cliError : new Error(String(cliError))
+  }
+
+  return derivedProjects
+}
+
 function safeParseList<T>(value: string, normalize: (entry: unknown) => T | null): T[] {
   if (!value.trim()) {
     return []
@@ -843,133 +1205,79 @@ function safeParseItem<T>(value: string, normalize: (entry: unknown) => T | null
 }
 
 export async function getGcpCliContext(): Promise<GcpCliContext> {
-  const env = await getResolvedProcessEnv({ fresh: true })
-  const resolved = await resolveGcloudCommand(env)
-
-  if (!resolved) {
-    return {
-      detected: false,
-      cliPath: '',
-      activeConfigurationName: '',
-      activeAccount: '',
-      activeProjectId: '',
-      activeRegion: '',
-      activeZone: '',
-      configurations: [],
-      projects: [],
-      locations: []
-    }
-  }
-
   const fallback = await readGcpConfigFallback().catch(() => ({
     activeConfigurationName: '',
     configurations: [] as GcpCliConfiguration[]
   }))
-
-  let configurations = fallback.configurations
-  if (configurations.length === 0) {
-    const configurationsResult = await runCommand(
-      resolved.command,
-      buildGcloudArgs(['config', 'configurations', 'list', '--format=value(name,is_active,properties.core.account,properties.core.project,properties.compute.region,properties.compute.zone)']),
-      env,
-      4000
-    )
-    const cliConfigurations = parseConfigurationValueRows(configurationsResult.stdout)
-    configurations = cliConfigurations.length > 0 ? cliConfigurations : fallback.configurations
-  }
+  const configurations = fallback.configurations
   const activeConfiguration = configurations.find((entry) => entry.isActive)
     ?? configurations.find((entry) => entry.name === fallback.activeConfigurationName)
     ?? configurations[0]
     ?? null
   const derivedProjects = deriveProjectsFromConfigurations(configurations)
   const derivedLocations = deriveLocationsFromConfigurations(configurations)
-  const activeProjectId = activeConfiguration?.projectId ?? ''
-  const locationsResultPromise = runCommand(
-    resolved.command,
-    buildGcloudArgs(['compute', 'regions', 'list', '--format=value(name)', '--limit=500']),
-    env,
-    5000
-  )
+  const auth = getGcpSdkAuth(activeConfiguration?.projectId ?? '')
+  let authProjectId = ''
+  let authAccount = ''
+  let detected = configurations.length > 0
+  let cliPath = ''
 
-  const activeProjectResult = await (
-    activeProjectId
-      ? runCommand(
-          resolved.command,
-          buildGcloudArgs(['projects', 'describe', activeProjectId, '--format=json(projectId,name,projectNumber,lifecycleState)']),
-          env,
-          4000
-        )
-      : Promise.resolve({
-          ok: false,
-          stdout: '',
-          stderr: '',
-          code: '',
-          path: resolved.path
-        } satisfies CommandResult)
-  )
+  try {
+    authProjectId = (await auth.getProjectId())?.trim() ?? ''
+    const credentials = await auth.getCredentials()
+    authAccount = typeof credentials.client_email === 'string' ? credentials.client_email.trim() : ''
+    detected = detected || Boolean(authProjectId || authAccount)
+  } catch {
+    // Keep fallback-only detection when ADC is not configured.
+  }
 
-  const activeProject = safeParseItem(activeProjectResult.stdout, normalizeProject)
-  const locationsResult = await locationsResultPromise
-  const cliLocations = parseLocationValueRows(locationsResult.stdout)
   const locations = mergeLocations(
-    cliLocations,
     derivedLocations,
     activeConfiguration?.region ? [activeConfiguration.region] : [],
     activeConfiguration?.zone ? [activeConfiguration.zone] : []
   )
-  const projects = mergeProjects(
-    activeProject ? [activeProject] : [],
-    derivedProjects
-  )
+
+  try {
+    const env = await getResolvedProcessEnv({ fresh: true })
+    cliPath = (await resolveGcloudCommand(env))?.path ?? ''
+    detected = detected || Boolean(cliPath)
+  } catch {
+    cliPath = ''
+  }
+
+  let projects = derivedProjects
+  try {
+    projects = await loadGcpProjectCatalog(derivedProjects)
+    detected = detected || projects.length > 0
+  } catch {
+    projects = derivedProjects
+  }
+
+  const activeProjectId = activeConfiguration?.projectId || authProjectId
+  const activeProject = projects.find((project) => project.projectId === activeProjectId) ?? null
 
   return {
-    detected: true,
-    cliPath: resolved.path,
+    detected,
+    cliPath,
     activeConfigurationName: activeConfiguration?.name ?? '',
-    activeAccount: activeConfiguration?.account ?? '',
-    activeProjectId: activeConfiguration?.projectId ?? '',
+    activeAccount: activeConfiguration?.account || authAccount,
+    activeProjectId,
     activeRegion: activeConfiguration?.region ?? '',
     activeZone: activeConfiguration?.zone ?? '',
     configurations,
-    projects,
+    projects: mergeProjects(activeProject ? [activeProject] : [], projects),
     locations
   }
 }
 
 export async function listGcpProjects(): Promise<GcpCliProject[]> {
-  const env = await getResolvedProcessEnv({ fresh: true })
-  const resolved = await resolveGcloudCommand(env)
-
-  if (!resolved) {
-    return []
-  }
-
   const fallback = await readGcpConfigFallback().catch(() => ({
     activeConfigurationName: '',
     configurations: [] as GcpCliConfiguration[]
   }))
   const derivedProjects = deriveProjectsFromConfigurations(fallback.configurations)
-  const projectsResult = await runCommand(
-    resolved.command,
-    buildGcloudArgs(['projects', 'list', '--format=value(projectId,name,projectNumber,lifecycleState)', '--page-size=500']),
-    env,
-    20000
-  )
 
-  const cliProjects = parseProjectValueRows(projectsResult.stdout)
-
-  if (!projectsResult.ok && cliProjects.length === 0) {
-    throw buildGcpCliError('loading the project catalog', projectsResult)
-  }
-
-  if (projectsResult.ok && cliProjects.length === 0 && projectsResult.stderr.trim()) {
-    throw buildGcpCliError('loading the project catalog', projectsResult)
-  }
-
-  return mergeProjects(
-    cliProjects,
-    derivedProjects
-  )
+  return loadGcpProjectCatalog(derivedProjects)
 }
 
 export async function listGcpComputeInstances(projectId: string, location: string): Promise<GcpComputeInstanceSummary[]> {
@@ -1094,6 +1402,234 @@ export async function listGcpStorageBuckets(projectId: string, location: string)
   }
 
   return filterStorageBucketsByLocation(cliBuckets, location)
+}
+
+export async function listGcpStorageObjects(projectId: string, bucketName: string, prefix = ''): Promise<GcpStorageObjectSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedBucketName = bucketName.trim()
+  if (!normalizedProjectId || !normalizedBucketName) {
+    return []
+  }
+
+  const env = await getResolvedProcessEnv({ fresh: true })
+  const resolved = await resolveGcloudCommand(env)
+
+  if (!resolved) {
+    return []
+  }
+
+  const objectListArgs = [
+    'storage',
+    'objects',
+    'list',
+    '--bucket',
+    normalizedBucketName,
+    '--format=json'
+  ]
+
+  if (prefix.trim()) {
+    objectListArgs.push('--prefix', prefix.trim())
+  }
+
+  const objectsResult = await runCommand(
+    resolved.command,
+    buildGcloudArgs(objectListArgs),
+    env,
+    20000
+  )
+
+  let records = safeParseList(objectsResult.stdout, (entry) => normalizeStorageObjectRecord(entry, normalizedBucketName))
+
+  if (!objectsResult.ok && records.length === 0) {
+    const fallbackResult = await runCommand(
+      resolved.command,
+      buildGcloudArgs(['storage', 'ls', '--recursive', buildGcsUri(normalizedBucketName, '')]),
+      env,
+      20000
+    )
+    records = parseGcpStorageLsOutput(fallbackResult.stdout, normalizedBucketName)
+
+    if (!fallbackResult.ok && records.length === 0) {
+      throw buildGcpCliError(`listing Cloud Storage objects for bucket "${normalizedBucketName}"`, fallbackResult, 'storage.googleapis.com')
+    }
+
+    if (fallbackResult.ok && records.length === 0 && fallbackResult.stderr.trim()) {
+      throw buildGcpCliError(`listing Cloud Storage objects for bucket "${normalizedBucketName}"`, fallbackResult, 'storage.googleapis.com')
+    }
+  } else if (objectsResult.ok && records.length === 0 && objectsResult.stderr.trim()) {
+    throw buildGcpCliError(`listing Cloud Storage objects for bucket "${normalizedBucketName}"`, objectsResult, 'storage.googleapis.com')
+  }
+
+  return buildGcpStorageObjectSummaries(records, prefix)
+}
+
+export async function getGcpStorageObjectContent(projectId: string, bucketName: string, key: string): Promise<GcpStorageObjectContent> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedBucketName = bucketName.trim()
+  const normalizedKey = key.trim()
+
+  if (!normalizedProjectId || !normalizedBucketName || !normalizedKey) {
+    return { body: '', contentType: guessContentTypeFromKey(normalizedKey) }
+  }
+
+  const env = await getResolvedProcessEnv({ fresh: true })
+  const resolved = await resolveGcloudCommand(env)
+
+  if (!resolved) {
+    return { body: '', contentType: guessContentTypeFromKey(normalizedKey) }
+  }
+
+  const uri = buildGcsUri(normalizedBucketName, normalizedKey)
+  const contentResult = await runCommand(
+    resolved.command,
+    buildGcloudArgs(['storage', 'cat', uri]),
+    env,
+    20000
+  )
+
+  if (!contentResult.ok) {
+    throw buildGcpCliError(`reading Cloud Storage object "${normalizedKey}"`, contentResult, 'storage.googleapis.com')
+  }
+
+  const describeResult = await runCommand(
+    resolved.command,
+    buildGcloudArgs(['storage', 'objects', 'describe', uri, '--format=json']),
+    env,
+    5000
+  )
+  const metadata = safeParseItem(describeResult.stdout, normalizeStorageObjectContentType)
+
+  return {
+    body: contentResult.stdout,
+    contentType: metadata?.contentType || guessContentTypeFromKey(normalizedKey)
+  }
+}
+
+export async function putGcpStorageObjectContent(projectId: string, bucketName: string, key: string, content: string): Promise<void> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedBucketName = bucketName.trim()
+  const normalizedKey = key.trim()
+  if (!normalizedProjectId || !normalizedBucketName || !normalizedKey) {
+    return
+  }
+
+  const env = await getResolvedProcessEnv({ fresh: true })
+  const resolved = await resolveGcloudCommand(env)
+  if (!resolved) {
+    return
+  }
+
+  const tempFile = await createTempGcpStorageFile(normalizedKey, content)
+
+  try {
+    const uploadResult = await runCommand(
+      resolved.command,
+      buildGcloudArgs(['storage', 'cp', tempFile, buildGcsUri(normalizedBucketName, normalizedKey)]),
+      env,
+      20000
+    )
+
+    if (!uploadResult.ok) {
+      throw buildGcpCliError(`writing Cloud Storage object "${normalizedKey}"`, uploadResult, 'storage.googleapis.com')
+    }
+  } finally {
+    await rm(path.dirname(tempFile), { recursive: true, force: true }).catch(() => undefined)
+  }
+}
+
+export async function uploadGcpStorageObject(projectId: string, bucketName: string, key: string, localPath: string): Promise<void> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedBucketName = bucketName.trim()
+  const normalizedKey = key.trim()
+  const normalizedLocalPath = localPath.trim()
+
+  if (!normalizedProjectId || !normalizedBucketName || !normalizedKey || !normalizedLocalPath) {
+    return
+  }
+
+  const env = await getResolvedProcessEnv({ fresh: true })
+  const resolved = await resolveGcloudCommand(env)
+  if (!resolved) {
+    return
+  }
+
+  const uploadResult = await runCommand(
+    resolved.command,
+    buildGcloudArgs(['storage', 'cp', normalizedLocalPath, buildGcsUri(normalizedBucketName, normalizedKey)]),
+    env,
+    20000
+  )
+
+  if (!uploadResult.ok) {
+    throw buildGcpCliError(`uploading Cloud Storage object "${normalizedKey}"`, uploadResult, 'storage.googleapis.com')
+  }
+}
+
+export async function downloadGcpStorageObjectToPath(projectId: string, bucketName: string, key: string): Promise<string> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedBucketName = bucketName.trim()
+  const normalizedKey = key.trim()
+
+  if (!normalizedProjectId || !normalizedBucketName || !normalizedKey) {
+    return ''
+  }
+
+  const fileName = path.basename(normalizedKey) || 'download'
+  const owner = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+  const result = await dialog.showSaveDialog(owner, {
+    defaultPath: fileName,
+    title: 'Save Cloud Storage Object'
+  })
+
+  if (result.canceled || !result.filePath) {
+    return ''
+  }
+
+  const env = await getResolvedProcessEnv({ fresh: true })
+  const resolved = await resolveGcloudCommand(env)
+  if (!resolved) {
+    return ''
+  }
+
+  const downloadResult = await runCommand(
+    resolved.command,
+    buildGcloudArgs(['storage', 'cp', buildGcsUri(normalizedBucketName, normalizedKey), result.filePath]),
+    env,
+    20000
+  )
+
+  if (!downloadResult.ok) {
+    throw buildGcpCliError(`downloading Cloud Storage object "${normalizedKey}"`, downloadResult, 'storage.googleapis.com')
+  }
+
+  return result.filePath
+}
+
+export async function deleteGcpStorageObject(projectId: string, bucketName: string, key: string): Promise<void> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedBucketName = bucketName.trim()
+  const normalizedKey = key.trim()
+
+  if (!normalizedProjectId || !normalizedBucketName || !normalizedKey) {
+    return
+  }
+
+  const env = await getResolvedProcessEnv({ fresh: true })
+  const resolved = await resolveGcloudCommand(env)
+  if (!resolved) {
+    return
+  }
+
+  const deleteResult = await runCommand(
+    resolved.command,
+    buildGcloudArgs(['storage', 'rm', buildGcsUri(normalizedBucketName, normalizedKey)]),
+    env,
+    20000
+  )
+
+  if (!deleteResult.ok) {
+    throw buildGcpCliError(`deleting Cloud Storage object "${normalizedKey}"`, deleteResult, 'storage.googleapis.com')
+  }
 }
 
 export async function listGcpSqlInstances(projectId: string, location: string): Promise<GcpSqlInstanceSummary[]> {
