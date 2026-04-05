@@ -452,6 +452,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('gcp:cloud-storage:object:delete', async (_event, projectId: string, bucketName: string, key: string) =>
     wrap(async () => (await loadGcpSdk()).deleteGcpStorageObject(projectId, bucketName, key))
   )
+  ipcMain.handle('gcp:logging:list', async (_event, projectId: string, location: string, query: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpLogEntries(projectId, location, query))
+  )
   ipcMain.handle('gcp:cloud-sql:list', async (_event, projectId: string, location: string) =>
     wrap(async () => (await loadGcpSdk()).listGcpSqlInstances(projectId, location))
   )

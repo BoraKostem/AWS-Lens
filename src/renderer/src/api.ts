@@ -19,6 +19,7 @@ import type {
   GcpCliContext,
   GcpComputeInstanceSummary,
   GcpGkeClusterSummary,
+  GcpLogQueryResult,
   GcpSqlInstanceSummary,
   GcpStorageObjectContent,
   GcpStorageObjectSummary,
@@ -1191,6 +1192,10 @@ export async function downloadGcpStorageObjectToPath(projectId: string, bucketNa
 
 export async function deleteGcpStorageObject(projectId: string, bucketName: string, key: string): Promise<void> {
   return unwrap((await rawAwsBridge().deleteGcpStorageObject(projectId, bucketName, key)) as Wrapped<void>)
+}
+
+export async function listGcpLogEntries(projectId: string, location: string, query: string): Promise<GcpLogQueryResult> {
+  return unwrap((await rawAwsBridge().listGcpLogEntries(projectId, location, query)) as Wrapped<GcpLogQueryResult>)
 }
 
 export async function listGcpSqlInstances(projectId: string, location: string): Promise<GcpSqlInstanceSummary[]> {

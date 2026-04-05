@@ -19,6 +19,7 @@ import type {
   GcpCliContext,
   GcpComputeInstanceSummary,
   GcpGkeClusterSummary,
+  GcpLogQueryResult,
   GcpSqlInstanceSummary,
   GcpStorageObjectContent,
   GcpStorageObjectSummary,
@@ -50,6 +51,7 @@ import {
   getGcpCliContext,
   listGcpComputeInstances,
   listGcpGkeClusters,
+  listGcpLogEntries,
   listGcpSqlInstances,
   deleteGcpStorageObject,
   downloadGcpStorageObjectToPath,
@@ -277,6 +279,13 @@ const IMPLEMENTED_SCREENS = new Set<ServiceId>([
 ])
 
 const DEFAULT_PROVIDER_ID: CloudProviderId = 'aws'
+
+const GCP_LOGGING_PRESETS = [
+  { id: 'errors', label: 'Errors 24h', query: 'severity>=ERROR' },
+  { id: 'compute', label: 'Compute', query: 'resource.type="gce_instance"' },
+  { id: 'gke', label: 'GKE', query: 'resource.type="k8s_cluster" OR resource.type="k8s_container"' },
+  { id: 'sql', label: 'Cloud SQL', query: 'resource.type="cloudsql_database" OR logName:"cloudsql"' }
+] as const
 
 const PROVIDER_CONNECTION_MODES: Record<CloudProviderId, ProviderConnectionMode[]> = {
   aws: [
@@ -1948,6 +1957,295 @@ function GcpCloudSqlConsole({
           </div>
         </section>
       )}
+    </>
+  )
+}
+
+function GcpLoggingConsole({
+  projectId,
+  location,
+  refreshNonce,
+  onRunTerminalCommand,
+  canRunTerminalCommand
+}: {
+  projectId: string
+  location: string
+  refreshNonce: number
+  onRunTerminalCommand: (command: string) => void
+  canRunTerminalCommand: boolean
+}) {
+  const storageKey = `cloud-lens:gcp-logging-saved:${projectId}`
+  const [queryDraft, setQueryDraft] = useState('')
+  const [appliedQuery, setAppliedQuery] = useState('')
+  const [savedQueries, setSavedQueries] = useState<string[]>([])
+  const [result, setResult] = useState<GcpLogQueryResult | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const [lastLoadedAt, setLastLoadedAt] = useState('')
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(storageKey)
+      if (!raw) {
+        setSavedQueries([])
+        return
+      }
+
+      const parsed = JSON.parse(raw)
+      setSavedQueries(Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : [])
+    } catch {
+      setSavedQueries([])
+    }
+  }, [storageKey])
+
+  useEffect(() => {
+    let cancelled = false
+
+    setLoading(true)
+    setError('')
+
+    void listGcpLogEntries(projectId, location, appliedQuery)
+      .then((nextResult) => {
+        if (cancelled) {
+          return
+        }
+
+        setResult(nextResult)
+        setLastLoadedAt(new Date().toISOString())
+      })
+      .catch((err) => {
+        if (cancelled) {
+          return
+        }
+
+        setError(err instanceof Error ? err.message : String(err))
+        setResult(null)
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [appliedQuery, location, projectId, refreshNonce])
+
+  const locationLabel = location.trim() || 'global'
+  const lastLoadedLabel = lastLoadedAt ? new Date(lastLoadedAt).toLocaleTimeString() : 'Pending'
+  const topSeverity = result?.severityCounts[0]?.label || 'n/a'
+  const errorCount = result?.severityCounts
+    .filter((entry) => ['ALERT', 'CRITICAL', 'EMERGENCY', 'ERROR'].includes(entry.label.toUpperCase()))
+    .reduce((sum, entry) => sum + entry.count, 0) ?? 0
+  const warningCount = result?.severityCounts
+    .filter((entry) => entry.label.toUpperCase() === 'WARNING')
+    .reduce((sum, entry) => sum + entry.count, 0) ?? 0
+  const topResources = result?.resourceTypeCounts.slice(0, 3).map((entry) => `${entry.label} (${entry.count})`).join(', ') || 'No resource facets yet'
+  const escapedTerminalFilter = (result?.query || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  const rerunCommand = `gcloud logging read --project ${projectId} --limit=50 --format=json "${escapedTerminalFilter}"`
+  const enableAction = error ? getGcpApiEnableAction(
+    error,
+    `gcloud services enable logging.googleapis.com --project ${projectId}`,
+    `Cloud Logging API is disabled for project ${projectId}.`
+  ) : null
+
+  function persistSavedQueries(nextQueries: string[]): void {
+    setSavedQueries(nextQueries)
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(nextQueries))
+    } catch {
+      // Ignore persistence failures and keep the current in-memory state.
+    }
+  }
+
+  function handleSaveInvestigation(): void {
+    const normalized = queryDraft.trim()
+    if (!normalized) {
+      return
+    }
+
+    const nextQueries = [normalized, ...savedQueries.filter((entry) => entry !== normalized)].slice(0, 6)
+    persistSavedQueries(nextQueries)
+    setMessage('Investigation saved.')
+  }
+
+  return (
+    <>
+      {message ? <div className="s3-msg s3-msg-ok">{message}<button type="button" className="s3-msg-close" onClick={() => setMessage('')}>x</button></div> : null}
+      <section className="panel stack">
+        <div className="catalog-page-header">
+          <div>
+            <div className="eyebrow">Cloud Logging</div>
+            <h3>{projectId}</h3>
+            <p>Query recent logs with project and location context, save investigations, and rerun exact filters in the provider terminal.</p>
+          </div>
+          <div className="hero-connection">
+            <div className="connection-summary">
+              <span>Project</span>
+              <strong>{projectId}</strong>
+            </div>
+            <div className="connection-summary">
+              <span>Location lens</span>
+              <strong>{locationLabel}</strong>
+            </div>
+            <div className="connection-summary">
+              <span>Last sync</span>
+              <strong>{loading ? 'Syncing...' : lastLoadedLabel}</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section className="panel stack">
+        <div className="catalog-page-header">
+          <div>
+            <div className="eyebrow">Investigation Query</div>
+            <h3>{result?.query ? 'Custom filter applied' : 'Recent logs across the last 24 hours'}</h3>
+            <p className="hero-path">Add a Logging filter expression to narrow results. The location lens is always applied on top of the last-24-hours window.</p>
+          </div>
+          <div className="button-row">
+            <button type="button" className="accent" onClick={() => setAppliedQuery(queryDraft.trim())}>Run query</button>
+            <button type="button" onClick={() => { setQueryDraft(''); setAppliedQuery('') }}>Reset</button>
+            <button type="button" disabled={!queryDraft.trim()} onClick={handleSaveInvestigation}>Save investigation</button>
+            <button
+              type="button"
+              disabled={!canRunTerminalCommand}
+              onClick={() => onRunTerminalCommand(rerunCommand)}
+              title={canRunTerminalCommand ? rerunCommand : 'Switch to Operator mode to enable terminal actions'}
+            >
+              Rerun in terminal
+            </button>
+          </div>
+        </div>
+        <textarea
+          value={queryDraft}
+          onChange={(event) => setQueryDraft(event.target.value)}
+          placeholder={'severity>=ERROR\nresource.type="gce_instance"'}
+          style={{ width: '100%', minHeight: 96, borderRadius: 18, padding: '14px 16px', background: 'rgba(11,17,26,0.82)', color: '#d7e1ea', border: '1px solid rgba(138,255,181,0.14)' }}
+        />
+        <div className="button-row" style={{ flexWrap: 'wrap' }}>
+          {GCP_LOGGING_PRESETS.map((preset) => (
+            <button key={preset.id} type="button" onClick={() => { setQueryDraft(preset.query); setAppliedQuery(preset.query) }}>
+              {preset.label}
+            </button>
+          ))}
+          {savedQueries.map((savedQuery) => (
+            <button key={savedQuery} type="button" onClick={() => { setQueryDraft(savedQuery); setAppliedQuery(savedQuery) }}>
+              Saved: {savedQuery.length > 28 ? `${savedQuery.slice(0, 28)}...` : savedQuery}
+            </button>
+          ))}
+        </div>
+      </section>
+      {error ? (
+        <section className="panel stack">
+          {enableAction ? (
+            <div className="error-banner gcp-enable-error-banner">
+              <div className="gcp-enable-error-copy">
+                <strong>{enableAction.summary}</strong>
+                <p>
+                  {canRunTerminalCommand
+                    ? 'Run the enable command in the terminal, wait for propagation, then refresh the query.'
+                    : 'Switch Settings > Access Mode to Operator to enable terminal actions for this command.'}
+                </p>
+              </div>
+              <div className="gcp-enable-error-actions">
+                <button
+                  type="button"
+                  className="accent"
+                  disabled={!canRunTerminalCommand}
+                  onClick={() => onRunTerminalCommand(enableAction.command)}
+                  title={canRunTerminalCommand ? enableAction.command : 'Switch to Operator mode to enable terminal actions'}
+                >
+                  Run enable command in terminal
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="error-banner">{error}</div>
+          )}
+        </section>
+      ) : loading ? (
+        <section className="panel stack">
+          <div className="profile-catalog-empty">
+            <div className="eyebrow">Loading</div>
+            <h3>Running Cloud Logging query</h3>
+            <p className="hero-path">Reading the latest log entries from the active Google credentials for {projectId}.</p>
+          </div>
+        </section>
+      ) : result && result.entries.length === 0 ? (
+        <section className="panel stack">
+          <div className="profile-catalog-empty">
+            <div className="eyebrow">No Matches</div>
+            <h3>No log entries matched the current filter</h3>
+            <p className="hero-path">Try a broader query, switch location lens, or clear the custom filter to inspect the last 24 hours.</p>
+          </div>
+        </section>
+      ) : result ? (
+        <>
+          <section className="panel stack">
+            <div className="profile-catalog-grid">
+              <article className="profile-catalog-card">
+                <div className="profile-catalog-status"><span>Entries</span><strong>{result.entries.length}</strong></div>
+                <div className="project-card-title">Recent signals</div>
+                <div className="hero-path" style={{ marginTop: 12 }}>Top severity: {topSeverity}<br />Errors: {errorCount}<br />Warnings: {warningCount}</div>
+              </article>
+              <article className="profile-catalog-card">
+                <div className="profile-catalog-status"><span>Resources</span><strong>{result.resourceTypeCounts.length}</strong></div>
+                <div className="project-card-title">Resource posture</div>
+                <div className="hero-path" style={{ marginTop: 12 }}>{topResources}</div>
+              </article>
+              <article className="profile-catalog-card">
+                <div className="profile-catalog-status"><span>Filter</span><strong>{result.query ? 'Custom' : 'Default'}</strong></div>
+                <div className="project-card-title">Applied query</div>
+                <div className="hero-path" style={{ marginTop: 12 }}>{result.query || 'timestamp >= "-24h" + location lens'}</div>
+              </article>
+            </div>
+          </section>
+          <section className="panel stack">
+            <div className="catalog-page-header">
+              <div>
+                <div className="eyebrow">Recent Entries</div>
+                <h3>{result.entries.length} log entr{result.entries.length === 1 ? 'y' : 'ies'}</h3>
+                <p className="hero-path">Most recent Cloud Logging results for the selected project and location context.</p>
+              </div>
+            </div>
+            <div className="profile-catalog-grid">
+              {result.entries.map((entry) => {
+                const entryFilter = `insertId="${entry.insertId.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+                const inspectCommand = `gcloud logging read --project ${projectId} --limit=1 --format=json "${entryFilter}"`
+
+                return (
+                  <article key={`${entry.insertId}:${entry.timestamp}`} className="profile-catalog-card">
+                    <div className="profile-catalog-status">
+                      <span>{entry.resourceType}</span>
+                      <strong>{entry.severity}</strong>
+                    </div>
+                    <div className="project-card-title">{entry.logName}</div>
+                    <div className="hero-path" style={{ marginTop: 12 }}>
+                      {entry.summary}
+                      <br />
+                      {entry.timestamp ? new Date(entry.timestamp).toLocaleString() : 'Timestamp unavailable'}
+                      <br />
+                      Insert ID: {entry.insertId}
+                    </div>
+                    <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+                      <button
+                        type="button"
+                        disabled={!canRunTerminalCommand}
+                        onClick={() => onRunTerminalCommand(inspectCommand)}
+                        title={canRunTerminalCommand ? inspectCommand : 'Switch to Operator mode to enable terminal actions'}
+                      >
+                        Read in terminal
+                      </button>
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
+          </section>
+        </>
+      ) : null}
     </>
   )
 }
@@ -4382,6 +4680,24 @@ export function App() {
           projectId={activeGcpConnectionDraft.projectId.trim()}
           location={activeGcpConnectionDraft.location.trim()}
           refreshNonce={pageRefreshNonceByScreen['gcp-gke'] ?? 0}
+          onRunTerminalCommand={handleOpenTerminalCommand}
+          canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+        />
+      )
+    }
+
+    if (
+      activeProviderId === 'gcp'
+      && targetScreen === 'gcp-logging'
+      && targetService?.id === 'gcp-logging'
+      && gcpContextReady
+      && activeGcpConnectionDraft
+    ) {
+      return (
+        <GcpLoggingConsole
+          projectId={activeGcpConnectionDraft.projectId.trim()}
+          location={activeGcpConnectionDraft.location.trim()}
+          refreshNonce={pageRefreshNonceByScreen['gcp-logging'] ?? 0}
           onRunTerminalCommand={handleOpenTerminalCommand}
           canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
         />

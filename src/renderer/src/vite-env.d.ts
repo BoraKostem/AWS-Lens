@@ -99,6 +99,7 @@ declare global {
       uploadGcpStorageObject: (projectId: string, bucketName: string, key: string, localPath: string) => Promise<unknown>
       downloadGcpStorageObjectToPath: (projectId: string, bucketName: string, key: string) => Promise<unknown>
       deleteGcpStorageObject: (projectId: string, bucketName: string, key: string) => Promise<unknown>
+      listGcpLogEntries: (projectId: string, location: string, query: string) => Promise<unknown>
       listGcpSqlInstances: (projectId: string, location: string) => Promise<unknown>
       checkForAppUpdates: () => Promise<unknown>
       downloadAppUpdate: () => Promise<unknown>

@@ -7,6 +7,9 @@ import { google } from 'googleapis'
 import type {
   GcpComputeInstanceSummary,
   GcpGkeClusterSummary,
+  GcpLogEntrySummary,
+  GcpLogFacetCount,
+  GcpLogQueryResult,
   GcpSqlInstanceSummary,
   GcpStorageBucketSummary,
   GcpStorageObjectContent,
@@ -388,6 +391,124 @@ function normalizeSqlInstance(entry: unknown): GcpSqlInstanceSummary | null {
   }
 }
 
+function stringifyLogPayload(value: unknown): string {
+  if (typeof value === 'string') {
+    return value.trim()
+  }
+
+  if (!value || typeof value !== 'object') {
+    return ''
+  }
+
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return ''
+  }
+}
+
+function summarizeLogName(value: string): string {
+  const normalized = value.trim()
+  if (!normalized) {
+    return 'Unknown log'
+  }
+
+  const decoded = normalized.replace(/^projects\/[^/]+\/logs\//, '')
+  try {
+    return decodeURIComponent(decoded)
+  } catch {
+    return decoded
+  }
+}
+
+function buildLogSummary(entry: Record<string, unknown>): string {
+  const candidates = [
+    asString(entry.textPayload),
+    stringifyLogPayload(entry.jsonPayload),
+    stringifyLogPayload(entry.protoPayload)
+  ].filter(Boolean)
+
+  const summary = candidates[0] ?? ''
+  return summary.length > 280 ? `${summary.slice(0, 277)}...` : summary
+}
+
+function normalizeLogEntry(entry: unknown): GcpLogEntrySummary | null {
+  if (!entry || typeof entry !== 'object') {
+    return null
+  }
+
+  const record = entry as Record<string, unknown>
+  const resource = (record.resource && typeof record.resource === 'object'
+    ? record.resource
+    : {}) as Record<string, unknown>
+  const insertId = asString(record.insertId)
+  const timestamp = asString(record.timestamp) || asString(record.receiveTimestamp)
+  const severity = asString(record.severity) || 'DEFAULT'
+  const resourceType = asString(resource.type) || 'global'
+  const logName = summarizeLogName(asString(record.logName))
+  const summary = buildLogSummary(record)
+
+  if (!insertId && !timestamp && !summary) {
+    return null
+  }
+
+  return {
+    insertId: insertId || `${timestamp}:${logName}`,
+    timestamp,
+    severity,
+    resourceType,
+    logName,
+    summary: summary || 'Structured log entry without preview text.'
+  }
+}
+
+function toFacetCounts(values: string[]): GcpLogFacetCount[] {
+  const counts = new Map<string, number>()
+
+  for (const value of values) {
+    const label = value.trim() || 'unknown'
+    counts.set(label, (counts.get(label) ?? 0) + 1)
+  }
+
+  return [...counts.entries()]
+    .map(([label, count]) => ({ label, count }))
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label))
+}
+
+function escapeLoggingFilterValue(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
+
+function buildLocationAwareLogFilter(location: string): string {
+  const normalizedLocation = location.trim().toLowerCase()
+  if (!normalizedLocation || normalizedLocation === 'global') {
+    return ''
+  }
+
+  const clauses = GCP_ZONE_PATTERN.test(normalizedLocation)
+    ? [
+        `resource.labels.zone="${escapeLoggingFilterValue(normalizedLocation)}"`,
+        `resource.labels.location="${escapeLoggingFilterValue(normalizedLocation)}"`
+      ]
+    : [
+        `resource.labels.region="${escapeLoggingFilterValue(normalizedLocation)}"`,
+        `resource.labels.location="${escapeLoggingFilterValue(normalizedLocation)}"`,
+        `resource.labels.zone:"${escapeLoggingFilterValue(`${normalizedLocation}-`)}"`
+      ]
+
+  return `(${clauses.join(' OR ')})`
+}
+
+function buildGcpLogFilter(location: string, query: string): string {
+  const normalizedQuery = query.trim()
+  const normalizedLocationFilter = buildLocationAwareLogFilter(location)
+  const freshnessFilter = 'timestamp >= "-24h"'
+
+  return [freshnessFilter, normalizedLocationFilter, normalizedQuery]
+    .filter(Boolean)
+    .join(' AND ')
+}
+
 function filterStorageBucketsByLocation(buckets: GcpStorageBucketSummary[], location: string): GcpStorageBucketSummary[] {
   const normalizedLocation = location.trim().toLowerCase()
   if (!normalizedLocation || normalizedLocation === 'global') {
@@ -731,6 +852,46 @@ export async function deleteGcpStorageObject(projectId: string, bucketName: stri
     })
   } catch (error) {
     throw buildGcpSdkError(`deleting Cloud Storage object "${normalizedKey}"`, error, 'storage.googleapis.com')
+  }
+}
+
+export async function listGcpLogEntries(projectId: string, location: string, query: string): Promise<GcpLogQueryResult> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) {
+    return {
+      query: '',
+      entries: [],
+      severityCounts: [],
+      resourceTypeCounts: []
+    }
+  }
+
+  const appliedFilter = buildGcpLogFilter(location, query)
+
+  try {
+    const auth = getGcpAuth(normalizedProjectId)
+    const logging = google.logging({ version: 'v2' as never, auth: auth as never })
+    const response = await logging.entries.list({
+      requestBody: {
+        resourceNames: [`projects/${normalizedProjectId}`],
+        orderBy: 'timestamp desc',
+        pageSize: 100,
+        filter: appliedFilter
+      }
+    } as never)
+
+    const entries = ((response.data.entries as unknown[]) ?? [])
+      .map((entry) => normalizeLogEntry(entry))
+      .filter((entry): entry is GcpLogEntrySummary => entry !== null)
+
+    return {
+      query: appliedFilter,
+      entries,
+      severityCounts: toFacetCounts(entries.map((entry) => entry.severity)),
+      resourceTypeCounts: toFacetCounts(entries.map((entry) => entry.resourceType))
+    }
+  } catch (error) {
+    throw buildGcpSdkError(`querying Cloud Logging entries for project "${normalizedProjectId}"`, error, 'logging.googleapis.com')
   }
 }
 

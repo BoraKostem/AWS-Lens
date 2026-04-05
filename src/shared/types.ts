@@ -618,6 +618,27 @@ export type GcpSqlInstanceSummary = {
   maintenanceWindow: string
 }
 
+export type GcpLogEntrySummary = {
+  insertId: string
+  timestamp: string
+  severity: string
+  resourceType: string
+  logName: string
+  summary: string
+}
+
+export type GcpLogFacetCount = {
+  label: string
+  count: number
+}
+
+export type GcpLogQueryResult = {
+  query: string
+  entries: GcpLogEntrySummary[]
+  severityCounts: GcpLogFacetCount[]
+  resourceTypeCounts: GcpLogFacetCount[]
+}
+
 export type Ec2SsmStatus = 'managed-online' | 'managed-offline' | 'not-managed'
 
 export type SsmManagedInstanceSummary = {
