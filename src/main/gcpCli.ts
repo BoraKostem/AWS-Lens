@@ -930,6 +930,73 @@ async function listGcpProjectsViaSdk(): Promise<GcpCliProject[]> {
   return projects
 }
 
+async function listGcpProjectsViaCli(): Promise<GcpCliProject[]> {
+  const env = await getResolvedProcessEnv({ fresh: true })
+  const resolved = await resolveGcloudCommand(env)
+
+  if (!resolved) {
+    return []
+  }
+
+  const projectsResult = await runCommand(
+    resolved.command,
+    buildGcloudArgs([
+      'projects',
+      'list',
+      '--format=json'
+    ]),
+    env,
+    30000
+  )
+
+  const cliProjects = safeParseList(projectsResult.stdout, normalizeProject)
+
+  if (!projectsResult.ok && cliProjects.length === 0) {
+    throw buildGcpCliError('loading the project catalog', projectsResult, 'cloudresourcemanager.googleapis.com')
+  }
+
+  if (projectsResult.ok && cliProjects.length === 0 && projectsResult.stderr.trim()) {
+    throw buildGcpCliError('loading the project catalog', projectsResult, 'cloudresourcemanager.googleapis.com')
+  }
+
+  return cliProjects
+}
+
+async function loadGcpProjectCatalog(derivedProjects: GcpCliProject[]): Promise<GcpCliProject[]> {
+  let sdkProjects: GcpCliProject[] = []
+  let sdkError: unknown = null
+
+  try {
+    sdkProjects = await listGcpProjectsViaSdk()
+  } catch (error) {
+    sdkError = error
+  }
+
+  let cliProjects: GcpCliProject[] = []
+  let cliError: unknown = null
+
+  try {
+    cliProjects = await listGcpProjectsViaCli()
+  } catch (error) {
+    cliError = error
+  }
+
+  const mergedProjects = mergeProjects(cliProjects, sdkProjects, derivedProjects)
+  if (mergedProjects.length > derivedProjects.length || mergedProjects.length > 0) {
+    return mergedProjects
+  }
+
+  if (sdkError) {
+    throw buildGcpSdkError('loading the project catalog', sdkError, 'cloudresourcemanager.googleapis.com')
+  }
+
+  if (cliError) {
+    throw cliError instanceof Error ? cliError : new Error(String(cliError))
+  }
+
+  return derivedProjects
+}
+
 function safeParseList<T>(value: string, normalize: (entry: unknown) => T | null): T[] {
   if (!value.trim()) {
     return []
@@ -1170,9 +1237,8 @@ export async function getGcpCliContext(): Promise<GcpCliContext> {
   )
   let projects = derivedProjects
   try {
-    const sdkProjects = await listGcpProjectsViaSdk()
-    projects = mergeProjects(sdkProjects, derivedProjects)
-    detected = detected || sdkProjects.length > 0
+    projects = await loadGcpProjectCatalog(derivedProjects)
+    detected = detected || projects.length > 0
   } catch {
     projects = derivedProjects
   }
@@ -1201,16 +1267,7 @@ export async function listGcpProjects(): Promise<GcpCliProject[]> {
   }))
   const derivedProjects = deriveProjectsFromConfigurations(fallback.configurations)
 
-  try {
-    const sdkProjects = await listGcpProjectsViaSdk()
-    return mergeProjects(sdkProjects, derivedProjects)
-  } catch (error) {
-    if (derivedProjects.length > 0) {
-      return derivedProjects
-    }
-
-    throw buildGcpSdkError('loading the project catalog', error, 'cloudresourcemanager.googleapis.com')
-  }
+  return loadGcpProjectCatalog(derivedProjects)
 }
 
 export async function listGcpComputeInstances(projectId: string, location: string): Promise<GcpComputeInstanceSummary[]> {
