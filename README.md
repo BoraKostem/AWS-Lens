@@ -231,6 +231,7 @@ AWS Lens includes a dedicated compare mode for side-by-side inspection of two AW
 - Save reusable compare presets from both Compare Workspace and Session Hub, including saved assume-role targets as stable context references
 - Save, reload, and delete local compare baselines for repeat review against the same context pair
 - Track compliance delta summaries alongside the existing detailed posture rows
+- Compare policy-pack-level compliance deltas, including finding counts, focus, coverage, and expectation differences between two contexts
 - Filter results by focus area: security, compute, networking, storage, drift/compliance, and cost
 - Switch between grouped and flat diff tables
 - Open the relevant service console directly from a selected diff row
@@ -247,8 +248,12 @@ In practice, the Compliance Center acts as an operations queue:
 - Summarizes total findings and the current high/medium/low distribution
 - Organizes findings by category: security, compliance, operations, and cost
 - Supports filtering by severity, category, service, and free-text search
+- Defines local governance policy packs for tagging defaults, encryption baseline, public exposure guardrails, and backup resilience
+- Adds finding workflow metadata: owner, status, accepted risk, snooze-until, and last-reviewed tracking
+- Normalizes Terraform governance results into the same high/medium/low severity model used by AWS-native findings
 - Surfaces collection warnings when AWS APIs do not return complete data
-- Provides guided remediation actions, including navigation into the relevant service workspace, terminal-driven fixes, and Secrets Manager rotation actions
+- Provides guided remediation actions, including navigation into the relevant service workspace, copy-only remediation templates, and Secrets Manager rotation actions
+- Exports filtered remediation reports as Markdown for handoff, review, or offline follow-up
 
 ### Service Consoles
 
@@ -362,6 +367,15 @@ Session Hub also ships terminal-ready command templates so operators can send co
 - Saved role targets now include environment, critical-access classification, freeform tags, and last-used tracking to make high-risk cross-account roles easier to manage
 - Assume-role failures now distinguish common STS causes such as trust or permission denial, missing roles, MFA requirements, malformed requests, and external-ID mismatch
 - Session Hub can now send context-aware `aws`, `kubectl`, `terraform`, and shell-debug command templates directly into the embedded terminal
+
+### Feature `v1.6.0` Highlights
+
+- Compliance Center now defines local governance policy packs for tagging defaults, encryption baseline, public exposure guardrails, and backup resilience
+- Findings now carry workflow metadata including owner, status, accepted risk, snooze-until, and last-reviewed state
+- Compare Workspace now shows policy-pack-aware compliance deltas so two contexts can be compared at both finding and baseline level
+- Compliance findings now include service-specific remediation templates with safe copy-only command handoff instead of direct execution
+- Terraform governance results now normalize into the same high/medium/low severity model as AWS-native compliance findings
+- Filtered findings can now be exported as Markdown remediation reports for review, handoff, or offline follow-up
 
 ---
 
