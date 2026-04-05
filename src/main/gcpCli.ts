@@ -1220,6 +1220,7 @@ export async function getGcpCliContext(): Promise<GcpCliContext> {
   let authProjectId = ''
   let authAccount = ''
   let detected = configurations.length > 0
+  let cliPath = ''
 
   try {
     authProjectId = (await auth.getProjectId())?.trim() ?? ''
@@ -1235,6 +1236,15 @@ export async function getGcpCliContext(): Promise<GcpCliContext> {
     activeConfiguration?.region ? [activeConfiguration.region] : [],
     activeConfiguration?.zone ? [activeConfiguration.zone] : []
   )
+
+  try {
+    const env = await getResolvedProcessEnv({ fresh: true })
+    cliPath = (await resolveGcloudCommand(env))?.path ?? ''
+    detected = detected || Boolean(cliPath)
+  } catch {
+    cliPath = ''
+  }
+
   let projects = derivedProjects
   try {
     projects = await loadGcpProjectCatalog(derivedProjects)
@@ -1248,7 +1258,7 @@ export async function getGcpCliContext(): Promise<GcpCliContext> {
 
   return {
     detected,
-    cliPath: '',
+    cliPath,
     activeConfigurationName: activeConfiguration?.name ?? '',
     activeAccount: activeConfiguration?.account || authAccount,
     activeProjectId,
