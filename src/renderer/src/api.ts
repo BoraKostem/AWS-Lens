@@ -56,6 +56,8 @@ import type {
   SsmSessionLaunchSpec,
   SsmSessionSummary,
   SsmStartSessionRequest,
+  ComplianceFindingWorkflow,
+  ComplianceFindingWorkflowUpdate,
   ComplianceReport,
   EnterpriseAccessMode,
   EnterpriseAuditEvent,
@@ -313,6 +315,7 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   getOverviewStatistics: 'overview',
   getOverviewAccountContext: 'overview',
   getComplianceReport: 'compliance-center',
+  updateComplianceFindingWorkflow: 'compliance-center',
   getRelationshipMap: 'overview',
   getCostBreakdown: 'overview',
   searchByTag: 'overview',
@@ -1801,6 +1804,14 @@ export async function getOverviewStatistics(connection: AwsConnection): Promise<
 
 export async function getComplianceReport(connection: AwsConnection): Promise<ComplianceReport> {
   return unwrap((await awsBridge().getComplianceReport(connection)) as Wrapped<ComplianceReport>)
+}
+
+export async function updateComplianceFindingWorkflow(
+  connection: AwsConnection,
+  findingId: string,
+  update: ComplianceFindingWorkflowUpdate
+): Promise<ComplianceFindingWorkflow> {
+  return unwrap((await awsBridge().updateComplianceFindingWorkflow(connection, findingId, update)) as Wrapped<ComplianceFindingWorkflow>)
 }
 
 export async function getRelationshipMap(connection: AwsConnection): Promise<RelationshipMap> {

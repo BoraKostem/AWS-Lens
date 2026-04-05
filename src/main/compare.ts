@@ -770,14 +770,71 @@ function buildComplianceDeltaGroup(left: ContextDataset, right: ContextDataset):
     } satisfies ComparisonDiffRow
   })
 
-  const rows = [...metricRows, ...serviceRows]
+  const policyPackKeys = [...new Set([
+    ...left.compliance.policyPacks.map((item) => item.id),
+    ...right.compliance.policyPacks.map((item) => item.id)
+  ])].sort((a, b) => a.localeCompare(b))
+
+  const policyPackRows = policyPackKeys.map((policyPackId) => {
+    const leftPack = left.compliance.policyPacks.find((item) => item.id === policyPackId)
+    const rightPack = right.compliance.policyPacks.find((item) => item.id === policyPackId)
+    const title = leftPack?.title ?? rightPack?.title ?? policyPackId
+    const leftCount = leftPack?.findingCount ?? 0
+    const rightCount = rightPack?.findingCount ?? 0
+    const leftExpectations = leftPack?.expectations.join(' | ') ?? ''
+    const rightExpectations = rightPack?.expectations.join(' | ') ?? ''
+
+    return {
+      id: `compliance:policy-pack:${policyPackId}`,
+      layer: 'posture',
+      section: 'Compliance deltas',
+      title,
+      subtitle: 'Policy pack',
+      status: toStatus(Boolean(leftPack), Boolean(rightPack), leftCount === rightCount && leftExpectations === rightExpectations),
+      risk: Math.max(leftCount, rightCount) >= 3 ? 'medium' : leftCount !== rightCount ? 'low' : 'none',
+      serviceId: 'compliance-center',
+      resourceType: 'Compliance Policy Pack',
+      identityKey: `policy-pack:${policyPackId}`,
+      focusModes: ['security', 'drift-compliance', 'cost'],
+      rationale: 'Policy-pack coverage or finding counts differ between the compared contexts.',
+      left: {
+        value: String(leftCount),
+        secondary: leftPack?.focus.replace(/-/g, ' ') ?? 'Not present'
+      },
+      right: {
+        value: String(rightCount),
+        secondary: rightPack?.focus.replace(/-/g, ' ') ?? 'Not present'
+      },
+      detailFields: fieldDetails(
+        leftPack ? {
+          findings: String(leftCount),
+          focus: leftPack.focus,
+          resource_types: leftPack.resourceTypes.join(', '),
+          expectations: leftExpectations
+        } : undefined,
+        rightPack ? {
+          findings: String(rightCount),
+          focus: rightPack.focus,
+          resource_types: rightPack.resourceTypes.join(', '),
+          expectations: rightExpectations
+        } : undefined
+      ),
+      navigation: {
+        serviceId: 'compliance-center',
+        region: left.descriptor.region,
+        resourceLabel: policyPackId
+      }
+    } satisfies ComparisonDiffRow
+  })
+
+  const rows = [...metricRows, ...policyPackRows, ...serviceRows]
 
   return {
     id: 'compliance-deltas',
     label: 'Compliance deltas',
     layer: 'posture',
     focusModes: ['security', 'drift-compliance', 'cost'],
-    coverage: 'partial',
+    coverage: policyPackRows.length > 0 ? 'full' : 'partial',
     counts: statusCounts(rows),
     rows: sortRows(rows)
   }
