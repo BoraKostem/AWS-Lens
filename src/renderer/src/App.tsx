@@ -1750,13 +1750,9 @@ export function App() {
   const isCurrentScreenRefreshing = refreshState?.screen === screen
   const prefersSoftRefresh = SOFT_REFRESH_SCREENS.has(screen)
   const showCatalogFab = screen === 'profiles' && !showEnvironmentOnboarding && isAwsProviderActive
-  const terminalToggleEnabled = enterpriseSettings.accessMode === 'operator' && (
-    isAwsProviderActive
-      ? activeShellConnected
-      : activeProviderId === 'gcp'
-        ? gcpContextReady
-        : selectedPreviewMode !== null
-  )
+  const terminalToggleEnabled = isAwsProviderActive
+    ? enterpriseSettings.accessMode === 'operator' && activeShellConnected
+    : providerTerminalTarget !== null
   const connectionScopeKey = activeShellConnection
     ? `${activeProviderId}:${activeShellConnection.sessionId}:${activeShellConnection.region}`
       : activeProviderId === 'gcp' && selectedPreviewMode && activeGcpConnectionDraft
@@ -2252,10 +2248,10 @@ export function App() {
   }, [fabMode, showCatalogFab])
 
   useEffect(() => {
-    if (enterpriseSettings.accessMode !== 'operator' && terminalOpen) {
+    if (isAwsProviderActive && enterpriseSettings.accessMode !== 'operator' && terminalOpen) {
       setTerminalOpen(false)
     }
-  }, [enterpriseSettings.accessMode, terminalOpen])
+  }, [enterpriseSettings.accessMode, isAwsProviderActive, terminalOpen])
 
   useEffect(() => {
     if (!terminalToggleEnabled && terminalOpen) {
@@ -3940,7 +3936,7 @@ export function App() {
                     : `Select a ${activeProvider.label} connection mode before opening the terminal.`}
           </span>
         </div>
-        {enterpriseSettings.accessMode === 'operator' && (
+        {(isAwsProviderActive ? enterpriseSettings.accessMode === 'operator' : providerTerminalTarget !== null) && (
           <button
             type="button"
             className="accent footer-terminal-toggle"
