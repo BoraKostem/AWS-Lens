@@ -54,6 +54,48 @@ function outputIndicatesMissingCommand(output: string): boolean {
     || normalized.includes('no such file or directory')
 }
 
+function outputIndicatesAuthIssue(output: string): boolean {
+  const normalized = output.toLowerCase()
+  return normalized.includes('gcloud auth login')
+    || normalized.includes('gcloud auth application-default login')
+    || normalized.includes('reauth')
+    || normalized.includes('re-auth')
+    || normalized.includes('not have an active account')
+    || normalized.includes('no active account')
+    || normalized.includes('login required')
+    || normalized.includes('invalid_grant')
+    || normalized.includes('unauthorized')
+    || normalized.includes('permission_denied')
+    || normalized.includes('access token')
+    || normalized.includes('credentials')
+}
+
+function summarizeCliFailure(output: string): string {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 3)
+    .join(' ')
+}
+
+function buildGcpCliError(label: string, result: CommandResult): Error {
+  const output = summarizeOutput(result.stdout, result.stderr)
+  const detail = summarizeCliFailure(output)
+
+  if (outputIndicatesAuthIssue(output)) {
+    return new Error(
+      `Google Cloud CLI authorization failed while ${label}. Run "gcloud auth login" or refresh your current credentials, then try again.${detail ? ` ${detail}` : ''}`
+    )
+  }
+
+  if (result.code === 'ETIMEDOUT') {
+    return new Error(`Google Cloud CLI timed out while ${label}. Try again after the CLI finishes authenticating or checking your organization access.`)
+  }
+
+  return new Error(`Google Cloud CLI failed while ${label}.${detail ? ` ${detail}` : ''}`)
+}
+
 function isWindowsBatchCommand(command: string): boolean {
   if (process.platform !== 'win32') {
     return false
@@ -454,6 +496,14 @@ export async function listGcpProjects(): Promise<GcpCliProject[]> {
 
   const activeProject = safeParseItem(activeProjectResult.stdout, normalizeProject)
   const cliProjects = safeParseList(projectsResult.stdout, normalizeProject)
+
+  if (!projectsResult.ok && cliProjects.length === 0) {
+    throw buildGcpCliError('loading the project catalog', projectsResult)
+  }
+
+  if (projectsResult.ok && cliProjects.length === 0 && projectsResult.stderr.trim()) {
+    throw buildGcpCliError('loading the project catalog', projectsResult)
+  }
 
   return mergeProjects(
     activeProject ? [activeProject] : [],

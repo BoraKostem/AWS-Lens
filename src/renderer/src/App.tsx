@@ -2755,7 +2755,9 @@ export function App() {
                       <span>GCP catalog</span>
                       <strong>{gcpCliContext?.detected ? detectedGcpProjectCount : 0}</strong>
                       <small>
-                        {gcpCliBusy && !gcpCliContext?.detected
+                        {gcpCliError
+                          ? gcpCliError
+                          : gcpCliBusy && !gcpCliContext?.detected
                           ? 'Loading gcloud catalog from the active CLI session.'
                           : gcpProjectCatalogBusy
                             ? 'Syncing the full Google Cloud project catalog in the background.'
@@ -2840,6 +2842,8 @@ export function App() {
                     <div className="eyebrow">
                       {gcpCliBusy
                         ? 'Loading gcloud'
+                        : gcpCliError
+                          ? 'Gcloud error'
                         : gcpProjectCatalogBusy
                           ? 'Syncing catalog'
                         : gcpCliContext?.detected
@@ -2851,6 +2855,8 @@ export function App() {
                     <h3>
                       {gcpCliBusy
                         ? 'Loading Google Cloud projects'
+                        : gcpCliError
+                          ? 'Google Cloud project catalog failed'
                         : gcpProjectCatalogBusy
                           ? 'Syncing Google Cloud projects'
                         : gcpCliContext?.detected
@@ -2862,6 +2868,8 @@ export function App() {
                     <p className="hero-path">
                       {gcpCliBusy
                         ? 'Importing projects from the active gcloud session.'
+                        : gcpCliError
+                          ? gcpCliError
                         : gcpProjectCatalogBusy
                           ? 'The current project context is ready. The full Google Cloud project catalog is still syncing.'
                         : gcpCliContext?.detected
