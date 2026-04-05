@@ -3,7 +3,14 @@ import os from 'node:os'
 import path from 'node:path'
 import { readFile, readdir } from 'node:fs/promises'
 
-import type { GcpCliConfiguration, GcpCliContext, GcpCliProject, GcpComputeInstanceSummary, GcpGkeClusterSummary } from '@shared/types'
+import type {
+  GcpCliConfiguration,
+  GcpCliContext,
+  GcpCliProject,
+  GcpComputeInstanceSummary,
+  GcpGkeClusterSummary,
+  GcpStorageBucketSummary
+} from '@shared/types'
 import { getResolvedProcessEnv, resolveExecutablePath } from './shell'
 import { listToolCommandCandidates } from './toolchain'
 
@@ -275,6 +282,23 @@ function asString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+function asBoolean(value: unknown): boolean {
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    return normalized === 'true' || normalized === 'yes' || normalized === '1' || normalized === 'enabled'
+  }
+
+  if (typeof value === 'number') {
+    return value !== 0
+  }
+
+  return false
+}
+
 function normalizeConfiguration(entry: unknown): GcpCliConfiguration | null {
   if (!entry || typeof entry !== 'object') {
     return null
@@ -316,6 +340,55 @@ function normalizeProject(entry: unknown): GcpCliProject | null {
     name: asString(record.name),
     projectNumber: asString(record.projectNumber),
     lifecycleState: asString(record.lifecycleState)
+  }
+}
+
+function normalizeBucketName(value: string): string {
+  const normalized = value.trim()
+  if (!normalized) {
+    return ''
+  }
+
+  return normalized.replace(/^gs:\/\//i, '').replace(/\/+$/, '')
+}
+
+function normalizeStorageBucket(entry: unknown): GcpStorageBucketSummary | null {
+  if (!entry || typeof entry !== 'object') {
+    return null
+  }
+
+  const record = entry as Record<string, unknown>
+  const iamConfiguration = (record.iamConfiguration && typeof record.iamConfiguration === 'object'
+    ? record.iamConfiguration
+    : record.iam_configuration && typeof record.iam_configuration === 'object'
+      ? record.iam_configuration
+      : {}) as Record<string, unknown>
+  const uniformBucketLevelAccess = (iamConfiguration.uniformBucketLevelAccess && typeof iamConfiguration.uniformBucketLevelAccess === 'object'
+    ? iamConfiguration.uniformBucketLevelAccess
+    : iamConfiguration.uniform_bucket_level_access && typeof iamConfiguration.uniform_bucket_level_access === 'object'
+      ? iamConfiguration.uniform_bucket_level_access
+      : {}) as Record<string, unknown>
+  const versioning = (record.versioning && typeof record.versioning === 'object'
+    ? record.versioning
+    : {}) as Record<string, unknown>
+  const labels = record.labels && typeof record.labels === 'object'
+    ? Object.keys(record.labels as Record<string, unknown>)
+    : []
+  const name = normalizeBucketName(asString(record.name) || asString(record.id) || asString(record.bucket))
+
+  if (!name) {
+    return null
+  }
+
+  return {
+    name,
+    location: asString(record.location),
+    locationType: asString(record.locationType) || asString(record.location_type),
+    storageClass: asString(record.storageClass) || asString(record.storage_class),
+    publicAccessPrevention: asString(iamConfiguration.publicAccessPrevention) || asString(iamConfiguration.public_access_prevention),
+    versioningEnabled: asBoolean(versioning.enabled ?? record.versioningEnabled ?? record.versioning_enabled),
+    uniformBucketLevelAccessEnabled: asBoolean(uniformBucketLevelAccess.enabled ?? record.uniformBucketLevelAccessEnabled ?? record.uniform_bucket_level_access_enabled),
+    labelCount: labels.length
   }
 }
 
@@ -598,6 +671,24 @@ function parseGkeClusterValueRows(value: string): GcpGkeClusterSummary[] {
     .filter((entry): entry is GcpGkeClusterSummary => entry !== null)
 }
 
+function filterStorageBucketsByLocation(buckets: GcpStorageBucketSummary[], location: string): GcpStorageBucketSummary[] {
+  const normalizedLocation = location.trim().toLowerCase()
+  if (!normalizedLocation || normalizedLocation === 'global') {
+    return buckets
+  }
+
+  return [...buckets].sort((left, right) => {
+    const leftMatches = left.location.trim().toLowerCase() === normalizedLocation
+    const rightMatches = right.location.trim().toLowerCase() === normalizedLocation
+
+    if (leftMatches !== rightMatches) {
+      return leftMatches ? -1 : 1
+    }
+
+    return left.name.localeCompare(right.name)
+  })
+}
+
 function filterComputeInstancesByLocation(instances: GcpComputeInstanceSummary[], location: string): GcpComputeInstanceSummary[] {
   const normalizedLocation = location.trim().toLowerCase()
   if (!normalizedLocation || normalizedLocation === 'global') {
@@ -859,4 +950,45 @@ export async function listGcpGkeClusters(projectId: string, location: string): P
 
   return filterGkeClustersByLocation(cliClusters, location)
     .sort((left, right) => left.location.localeCompare(right.location) || left.name.localeCompare(right.name))
+}
+
+export async function listGcpStorageBuckets(projectId: string, location: string): Promise<GcpStorageBucketSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) {
+    return []
+  }
+
+  const env = await getResolvedProcessEnv({ fresh: true })
+  const resolved = await resolveGcloudCommand(env)
+
+  if (!resolved) {
+    return []
+  }
+
+  const bucketsResult = await runCommand(
+    resolved.command,
+    buildGcloudArgs([
+      'storage',
+      'buckets',
+      'list',
+      '--project',
+      normalizedProjectId,
+      '--format=json',
+      '--limit=500'
+    ]),
+    env,
+    20000
+  )
+
+  const cliBuckets = safeParseList(bucketsResult.stdout, normalizeStorageBucket)
+
+  if (!bucketsResult.ok && cliBuckets.length === 0) {
+    throw buildGcpCliError(`listing Cloud Storage buckets for project "${normalizedProjectId}"`, bucketsResult, 'storage.googleapis.com')
+  }
+
+  if (bucketsResult.ok && cliBuckets.length === 0 && bucketsResult.stderr.trim()) {
+    throw buildGcpCliError(`listing Cloud Storage buckets for project "${normalizedProjectId}"`, bucketsResult, 'storage.googleapis.com')
+  }
+
+  return filterStorageBucketsByLocation(cliBuckets, location)
 }

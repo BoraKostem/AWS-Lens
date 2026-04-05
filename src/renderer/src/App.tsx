@@ -19,6 +19,7 @@ import type {
   GcpCliContext,
   GcpComputeInstanceSummary,
   GcpGkeClusterSummary,
+  GcpStorageBucketSummary,
   GovernanceTagDefaults,
   NavigationFocus,
   ProviderDescriptor,
@@ -46,6 +47,7 @@ import {
   getGcpCliContext,
   listGcpComputeInstances,
   listGcpGkeClusters,
+  listGcpStorageBuckets,
   listGcpProjects,
   getEnterpriseSettings,
   getGovernanceTagDefaults,
@@ -974,6 +976,206 @@ function GcpGkeConsole({
                 </div>
               </article>
             ))}
+          </div>
+        </section>
+      )}
+    </>
+  )
+}
+
+function GcpCloudStorageConsole({
+  projectId,
+  location,
+  refreshNonce,
+  onRunTerminalCommand,
+  canRunTerminalCommand
+}: {
+  projectId: string
+  location: string
+  refreshNonce: number
+  onRunTerminalCommand: (command: string) => void
+  canRunTerminalCommand: boolean
+}) {
+  const [buckets, setBuckets] = useState<GcpStorageBucketSummary[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [lastLoadedAt, setLastLoadedAt] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+
+    setLoading(true)
+    setError('')
+
+    void listGcpStorageBuckets(projectId, location)
+      .then((nextBuckets) => {
+        if (cancelled) {
+          return
+        }
+
+        setBuckets(nextBuckets)
+        setLastLoadedAt(new Date().toISOString())
+      })
+      .catch((err) => {
+        if (cancelled) {
+          return
+        }
+
+        setError(err instanceof Error ? err.message : String(err))
+        setBuckets([])
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [location, projectId, refreshNonce])
+
+  const normalizedLocation = location.trim().toLowerCase()
+  const locationLabel = location.trim() || 'all locations'
+  const lastLoadedLabel = lastLoadedAt ? new Date(lastLoadedAt).toLocaleTimeString() : 'Pending'
+  const inScopeBuckets = normalizedLocation && normalizedLocation !== 'global'
+    ? buckets.filter((bucket) => bucket.location.trim().toLowerCase() === normalizedLocation).length
+    : buckets.length
+  const enableAction = error ? getGcpApiEnableAction(
+    error,
+    `gcloud services enable storage.googleapis.com --project ${projectId}`,
+    `Cloud Storage API is disabled for project ${projectId}.`
+  ) : null
+
+  return (
+    <>
+      <section className="panel stack">
+        <div className="catalog-page-header">
+          <div>
+            <div className="eyebrow">Cloud Storage</div>
+            <h3>{projectId}</h3>
+            <p>Bucket posture is loaded live from gcloud and aligned against the selected project context and operator location.</p>
+          </div>
+          <div className="hero-connection">
+            <div className="connection-summary">
+              <span>Project</span>
+              <strong>{projectId}</strong>
+            </div>
+            <div className="connection-summary">
+              <span>Location lens</span>
+              <strong>{locationLabel}</strong>
+            </div>
+            <div className="connection-summary">
+              <span>Last sync</span>
+              <strong>{loading ? 'Syncing...' : lastLoadedLabel}</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+      {error ? (
+        <section className="panel stack">
+          {enableAction ? (
+            <div className="error-banner gcp-enable-error-banner">
+              <div className="gcp-enable-error-copy">
+                <strong>{enableAction.summary}</strong>
+                <p>
+                  {canRunTerminalCommand
+                    ? 'Run the enable command in the terminal, wait for propagation, then refresh gcloud.'
+                    : 'Switch Settings > Access Mode to Operator to enable terminal actions for this command.'}
+                </p>
+              </div>
+              <div className="gcp-enable-error-actions">
+                <button
+                  type="button"
+                  className="accent"
+                  disabled={!canRunTerminalCommand}
+                  onClick={() => onRunTerminalCommand(enableAction.command)}
+                  title={canRunTerminalCommand ? enableAction.command : 'Switch to Operator mode to enable terminal actions'}
+                >
+                  Run enable command in terminal
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="error-banner">{error}</div>
+          )}
+          <div className="profile-catalog-empty">
+            <div className="eyebrow">Cloud Storage Access</div>
+            <h3>Bucket inventory could not be loaded</h3>
+            <p className="hero-path">Verify the selected project, enabled APIs, and active gcloud account, then retry the refresh.</p>
+          </div>
+        </section>
+      ) : loading ? (
+        <section className="panel stack">
+          <div className="profile-catalog-empty">
+            <div className="eyebrow">Loading</div>
+            <h3>Importing Cloud Storage buckets</h3>
+            <p className="hero-path">Reading bucket posture from the active gcloud session for {projectId}.</p>
+          </div>
+        </section>
+      ) : buckets.length === 0 ? (
+        <section className="panel stack">
+          <div className="profile-catalog-empty">
+            <div className="eyebrow">No Buckets</div>
+            <h3>No Cloud Storage buckets were found</h3>
+            <p className="hero-path">No buckets were returned for project {projectId}. Refresh gcloud after changing project context or billing access.</p>
+          </div>
+        </section>
+      ) : (
+        <section className="panel stack">
+          <div className="catalog-page-header">
+            <div>
+              <div className="eyebrow">Bucket Inventory</div>
+              <h3>{buckets.length} bucket{buckets.length === 1 ? '' : 's'}</h3>
+              <p>
+                {normalizedLocation && normalizedLocation !== 'global'
+                  ? `${inScopeBuckets} bucket${inScopeBuckets === 1 ? '' : 's'} align exactly with ${locationLabel}; multi-region buckets stay visible for governance review.`
+                  : 'Project-wide bucket posture from the active gcloud session.'}
+              </p>
+            </div>
+          </div>
+          <div className="profile-catalog-grid">
+            {buckets.map((bucket) => {
+              const locationMatches = normalizedLocation && normalizedLocation !== 'global'
+                ? bucket.location.trim().toLowerCase() === normalizedLocation
+                : true
+              const inspectCommand = `gcloud storage buckets describe gs://${bucket.name} --project ${projectId}`
+
+              return (
+                <article key={bucket.name} className="profile-catalog-card">
+                  <div className="profile-catalog-status">
+                    <span>{bucket.location || 'Unknown location'}</span>
+                    <strong>{bucket.storageClass || 'Class unavailable'}</strong>
+                  </div>
+                  <div className="project-card-title">{bucket.name}</div>
+                  <div className="project-card-subtitle">
+                    {bucket.locationType || 'Location type unavailable'}
+                    {normalizedLocation && normalizedLocation !== 'global'
+                      ? ` | ${locationMatches ? 'Aligned with selected context' : 'Outside selected context'}`
+                      : ''}
+                  </div>
+                  <div className="hero-path" style={{ marginTop: 12 }}>
+                    Public access prevention: {bucket.publicAccessPrevention || 'inherited'}
+                    <br />
+                    Uniform access: {bucket.uniformBucketLevelAccessEnabled ? 'enabled' : 'not enforced'}
+                    <br />
+                    Versioning: {bucket.versioningEnabled ? 'enabled' : 'disabled'}
+                    <br />
+                    Labels: {bucket.labelCount}
+                  </div>
+                  <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+                    <button
+                      type="button"
+                      disabled={!canRunTerminalCommand}
+                      onClick={() => onRunTerminalCommand(inspectCommand)}
+                      title={canRunTerminalCommand ? inspectCommand : 'Switch to Operator mode to enable terminal actions'}
+                    >
+                      Inspect in terminal
+                    </button>
+                  </div>
+                </article>
+              )
+            })}
           </div>
         </section>
       )}
@@ -3357,6 +3559,24 @@ export function App() {
           projectId={activeGcpConnectionDraft.projectId.trim()}
           location={activeGcpConnectionDraft.location.trim()}
           refreshNonce={pageRefreshNonceByScreen['gcp-compute-engine'] ?? 0}
+          onRunTerminalCommand={handleOpenTerminalCommand}
+          canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+        />
+      )
+    }
+
+    if (
+      activeProviderId === 'gcp'
+      && targetScreen === 'gcp-cloud-storage'
+      && targetService?.id === 'gcp-cloud-storage'
+      && gcpContextReady
+      && activeGcpConnectionDraft
+    ) {
+      return (
+        <GcpCloudStorageConsole
+          projectId={activeGcpConnectionDraft.projectId.trim()}
+          location={activeGcpConnectionDraft.location.trim()}
+          refreshNonce={pageRefreshNonceByScreen['gcp-cloud-storage'] ?? 0}
           onRunTerminalCommand={handleOpenTerminalCommand}
           canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
         />
