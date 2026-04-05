@@ -11,6 +11,10 @@ import type {
   GcpBillingOwnershipHint,
   GcpBillingOwnershipValue,
   GcpEnabledApiSummary,
+  GcpIamBindingSummary,
+  GcpIamCapabilityHint,
+  GcpIamOverview,
+  GcpIamPrincipalSummary,
   GcpComputeInstanceSummary,
   GcpLogEntryDetail,
   GcpGkeClusterSummary,
@@ -19,6 +23,7 @@ import type {
   GcpLogQueryResult,
   GcpProjectCapabilityHint,
   GcpProjectOverview,
+  GcpServiceAccountSummary,
   GcpSqlInstanceSummary,
   GcpStorageBucketSummary,
   GcpStorageObjectContent,
@@ -29,6 +34,14 @@ const GCP_SDK_SCOPES = ['https://www.googleapis.com/auth/cloud-platform']
 const GCP_REGION_PATTERN = /^[a-z]+(?:-[a-z0-9]+)+\d$/
 const GCP_ZONE_PATTERN = /^[a-z]+(?:-[a-z0-9]+)+\d-[a-z]$/
 const GCP_BILLING_OWNERSHIP_KEYS = ['owner', 'team', 'cost-center', 'cost_center', 'environment', 'env', 'application', 'app', 'service']
+const GCP_HIGH_PRIVILEGE_ROLE_MARKERS = [
+  'roles/owner',
+  'roles/editor',
+  'roles/resourcemanager.projectIamAdmin',
+  'roles/iam.securityAdmin',
+  'roles/iam.serviceAccountAdmin',
+  'roles/iam.serviceAccountTokenCreator'
+]
 const GCP_PROJECT_CORE_API_HINTS = [
   { name: 'compute.googleapis.com', title: 'Compute Engine API' },
   { name: 'container.googleapis.com', title: 'GKE API' },
@@ -122,6 +135,21 @@ function titleFromApiName(value: string): string {
     .filter(Boolean)
     .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
     .join(' ')
+}
+
+function isGcpHighPrivilegeRole(role: string): boolean {
+  const normalized = role.trim()
+  if (!normalized) {
+    return false
+  }
+
+  return GCP_HIGH_PRIVILEGE_ROLE_MARKERS.includes(normalized)
+    || /(^|\/)(.*admin.*)$/i.test(normalized)
+}
+
+function isGcpPublicPrincipal(member: string): boolean {
+  const normalized = member.trim()
+  return normalized === 'allUsers' || normalized === 'allAuthenticatedUsers'
 }
 
 function outputIndicatesApiDisabled(output: string): boolean {
@@ -819,6 +847,174 @@ async function listEnabledGcpApis(projectId: string): Promise<GcpEnabledApiSumma
   return services.sort((left, right) => left.title.localeCompare(right.title))
 }
 
+async function getGcpProjectIamPolicy(projectId: string): Promise<Record<string, unknown>> {
+  return requestGcp<Record<string, unknown>>(projectId, {
+    url: `https://cloudresourcemanager.googleapis.com/v1/projects/${encodeURIComponent(projectId)}:getIamPolicy`,
+    method: 'POST',
+    data: {
+      options: {
+        requestedPolicyVersion: 3
+      }
+    }
+  })
+}
+
+async function listGcpServiceAccounts(projectId: string): Promise<GcpServiceAccountSummary[]> {
+  const accounts: GcpServiceAccountSummary[] = []
+  let pageToken = ''
+
+  do {
+    const response = await requestGcp<{ accounts?: Array<Record<string, unknown>>; nextPageToken?: string }>(projectId, {
+      url: `https://iam.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/serviceAccounts?pageSize=100${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`
+    })
+
+    for (const entry of response.accounts ?? []) {
+      const email = asString(entry.email)
+      if (!email) {
+        continue
+      }
+
+      accounts.push({
+        email,
+        displayName: asString(entry.displayName),
+        disabled: asBoolean(entry.disabled)
+      })
+    }
+
+    pageToken = asString(response.nextPageToken)
+  } while (pageToken)
+
+  return accounts.sort((left, right) => left.email.localeCompare(right.email))
+}
+
+function buildGcpIamBindings(policy: Record<string, unknown>): GcpIamBindingSummary[] {
+  const bindings = Array.isArray(policy.bindings) ? policy.bindings as Array<Record<string, unknown>> : []
+
+  return bindings
+    .map((binding) => {
+      const role = asString(binding.role)
+      if (!role) {
+        return null
+      }
+
+      const members = Array.isArray(binding.members)
+        ? binding.members.map((member) => asString(member)).filter(Boolean)
+        : []
+      const condition = toRecord(binding.condition)
+
+      return {
+        role,
+        memberCount: members.length,
+        risky: isGcpHighPrivilegeRole(role),
+        publicAccess: members.some((member) => isGcpPublicPrincipal(member)),
+        conditionTitle: asString(condition.title),
+        members: members.slice(0, 6)
+      } satisfies GcpIamBindingSummary
+    })
+    .filter((binding): binding is GcpIamBindingSummary => binding !== null)
+    .sort((left, right) => {
+      if (left.publicAccess !== right.publicAccess) {
+        return left.publicAccess ? -1 : 1
+      }
+      if (left.risky !== right.risky) {
+        return left.risky ? -1 : 1
+      }
+      return right.memberCount - left.memberCount || left.role.localeCompare(right.role)
+    })
+}
+
+function buildGcpIamPrincipals(bindings: GcpIamBindingSummary[]): GcpIamPrincipalSummary[] {
+  const principals = new Map<string, { bindingCount: number; highPrivilegeRoleCount: number; sampleRoles: string[] }>()
+
+  for (const binding of bindings) {
+    for (const member of binding.members) {
+      const current = principals.get(member) ?? {
+        bindingCount: 0,
+        highPrivilegeRoleCount: 0,
+        sampleRoles: []
+      }
+
+      current.bindingCount += 1
+      if (binding.risky) {
+        current.highPrivilegeRoleCount += 1
+      }
+      if (!current.sampleRoles.includes(binding.role)) {
+        current.sampleRoles.push(binding.role)
+      }
+
+      principals.set(member, current)
+    }
+  }
+
+  return [...principals.entries()]
+    .map(([principal, summary]) => ({
+      principal,
+      bindingCount: summary.bindingCount,
+      highPrivilegeRoleCount: summary.highPrivilegeRoleCount,
+      sampleRoles: summary.sampleRoles.slice(0, 3)
+    }))
+    .sort((left, right) => right.highPrivilegeRoleCount - left.highPrivilegeRoleCount || right.bindingCount - left.bindingCount || left.principal.localeCompare(right.principal))
+}
+
+function buildGcpIamCapabilityHints(overview: GcpIamOverview): GcpIamCapabilityHint[] {
+  const hints: GcpIamCapabilityHint[] = [
+    {
+      id: 'project-policy',
+      subject: 'Policy',
+      severity: 'info',
+      title: 'Project-level IAM policy is loaded',
+      summary: `This shell is evaluating ${overview.bindingCount} project-level bindings for ${overview.projectId}.`,
+      recommendedAction: 'Use this page to review risky grants before opening service consoles or handing the project to operators.'
+    }
+  ]
+
+  if (overview.publicPrincipalCount > 0) {
+    hints.push({
+      id: 'public-principals',
+      subject: 'Exposure',
+      severity: 'error',
+      title: 'Public principals are present',
+      summary: `${overview.publicPrincipalCount} bindings include allUsers or allAuthenticatedUsers.`,
+      recommendedAction: 'Remove public principals unless the project intentionally exposes a public workload.'
+    })
+  }
+
+  if (overview.riskyBindingCount > 0) {
+    hints.push({
+      id: 'risky-roles',
+      subject: 'Privilege',
+      severity: 'warning',
+      title: 'High-privilege bindings are present',
+      summary: `${overview.riskyBindingCount} bindings use owner, editor, or admin-level roles.`,
+      recommendedAction: 'Replace broad roles with narrower predefined or custom roles where possible.'
+    })
+  }
+
+  if (overview.serviceAccounts.length === 0) {
+    hints.push({
+      id: 'service-accounts-none',
+      subject: 'Service accounts',
+      severity: 'info',
+      title: 'No service accounts were surfaced',
+      summary: 'No project service accounts were returned under the current credentials or the project has not created any.',
+      recommendedAction: 'If workloads should have identities here, verify IAM API visibility and project scoping.'
+    })
+  }
+
+  if (overview.principalCount > 40) {
+    hints.push({
+      id: 'principal-sprawl',
+      subject: 'Sprawl',
+      severity: 'warning',
+      title: 'Principal sprawl is growing',
+      summary: `${overview.principalCount} distinct principals are present in the project-level policy.`,
+      recommendedAction: 'Review long principal lists for stale users, overly broad groups, or duplicated grants.'
+    })
+  }
+
+  return hints
+}
+
 function buildGcpProjectCapabilityHints(project: GcpProjectOverview): GcpProjectCapabilityHint[] {
   const hints: GcpProjectCapabilityHint[] = []
   const enabledApiNames = new Set(project.enabledApis.map((entry) => entry.name))
@@ -1141,6 +1337,64 @@ export async function getGcpProjectOverview(projectId: string): Promise<GcpProje
       : 'cloudresourcemanager.googleapis.com'
 
     throw buildGcpSdkError(`loading project overview for project "${normalizedProjectId}"`, error, serviceName)
+  }
+}
+
+export async function getGcpIamOverview(projectId: string): Promise<GcpIamOverview> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) {
+    return {
+      projectId: '',
+      bindingCount: 0,
+      principalCount: 0,
+      riskyBindingCount: 0,
+      publicPrincipalCount: 0,
+      bindings: [],
+      principals: [],
+      serviceAccounts: [],
+      capabilityHints: [],
+      notes: []
+    }
+  }
+
+  try {
+    const [policy, serviceAccounts] = await Promise.all([
+      getGcpProjectIamPolicy(normalizedProjectId),
+      listGcpServiceAccounts(normalizedProjectId).catch((error) => {
+        if (outputIndicatesApiDisabled(error instanceof Error ? error.message : String(error))) {
+          throw buildGcpSdkError(`listing service accounts for project "${normalizedProjectId}"`, error, 'iam.googleapis.com')
+        }
+        return []
+      })
+    ])
+
+    const bindings = buildGcpIamBindings(policy)
+    const principals = buildGcpIamPrincipals(bindings)
+    const overview: GcpIamOverview = {
+      projectId: normalizedProjectId,
+      bindingCount: bindings.length,
+      principalCount: principals.length,
+      riskyBindingCount: bindings.filter((binding) => binding.risky).length,
+      publicPrincipalCount: bindings.filter((binding) => binding.publicAccess).length,
+      bindings,
+      principals: principals.slice(0, 20),
+      serviceAccounts: serviceAccounts.slice(0, 20),
+      capabilityHints: [],
+      notes: [
+        'This slice evaluates project-level IAM policy only. Inherited organization or folder bindings are not expanded here.',
+        'Service accounts are listed separately so operators can quickly see workload identities next to policy bindings.'
+      ]
+    }
+
+    overview.capabilityHints = buildGcpIamCapabilityHints(overview)
+    return overview
+  } catch (error) {
+    const detail = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase()
+    const serviceName = detail.includes('service account')
+      ? 'iam.googleapis.com'
+      : 'cloudresourcemanager.googleapis.com'
+
+    throw buildGcpSdkError(`loading IAM posture for project "${normalizedProjectId}"`, error, serviceName)
   }
 }
 

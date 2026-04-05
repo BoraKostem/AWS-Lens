@@ -104,6 +104,7 @@ const awsLensApi = {
   getGcpCliContext: () => ipcRenderer.invoke('gcp:cli-context'),
   listGcpProjects: () => ipcRenderer.invoke('gcp:projects'),
   getGcpProjectOverview: (projectId: string) => ipcRenderer.invoke('gcp:projects:get-overview', projectId),
+  getGcpIamOverview: (projectId: string) => ipcRenderer.invoke('gcp:iam:get-overview', projectId),
   listGcpComputeInstances: (projectId: string, location: string) => ipcRenderer.invoke('gcp:compute-engine:list', projectId, location),
   listGcpGkeClusters: (projectId: string, location: string) => ipcRenderer.invoke('gcp:gke:list', projectId, location),
   listGcpStorageBuckets: (projectId: string, location: string) => ipcRenderer.invoke('gcp:cloud-storage:list', projectId, location),

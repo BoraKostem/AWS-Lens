@@ -428,6 +428,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('gcp:projects:get-overview', async (_event, projectId: string) =>
     wrap(async () => (await loadGcpSdk()).getGcpProjectOverview(projectId))
   )
+  ipcMain.handle('gcp:iam:get-overview', async (_event, projectId: string) =>
+    wrap(async () => (await loadGcpSdk()).getGcpIamOverview(projectId))
+  )
   ipcMain.handle('gcp:compute-engine:list', async (_event, projectId: string, location: string) =>
     wrap(async () => (await loadGcpSdk()).listGcpComputeInstances(projectId, location))
   )
