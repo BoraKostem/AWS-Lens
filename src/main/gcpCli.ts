@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { readFile, readdir } from 'node:fs/promises'
 
-import type { GcpCliConfiguration, GcpCliContext, GcpCliProject, GcpComputeInstanceSummary } from '@shared/types'
+import type { GcpCliConfiguration, GcpCliContext, GcpCliProject, GcpComputeInstanceSummary, GcpGkeClusterSummary } from '@shared/types'
 import { getResolvedProcessEnv, resolveExecutablePath } from './shell'
 import { listToolCommandCandidates } from './toolchain'
 
@@ -141,15 +141,15 @@ function summarizeCliFailure(stderr: string, stdout: string): string {
     .join(' ')
 }
 
-function buildGcpCliError(label: string, result: CommandResult): Error {
+function buildGcpCliError(label: string, result: CommandResult, apiServiceName = 'compute.googleapis.com'): Error {
   const output = summarizeOutput(result.stdout, result.stderr)
   const detail = summarizeCliFailure(result.stderr, result.stdout)
 
   if (outputIndicatesApiDisabled(output)) {
     const projectId = extractProjectIdFromOutput(output)
     const enableCommand = projectId
-      ? `gcloud services enable compute.googleapis.com --project ${projectId}`
-      : 'gcloud services enable compute.googleapis.com --project <project-id>'
+      ? `gcloud services enable ${apiServiceName} --project ${projectId}`
+      : `gcloud services enable ${apiServiceName} --project <project-id>`
 
     return new Error(
       `Google Cloud API access failed while ${label}. The required API is disabled for the selected project. Run "${enableCommand}", wait for propagation, and retry.${detail ? ` ${detail}` : ''}`
@@ -577,6 +577,27 @@ function parseComputeInstanceValueRows(value: string): GcpComputeInstanceSummary
     .filter((entry): entry is GcpComputeInstanceSummary => entry !== null)
 }
 
+function parseGkeClusterValueRows(value: string): GcpGkeClusterSummary[] {
+  return parseGcloudValueRows(value)
+    .map((columns) => {
+      const [name = '', location = '', status = '', masterVersion = '', nodeCount = '', releaseChannel = '', endpoint = ''] = columns
+      if (!name) {
+        return null
+      }
+
+      return {
+        name,
+        location,
+        status,
+        masterVersion,
+        nodeCount,
+        releaseChannel,
+        endpoint
+      } satisfies GcpGkeClusterSummary
+    })
+    .filter((entry): entry is GcpGkeClusterSummary => entry !== null)
+}
+
 function filterComputeInstancesByLocation(instances: GcpComputeInstanceSummary[], location: string): GcpComputeInstanceSummary[] {
   const normalizedLocation = location.trim().toLowerCase()
   if (!normalizedLocation || normalizedLocation === 'global') {
@@ -593,6 +614,25 @@ function filterComputeInstancesByLocation(instances: GcpComputeInstanceSummary[]
     return isZoneLocation
       ? zone === normalizedLocation
       : zone === normalizedLocation || zone.startsWith(`${normalizedLocation}-`)
+  })
+}
+
+function filterGkeClustersByLocation(clusters: GcpGkeClusterSummary[], location: string): GcpGkeClusterSummary[] {
+  const normalizedLocation = location.trim().toLowerCase()
+  if (!normalizedLocation || normalizedLocation === 'global') {
+    return clusters
+  }
+
+  const isZoneLocation = /-[a-z]$/.test(normalizedLocation)
+  return clusters.filter((cluster) => {
+    const clusterLocation = cluster.location.trim().toLowerCase()
+    if (!clusterLocation) {
+      return false
+    }
+
+    return isZoneLocation
+      ? clusterLocation === normalizedLocation
+      : clusterLocation === normalizedLocation || clusterLocation.startsWith(`${normalizedLocation}-`)
   })
 }
 
@@ -769,13 +809,54 @@ export async function listGcpComputeInstances(projectId: string, location: strin
   const cliInstances = parseComputeInstanceValueRows(instancesResult.stdout)
 
   if (!instancesResult.ok && cliInstances.length === 0) {
-    throw buildGcpCliError(`listing Compute Engine instances for project "${normalizedProjectId}"`, instancesResult)
+    throw buildGcpCliError(`listing Compute Engine instances for project "${normalizedProjectId}"`, instancesResult, 'compute.googleapis.com')
   }
 
   if (instancesResult.ok && cliInstances.length === 0 && instancesResult.stderr.trim()) {
-    throw buildGcpCliError(`listing Compute Engine instances for project "${normalizedProjectId}"`, instancesResult)
+    throw buildGcpCliError(`listing Compute Engine instances for project "${normalizedProjectId}"`, instancesResult, 'compute.googleapis.com')
   }
 
   return filterComputeInstancesByLocation(cliInstances, location)
     .sort((left, right) => left.zone.localeCompare(right.zone) || left.name.localeCompare(right.name))
+}
+
+export async function listGcpGkeClusters(projectId: string, location: string): Promise<GcpGkeClusterSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) {
+    return []
+  }
+
+  const env = await getResolvedProcessEnv({ fresh: true })
+  const resolved = await resolveGcloudCommand(env)
+
+  if (!resolved) {
+    return []
+  }
+
+  const clustersResult = await runCommand(
+    resolved.command,
+    buildGcloudArgs([
+      'container',
+      'clusters',
+      'list',
+      '--project',
+      normalizedProjectId,
+      '--format=value(name,location,status,currentMasterVersion,currentNodeCount,releaseChannel.channel,endpoint)'
+    ]),
+    env,
+    20000
+  )
+
+  const cliClusters = parseGkeClusterValueRows(clustersResult.stdout)
+
+  if (!clustersResult.ok && cliClusters.length === 0) {
+    throw buildGcpCliError(`listing GKE clusters for project "${normalizedProjectId}"`, clustersResult, 'container.googleapis.com')
+  }
+
+  if (clustersResult.ok && cliClusters.length === 0 && clustersResult.stderr.trim()) {
+    throw buildGcpCliError(`listing GKE clusters for project "${normalizedProjectId}"`, clustersResult, 'container.googleapis.com')
+  }
+
+  return filterGkeClustersByLocation(cliClusters, location)
+    .sort((left, right) => left.location.localeCompare(right.location) || left.name.localeCompare(right.name))
 }

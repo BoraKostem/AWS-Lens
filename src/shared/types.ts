@@ -569,6 +569,16 @@ export type GcpComputeInstanceSummary = {
   externalIp: string
 }
 
+export type GcpGkeClusterSummary = {
+  name: string
+  location: string
+  status: string
+  masterVersion: string
+  nodeCount: string
+  releaseChannel: string
+  endpoint: string
+}
+
 export type Ec2SsmStatus = 'managed-online' | 'managed-offline' | 'not-managed'
 
 export type SsmManagedInstanceSummary = {

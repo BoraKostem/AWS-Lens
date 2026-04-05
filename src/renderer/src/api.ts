@@ -18,6 +18,7 @@ import type {
   EnvironmentHealthReport,
   GcpCliContext,
   GcpComputeInstanceSummary,
+  GcpGkeClusterSummary,
   GcpCliProject,
   AppReleaseInfo,
   AppSecuritySummary,
@@ -1154,6 +1155,10 @@ export async function listGcpProjects(): Promise<GcpCliProject[]> {
 
 export async function listGcpComputeInstances(projectId: string, location: string): Promise<GcpComputeInstanceSummary[]> {
   return unwrap((await rawAwsBridge().listGcpComputeInstances(projectId, location)) as Wrapped<GcpComputeInstanceSummary[]>)
+}
+
+export async function listGcpGkeClusters(projectId: string, location: string): Promise<GcpGkeClusterSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpGkeClusters(projectId, location)) as Wrapped<GcpGkeClusterSummary[]>)
 }
 
 export async function checkForAppUpdates(): Promise<AppReleaseInfo> {

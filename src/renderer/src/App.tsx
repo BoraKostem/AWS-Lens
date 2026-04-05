@@ -18,6 +18,7 @@ import type {
   EnterpriseAuditEvent,
   GcpCliContext,
   GcpComputeInstanceSummary,
+  GcpGkeClusterSummary,
   GovernanceTagDefaults,
   NavigationFocus,
   ProviderDescriptor,
@@ -44,6 +45,7 @@ import {
   getEnvironmentHealth,
   getGcpCliContext,
   listGcpComputeInstances,
+  listGcpGkeClusters,
   listGcpProjects,
   getEnterpriseSettings,
   getGovernanceTagDefaults,
@@ -215,8 +217,8 @@ const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   sts: 'Caller identity, auth decoding, access key lookup, and assume-role credentials.',
   kms: 'Key inventory, key detail panel, and ciphertext blob decryption.',
   waf: 'Web ACL inventory, rule editing, associations, and scope switching.',
-  'gcp-compute-engine': 'Project-aware Compute Engine entry point staged for instance inventory and operator actions.',
-  'gcp-gke': 'Project-aware GKE entry point staged for cluster posture, upgrades, and shell handoff.',
+  'gcp-compute-engine': 'Project-aware Compute Engine inventory with live instance status, networking context, and refresh-aware discovery.',
+  'gcp-gke': 'Project-aware GKE inventory with live cluster status, version context, and refresh-aware discovery.',
   'gcp-cloud-storage': 'Project-aware Cloud Storage entry point staged for bucket inventory, object posture, and shell handoff.',
   'gcp-cloud-sql': 'Project-aware Cloud SQL entry point staged for database posture, instance inventory, and connection helpers.',
   'gcp-logging': 'Project-aware Logging entry point staged for log exploration, query posture, and shell handoff.',
@@ -507,14 +509,14 @@ function extractQuotedCommand(error: string): string | null {
   return match?.[1]?.trim() || null
 }
 
-function getGcpComputeEnableAction(error: string, projectId: string): { command: string; summary: string } | null {
+function getGcpApiEnableAction(error: string, fallbackCommand: string, summary: string): { command: string; summary: string } | null {
   if (!error.toLowerCase().includes('google cloud api access failed')) {
     return null
   }
 
   return {
-    command: extractQuotedCommand(error) ?? `gcloud services enable compute.googleapis.com --project ${projectId}`,
-    summary: `Compute Engine API is disabled for project ${projectId}.`
+    command: extractQuotedCommand(error) ?? fallbackCommand,
+    summary
   }
 }
 
@@ -697,7 +699,11 @@ function GcpComputeEngineConsole({
 
   const locationLabel = location.trim() || 'all locations'
   const lastLoadedLabel = lastLoadedAt ? new Date(lastLoadedAt).toLocaleTimeString() : 'Pending'
-  const enableAction = error ? getGcpComputeEnableAction(error, projectId) : null
+  const enableAction = error ? getGcpApiEnableAction(
+    error,
+    `gcloud services enable compute.googleapis.com --project ${projectId}`,
+    `Compute Engine API is disabled for project ${projectId}.`
+  ) : null
 
   return (
     <>
@@ -795,6 +801,176 @@ function GcpComputeEngineConsole({
                   Internal IP: {instance.internalIp || 'n/a'}
                   <br />
                   External IP: {instance.externalIp || 'n/a'}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+    </>
+  )
+}
+
+function GcpGkeConsole({
+  projectId,
+  location,
+  refreshNonce,
+  onRunTerminalCommand,
+  canRunTerminalCommand
+}: {
+  projectId: string
+  location: string
+  refreshNonce: number
+  onRunTerminalCommand: (command: string) => void
+  canRunTerminalCommand: boolean
+}) {
+  const [clusters, setClusters] = useState<GcpGkeClusterSummary[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [lastLoadedAt, setLastLoadedAt] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+
+    setLoading(true)
+    setError('')
+
+    void listGcpGkeClusters(projectId, location)
+      .then((nextClusters) => {
+        if (cancelled) {
+          return
+        }
+
+        setClusters(nextClusters)
+        setLastLoadedAt(new Date().toISOString())
+      })
+      .catch((err) => {
+        if (cancelled) {
+          return
+        }
+
+        setError(err instanceof Error ? err.message : String(err))
+        setClusters([])
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [location, projectId, refreshNonce])
+
+  const locationLabel = location.trim() || 'all locations'
+  const lastLoadedLabel = lastLoadedAt ? new Date(lastLoadedAt).toLocaleTimeString() : 'Pending'
+  const enableAction = error ? getGcpApiEnableAction(
+    error,
+    `gcloud services enable container.googleapis.com --project ${projectId}`,
+    `GKE API is disabled for project ${projectId}.`
+  ) : null
+
+  return (
+    <>
+      <section className="panel stack">
+        <div className="catalog-page-header">
+          <div>
+            <div className="eyebrow">GKE</div>
+            <h3>{projectId}</h3>
+            <p>Read-only cluster inventory scoped to the selected Google Cloud project and location.</p>
+          </div>
+          <div className="hero-connection">
+            <div className="connection-summary">
+              <span>Project</span>
+              <strong>{projectId}</strong>
+            </div>
+            <div className="connection-summary">
+              <span>Location</span>
+              <strong>{locationLabel}</strong>
+            </div>
+            <div className="connection-summary">
+              <span>Last sync</span>
+              <strong>{loading ? 'Syncing...' : lastLoadedLabel}</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+      {error ? (
+        <section className="panel stack">
+          {enableAction ? (
+            <div className="error-banner gcp-enable-error-banner">
+              <div className="gcp-enable-error-copy">
+                <strong>{enableAction.summary}</strong>
+                <p>
+                  {canRunTerminalCommand
+                    ? 'Run the enable command in the terminal, wait for propagation, then refresh gcloud.'
+                    : 'Switch Settings > Access Mode to Operator to enable terminal actions for this command.'}
+                </p>
+              </div>
+              <div className="gcp-enable-error-actions">
+                <button
+                  type="button"
+                  className="accent"
+                  disabled={!canRunTerminalCommand}
+                  onClick={() => onRunTerminalCommand(enableAction.command)}
+                  title={canRunTerminalCommand ? enableAction.command : 'Switch to Operator mode to enable terminal actions'}
+                >
+                  Run enable command in terminal
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="error-banner">{error}</div>
+          )}
+          <div className="profile-catalog-empty">
+            <div className="eyebrow">GKE Access</div>
+            <h3>Cluster inventory could not be loaded</h3>
+            <p className="hero-path">Verify the selected project, enabled APIs, and active gcloud account, then retry the refresh.</p>
+          </div>
+        </section>
+      ) : loading ? (
+        <section className="panel stack">
+          <div className="profile-catalog-empty">
+            <div className="eyebrow">Loading</div>
+            <h3>Importing GKE clusters</h3>
+            <p className="hero-path">Reading clusters from the active gcloud session for {projectId} in {locationLabel}.</p>
+          </div>
+        </section>
+      ) : clusters.length === 0 ? (
+        <section className="panel stack">
+          <div className="profile-catalog-empty">
+            <div className="eyebrow">No Clusters</div>
+            <h3>No GKE clusters were found</h3>
+            <p className="hero-path">No clusters matched {locationLabel} in project {projectId}. Refresh gcloud after changing project context or location filters.</p>
+          </div>
+        </section>
+      ) : (
+        <section className="panel stack">
+          <div className="catalog-page-header">
+            <div>
+              <div className="eyebrow">Cluster Inventory</div>
+              <h3>{clusters.length} cluster{clusters.length === 1 ? '' : 's'}</h3>
+              <p>{locationLabel} scope with live data from the active gcloud session.</p>
+            </div>
+          </div>
+          <div className="profile-catalog-grid">
+            {clusters.map((cluster) => (
+              <article key={`${cluster.location}:${cluster.name}`} className="profile-catalog-card">
+                <div className="profile-catalog-status">
+                  <span>{cluster.location}</span>
+                  <strong>{cluster.status || 'UNKNOWN'}</strong>
+                </div>
+                <div className="project-card-title">{cluster.name}</div>
+                <div className="project-card-subtitle">
+                  {cluster.masterVersion ? `Master ${cluster.masterVersion}` : 'Master version unavailable'}
+                </div>
+                <div className="hero-path" style={{ marginTop: 12 }}>
+                  Nodes: {cluster.nodeCount || 'n/a'}
+                  <br />
+                  Channel: {cluster.releaseChannel || 'unspecified'}
+                  <br />
+                  Endpoint: {cluster.endpoint || 'n/a'}
                 </div>
               </article>
             ))}
@@ -3181,6 +3357,24 @@ export function App() {
           projectId={activeGcpConnectionDraft.projectId.trim()}
           location={activeGcpConnectionDraft.location.trim()}
           refreshNonce={pageRefreshNonceByScreen['gcp-compute-engine'] ?? 0}
+          onRunTerminalCommand={handleOpenTerminalCommand}
+          canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+        />
+      )
+    }
+
+    if (
+      activeProviderId === 'gcp'
+      && targetScreen === 'gcp-gke'
+      && targetService?.id === 'gcp-gke'
+      && gcpContextReady
+      && activeGcpConnectionDraft
+    ) {
+      return (
+        <GcpGkeConsole
+          projectId={activeGcpConnectionDraft.projectId.trim()}
+          location={activeGcpConnectionDraft.location.trim()}
+          refreshNonce={pageRefreshNonceByScreen['gcp-gke'] ?? 0}
           onRunTerminalCommand={handleOpenTerminalCommand}
           canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
         />
