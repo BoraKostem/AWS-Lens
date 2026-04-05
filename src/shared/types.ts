@@ -590,6 +590,19 @@ export type GcpStorageBucketSummary = {
   labelCount: number
 }
 
+export type GcpStorageObjectSummary = {
+  key: string
+  size: number
+  lastModified: string
+  storageClass: string
+  isFolder: boolean
+}
+
+export type GcpStorageObjectContent = {
+  body: string
+  contentType: string
+}
+
 export type GcpSqlInstanceSummary = {
   name: string
   region: string

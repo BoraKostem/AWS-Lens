@@ -20,6 +20,8 @@ import type {
   GcpComputeInstanceSummary,
   GcpGkeClusterSummary,
   GcpSqlInstanceSummary,
+  GcpStorageObjectContent,
+  GcpStorageObjectSummary,
   GcpStorageBucketSummary,
   GovernanceTagDefaults,
   NavigationFocus,
@@ -49,7 +51,11 @@ import {
   listGcpComputeInstances,
   listGcpGkeClusters,
   listGcpSqlInstances,
+  deleteGcpStorageObject,
+  downloadGcpStorageObjectToPath,
+  getGcpStorageObjectContent,
   listGcpStorageBuckets,
+  listGcpStorageObjects,
   listGcpProjects,
   getEnterpriseSettings,
   getGovernanceTagDefaults,
@@ -60,9 +66,11 @@ import {
   listEnterpriseAuditEvents,
   listProviders,
   openExternalUrl,
+  putGcpStorageObjectContent,
   saveCredentials,
   setTerraformCliKind,
   setEnterpriseAccessMode,
+  uploadGcpStorageObject,
   updateAppSettings,
   updateGovernanceTagDefaults,
   useAwsActivity,
@@ -223,7 +231,7 @@ const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   waf: 'Web ACL inventory, rule editing, associations, and scope switching.',
   'gcp-compute-engine': 'Project-aware Compute Engine inventory with live instance status, networking context, and refresh-aware discovery.',
   'gcp-gke': 'Project-aware GKE inventory with live cluster status, version context, and refresh-aware discovery.',
-  'gcp-cloud-storage': 'Project-aware Cloud Storage entry point staged for bucket inventory, object posture, and shell handoff.',
+  'gcp-cloud-storage': 'Project-aware Cloud Storage inventory with bucket posture, object browser workflows, preview/edit paths, and shell handoff.',
   'gcp-cloud-sql': 'Project-aware Cloud SQL entry point staged for database posture, instance inventory, and connection helpers.',
   'gcp-logging': 'Project-aware Logging entry point staged for log exploration, query posture, and shell handoff.',
   'gcp-billing': 'Project-aware Billing Basics entry point staged for project cost posture and shared shell context.'
@@ -522,6 +530,46 @@ function getGcpApiEnableAction(error: string, fallbackCommand: string, summary: 
     command: extractQuotedCommand(error) ?? fallbackCommand,
     summary
   }
+}
+
+const GCP_STORAGE_TEXT_EXTENSIONS = new Set([
+  'txt', 'json', 'xml', 'csv', 'yaml', 'yml', 'md', 'html', 'htm', 'css', 'js', 'ts',
+  'jsx', 'tsx', 'py', 'rb', 'sh', 'bash', 'env', 'conf', 'cfg', 'ini', 'toml', 'log',
+  'sql', 'graphql', 'svg', 'tf', 'tfvars', 'tfstate', 'hcl', 'dockerfile', 'makefile', 'gitignore'
+])
+
+function gcpStorageExtension(key: string): string {
+  const parts = key.split('.')
+  return parts.length > 1 ? parts.pop()!.toLowerCase() : ''
+}
+
+function isPreviewableGcpStorageTextFile(key: string): boolean {
+  const extension = gcpStorageExtension(key)
+  const name = key.split('/').pop()?.toLowerCase() ?? ''
+  return GCP_STORAGE_TEXT_EXTENSIONS.has(extension) || GCP_STORAGE_TEXT_EXTENSIONS.has(name)
+}
+
+function formatGcpStorageObjectSize(bytes: number): string {
+  if (bytes === 0) return '-'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
+function displayGcpStorageObjectName(key: string, prefix: string): string {
+  const relative = key.startsWith(prefix) ? key.slice(prefix.length) : key
+  return relative.replace(/\/$/, '') || key
+}
+
+function parentGcpStoragePrefix(prefix: string): string {
+  const normalized = prefix.replace(/\/+$/, '')
+  if (!normalized) {
+    return ''
+  }
+
+  const boundary = normalized.lastIndexOf('/')
+  return boundary >= 0 ? `${normalized.slice(0, boundary + 1)}` : ''
 }
 
 function getProfileBadge(name?: string | null): string {
@@ -1002,6 +1050,79 @@ function GcpCloudStorageConsole({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [lastLoadedAt, setLastLoadedAt] = useState('')
+  const [selectedBucket, setSelectedBucket] = useState('')
+  const [prefix, setPrefix] = useState('')
+  const [objects, setObjects] = useState<GcpStorageObjectSummary[]>([])
+  const [objectsLoading, setObjectsLoading] = useState(false)
+  const [objectError, setObjectError] = useState('')
+  const [selectedKey, setSelectedKey] = useState('')
+  const [previewContent, setPreviewContent] = useState('')
+  const [previewContentType, setPreviewContentType] = useState('text/plain')
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState('')
+  const [editing, setEditing] = useState(false)
+  const [editContent, setEditContent] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+  const [objectSearch, setObjectSearch] = useState('')
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  async function browseBucket(bucketName: string, nextPrefix = ''): Promise<void> {
+    setSelectedBucket(bucketName)
+    setPrefix(nextPrefix)
+    setSelectedKey('')
+    setPreviewContent('')
+    setPreviewError('')
+    setPreviewContentType('text/plain')
+    setEditing(false)
+    setEditContent('')
+    setObjectError('')
+    setObjectsLoading(true)
+
+    try {
+      setObjects(await listGcpStorageObjects(projectId, bucketName, nextPrefix))
+    } catch (err) {
+      setObjects([])
+      setObjectError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setObjectsLoading(false)
+    }
+  }
+
+  async function previewObject(bucketName: string, object: GcpStorageObjectSummary): Promise<void> {
+    setSelectedKey(object.key)
+    setPreviewContent('')
+    setPreviewError('')
+    setPreviewContentType('text/plain')
+    setEditing(false)
+    setEditContent('')
+
+    if (object.isFolder) {
+      await browseBucket(bucketName, object.key)
+      return
+    }
+
+    if (!isPreviewableGcpStorageTextFile(object.key)) {
+      setPreviewError('Preview is currently limited to text-based objects. Use Download for binary content.')
+      return
+    }
+
+    if (object.size > 1024 * 1024) {
+      setPreviewError('Preview is limited to text objects smaller than 1 MB. Download the object to inspect larger files.')
+      return
+    }
+
+    setPreviewLoading(true)
+    try {
+      const content = await getGcpStorageObjectContent(projectId, bucketName, object.key)
+      setPreviewContent(content.body)
+      setPreviewContentType(content.contentType || 'text/plain')
+    } catch (err) {
+      setPreviewError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -1017,6 +1138,16 @@ function GcpCloudStorageConsole({
 
         setBuckets(nextBuckets)
         setLastLoadedAt(new Date().toISOString())
+        const targetBucket = nextBuckets.find((bucket) => bucket.name === selectedBucket)?.name ?? nextBuckets[0]?.name ?? ''
+        if (!targetBucket) {
+          setSelectedBucket('')
+          setObjects([])
+          setPrefix('')
+          setSelectedKey('')
+          return
+        }
+
+        void browseBucket(targetBucket, targetBucket === selectedBucket ? prefix : '')
       })
       .catch((err) => {
         if (cancelled) {
@@ -1043,6 +1174,22 @@ function GcpCloudStorageConsole({
   const inScopeBuckets = normalizedLocation && normalizedLocation !== 'global'
     ? buckets.filter((bucket) => bucket.location.trim().toLowerCase() === normalizedLocation).length
     : buckets.length
+  const selectedBucketSummary = useMemo(
+    () => buckets.find((bucket) => bucket.name === selectedBucket) ?? null,
+    [buckets, selectedBucket]
+  )
+  const filteredObjects = useMemo(() => {
+    const query = objectSearch.trim().toLowerCase()
+    if (!query) {
+      return objects
+    }
+
+    return objects.filter((object) => object.key.toLowerCase().includes(query))
+  }, [objectSearch, objects])
+  const selectedObject = useMemo(
+    () => objects.find((object) => object.key === selectedKey) ?? null,
+    [objects, selectedKey]
+  )
   const enableAction = error ? getGcpApiEnableAction(
     error,
     `gcloud services enable storage.googleapis.com --project ${projectId}`,
@@ -1168,6 +1315,13 @@ function GcpCloudStorageConsole({
                   <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
                     <button
                       type="button"
+                      className={selectedBucket === bucket.name ? 'accent' : ''}
+                      onClick={() => void browseBucket(bucket.name, '')}
+                    >
+                      {selectedBucket === bucket.name ? 'Active bucket' : 'Open bucket'}
+                    </button>
+                    <button
+                      type="button"
                       disabled={!canRunTerminalCommand}
                       onClick={() => onRunTerminalCommand(inspectCommand)}
                       title={canRunTerminalCommand ? inspectCommand : 'Switch to Operator mode to enable terminal actions'}
@@ -1179,6 +1333,249 @@ function GcpCloudStorageConsole({
               )
             })}
           </div>
+        </section>
+      )}
+      {!loading && !error && selectedBucketSummary && (
+        <section className="panel stack">
+          <div className="catalog-page-header">
+            <div>
+              <div className="eyebrow">Object Browser</div>
+              <h3>{selectedBucketSummary.name}</h3>
+              <p>
+                {selectedBucketSummary.location || 'Unknown location'}
+                {' | '}
+                /{prefix || ''}
+              </p>
+            </div>
+            <div className="hero-connection">
+              <div className="connection-summary">
+                <span>Visible items</span>
+                <strong>{objectsLoading ? 'Syncing...' : filteredObjects.length}</strong>
+              </div>
+              <div className="connection-summary">
+                <span>Location type</span>
+                <strong>{selectedBucketSummary.locationType || 'Unknown'}</strong>
+              </div>
+              <div className="connection-summary">
+                <span>Versioning</span>
+                <strong>{selectedBucketSummary.versioningEnabled ? 'Enabled' : 'Disabled'}</strong>
+              </div>
+            </div>
+          </div>
+          {message ? <div className="svc-success">{message}</div> : null}
+          {objectError ? <div className="error-banner">{objectError}</div> : null}
+          <div className="s3-action-bar">
+            <button className="s3-btn" type="button" onClick={() => void browseBucket(selectedBucketSummary.name, prefix)} disabled={objectsLoading}>
+              {objectsLoading ? 'Refreshing...' : 'Refresh'}
+            </button>
+            <button
+              className="s3-btn"
+              type="button"
+              onClick={() => void browseBucket(selectedBucketSummary.name, parentGcpStoragePrefix(prefix))}
+              disabled={!prefix}
+            >
+              Up one level
+            </button>
+            <button className="s3-btn s3-btn-upload" type="button" onClick={() => fileInputRef.current?.click()}>
+              Upload
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              style={{ display: 'none' }}
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                if (file) {
+                  void (async () => {
+                    try {
+                      const localPath = (file as File & { path?: string }).path?.trim() ?? ''
+                      const objectKey = `${prefix}${file.name}`
+
+                      if (localPath) {
+                        await uploadGcpStorageObject(projectId, selectedBucketSummary.name, objectKey, localPath)
+                      } else if (isPreviewableGcpStorageTextFile(file.name)) {
+                        await putGcpStorageObjectContent(projectId, selectedBucketSummary.name, objectKey, await file.text())
+                      } else {
+                        throw new Error('The selected file could not be uploaded because the local filesystem path was not exposed to the app.')
+                      }
+
+                      setMessage(`Uploaded ${file.name}`)
+                      await browseBucket(selectedBucketSummary.name, prefix)
+                    } catch (err) {
+                      setObjectError(err instanceof Error ? err.message : String(err))
+                    }
+                  })()
+                }
+
+                event.target.value = ''
+              }}
+            />
+            <button
+              className="s3-btn"
+              type="button"
+              disabled={!selectedObject || selectedObject.isFolder}
+              onClick={() => void (async () => {
+                if (!selectedObject || selectedObject.isFolder) {
+                  return
+                }
+
+                try {
+                  const filePath = await downloadGcpStorageObjectToPath(projectId, selectedBucketSummary.name, selectedObject.key)
+                  if (filePath) {
+                    setMessage(`Downloaded to ${filePath}`)
+                  }
+                } catch (err) {
+                  setObjectError(err instanceof Error ? err.message : String(err))
+                }
+              })()}
+            >
+              Download
+            </button>
+            <button
+              className="s3-btn"
+              type="button"
+              disabled={!selectedObject || selectedObject.isFolder || !canRunTerminalCommand}
+              onClick={() => selectedObject && onRunTerminalCommand(`gcloud storage objects describe gs://${selectedBucketSummary.name}/${selectedObject.key} --format=json`)}
+              title={canRunTerminalCommand ? undefined : 'Switch to Operator mode to enable terminal actions'}
+            >
+              Inspect object
+            </button>
+            <button
+              className="s3-btn s3-btn-danger"
+              type="button"
+              disabled={!selectedObject || selectedObject.isFolder}
+              onClick={() => void (async () => {
+                if (!selectedObject || selectedObject.isFolder) {
+                  return
+                }
+
+                if (!window.confirm(`Delete ${selectedObject.key}?`)) {
+                  return
+                }
+
+                try {
+                  await deleteGcpStorageObject(projectId, selectedBucketSummary.name, selectedObject.key)
+                  setMessage(`Deleted ${selectedObject.key}`)
+                  setSelectedKey('')
+                  setPreviewContent('')
+                  setPreviewError('')
+                  await browseBucket(selectedBucketSummary.name, prefix)
+                } catch (err) {
+                  setObjectError(err instanceof Error ? err.message : String(err))
+                }
+              })()}
+            >
+              Delete
+            </button>
+          </div>
+          <div className="s3-inline-form">
+            <input
+              value={objectSearch}
+              onChange={(event) => setObjectSearch(event.target.value)}
+              placeholder="Filter objects by key"
+            />
+            <span className="hero-path">Bucket: {selectedBucketSummary.name} | Path: /{prefix || ''}</span>
+          </div>
+          <div className="s3-object-table-wrap">
+            <table className="s3-object-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Key</th>
+                  <th>Size</th>
+                  <th>Modified</th>
+                  <th>Storage Class</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredObjects.map((object) => (
+                  <tr
+                    key={object.key}
+                    className={object.key === selectedKey ? 'active' : ''}
+                    onClick={() => {
+                      if (object.isFolder) {
+                        void browseBucket(selectedBucketSummary.name, object.key)
+                      } else {
+                        void previewObject(selectedBucketSummary.name, object)
+                      }
+                    }}
+                  >
+                    <td>{displayGcpStorageObjectName(object.key, prefix)}</td>
+                    <td>{object.isFolder ? 'Folder' : 'Object'}</td>
+                    <td>{object.key}</td>
+                    <td>{object.isFolder ? '-' : formatGcpStorageObjectSize(object.size)}</td>
+                    <td>{object.lastModified !== '-' ? new Date(object.lastModified).toLocaleString() : '-'}</td>
+                    <td>{object.storageClass || '-'}</td>
+                  </tr>
+                ))}
+                {filteredObjects.length === 0 && (
+                  <tr>
+                    <td colSpan={6}>
+                      {objectsLoading
+                        ? <SvcState variant="loading" resourceName="objects" compact />
+                        : <SvcState variant="empty" message="No objects found for this prefix." compact />}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {selectedObject && !selectedObject.isFolder && (
+            <div className="s3-preview-panel">
+              <div className="s3-preview-header">
+                <span className="s3-preview-title">{selectedObject.key.split('/').pop()}</span>
+                <div className="s3-preview-actions">
+                  {isPreviewableGcpStorageTextFile(selectedObject.key) && !editing && !previewLoading && !previewError && (
+                    <button className="s3-btn s3-btn-edit" type="button" onClick={() => { setEditing(true); setEditContent(previewContent) }}>
+                      Edit
+                    </button>
+                  )}
+                  {editing && (
+                    <>
+                      <button
+                        className="s3-btn s3-btn-ok"
+                        type="button"
+                        disabled={saving}
+                        onClick={() => void (async () => {
+                          try {
+                            setSaving(true)
+                            await putGcpStorageObjectContent(projectId, selectedBucketSummary.name, selectedObject.key, editContent)
+                            setPreviewContent(editContent)
+                            setEditing(false)
+                            setMessage(`Saved ${selectedObject.key}`)
+                            await browseBucket(selectedBucketSummary.name, prefix)
+                          } catch (err) {
+                            setPreviewError(err instanceof Error ? err.message : String(err))
+                          } finally {
+                            setSaving(false)
+                          }
+                        })()}
+                      >
+                        {saving ? 'Saving...' : 'Save'}
+                      </button>
+                      <button className="s3-btn" type="button" onClick={() => { setEditing(false); setEditContent(previewContent) }}>
+                        Cancel
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="s3-preview-body">
+                {previewLoading ? (
+                  <SvcState variant="loading" resourceName="preview" compact />
+                ) : previewError ? (
+                  <SvcState variant="empty" message={previewError} compact />
+                ) : editing ? (
+                  <textarea className="s3-edit-area" value={editContent} onChange={(event) => setEditContent(event.target.value)} />
+                ) : previewContent ? (
+                  <pre className="s3-preview-text">{previewContent}</pre>
+                ) : (
+                  <SvcState variant="empty" message={`Content type ${previewContentType || 'unknown'} is not shown inline. Download the object for direct inspection.`} compact />
+                )}
+              </div>
+            </div>
+          )}
         </section>
       )}
     </>

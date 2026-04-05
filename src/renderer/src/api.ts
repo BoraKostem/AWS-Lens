@@ -20,6 +20,8 @@ import type {
   GcpComputeInstanceSummary,
   GcpGkeClusterSummary,
   GcpSqlInstanceSummary,
+  GcpStorageObjectContent,
+  GcpStorageObjectSummary,
   GcpStorageBucketSummary,
   GcpCliProject,
   AppReleaseInfo,
@@ -1165,6 +1167,30 @@ export async function listGcpGkeClusters(projectId: string, location: string): P
 
 export async function listGcpStorageBuckets(projectId: string, location: string): Promise<GcpStorageBucketSummary[]> {
   return unwrap((await rawAwsBridge().listGcpStorageBuckets(projectId, location)) as Wrapped<GcpStorageBucketSummary[]>)
+}
+
+export async function listGcpStorageObjects(projectId: string, bucketName: string, prefix = ''): Promise<GcpStorageObjectSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpStorageObjects(projectId, bucketName, prefix)) as Wrapped<GcpStorageObjectSummary[]>)
+}
+
+export async function getGcpStorageObjectContent(projectId: string, bucketName: string, key: string): Promise<GcpStorageObjectContent> {
+  return unwrap((await rawAwsBridge().getGcpStorageObjectContent(projectId, bucketName, key)) as Wrapped<GcpStorageObjectContent>)
+}
+
+export async function putGcpStorageObjectContent(projectId: string, bucketName: string, key: string, content: string): Promise<void> {
+  return unwrap((await rawAwsBridge().putGcpStorageObjectContent(projectId, bucketName, key, content)) as Wrapped<void>)
+}
+
+export async function uploadGcpStorageObject(projectId: string, bucketName: string, key: string, localPath: string): Promise<void> {
+  return unwrap((await rawAwsBridge().uploadGcpStorageObject(projectId, bucketName, key, localPath)) as Wrapped<void>)
+}
+
+export async function downloadGcpStorageObjectToPath(projectId: string, bucketName: string, key: string): Promise<string> {
+  return unwrap((await rawAwsBridge().downloadGcpStorageObjectToPath(projectId, bucketName, key)) as Wrapped<string>)
+}
+
+export async function deleteGcpStorageObject(projectId: string, bucketName: string, key: string): Promise<void> {
+  return unwrap((await rawAwsBridge().deleteGcpStorageObject(projectId, bucketName, key)) as Wrapped<void>)
 }
 
 export async function listGcpSqlInstances(projectId: string, location: string): Promise<GcpSqlInstanceSummary[]> {

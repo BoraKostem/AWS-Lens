@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
-import { readFile, readdir } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { BrowserWindow, dialog } from 'electron'
 
 import type {
   GcpCliConfiguration,
@@ -10,6 +11,8 @@ import type {
   GcpComputeInstanceSummary,
   GcpGkeClusterSummary,
   GcpSqlInstanceSummary,
+  GcpStorageObjectContent,
+  GcpStorageObjectSummary,
   GcpStorageBucketSummary
 } from '@shared/types'
 import { getResolvedProcessEnv, resolveExecutablePath } from './shell'
@@ -391,6 +394,192 @@ function normalizeStorageBucket(entry: unknown): GcpStorageBucketSummary | null 
     uniformBucketLevelAccessEnabled: asBoolean(uniformBucketLevelAccess.enabled ?? record.uniformBucketLevelAccessEnabled ?? record.uniform_bucket_level_access_enabled),
     labelCount: labels.length
   }
+}
+
+type GcpStorageObjectRecord = {
+  key: string
+  size: number
+  lastModified: string
+  storageClass: string
+}
+
+function normalizeGcpStorageObjectKey(value: string, bucketName: string): string {
+  const normalized = value.trim().replace(/^gs:\/\//i, '')
+  if (!normalized) {
+    return ''
+  }
+
+  if (normalized === bucketName) {
+    return ''
+  }
+
+  if (normalized.startsWith(`${bucketName}/`)) {
+    return normalized.slice(bucketName.length + 1)
+  }
+
+  const firstSlashIndex = normalized.indexOf('/')
+  return firstSlashIndex >= 0 ? normalized.slice(firstSlashIndex + 1) : normalized
+}
+
+function normalizeNumber(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value.trim())
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+
+  return 0
+}
+
+function normalizeStorageObjectRecord(entry: unknown, bucketName: string): GcpStorageObjectRecord | null {
+  if (!entry || typeof entry !== 'object') {
+    return null
+  }
+
+  const record = entry as Record<string, unknown>
+  const key = normalizeGcpStorageObjectKey(
+    asString(record.name) || asString(record.uri) || asString(record.url) || asString(record.id),
+    bucketName
+  )
+
+  if (!key) {
+    return null
+  }
+
+  return {
+    key,
+    size: normalizeNumber(record.size),
+    lastModified: asString(record.updated) || asString(record.updateTime) || asString(record.timeCreated) || asString(record.lastModified),
+    storageClass: asString(record.storageClass) || asString(record.storage_class)
+  }
+}
+
+function parseGcpStorageLsOutput(value: string, bucketName: string): GcpStorageObjectRecord[] {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('gs://'))
+    .map((line) => ({
+      key: normalizeGcpStorageObjectKey(line, bucketName),
+      size: 0,
+      lastModified: '',
+      storageClass: ''
+    }))
+    .filter((entry) => entry.key)
+}
+
+function buildGcpStorageObjectSummaries(records: GcpStorageObjectRecord[], prefix: string): GcpStorageObjectSummary[] {
+  const normalizedPrefix = prefix.trim()
+  const folders = new Map<string, GcpStorageObjectSummary>()
+  const files = new Map<string, GcpStorageObjectSummary>()
+
+  for (const record of records) {
+    const key = record.key.trim()
+    if (!key || (normalizedPrefix && !key.startsWith(normalizedPrefix))) {
+      continue
+    }
+
+    const suffix = normalizedPrefix ? key.slice(normalizedPrefix.length) : key
+    if (!suffix) {
+      continue
+    }
+
+    const slashIndex = suffix.indexOf('/')
+    if (slashIndex >= 0) {
+      const folderKey = `${normalizedPrefix}${suffix.slice(0, slashIndex + 1)}`
+      if (!folders.has(folderKey)) {
+        folders.set(folderKey, {
+          key: folderKey,
+          size: 0,
+          lastModified: '-',
+          storageClass: '-',
+          isFolder: true
+        })
+      }
+
+      continue
+    }
+
+    files.set(key, {
+      key,
+      size: record.size,
+      lastModified: record.lastModified || '-',
+      storageClass: record.storageClass || '-',
+      isFolder: false
+    })
+  }
+
+  return [
+    ...[...folders.values()].sort((left, right) => left.key.localeCompare(right.key)),
+    ...[...files.values()].sort((left, right) => left.key.localeCompare(right.key))
+  ]
+}
+
+function buildGcsUri(bucketName: string, key: string): string {
+  const normalizedKey = key.trim().replace(/^\/+/, '')
+  return normalizedKey ? `gs://${bucketName}/${normalizedKey}` : `gs://${bucketName}`
+}
+
+function guessContentTypeFromKey(key: string): string {
+  const extension = path.extname(key).toLowerCase()
+
+  switch (extension) {
+    case '.json':
+      return 'application/json'
+    case '.txt':
+    case '.log':
+    case '.md':
+    case '.tf':
+    case '.tfvars':
+    case '.yaml':
+    case '.yml':
+    case '.ini':
+    case '.cfg':
+    case '.conf':
+      return 'text/plain'
+    case '.csv':
+      return 'text/csv'
+    case '.html':
+    case '.htm':
+      return 'text/html'
+    case '.css':
+      return 'text/css'
+    case '.js':
+    case '.mjs':
+    case '.cjs':
+      return 'text/javascript'
+    case '.ts':
+    case '.tsx':
+      return 'text/typescript'
+    case '.xml':
+      return 'application/xml'
+    case '.svg':
+      return 'image/svg+xml'
+    default:
+      return 'text/plain'
+  }
+}
+
+function normalizeStorageObjectContentType(entry: unknown): { contentType: string } | null {
+  if (!entry || typeof entry !== 'object') {
+    return null
+  }
+
+  const record = entry as Record<string, unknown>
+  return {
+    contentType: asString(record.contentType) || asString(record.content_type)
+  }
+}
+
+async function createTempGcpStorageFile(key: string, content: string): Promise<string> {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'cloud-lens-gcs-'))
+  const fileName = path.basename(key.trim()) || 'object.txt'
+  const filePath = path.join(tempDir, fileName)
+  await writeFile(filePath, content, 'utf8')
+  return filePath
 }
 
 function formatMaintenanceWindow(day: unknown, hour: unknown): string {
@@ -1094,6 +1283,234 @@ export async function listGcpStorageBuckets(projectId: string, location: string)
   }
 
   return filterStorageBucketsByLocation(cliBuckets, location)
+}
+
+export async function listGcpStorageObjects(projectId: string, bucketName: string, prefix = ''): Promise<GcpStorageObjectSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedBucketName = bucketName.trim()
+  if (!normalizedProjectId || !normalizedBucketName) {
+    return []
+  }
+
+  const env = await getResolvedProcessEnv({ fresh: true })
+  const resolved = await resolveGcloudCommand(env)
+
+  if (!resolved) {
+    return []
+  }
+
+  const objectListArgs = [
+    'storage',
+    'objects',
+    'list',
+    '--bucket',
+    normalizedBucketName,
+    '--format=json'
+  ]
+
+  if (prefix.trim()) {
+    objectListArgs.push('--prefix', prefix.trim())
+  }
+
+  const objectsResult = await runCommand(
+    resolved.command,
+    buildGcloudArgs(objectListArgs),
+    env,
+    20000
+  )
+
+  let records = safeParseList(objectsResult.stdout, (entry) => normalizeStorageObjectRecord(entry, normalizedBucketName))
+
+  if (!objectsResult.ok && records.length === 0) {
+    const fallbackResult = await runCommand(
+      resolved.command,
+      buildGcloudArgs(['storage', 'ls', '--recursive', buildGcsUri(normalizedBucketName, '')]),
+      env,
+      20000
+    )
+    records = parseGcpStorageLsOutput(fallbackResult.stdout, normalizedBucketName)
+
+    if (!fallbackResult.ok && records.length === 0) {
+      throw buildGcpCliError(`listing Cloud Storage objects for bucket "${normalizedBucketName}"`, fallbackResult, 'storage.googleapis.com')
+    }
+
+    if (fallbackResult.ok && records.length === 0 && fallbackResult.stderr.trim()) {
+      throw buildGcpCliError(`listing Cloud Storage objects for bucket "${normalizedBucketName}"`, fallbackResult, 'storage.googleapis.com')
+    }
+  } else if (objectsResult.ok && records.length === 0 && objectsResult.stderr.trim()) {
+    throw buildGcpCliError(`listing Cloud Storage objects for bucket "${normalizedBucketName}"`, objectsResult, 'storage.googleapis.com')
+  }
+
+  return buildGcpStorageObjectSummaries(records, prefix)
+}
+
+export async function getGcpStorageObjectContent(projectId: string, bucketName: string, key: string): Promise<GcpStorageObjectContent> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedBucketName = bucketName.trim()
+  const normalizedKey = key.trim()
+
+  if (!normalizedProjectId || !normalizedBucketName || !normalizedKey) {
+    return { body: '', contentType: guessContentTypeFromKey(normalizedKey) }
+  }
+
+  const env = await getResolvedProcessEnv({ fresh: true })
+  const resolved = await resolveGcloudCommand(env)
+
+  if (!resolved) {
+    return { body: '', contentType: guessContentTypeFromKey(normalizedKey) }
+  }
+
+  const uri = buildGcsUri(normalizedBucketName, normalizedKey)
+  const contentResult = await runCommand(
+    resolved.command,
+    buildGcloudArgs(['storage', 'cat', uri]),
+    env,
+    20000
+  )
+
+  if (!contentResult.ok) {
+    throw buildGcpCliError(`reading Cloud Storage object "${normalizedKey}"`, contentResult, 'storage.googleapis.com')
+  }
+
+  const describeResult = await runCommand(
+    resolved.command,
+    buildGcloudArgs(['storage', 'objects', 'describe', uri, '--format=json']),
+    env,
+    5000
+  )
+  const metadata = safeParseItem(describeResult.stdout, normalizeStorageObjectContentType)
+
+  return {
+    body: contentResult.stdout,
+    contentType: metadata?.contentType || guessContentTypeFromKey(normalizedKey)
+  }
+}
+
+export async function putGcpStorageObjectContent(projectId: string, bucketName: string, key: string, content: string): Promise<void> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedBucketName = bucketName.trim()
+  const normalizedKey = key.trim()
+  if (!normalizedProjectId || !normalizedBucketName || !normalizedKey) {
+    return
+  }
+
+  const env = await getResolvedProcessEnv({ fresh: true })
+  const resolved = await resolveGcloudCommand(env)
+  if (!resolved) {
+    return
+  }
+
+  const tempFile = await createTempGcpStorageFile(normalizedKey, content)
+
+  try {
+    const uploadResult = await runCommand(
+      resolved.command,
+      buildGcloudArgs(['storage', 'cp', tempFile, buildGcsUri(normalizedBucketName, normalizedKey)]),
+      env,
+      20000
+    )
+
+    if (!uploadResult.ok) {
+      throw buildGcpCliError(`writing Cloud Storage object "${normalizedKey}"`, uploadResult, 'storage.googleapis.com')
+    }
+  } finally {
+    await rm(path.dirname(tempFile), { recursive: true, force: true }).catch(() => undefined)
+  }
+}
+
+export async function uploadGcpStorageObject(projectId: string, bucketName: string, key: string, localPath: string): Promise<void> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedBucketName = bucketName.trim()
+  const normalizedKey = key.trim()
+  const normalizedLocalPath = localPath.trim()
+
+  if (!normalizedProjectId || !normalizedBucketName || !normalizedKey || !normalizedLocalPath) {
+    return
+  }
+
+  const env = await getResolvedProcessEnv({ fresh: true })
+  const resolved = await resolveGcloudCommand(env)
+  if (!resolved) {
+    return
+  }
+
+  const uploadResult = await runCommand(
+    resolved.command,
+    buildGcloudArgs(['storage', 'cp', normalizedLocalPath, buildGcsUri(normalizedBucketName, normalizedKey)]),
+    env,
+    20000
+  )
+
+  if (!uploadResult.ok) {
+    throw buildGcpCliError(`uploading Cloud Storage object "${normalizedKey}"`, uploadResult, 'storage.googleapis.com')
+  }
+}
+
+export async function downloadGcpStorageObjectToPath(projectId: string, bucketName: string, key: string): Promise<string> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedBucketName = bucketName.trim()
+  const normalizedKey = key.trim()
+
+  if (!normalizedProjectId || !normalizedBucketName || !normalizedKey) {
+    return ''
+  }
+
+  const fileName = path.basename(normalizedKey) || 'download'
+  const owner = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+  const result = await dialog.showSaveDialog(owner, {
+    defaultPath: fileName,
+    title: 'Save Cloud Storage Object'
+  })
+
+  if (result.canceled || !result.filePath) {
+    return ''
+  }
+
+  const env = await getResolvedProcessEnv({ fresh: true })
+  const resolved = await resolveGcloudCommand(env)
+  if (!resolved) {
+    return ''
+  }
+
+  const downloadResult = await runCommand(
+    resolved.command,
+    buildGcloudArgs(['storage', 'cp', buildGcsUri(normalizedBucketName, normalizedKey), result.filePath]),
+    env,
+    20000
+  )
+
+  if (!downloadResult.ok) {
+    throw buildGcpCliError(`downloading Cloud Storage object "${normalizedKey}"`, downloadResult, 'storage.googleapis.com')
+  }
+
+  return result.filePath
+}
+
+export async function deleteGcpStorageObject(projectId: string, bucketName: string, key: string): Promise<void> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedBucketName = bucketName.trim()
+  const normalizedKey = key.trim()
+
+  if (!normalizedProjectId || !normalizedBucketName || !normalizedKey) {
+    return
+  }
+
+  const env = await getResolvedProcessEnv({ fresh: true })
+  const resolved = await resolveGcloudCommand(env)
+  if (!resolved) {
+    return
+  }
+
+  const deleteResult = await runCommand(
+    resolved.command,
+    buildGcloudArgs(['storage', 'rm', buildGcsUri(normalizedBucketName, normalizedKey)]),
+    env,
+    20000
+  )
+
+  if (!deleteResult.ok) {
+    throw buildGcpCliError(`deleting Cloud Storage object "${normalizedKey}"`, deleteResult, 'storage.googleapis.com')
+  }
 }
 
 export async function listGcpSqlInstances(projectId: string, location: string): Promise<GcpSqlInstanceSummary[]> {
