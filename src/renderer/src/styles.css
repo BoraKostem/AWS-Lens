@@ -877,6 +877,32 @@ textarea {
     linear-gradient(180deg, rgba(18, 22, 29, 0.96), rgba(11, 15, 21, 0.96));
 }
 
+.gcp-iam-console .overview-ownership-card {
+  overflow: hidden;
+}
+
+.gcp-iam-console .overview-ownership-header > div,
+.gcp-iam-console .overview-ownership-metrics,
+.gcp-iam-console .overview-note-item {
+  min-width: 0;
+}
+
+.gcp-iam-console .overview-ownership-header strong,
+.gcp-iam-console .overview-ownership-metrics span,
+.gcp-iam-console .overview-note-item {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.gcp-iam-console .overview-ownership-metrics {
+  max-width: 40%;
+}
+
+.gcp-iam-console .overview-ownership-metrics span {
+  text-align: right;
+}
+
 .gcp-iam-console .ghost:hover {
   border-color: rgba(52, 168, 83, 0.22);
   box-shadow: 0 0 0 1px rgba(52, 168, 83, 0.08);
