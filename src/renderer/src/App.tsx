@@ -593,27 +593,6 @@ function PlaceholderScreen({
 }) {
   return (
     <>
-      <section className="hero catalog-hero">
-        <div>
-          <div className="eyebrow">{eyebrow}</div>
-          <h2>{service.label}</h2>
-          <p className="hero-path">{SERVICE_DESCRIPTIONS[service.id]}</p>
-        </div>
-        <div className="hero-connection">
-          <div className="connection-summary">
-            <span>Status</span>
-            <strong>{statusLabel || (service.migrated ? 'Cataloged' : 'Planned')}</strong>
-          </div>
-          <div className="connection-summary">
-            <span>Category</span>
-            <strong>{service.category || 'General'}</strong>
-          </div>
-          <div className="connection-summary">
-            <span>Maturity</span>
-            <strong>{SERVICE_MATURITY_LABELS[service.maturity]}</strong>
-          </div>
-        </div>
-      </section>
       {contextLabel ? (
         <section className="panel stack">
           <div className="catalog-page-header">
@@ -625,11 +604,27 @@ function PlaceholderScreen({
           </div>
         </section>
       ) : null}
-      <section className="empty-hero">
-        <div>
-          <div className="eyebrow">{eyebrow}</div>
-          <h2>{emptyTitle || `${service.label} is listed but not wired into this shell yet`}</h2>
-          <p>{emptyCopy || SERVICE_DESCRIPTIONS[service.id]}</p>
+      <section className="panel stack">
+        <div className="catalog-page-header">
+          <div>
+            <div className="eyebrow">{eyebrow}</div>
+            <h3>{emptyTitle || `${service.label} is listed but not wired into this shell yet`}</h3>
+            <p>{emptyCopy || SERVICE_DESCRIPTIONS[service.id]}</p>
+          </div>
+          <div className="hero-connection">
+            <div className="connection-summary">
+              <span>Status</span>
+              <strong>{statusLabel || (service.migrated ? 'Cataloged' : 'Planned')}</strong>
+            </div>
+            <div className="connection-summary">
+              <span>Category</span>
+              <strong>{service.category || 'General'}</strong>
+            </div>
+            <div className="connection-summary">
+              <span>Maturity</span>
+              <strong>{SERVICE_MATURITY_LABELS[service.maturity]}</strong>
+            </div>
+          </div>
         </div>
       </section>
     </>
@@ -656,33 +651,28 @@ function ProviderPreviewScreen({
       <div className="catalog-page-header">
         <div>
           <div className="eyebrow">{provider.label} Preview</div>
-          <h2>{formatScreenLabel(screen)} is staged behind the new provider-aware shell.</h2>
-          <p className="hero-path">{description}</p>
+          <h3>{formatScreenLabel(screen)} stays in preview for now.</h3>
+          <p>{description}</p>
         </div>
-          <span className="enterprise-mode-pill read-only">Phase 4 preview</span>
+        <span className="enterprise-mode-pill read-only">Phase 5 preview</span>
+      </div>
+      {contextLabel ? (
+        <div className="provider-preview-context">
+          <span className="provider-preview-context-label">Current context</span>
+          <strong>{contextLabel}</strong>
+          {contextDetail ? <small>{contextDetail}</small> : null}
         </div>
-        {contextLabel ? (
-          <div className="provider-preview-context">
-            <span className="provider-preview-context-label">Current context</span>
-            <strong>{contextLabel}</strong>
-            {contextDetail ? <small>{contextDetail}</small> : null}
-          </div>
-        ) : null}
-        <div className="provider-preview-grid">
-          {modes.map((mode) => (
-            <article key={mode.id} className={`profile-catalog-card provider-mode-card provider-mode-card-${provider.id}`}>
-              <div className="profile-catalog-status">
+      ) : null}
+      <div className="provider-preview-grid">
+        {modes.map((mode) => (
+          <article key={mode.id} className={`profile-catalog-card provider-mode-card provider-mode-card-${provider.id}`}>
+            <div className="profile-catalog-status">
               <span>{mode.label}</span>
               <strong>{mode.status}</strong>
             </div>
-            <p className="hero-path provider-mode-card-copy">{mode.detail}</p>
+            <p className="provider-mode-card-copy">{mode.detail}</p>
           </article>
         ))}
-      </div>
-      <div className={`profile-catalog-empty provider-preview-note provider-preview-note-${provider.id}`}>
-        <div className="eyebrow">Shared Shell</div>
-        <h3>{provider.label} can be selected now without leaking AWS state into shared workspaces.</h3>
-        <p className="hero-path">Connection wiring, adaptive rail behavior, terminal context switching, and provider diagnostics continue in the next Phase 4 branches.</p>
       </div>
     </section>
   )
