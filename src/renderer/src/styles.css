@@ -881,10 +881,20 @@ textarea {
   overflow: hidden;
 }
 
+.gcp-iam-console .overview-ownership-header {
+  gap: 0.55rem;
+}
+
 .gcp-iam-console .overview-ownership-header > div,
 .gcp-iam-console .overview-ownership-metrics,
 .gcp-iam-console .overview-note-item {
   min-width: 0;
+}
+
+.gcp-iam-console .overview-ownership-header span,
+.gcp-iam-console .overview-ownership-metrics span,
+.gcp-iam-console .overview-note-item {
+  font-size: 0.68rem;
 }
 
 .gcp-iam-console .overview-ownership-header strong,
@@ -895,12 +905,25 @@ textarea {
   word-break: break-word;
 }
 
+.gcp-iam-console .overview-ownership-header strong {
+  font-size: 0.92rem;
+  line-height: 1.28;
+}
+
 .gcp-iam-console .overview-ownership-metrics {
-  max-width: 40%;
+  flex: 0 0 84px;
+  max-width: 84px;
+  gap: 0.12rem;
 }
 
 .gcp-iam-console .overview-ownership-metrics span {
   text-align: right;
+  line-height: 1.2;
+}
+
+.gcp-iam-console .overview-note-item {
+  padding: 0.48rem 0.58rem;
+  line-height: 1.3;
 }
 
 .gcp-iam-console .ghost:hover {
