@@ -645,6 +645,59 @@ export type GcpLogQueryResult = {
   resourceTypeCounts: GcpLogFacetCount[]
 }
 
+export type GcpBillingLinkedProjectSummary = {
+  projectId: string
+  name: string
+  projectNumber: string
+  lifecycleState: string
+  labelCount: number
+  billingEnabled: boolean
+}
+
+export type GcpBillingCapabilityHint = {
+  id: string
+  subject: string
+  severity: 'info' | 'warning' | 'error'
+  title: string
+  summary: string
+  recommendedAction: string
+}
+
+export type GcpBillingOwnershipValue = {
+  value: string
+  projectCount: number
+  sharePercent: number
+}
+
+export type GcpBillingOwnershipHint = {
+  key: string
+  coveragePercent: number
+  labeledProjects: number
+  unlabeledProjects: number
+  topValues: GcpBillingOwnershipValue[]
+}
+
+export type GcpBillingVisibility = 'full' | 'billing-account-only' | 'project-only'
+
+export type GcpBillingOverview = {
+  projectId: string
+  projectNumber: string
+  projectName: string
+  billingEnabled: boolean
+  billingAccountName: string
+  billingAccountDisplayName: string
+  billingAccountOpen: boolean
+  accessibleProjectCount: number
+  linkedProjects: GcpBillingLinkedProjectSummary[]
+  capabilityHints: GcpBillingCapabilityHint[]
+  ownershipHints: GcpBillingOwnershipHint[]
+  notes: string[]
+  projectLabelCount: number
+  linkedProjectLabelCoveragePercent: number
+  visibility: GcpBillingVisibility
+  lastUpdatedAt: string
+}
+
 export type Ec2SsmStatus = 'managed-online' | 'managed-offline' | 'not-managed'
 
 export type SsmManagedInstanceSummary = {

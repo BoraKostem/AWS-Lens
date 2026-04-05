@@ -706,6 +706,58 @@ textarea {
   gap: 0.16rem;
 }
 
+.gcp-billing-console .overview-hero-card {
+  background:
+    radial-gradient(circle at top right, rgba(52, 168, 83, 0.16), transparent 28%),
+    linear-gradient(180deg, rgba(17, 31, 25, 0.98), rgba(8, 17, 14, 0.98));
+}
+
+.gcp-billing-console .overview-glance-card-accent {
+  border-color: rgba(52, 168, 83, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(52, 168, 83, 0.16), transparent 42%),
+    linear-gradient(180deg, rgba(24, 46, 32, 0.96), rgba(14, 30, 20, 0.96));
+}
+
+.gcp-billing-console .overview-glance-card-accent strong,
+.gcp-billing-console .overview-hint-kicker,
+.gcp-billing-console .eyebrow {
+  color: #9ce2ae;
+}
+
+.gcp-billing-console .overview-meta-pill,
+.gcp-billing-console .overview-account-card,
+.gcp-billing-console .overview-hint-card,
+.gcp-billing-console .overview-ownership-card {
+  border-color: rgba(52, 168, 83, 0.14);
+}
+
+.gcp-billing-console .overview-note-item,
+.gcp-billing-console .overview-linked-account-row,
+.gcp-billing-console .overview-ownership-value {
+  background: linear-gradient(180deg, rgba(18, 31, 25, 0.94), rgba(10, 20, 15, 0.94));
+  border-color: rgba(52, 168, 83, 0.1);
+}
+
+.gcp-billing-console .overview-hint-card.info {
+  border-color: rgba(52, 168, 83, 0.2);
+  background:
+    radial-gradient(circle at top right, rgba(52, 168, 83, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(18, 22, 29, 0.96), rgba(11, 15, 21, 0.96));
+}
+
+.gcp-billing-console .overview-hint-card.warning {
+  border-color: rgba(140, 198, 108, 0.22);
+  background:
+    radial-gradient(circle at top right, rgba(140, 198, 108, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(18, 22, 29, 0.96), rgba(11, 15, 21, 0.96));
+}
+
+.gcp-billing-console .ghost:hover {
+  border-color: rgba(52, 168, 83, 0.22);
+  box-shadow: 0 0 0 1px rgba(52, 168, 83, 0.08);
+}
+
 .overview-tiles {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

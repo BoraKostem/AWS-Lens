@@ -114,6 +114,7 @@ const awsLensApi = {
   deleteGcpStorageObject: (projectId: string, bucketName: string, key: string) => ipcRenderer.invoke('gcp:cloud-storage:object:delete', projectId, bucketName, key),
   listGcpLogEntries: (projectId: string, location: string, query: string, windowHours?: number) => ipcRenderer.invoke('gcp:logging:list', projectId, location, query, windowHours),
   listGcpSqlInstances: (projectId: string, location: string) => ipcRenderer.invoke('gcp:cloud-sql:list', projectId, location),
+  getGcpBillingOverview: (projectId: string, catalogProjectIds: string[]) => ipcRenderer.invoke('gcp:billing:get-overview', projectId, catalogProjectIds),
   checkForAppUpdates: () => ipcRenderer.invoke('app:update:check'),
   downloadAppUpdate: () => ipcRenderer.invoke('app:update:download'),
   installAppUpdate: () => ipcRenderer.invoke('app:update:install'),

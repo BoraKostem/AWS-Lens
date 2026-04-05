@@ -17,6 +17,7 @@ import type {
   AppDiagnosticsExportResult,
   EnvironmentHealthReport,
   GcpCliContext,
+  GcpBillingOverview,
   GcpComputeInstanceSummary,
   GcpGkeClusterSummary,
   GcpLogQueryResult,
@@ -1208,6 +1209,10 @@ export async function listGcpLogEntries(projectId: string, location: string, que
 
 export async function listGcpSqlInstances(projectId: string, location: string): Promise<GcpSqlInstanceSummary[]> {
   return unwrap((await rawAwsBridge().listGcpSqlInstances(projectId, location)) as Wrapped<GcpSqlInstanceSummary[]>)
+}
+
+export async function getGcpBillingOverview(projectId: string, catalogProjectIds: string[]): Promise<GcpBillingOverview> {
+  return unwrap((await rawAwsBridge().getGcpBillingOverview(projectId, catalogProjectIds)) as Wrapped<GcpBillingOverview>)
 }
 
 export async function checkForAppUpdates(): Promise<AppReleaseInfo> {

@@ -5,6 +5,11 @@ import { GoogleAuth } from 'google-auth-library'
 import { google } from 'googleapis'
 
 import type {
+  GcpBillingCapabilityHint,
+  GcpBillingLinkedProjectSummary,
+  GcpBillingOverview,
+  GcpBillingOwnershipHint,
+  GcpBillingOwnershipValue,
   GcpComputeInstanceSummary,
   GcpLogEntryDetail,
   GcpGkeClusterSummary,
@@ -20,6 +25,18 @@ import type {
 const GCP_SDK_SCOPES = ['https://www.googleapis.com/auth/cloud-platform']
 const GCP_REGION_PATTERN = /^[a-z]+(?:-[a-z0-9]+)+\d$/
 const GCP_ZONE_PATTERN = /^[a-z]+(?:-[a-z0-9]+)+\d-[a-z]$/
+const GCP_BILLING_OWNERSHIP_KEYS = ['owner', 'team', 'cost-center', 'cost_center', 'environment', 'env', 'application', 'app', 'service']
+
+type GcpBillingProjectRecord = {
+  projectId: string
+  name: string
+  projectNumber: string
+  lifecycleState: string
+  labelCount: number
+  labels: Record<string, string>
+  billingEnabled: boolean
+  billingAccountName: string
+}
 
 type GcpStorageObjectRecord = {
   key: string
@@ -68,6 +85,18 @@ function normalizeNumber(value: unknown): number {
   }
 
   return 0
+}
+
+function normalizeStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object') {
+    return {}
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => [key.trim(), asString(item)])
+      .filter((entry) => entry[0] && entry[1])
+  )
 }
 
 function outputIndicatesApiDisabled(output: string): boolean {
@@ -682,6 +711,209 @@ function isValidGcpLocation(value: string): boolean {
   return normalized === 'global' || GCP_REGION_PATTERN.test(normalized) || GCP_ZONE_PATTERN.test(normalized)
 }
 
+async function getGcpProjectBillingInfo(projectId: string): Promise<{ billingEnabled: boolean; billingAccountName: string }> {
+  const response = await requestGcp<Record<string, unknown>>(projectId, {
+    url: `https://cloudbilling.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/billingInfo`
+  })
+
+  return {
+    billingEnabled: asBoolean(response.billingEnabled),
+    billingAccountName: asString(response.billingAccountName)
+  }
+}
+
+async function getGcpBillingAccountMetadata(projectId: string, billingAccountName: string): Promise<{ displayName: string; open: boolean }> {
+  if (!billingAccountName.trim()) {
+    return { displayName: '', open: false }
+  }
+
+  const response = await requestGcp<Record<string, unknown>>(projectId, {
+    url: `https://cloudbilling.googleapis.com/v1/${billingAccountName}`
+  })
+
+  return {
+    displayName: asString(response.displayName),
+    open: asBoolean(response.open)
+  }
+}
+
+async function getGcpProjectMetadata(projectId: string): Promise<{
+  projectId: string
+  name: string
+  projectNumber: string
+  lifecycleState: string
+  labels: Record<string, string>
+}> {
+  const response = await requestGcp<Record<string, unknown>>(projectId, {
+    url: `https://cloudresourcemanager.googleapis.com/v3/projects/${encodeURIComponent(projectId)}`
+  })
+
+  return {
+    projectId: asString(response.projectId) || projectId,
+    name: asString(response.displayName),
+    projectNumber: asString(response.projectNumber),
+    lifecycleState: asString(response.state),
+    labels: normalizeStringRecord(response.labels)
+  }
+}
+
+function buildGcpBillingProjectRecord(
+  projectId: string,
+  metadata: {
+    projectId: string
+    name: string
+    projectNumber: string
+    lifecycleState: string
+    labels: Record<string, string>
+  } | null,
+  billingInfo: { billingEnabled: boolean; billingAccountName: string }
+): GcpBillingProjectRecord {
+  const labels = metadata?.labels ?? {}
+
+  return {
+    projectId: metadata?.projectId || projectId,
+    name: metadata?.name || projectId,
+    projectNumber: metadata?.projectNumber || '',
+    lifecycleState: metadata?.lifecycleState || '',
+    labelCount: Object.keys(labels).length,
+    labels,
+    billingEnabled: billingInfo.billingEnabled,
+    billingAccountName: billingInfo.billingAccountName
+  }
+}
+
+function summarizeBillingAccountId(value: string): string {
+  const normalized = value.trim()
+  return normalized ? normalized.replace(/^billingAccounts\//, '') : '-'
+}
+
+function computeGcpBillingOwnershipHints(records: GcpBillingProjectRecord[]): GcpBillingOwnershipHint[] {
+  const totalProjects = records.length || 1
+
+  return GCP_BILLING_OWNERSHIP_KEYS.map((key) => {
+    const counts = new Map<string, number>()
+    let labeledProjects = 0
+
+    for (const record of records) {
+      const value = record.labels[key]?.trim()
+      if (!value) {
+        continue
+      }
+
+      labeledProjects += 1
+      counts.set(value, (counts.get(value) ?? 0) + 1)
+    }
+
+    const topValues: GcpBillingOwnershipValue[] = [...counts.entries()]
+      .map(([value, projectCount]) => ({
+        value,
+        projectCount,
+        sharePercent: (projectCount / totalProjects) * 100
+      }))
+      .sort((left, right) => right.projectCount - left.projectCount || left.value.localeCompare(right.value))
+      .slice(0, 3)
+
+    return {
+      key,
+      coveragePercent: (labeledProjects / totalProjects) * 100,
+      labeledProjects,
+      unlabeledProjects: totalProjects - labeledProjects,
+      topValues
+    }
+  })
+    .filter((hint) => hint.labeledProjects > 0 || hint.key === 'owner' || hint.key === 'cost-center' || hint.key === 'environment')
+}
+
+function buildGcpBillingCapabilityHints(
+  overview: Pick<GcpBillingOverview, 'billingEnabled' | 'billingAccountName' | 'billingAccountDisplayName' | 'billingAccountOpen' | 'linkedProjects' | 'visibility' | 'projectLabelCount' | 'ownershipHints'>,
+  projectId: string
+): GcpBillingCapabilityHint[] {
+  const hints: GcpBillingCapabilityHint[] = []
+
+  if (!overview.billingEnabled) {
+    hints.push({
+      id: 'billing-disabled',
+      subject: 'Billing',
+      severity: 'error',
+      title: 'Project billing is not enabled',
+      summary: `The selected project is not linked to an active billing account, so cost-backed services can fail to provision or continue running.`,
+      recommendedAction: `Link project ${projectId} to a billing account in Google Cloud Billing before using cost-bound services.`
+    })
+  } else {
+    hints.push({
+      id: 'billing-enabled',
+      subject: 'Billing',
+      severity: 'info',
+      title: 'Project billing is linked',
+      summary: overview.billingAccountDisplayName
+        ? `Billing is routed through ${overview.billingAccountDisplayName}.`
+        : `Billing linkage is enabled for the selected project.`,
+      recommendedAction: 'Use this view to confirm the linked billing account and project ownership signals before handing the project to operators.'
+    })
+  }
+
+  if (overview.billingAccountName && !overview.billingAccountOpen) {
+    hints.push({
+      id: 'billing-account-closed',
+      subject: 'Billing account',
+      severity: 'warning',
+      title: 'Billing account is not marked open',
+      summary: 'The linked billing account metadata does not report an open state.',
+      recommendedAction: `Inspect billing account ${summarizeBillingAccountId(overview.billingAccountName)} and verify it is active.`
+    })
+  }
+
+  if (overview.billingAccountName && !overview.billingAccountDisplayName) {
+    hints.push({
+      id: 'billing-account-visibility',
+      subject: 'Visibility',
+      severity: 'warning',
+      title: 'Billing account metadata is partially hidden',
+      summary: 'Project linkage is visible, but billing account details are limited with the current credentials.',
+      recommendedAction: 'Grant Cloud Billing Viewer access if the operator needs the billing account display name and state.'
+    })
+  }
+
+  if (overview.visibility !== 'full') {
+    hints.push({
+      id: 'linked-project-visibility',
+      subject: 'Visibility',
+      severity: 'info',
+      title: 'Linked project coverage is partial',
+      summary: 'This shell only reports projects visible in the current catalog and under the current credentials.',
+      recommendedAction: 'Refresh the project catalog or use broader billing permissions if you expect more linked projects here.'
+    })
+  }
+
+  if (overview.projectLabelCount === 0) {
+    hints.push({
+      id: 'project-labels-missing',
+      subject: 'Ownership',
+      severity: 'warning',
+      title: 'Current project has no ownership labels',
+      summary: 'The selected project does not expose labels such as owner, environment, or cost-center.',
+      recommendedAction: 'Add ownership labels before expanding the billing footprint so chargeback and governance remain traceable.'
+    })
+  }
+
+  const weakestHint = overview.ownershipHints
+    .filter((hint) => ['owner', 'cost-center', 'environment'].includes(hint.key))
+    .sort((left, right) => left.coveragePercent - right.coveragePercent)[0]
+
+  if (weakestHint && weakestHint.coveragePercent < 60) {
+    hints.push({
+      id: `ownership-${weakestHint.key}`,
+      subject: 'Ownership',
+      severity: 'warning',
+      title: `${weakestHint.key} coverage is thin`,
+      summary: `${weakestHint.coveragePercent.toFixed(0)}% of linked projects currently expose the ${weakestHint.key} label.`,
+      recommendedAction: `Backfill ${weakestHint.key} labels across linked projects before using this view for shared billing ownership reviews.`
+    })
+  }
+
+  return hints
+}
+
 export async function listGcpComputeInstances(projectId: string, location: string): Promise<GcpComputeInstanceSummary[]> {
   const normalizedProjectId = projectId.trim()
   if (!normalizedProjectId) {
@@ -1008,5 +1240,124 @@ export async function listGcpSqlInstances(projectId: string, location: string): 
     return filterSqlInstancesByLocation(instances, location)
   } catch (error) {
     throw buildGcpSdkError(`listing Cloud SQL instances for project "${normalizedProjectId}"`, error, 'sqladmin.googleapis.com')
+  }
+}
+
+export async function getGcpBillingOverview(projectId: string, catalogProjectIds: string[] = []): Promise<GcpBillingOverview> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) {
+    return {
+      projectId: '',
+      projectNumber: '',
+      projectName: '',
+      billingEnabled: false,
+      billingAccountName: '',
+      billingAccountDisplayName: '',
+      billingAccountOpen: false,
+      accessibleProjectCount: 0,
+      linkedProjects: [],
+      capabilityHints: [],
+      ownershipHints: [],
+      notes: [],
+      projectLabelCount: 0,
+      linkedProjectLabelCoveragePercent: 0,
+      visibility: 'project-only',
+      lastUpdatedAt: new Date().toISOString()
+    }
+  }
+
+  try {
+    const currentBillingInfo = await getGcpProjectBillingInfo(normalizedProjectId)
+    const currentMetadata = await getGcpProjectMetadata(normalizedProjectId).catch(() => null)
+    const currentRecord = buildGcpBillingProjectRecord(normalizedProjectId, currentMetadata, currentBillingInfo)
+    const uniqueCandidateIds = [...new Set([normalizedProjectId, ...catalogProjectIds.map((value) => value.trim()).filter(Boolean)])].slice(0, 24)
+    let linkedProjects: GcpBillingProjectRecord[] = [currentRecord]
+    let billingAccountDisplayName = ''
+    let billingAccountOpen = false
+    let visibility: GcpBillingOverview['visibility'] = 'project-only'
+
+    if (currentBillingInfo.billingAccountName) {
+      visibility = 'billing-account-only'
+
+      try {
+        const accountMetadata = await getGcpBillingAccountMetadata(normalizedProjectId, currentBillingInfo.billingAccountName)
+        billingAccountDisplayName = accountMetadata.displayName
+        billingAccountOpen = accountMetadata.open
+      } catch (error) {
+        if (outputIndicatesApiDisabled(error instanceof Error ? error.message : String(error))) {
+          throw buildGcpSdkError(`loading billing account metadata for project "${normalizedProjectId}"`, error, 'cloudbilling.googleapis.com')
+        }
+      }
+
+      const candidateRecords = await Promise.all(uniqueCandidateIds.map(async (candidateProjectId) => {
+        try {
+          const billingInfo = candidateProjectId === normalizedProjectId
+            ? currentBillingInfo
+            : await getGcpProjectBillingInfo(candidateProjectId)
+
+          if (billingInfo.billingAccountName !== currentBillingInfo.billingAccountName || !billingInfo.billingEnabled) {
+            return null
+          }
+
+          const metadata = candidateProjectId === normalizedProjectId
+            ? currentMetadata
+            : await getGcpProjectMetadata(candidateProjectId).catch(() => null)
+
+          return buildGcpBillingProjectRecord(candidateProjectId, metadata, billingInfo)
+        } catch {
+          return null
+        }
+      }))
+
+      linkedProjects = candidateRecords.filter((entry): entry is GcpBillingProjectRecord => entry !== null)
+      if (linkedProjects.length > 0) {
+        visibility = 'full'
+      }
+    }
+
+    const ownershipHints = computeGcpBillingOwnershipHints(linkedProjects)
+    const linkedProjectLabelCoveragePercent = linkedProjects.length === 0
+      ? 0
+      : (linkedProjects.filter((entry) => entry.labelCount > 0).length / linkedProjects.length) * 100
+    const overview: GcpBillingOverview = {
+      projectId: currentRecord.projectId,
+      projectNumber: currentRecord.projectNumber,
+      projectName: currentRecord.name,
+      billingEnabled: currentRecord.billingEnabled,
+      billingAccountName: currentRecord.billingAccountName,
+      billingAccountDisplayName,
+      billingAccountOpen,
+      accessibleProjectCount: uniqueCandidateIds.length,
+      linkedProjects: linkedProjects
+        .map((entry) => ({
+          projectId: entry.projectId,
+          name: entry.name,
+          projectNumber: entry.projectNumber,
+          lifecycleState: entry.lifecycleState,
+          labelCount: entry.labelCount,
+          billingEnabled: entry.billingEnabled
+        } satisfies GcpBillingLinkedProjectSummary))
+        .sort((left, right) => left.projectId.localeCompare(right.projectId)),
+      capabilityHints: [],
+      ownershipHints,
+      notes: [
+        'Linked-project analysis is limited to projects visible in the current catalog and under the current credentials.',
+        'This slice focuses on linkage, visibility, and ownership posture. Spend exports and budget telemetry are not wired yet.'
+      ],
+      projectLabelCount: currentRecord.labelCount,
+      linkedProjectLabelCoveragePercent,
+      visibility,
+      lastUpdatedAt: new Date().toISOString()
+    }
+
+    overview.capabilityHints = buildGcpBillingCapabilityHints(overview, normalizedProjectId)
+    return overview
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    const serviceName = detail.toLowerCase().includes('cloud resource manager')
+      ? 'cloudresourcemanager.googleapis.com'
+      : 'cloudbilling.googleapis.com'
+
+    throw buildGcpSdkError(`loading Billing overview for project "${normalizedProjectId}"`, error, serviceName)
   }
 }

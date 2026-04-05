@@ -458,6 +458,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('gcp:cloud-sql:list', async (_event, projectId: string, location: string) =>
     wrap(async () => (await loadGcpSdk()).listGcpSqlInstances(projectId, location))
   )
+  ipcMain.handle('gcp:billing:get-overview', async (_event, projectId: string, catalogProjectIds: string[]) =>
+    wrap(async () => (await loadGcpSdk()).getGcpBillingOverview(projectId, catalogProjectIds))
+  )
   ipcMain.handle('app:update:check', async () => wrap(() => checkForAppUpdates()))
   ipcMain.handle('app:update:download', async () => wrap(() => downloadAppUpdate()))
   ipcMain.handle('app:update:install', async () => wrap(() => installAppUpdate()))

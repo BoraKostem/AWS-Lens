@@ -17,6 +17,7 @@ import type {
   EnterpriseAccessMode,
   EnterpriseAuditEvent,
   GcpCliContext,
+  GcpBillingOverview,
   GcpComputeInstanceSummary,
   GcpGkeClusterSummary,
   GcpLogQueryResult,
@@ -49,6 +50,7 @@ import {
   getAppSettings,
   getEnvironmentHealth,
   getGcpCliContext,
+  getGcpBillingOverview,
   listGcpComputeInstances,
   listGcpGkeClusters,
   listGcpLogEntries,
@@ -236,7 +238,7 @@ const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   'gcp-cloud-storage': 'Project-aware Cloud Storage inventory with bucket posture, object browser workflows, preview/edit paths, and shell handoff.',
   'gcp-cloud-sql': 'Project-aware Cloud SQL entry point staged for database posture, instance inventory, and connection helpers.',
   'gcp-logging': 'Project-aware Logging entry point staged for log exploration, query posture, and shell handoff.',
-  'gcp-billing': 'Project-aware Billing Basics entry point staged for project cost posture and shared shell context.'
+  'gcp-billing': 'Project-aware Billing posture with project linkage, ownership signals, and billing account visibility.'
 }
 
 const SERVICE_MATURITY_LABELS: Record<ServiceMaturity, string> = {
@@ -588,6 +590,26 @@ function parentGcpStoragePrefix(prefix: string): string {
 
   const boundary = normalized.lastIndexOf('/')
   return boundary >= 0 ? `${normalized.slice(0, boundary + 1)}` : ''
+}
+
+function formatGcpBillingPercent(value: number): string {
+  return `${value.toFixed(0)}%`
+}
+
+function describeGcpBillingVisibility(value: GcpBillingOverview['visibility']): string {
+  switch (value) {
+    case 'full':
+      return 'Billing account and linked-project visibility'
+    case 'billing-account-only':
+      return 'Billing account visible, linked projects partial'
+    default:
+      return 'Project-only visibility'
+  }
+}
+
+function summarizeGcpBillingAccount(value: string): string {
+  const normalized = value.trim()
+  return normalized ? normalized.replace(/^billingAccounts\//, '') : 'Not linked'
 }
 
 function getProfileBadge(name?: string | null): string {
@@ -2288,6 +2310,293 @@ function GcpLoggingConsole({
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+function GcpBillingConsole({
+  projectId,
+  location,
+  refreshNonce,
+  onRunTerminalCommand,
+  canRunTerminalCommand
+}: {
+  projectId: string
+  location: string
+  refreshNonce: number
+  onRunTerminalCommand: (command: string) => void
+  canRunTerminalCommand: boolean
+}) {
+  const [overview, setOverview] = useState<GcpBillingOverview | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [lastLoadedAt, setLastLoadedAt] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+
+    setLoading(true)
+    setError('')
+
+    void listGcpProjects()
+      .catch(() => [])
+      .then((projects) => getGcpBillingOverview(projectId, projects.map((entry) => entry.projectId)))
+      .then((nextOverview) => {
+        if (cancelled) {
+          return
+        }
+
+        setOverview(nextOverview)
+        setLastLoadedAt(nextOverview.lastUpdatedAt || new Date().toISOString())
+      })
+      .catch((err) => {
+        if (cancelled) {
+          return
+        }
+
+        setError(err instanceof Error ? err.message : String(err))
+        setOverview(null)
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [projectId, refreshNonce])
+
+  const locationLabel = location.trim() || 'global'
+  const lastLoadedLabel = lastLoadedAt ? new Date(lastLoadedAt).toLocaleTimeString() : 'Pending'
+  const enableAction = error ? getGcpApiEnableAction(
+    error,
+    `gcloud services enable cloudbilling.googleapis.com cloudresourcemanager.googleapis.com --project ${projectId}`,
+    `Cloud Billing visibility is incomplete for project ${projectId}.`
+  ) : null
+  const inspectProjectCommand = `gcloud billing projects describe ${projectId}`
+  const inspectAccountId = overview?.billingAccountName.trim().replace(/^billingAccounts\//, '') ?? ''
+  const inspectAccountCommand = inspectAccountId ? `gcloud billing accounts describe ${inspectAccountId}` : ''
+
+  return (
+    <div className="overview-surface gcp-billing-console">
+      <div className="overview-hero-card">
+        <div className="overview-hero-copy">
+          <div className="eyebrow">Billing Basics</div>
+          <h3>{projectId}</h3>
+          <p>Project linkage, billing account visibility, and ownership signals stay in the same posture-driven shell when you move between providers.</p>
+          <div className="overview-meta-strip">
+            <div className="overview-meta-pill">
+              <span>Project</span>
+              <strong>{projectId}</strong>
+            </div>
+            <div className="overview-meta-pill">
+              <span>Lens</span>
+              <strong>{locationLabel}</strong>
+            </div>
+            <div className="overview-meta-pill">
+              <span>Visibility</span>
+              <strong>{overview ? describeGcpBillingVisibility(overview.visibility) : 'Pending'}</strong>
+            </div>
+            <div className="overview-meta-pill">
+              <span>Last sync</span>
+              <strong>{loading ? 'Refreshing...' : lastLoadedLabel}</strong>
+            </div>
+          </div>
+        </div>
+        <div className="overview-hero-stats">
+          <div className="overview-glance-card overview-glance-card-accent">
+            <span>Billing status</span>
+            <strong>{overview?.billingEnabled ? 'Enabled' : loading ? 'Loading' : 'Disabled'}</strong>
+            <small>{overview?.billingAccountDisplayName || summarizeGcpBillingAccount(overview?.billingAccountName || '')}</small>
+          </div>
+          <div className="overview-glance-card">
+            <span>Linked projects</span>
+            <strong>{overview?.linkedProjects.length ?? 0}</strong>
+            <small>Projects sharing the visible billing account.</small>
+          </div>
+          <div className="overview-glance-card">
+            <span>Label coverage</span>
+            <strong>{overview ? formatGcpBillingPercent(overview.linkedProjectLabelCoveragePercent) : '0%'}</strong>
+            <small>Linked projects with at least one label.</small>
+          </div>
+          <div className="overview-glance-card">
+            <span>Capability hints</span>
+            <strong>{overview?.capabilityHints.length ?? 0}</strong>
+            <small>Visibility and ownership checks for the current context.</small>
+          </div>
+        </div>
+      </div>
+
+      {enableAction ? (
+        <div className="error-banner gcp-enable-error-banner">
+          <div className="gcp-enable-error-copy">
+            <strong>{enableAction.summary}</strong>
+            <p>
+              {canRunTerminalCommand
+                ? 'Run the enable command in the terminal, wait for propagation, then retry.'
+                : 'Switch Settings > Access Mode to Operator to enable terminal actions for this command.'}
+            </p>
+          </div>
+          <div className="gcp-enable-error-actions">
+            <button
+              type="button"
+              className="accent"
+              disabled={!canRunTerminalCommand}
+              onClick={() => onRunTerminalCommand(enableAction.command)}
+              title={canRunTerminalCommand ? enableAction.command : 'Switch to Operator mode to enable terminal actions'}
+            >
+              Run enable command in terminal
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {error && !enableAction ? (
+        <SvcState variant="error" error={error} />
+      ) : null}
+
+      {loading ? (
+        <SvcState variant="loading" resourceName="billing posture" compact />
+      ) : null}
+
+      {overview ? (
+        <>
+          <div className="overview-section-title">Project And Billing Posture</div>
+          <section className="overview-account-grid">
+            <article className="overview-account-card">
+              <div className="panel-header minor">
+                <h3>Project Context</h3>
+              </div>
+              <div className="overview-account-kv">
+                <div>
+                  <span>Project name</span>
+                  <strong>{overview.projectName || '-'}</strong>
+                </div>
+                <div>
+                  <span>Project number</span>
+                  <strong>{overview.projectNumber || '-'}</strong>
+                </div>
+                <div>
+                  <span>Billing account</span>
+                  <strong>{overview.billingAccountDisplayName || summarizeGcpBillingAccount(overview.billingAccountName)}</strong>
+                </div>
+                <div>
+                  <span>Visibility</span>
+                  <strong>{describeGcpBillingVisibility(overview.visibility)}</strong>
+                </div>
+              </div>
+              <div className="overview-note-list">
+                <div className="overview-note-item">
+                  Billing enabled: {overview.billingEnabled ? 'yes' : 'no'}
+                </div>
+                <div className="overview-note-item">
+                  Billing account open: {overview.billingAccountName ? (overview.billingAccountOpen ? 'yes' : 'unknown or closed') : 'not linked'}
+                </div>
+                {overview.notes.map((note) => (
+                  <div key={note} className="overview-note-item">{note}</div>
+                ))}
+              </div>
+              <div className="catalog-toolbar" style={{ marginTop: '0.75rem' }}>
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={!canRunTerminalCommand}
+                  onClick={() => onRunTerminalCommand(inspectProjectCommand)}
+                  title={canRunTerminalCommand ? inspectProjectCommand : 'Switch to Operator mode to enable terminal actions'}
+                >
+                  Inspect in terminal
+                </button>
+                {inspectAccountCommand ? (
+                  <button
+                    type="button"
+                    className="ghost"
+                    disabled={!canRunTerminalCommand}
+                    onClick={() => onRunTerminalCommand(inspectAccountCommand)}
+                    title={canRunTerminalCommand ? inspectAccountCommand : 'Switch to Operator mode to enable terminal actions'}
+                  >
+                    Billing account in terminal
+                  </button>
+                ) : null}
+              </div>
+            </article>
+
+            <article className="overview-account-card">
+              <div className="panel-header minor">
+                <h3>Linked Project Coverage</h3>
+                <span className="hero-path" style={{ margin: 0 }}>{overview.linkedProjects.length} linked projects</span>
+              </div>
+              {overview.linkedProjects.length ? (
+                <div className="overview-linked-account-list">
+                  {overview.linkedProjects.slice(0, 6).map((item) => (
+                    <div key={item.projectId} className="overview-linked-account-row">
+                      <div>
+                        <strong>{item.name || item.projectId}</strong>
+                        <span>{item.projectId} · {item.lifecycleState || 'state unavailable'}</span>
+                      </div>
+                      <strong>{item.labelCount} labels</strong>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <SvcState
+                  variant="empty"
+                  message="No linked projects were surfaced under the current billing visibility."
+                  compact
+                />
+              )}
+            </article>
+          </section>
+
+          <div className="overview-section-title">Capability Hints</div>
+          <section className="overview-hint-grid">
+            {overview.capabilityHints.map((hint) => (
+              <article key={hint.id} className={`overview-hint-card ${hint.severity}`}>
+                <span className="overview-hint-kicker">{hint.subject}</span>
+                <strong>{hint.title}</strong>
+                <p>{hint.summary}</p>
+                <small>{hint.recommendedAction}</small>
+              </article>
+            ))}
+          </section>
+
+          <div className="overview-section-title">Ownership Signals</div>
+          <section className="overview-ownership-grid">
+            {overview.ownershipHints.map((hint) => (
+              <article key={hint.key} className="overview-ownership-card">
+                <div className="overview-ownership-header">
+                  <div>
+                    <span>{hint.key}</span>
+                    <strong>{formatGcpBillingPercent(hint.coveragePercent)} coverage</strong>
+                  </div>
+                  <div className="overview-ownership-metrics">
+                    <span>{hint.labeledProjects} labeled</span>
+                    <span>{hint.unlabeledProjects} unlabeled</span>
+                  </div>
+                </div>
+                {hint.topValues.length ? (
+                  <div className="overview-ownership-values">
+                    {hint.topValues.map((value) => (
+                      <div key={`${hint.key}-${value.value}`} className="overview-ownership-value">
+                        <div>
+                          <strong>{value.value}</strong>
+                          <span>{formatGcpBillingPercent(value.sharePercent)} of linked projects</span>
+                        </div>
+                        <strong>{value.projectCount} projects</strong>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="hero-path" style={{ margin: 0 }}>
+                    No linked projects currently expose the {hint.key} label.
+                  </p>
+                )}
+              </article>
+            ))}
+          </section>
+        </>
+      ) : null}
     </div>
   )
 }
@@ -4728,11 +5037,11 @@ export function App() {
       )
     }
 
-    if (
-      activeProviderId === 'gcp'
-      && targetScreen === 'gcp-logging'
-      && targetService?.id === 'gcp-logging'
-      && gcpContextReady
+      if (
+        activeProviderId === 'gcp'
+        && targetScreen === 'gcp-logging'
+        && targetService?.id === 'gcp-logging'
+        && gcpContextReady
       && activeGcpConnectionDraft
     ) {
       return (
@@ -4742,14 +5051,32 @@ export function App() {
           refreshNonce={pageRefreshNonceByScreen['gcp-logging'] ?? 0}
           onRunTerminalCommand={handleOpenTerminalCommand}
           canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
-        />
-      )
-    }
-
-    if (activeProviderId !== 'aws' && targetScreen !== 'settings') {
-      if (isProviderService(targetService ?? null, activeProviderId)) {
-        return renderCatalogPlaceholder(targetService!)
+          />
+        )
       }
+
+      if (
+        activeProviderId === 'gcp'
+        && targetScreen === 'gcp-billing'
+        && targetService?.id === 'gcp-billing'
+        && gcpContextReady
+        && activeGcpConnectionDraft
+      ) {
+        return (
+          <GcpBillingConsole
+            projectId={activeGcpConnectionDraft.projectId.trim()}
+            location={activeGcpConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['gcp-billing'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+          />
+        )
+      }
+
+      if (activeProviderId !== 'aws' && targetScreen !== 'settings') {
+        if (isProviderService(targetService ?? null, activeProviderId)) {
+          return renderCatalogPlaceholder(targetService!)
+        }
 
       const previewDescription =
         targetScreen === 'direct-access'
