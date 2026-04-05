@@ -61,6 +61,18 @@
   min-width: 220px;
 }
 
+.compliance-toolbar-export {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.compliance-toolbar-export .compliance-action-button,
+.compliance-toolbar-export .compliance-secondary-button {
+  min-width: 144px;
+}
+
 .compliance-overview-tile {
   border: 1px solid rgba(145, 176, 207, 0.14);
   background:
@@ -602,6 +614,10 @@
   .compliance-toolbar-field,
   .compliance-toolbar-search {
     min-width: 100%;
+  }
+
+  .compliance-toolbar-export {
+    width: 100%;
   }
 
   .compliance-panel-summary {

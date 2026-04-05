@@ -50,6 +50,102 @@ function formatTimestamp(value: string): string {
   return value ? new Date(value).toLocaleString() : '-'
 }
 
+function safeFilterLabel(value: string): string {
+  return value.replace(/-/g, ' ')
+}
+
+function buildComplianceReportMarkdown(
+  connection: AwsConnection,
+  report: ComplianceReport,
+  findings: ComplianceFinding[],
+  filters: {
+    severity: 'all' | ComplianceSeverity
+    category: 'all' | ComplianceCategory
+    service: 'all' | ServiceId
+    search: string
+  },
+  policyPackTitles: Map<string, string>
+): string {
+  const lines: string[] = [
+    '# AWS Lens Remediation Report',
+    '',
+    `Generated: ${new Date().toISOString()}`,
+    `Context: ${(connection.profile || 'session')} / ${connection.region || 'global'}`,
+    `Visible findings: ${findings.length} of ${report.summary.total}`,
+    '',
+    '## Active Filters',
+    `- Severity: ${filters.severity === 'all' ? 'All severities' : filters.severity}`,
+    `- Category: ${filters.category === 'all' ? 'All categories' : filters.category}`,
+    `- Service: ${filters.service === 'all' ? 'All services' : formatService(filters.service)}`,
+    `- Search: ${filters.search.trim() || 'None'}`,
+    '',
+    '## Summary',
+    `- High: ${findings.filter((finding) => finding.severity === 'high').length}`,
+    `- Medium: ${findings.filter((finding) => finding.severity === 'medium').length}`,
+    `- Low: ${findings.filter((finding) => finding.severity === 'low').length}`,
+    ''
+  ]
+
+  for (const finding of findings) {
+    lines.push(`## ${finding.title}`)
+    lines.push(`- Severity: ${finding.severity}`)
+    lines.push(`- Category: ${finding.category}`)
+    lines.push(`- Service: ${formatService(finding.service)}`)
+    lines.push(`- Region: ${finding.region || 'global'}`)
+    lines.push(`- Resource: ${finding.resourceId || 'n/a'}`)
+    lines.push(`- Status: ${safeFilterLabel(finding.workflow.status)}`)
+    lines.push(`- Owner: ${finding.workflow.owner || 'Unassigned'}`)
+    lines.push(`- Snooze Until: ${finding.workflow.snoozeUntil || 'Active'}`)
+    lines.push(`- Last Reviewed: ${finding.workflow.lastReviewedAt || 'Not reviewed'}`)
+    if (finding.workflow.acceptedRisk) {
+      lines.push(`- Accepted Risk: ${finding.workflow.acceptedRisk}`)
+    }
+    if (finding.policyPackIds?.length) {
+      lines.push(`- Policy Packs: ${finding.policyPackIds.map((packId) => policyPackTitles.get(packId) ?? packId).join(', ')}`)
+    }
+    lines.push('')
+    lines.push('Description:')
+    lines.push(finding.description)
+    lines.push('')
+    lines.push('Recommended Action:')
+    lines.push(finding.recommendedAction)
+
+    if (finding.remediationTemplates?.length) {
+      lines.push('')
+      lines.push('Remediation Templates:')
+      for (const template of finding.remediationTemplates) {
+        lines.push(`- ${template.title}: ${template.summary}`)
+        for (const command of template.commands) {
+          lines.push(`  - ${command.label}: \`${command.command}\``)
+        }
+      }
+    }
+
+    lines.push('')
+  }
+
+  return `${lines.join('\n').trim()}\n`
+}
+
+function downloadMarkdownReport(filename: string, content: string): void {
+  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
+}
+
+function buildReportFilename(connection: AwsConnection): string {
+  const context = (connection.profile || 'session').replace(/[^a-z0-9-_]+/gi, '-').toLowerCase()
+  const region = (connection.region || 'global').replace(/[^a-z0-9-_]+/gi, '-').toLowerCase()
+  const stamp = new Date().toISOString().slice(0, 10)
+  return `aws-lens-remediation-report-${context}-${region}-${stamp}.md`
+}
+
 export function ComplianceCenter({
   connection,
   refreshNonce = 0,
@@ -75,6 +171,7 @@ export function ComplianceCenter({
   const [savingWorkflowId, setSavingWorkflowId] = useState('')
   const [collapsedWorkflows, setCollapsedWorkflows] = useState<Record<string, boolean>>({})
   const [copiedCommandId, setCopiedCommandId] = useState('')
+  const [exportingReport, setExportingReport] = useState<'copy' | 'download' | ''>('')
   const { freshness, beginRefresh, completeRefresh, failRefresh } = useFreshnessState()
 
   async function load(reason: Parameters<typeof beginRefresh>[0] = 'manual'): Promise<void> {
@@ -319,6 +416,68 @@ export function ComplianceCenter({
     }, 1200)
   }
 
+  async function handleCopyReport(): Promise<void> {
+    if (!report || filteredFindings.length === 0) {
+      return
+    }
+
+    setExportingReport('copy')
+    setError('')
+    setMessage('')
+
+    try {
+      const markdown = buildComplianceReportMarkdown(
+        connection,
+        report,
+        filteredFindings,
+        {
+          severity: severityFilter,
+          category: categoryFilter,
+          service: serviceFilter,
+          search
+        },
+        policyPackTitles
+      )
+      await navigator.clipboard.writeText(markdown)
+      setMessage('Remediation report copied.')
+    } catch (copyError) {
+      setError(copyError instanceof Error ? copyError.message : String(copyError))
+    } finally {
+      setExportingReport('')
+    }
+  }
+
+  function handleDownloadReport(): void {
+    if (!report || filteredFindings.length === 0) {
+      return
+    }
+
+    setExportingReport('download')
+    setError('')
+    setMessage('')
+
+    try {
+      const markdown = buildComplianceReportMarkdown(
+        connection,
+        report,
+        filteredFindings,
+        {
+          severity: severityFilter,
+          category: categoryFilter,
+          service: serviceFilter,
+          search
+        },
+        policyPackTitles
+      )
+      downloadMarkdownReport(buildReportFilename(connection), markdown)
+      setMessage('Remediation report downloaded.')
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : String(downloadError))
+    } finally {
+      setExportingReport('')
+    }
+  }
+
   return (
     <div className="stack compliance-center">
       {error && <SvcState variant="error" error={error} />}
@@ -530,6 +689,24 @@ export function ComplianceCenter({
               placeholder="Title, resource, action"
             />
           </label>
+          <div className="compliance-toolbar-export">
+            <button
+              type="button"
+              className="compliance-secondary-button"
+              onClick={() => void handleCopyReport()}
+              disabled={!report || filteredFindings.length === 0 || exportingReport !== ''}
+            >
+              {exportingReport === 'copy' ? 'Copying...' : 'Copy report'}
+            </button>
+            <button
+              type="button"
+              className="compliance-action-button"
+              onClick={handleDownloadReport}
+              disabled={!report || filteredFindings.length === 0 || exportingReport !== ''}
+            >
+              {exportingReport === 'download' ? 'Preparing...' : 'Download report'}
+            </button>
+          </div>
         </div>
         <div className="tf-shell-status compliance-shell-status">
           <FreshnessIndicator freshness={freshness} label="Compliance report" staleLabel="Refresh report" />
