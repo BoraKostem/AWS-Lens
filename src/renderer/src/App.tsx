@@ -2222,7 +2222,7 @@ function GcpLoggingConsole({
                       <strong>{entry.severity}</strong>
                     </div>
                     <div className="project-card-title">{entry.logName}</div>
-                    <div className="hero-path" style={{ marginTop: 12 }}>
+                    <div className="hero-path" style={{ marginTop: 12, whiteSpace: 'pre-line', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                       {entry.summary}
                       <br />
                       {entry.timestamp ? new Date(entry.timestamp).toLocaleString() : 'Timestamp unavailable'}

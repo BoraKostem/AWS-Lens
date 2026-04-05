@@ -407,6 +407,63 @@ function stringifyLogPayload(value: unknown): string {
   }
 }
 
+function toRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? value as Record<string, unknown> : {}
+}
+
+function joinLogSummaryParts(parts: Array<string | undefined | null>): string {
+  return parts
+    .map((part) => (typeof part === 'string' ? part.trim() : ''))
+    .filter(Boolean)
+    .join(' | ')
+}
+
+function buildStructuredPayloadSummary(payload: unknown): string {
+  const record = toRecord(payload)
+  if (!Object.keys(record).length) {
+    return ''
+  }
+
+  const authenticationInfo = toRecord(record.authenticationInfo)
+  const requestMetadata = toRecord(record.requestMetadata)
+  const status = toRecord(record.status)
+
+  const principalEmail = asString(authenticationInfo.principalEmail)
+  const methodName = asString(record.methodName)
+  const resourceName = asString(record.resourceName)
+  const serviceName = asString(record.serviceName)
+  const callerIp = asString(requestMetadata.callerIp)
+  const statusMessage = asString(status.message)
+  const message =
+    asString(record.message)
+    || asString(record.eventMessage)
+    || asString(record.description)
+
+  const auditSummary = joinLogSummaryParts([
+    methodName ? `Method: ${methodName}` : '',
+    principalEmail ? `Actor: ${principalEmail}` : '',
+    resourceName ? `Resource: ${resourceName}` : '',
+    serviceName ? `Service: ${serviceName}` : '',
+    statusMessage ? `Status: ${statusMessage}` : '',
+    callerIp ? `Caller IP: ${callerIp}` : '',
+    message ? `Message: ${message}` : ''
+  ])
+
+  if (auditSummary) {
+    return auditSummary
+  }
+
+  const flattened = Object.entries(record)
+    .map(([key, value]) => {
+      const text = typeof value === 'string' ? value.trim() : stringifyLogPayload(value)
+      return text ? `${key}: ${text}` : ''
+    })
+    .filter(Boolean)
+    .slice(0, 4)
+
+  return joinLogSummaryParts(flattened)
+}
+
 function summarizeLogName(value: string): string {
   const normalized = value.trim()
   if (!normalized) {
@@ -424,6 +481,8 @@ function summarizeLogName(value: string): string {
 function buildLogSummary(entry: Record<string, unknown>): string {
   const candidates = [
     asString(entry.textPayload),
+    buildStructuredPayloadSummary(entry.jsonPayload),
+    buildStructuredPayloadSummary(entry.protoPayload),
     stringifyLogPayload(entry.jsonPayload),
     stringifyLogPayload(entry.protoPayload)
   ].filter(Boolean)
