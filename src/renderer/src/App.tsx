@@ -2100,7 +2100,7 @@ function GcpLoggingConsole({
   }
 
   return (
-    <div className="cw-console">
+    <div className="cw-console gcp-logging-console">
       {message ? <div className="s3-msg s3-msg-ok">{message}<button type="button" className="s3-msg-close" onClick={() => setMessage('')}>x</button></div> : null}
       <div className="cw-shell-hero">
         <div className="cw-shell-hero-copy">

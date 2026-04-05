@@ -650,6 +650,68 @@
   line-height: 1.5;
 }
 
+.gcp-logging-console .cw-shell-hero {
+  background:
+    radial-gradient(circle at top left, rgba(108, 214, 141, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(77, 171, 130, 0.14), transparent 30%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(11, 17, 25, 0.98));
+}
+
+.gcp-logging-console .cw-shell-kicker {
+  color: #a6efbd;
+}
+
+.gcp-logging-console .cw-shell-stat-card-accent {
+  border-color: rgba(108, 214, 141, 0.3);
+  background:
+    radial-gradient(circle at top right, rgba(108, 214, 141, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(28, 44, 35, 0.96), rgba(18, 28, 23, 0.96));
+}
+
+.gcp-logging-console .cw-tab.active {
+  border-color: rgba(108, 214, 141, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(108, 214, 141, 0.16), transparent 48%),
+    linear-gradient(180deg, rgba(27, 42, 34, 0.96), rgba(16, 24, 35, 0.96));
+}
+
+.gcp-logging-console .cw-toolbar-pill,
+.gcp-logging-console .cw-ec2-badge {
+  border-color: rgba(108, 214, 141, 0.24);
+  background: rgba(108, 214, 141, 0.1);
+  color: #b7f5ca;
+}
+
+.gcp-logging-console .cw-refresh-btn,
+.gcp-logging-console .cw-expand-btn {
+  border-color: rgba(108, 214, 141, 0.18);
+  background:
+    radial-gradient(circle at top right, rgba(108, 214, 141, 0.14), transparent 60%),
+    linear-gradient(180deg, rgba(30, 52, 41, 0.98), rgba(19, 33, 27, 0.98));
+}
+
+.gcp-logging-console .cw-toggle.active {
+  border-color: rgba(108, 214, 141, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(108, 214, 141, 0.16), transparent 44%),
+    linear-gradient(180deg, rgba(33, 52, 40, 0.96), rgba(20, 31, 24, 0.96));
+  color: #b7f5ca;
+}
+
+.gcp-logging-console .cw-chip {
+  background: rgba(108, 214, 141, 0.12);
+  border-color: rgba(108, 214, 141, 0.2);
+  color: #b7f5ca;
+}
+
+.gcp-logging-console .cw-table tr.cw-clickable:hover {
+  background: rgba(108, 214, 141, 0.06);
+}
+
+.gcp-logging-console .cw-bar-fill {
+  background: linear-gradient(90deg, rgba(108, 214, 141, 0.78), rgba(77, 171, 130, 0.42));
+}
+
 .cw-severity-error {
   border-left-color: #ff6b6b;
   background: rgba(255, 107, 107, 0.06);
