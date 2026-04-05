@@ -17,6 +17,7 @@ import type {
   AppDiagnosticsExportResult,
   EnvironmentHealthReport,
   GcpCliContext,
+  GcpCliProject,
   AppReleaseInfo,
   AppSecuritySummary,
   CloudProviderId,
@@ -1120,6 +1121,10 @@ export async function getEnvironmentHealth(): Promise<EnvironmentHealthReport> {
 
 export async function getGcpCliContext(): Promise<GcpCliContext> {
   return unwrap((await rawAwsBridge().getGcpCliContext()) as Wrapped<GcpCliContext>)
+}
+
+export async function listGcpProjects(): Promise<GcpCliProject[]> {
+  return unwrap((await rawAwsBridge().listGcpProjects()) as Wrapped<GcpCliProject[]>)
 }
 
 export async function checkForAppUpdates(): Promise<AppReleaseInfo> {

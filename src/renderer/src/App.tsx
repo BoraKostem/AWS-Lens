@@ -42,6 +42,7 @@ import {
   getAppSettings,
   getEnvironmentHealth,
   getGcpCliContext,
+  listGcpProjects,
   getEnterpriseSettings,
   getGovernanceTagDefaults,
   getWorkspaceCatalog,
@@ -1000,6 +1001,7 @@ export function App() {
   const [gcpCliContext, setGcpCliContext] = useState<GcpCliContext | null>(() => readGcpCliContextCache())
   const [recentGcpProjectIds, setRecentGcpProjectIds] = useState<string[]>(() => readGcpRecentProjectIds())
   const [gcpCliBusy, setGcpCliBusy] = useState(false)
+  const [gcpProjectCatalogBusy, setGcpProjectCatalogBusy] = useState(false)
   const [gcpCliError, setGcpCliError] = useState('')
   const [workspaceCatalog, setWorkspaceCatalog] = useState<WorkspaceCatalog | null>(null)
   const [services, setServices] = useState<ServiceDescriptor[]>([])
@@ -1111,12 +1113,43 @@ export function App() {
     setGcpCliError('')
     try {
       const nextContext = await getGcpCliContext()
-      setGcpCliContext(nextContext)
-      writeGcpCliContextCache(nextContext)
+      setGcpCliContext((current) => {
+        const merged = current && current.projects.length > nextContext.projects.length
+          ? { ...nextContext, projects: current.projects }
+          : nextContext
+        writeGcpCliContextCache(merged)
+        return merged
+      })
     } catch (error) {
       setGcpCliError(error instanceof Error ? error.message : String(error))
     } finally {
       setGcpCliBusy(false)
+    }
+
+    setGcpProjectCatalogBusy(true)
+    try {
+      const projects = await listGcpProjects()
+      setGcpCliContext((current) => {
+        const merged = current
+          ? { ...current, projects }
+          : {
+              detected: true,
+              cliPath: '',
+              activeConfigurationName: '',
+              activeAccount: '',
+              activeProjectId: '',
+              activeRegion: '',
+              activeZone: '',
+              configurations: [],
+              projects
+            }
+        writeGcpCliContextCache(merged)
+        return merged
+      })
+    } catch (error) {
+      setGcpCliError((current) => current || (error instanceof Error ? error.message : String(error)))
+    } finally {
+      setGcpProjectCatalogBusy(false)
     }
   }
 
@@ -2724,13 +2757,15 @@ export function App() {
                       <small>
                         {gcpCliBusy && !gcpCliContext?.detected
                           ? 'Loading gcloud catalog from the active CLI session.'
+                          : gcpProjectCatalogBusy
+                            ? 'Syncing the full Google Cloud project catalog in the background.'
                           : gcpCliContext?.detected
                             ? `${detectedGcpConfigurationCount} configs | ${gcpCatalogAccount}`
                             : gcpCliError || 'Refresh gcloud to import projects from the active CLI session.'}
                       </small>
                     </div>
-                    <button type="button" onClick={() => void loadGcpCliContext()} disabled={gcpCliBusy}>
-                      {gcpCliBusy ? 'Refreshing...' : 'Refresh gcloud'}
+                    <button type="button" onClick={() => void loadGcpCliContext()} disabled={gcpCliBusy || gcpProjectCatalogBusy}>
+                      {gcpCliBusy ? 'Refreshing...' : gcpProjectCatalogBusy ? 'Syncing projects...' : 'Refresh gcloud'}
                     </button>
                   </div>
                 </div>
@@ -2805,6 +2840,8 @@ export function App() {
                     <div className="eyebrow">
                       {gcpCliBusy
                         ? 'Loading gcloud'
+                        : gcpProjectCatalogBusy
+                          ? 'Syncing catalog'
                         : gcpCliContext?.detected
                           ? gcpProjectSearch.trim()
                             ? 'No Matches'
@@ -2814,6 +2851,8 @@ export function App() {
                     <h3>
                       {gcpCliBusy
                         ? 'Loading Google Cloud projects'
+                        : gcpProjectCatalogBusy
+                          ? 'Syncing Google Cloud projects'
                         : gcpCliContext?.detected
                           ? gcpProjectSearch.trim()
                             ? `No Google Cloud projects match "${gcpProjectSearch.trim()}"`
@@ -2823,6 +2862,8 @@ export function App() {
                     <p className="hero-path">
                       {gcpCliBusy
                         ? 'Importing projects from the active gcloud session.'
+                        : gcpProjectCatalogBusy
+                          ? 'The current project context is ready. The full Google Cloud project catalog is still syncing.'
                         : gcpCliContext?.detected
                           ? gcpProjectSearch.trim()
                             ? 'Try a different project id or name, or clear the search to see the full imported catalog.'

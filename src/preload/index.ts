@@ -102,6 +102,7 @@ const awsLensApi = {
   getAppSecuritySummary: () => ipcRenderer.invoke('app:security-summary'),
   getEnvironmentHealth: () => ipcRenderer.invoke('app:environment-health'),
   getGcpCliContext: () => ipcRenderer.invoke('gcp:cli-context'),
+  listGcpProjects: () => ipcRenderer.invoke('gcp:projects'),
   checkForAppUpdates: () => ipcRenderer.invoke('app:update:check'),
   downloadAppUpdate: () => ipcRenderer.invoke('app:update:download'),
   installAppUpdate: () => ipcRenderer.invoke('app:update:install'),

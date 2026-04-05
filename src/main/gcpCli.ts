@@ -386,7 +386,7 @@ export async function getGcpCliContext(): Promise<GcpCliContext> {
   const derivedProjects = deriveProjectsFromConfigurations(configurations)
   const activeProjectId = activeConfiguration?.projectId ?? ''
 
-  const [activeProjectResult, projectsResult] = await Promise.all([
+  const activeProjectResult = await (
     activeProjectId
       ? runCommand(resolved.command, ['projects', 'describe', activeProjectId, '--format=json'], env, 5000)
       : Promise.resolve({
@@ -395,20 +395,12 @@ export async function getGcpCliContext(): Promise<GcpCliContext> {
           stderr: '',
           code: '',
           path: resolved.path
-        } satisfies CommandResult),
-    runCommand(
-      resolved.command,
-      ['projects', 'list', '--format=json', '--page-size=200'],
-      env,
-      6000
-    )
-  ])
+        } satisfies CommandResult)
+  )
 
   const activeProject = safeParseItem(activeProjectResult.stdout, normalizeProject)
-  const cliProjects = safeParseList(projectsResult.stdout, normalizeProject)
   const projects = mergeProjects(
     activeProject ? [activeProject] : [],
-    cliProjects,
     derivedProjects
   )
 
@@ -423,4 +415,49 @@ export async function getGcpCliContext(): Promise<GcpCliContext> {
     configurations,
     projects
   }
+}
+
+export async function listGcpProjects(): Promise<GcpCliProject[]> {
+  const env = await getResolvedProcessEnv({ fresh: true })
+  const resolved = await resolveGcloudCommand(env)
+
+  if (!resolved) {
+    return []
+  }
+
+  const fallback = await readGcpConfigFallback().catch(() => ({
+    activeConfigurationName: '',
+    configurations: [] as GcpCliConfiguration[]
+  }))
+  const derivedProjects = deriveProjectsFromConfigurations(fallback.configurations)
+  const activeProjectId = fallback.configurations.find((entry) => entry.isActive)?.projectId
+    ?? fallback.configurations.find((entry) => entry.name === fallback.activeConfigurationName)?.projectId
+    ?? ''
+
+  const [activeProjectResult, projectsResult] = await Promise.all([
+    activeProjectId
+      ? runCommand(resolved.command, ['projects', 'describe', activeProjectId, '--format=json'], env, 8000)
+      : Promise.resolve({
+          ok: false,
+          stdout: '',
+          stderr: '',
+          code: '',
+          path: resolved.path
+        } satisfies CommandResult),
+    runCommand(
+      resolved.command,
+      ['projects', 'list', '--format=json', '--page-size=500'],
+      env,
+      30000
+    )
+  ])
+
+  const activeProject = safeParseItem(activeProjectResult.stdout, normalizeProject)
+  const cliProjects = safeParseList(projectsResult.stdout, normalizeProject)
+
+  return mergeProjects(
+    activeProject ? [activeProject] : [],
+    cliProjects,
+    derivedProjects
+  )
 }

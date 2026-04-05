@@ -12,7 +12,7 @@ import { getWorkspaceCatalog, listServiceCatalog } from './catalog'
 import { exportDiagnosticsBundle } from './diagnostics'
 import { getEnvironmentHealthReport } from './environment'
 import { exportEnterpriseAuditEvents, getEnterpriseSettings, listEnterpriseAuditEvents, setEnterpriseAccessMode } from './enterprise'
-import { getGcpCliContext } from './gcpCli'
+import { getGcpCliContext, listGcpProjects } from './gcpCli'
 import { getVaultEntryCounts, listVaultEntries, revealVaultEntrySecret, saveVaultEntry } from './localVault'
 import { createHandlerWrapper, type OperationOptions } from './operations'
 import { checkForAppUpdates, downloadAppUpdate, getReleaseInfo, installAppUpdate } from './releaseCheck'
@@ -409,6 +409,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   })))
   ipcMain.handle('app:environment-health', async () => wrap(() => getEnvironmentHealthReport()))
   ipcMain.handle('gcp:cli-context', async () => wrap(() => getGcpCliContext()))
+  ipcMain.handle('gcp:projects', async () => wrap(() => listGcpProjects()))
   ipcMain.handle('app:update:check', async () => wrap(() => checkForAppUpdates()))
   ipcMain.handle('app:update:download', async () => wrap(() => downloadAppUpdate()))
   ipcMain.handle('app:update:install', async () => wrap(() => installAppUpdate()))

@@ -89,6 +89,7 @@ declare global {
       getAppSecuritySummary: () => Promise<unknown>
       getEnvironmentHealth: () => Promise<unknown>
       getGcpCliContext: () => Promise<unknown>
+      listGcpProjects: () => Promise<unknown>
       checkForAppUpdates: () => Promise<unknown>
       downloadAppUpdate: () => Promise<unknown>
       installAppUpdate: () => Promise<unknown>
