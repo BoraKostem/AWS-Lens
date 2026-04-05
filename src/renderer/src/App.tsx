@@ -2657,7 +2657,7 @@ function GcpIamConsole({
         <div className="overview-hero-copy">
           <div className="eyebrow">IAM Posture</div>
           <h3>{projectId}</h3>
-          <p>Project-level bindings, risky roles, principal rollups, and workload identities stay in the same summary-first shell pattern as the AWS IAM posture flow.</p>
+          <p>Project-level bindings, risky roles, principal rollups, and workload identities stay in a consistent summary-first shell pattern.</p>
           <div className="overview-meta-strip">
             <div className="overview-meta-pill">
               <span>Project</span>
