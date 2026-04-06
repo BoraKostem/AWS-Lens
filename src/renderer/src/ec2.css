@@ -717,6 +717,16 @@
   min-width: 0;
 }
 
+.ec2-connect-row select {
+  height: 32px;
+  padding: 4px 10px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #1e232b;
+  color: #edf1f6;
+  font-size: 12px;
+}
+
 .ec2-pem-row {
   display: flex;
   gap: 8px;
@@ -730,6 +740,18 @@
   min-width: 0;
   flex-direction: column;
   gap: 8px;
+}
+
+.ec2-connect-inline {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.ec2-connect-select {
+  flex: 1;
+  min-width: 0;
 }
 
 .ec2-pem-row input {

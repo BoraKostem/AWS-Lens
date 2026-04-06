@@ -610,11 +610,25 @@
 }
 
 .eks-form-grid input,
+.eks-form-grid select,
 .eks-scale-form input,
 .eks-scale-form select,
 .eks-planner-toolbar input,
 .eks-timeline-controls input[type="date"] {
   padding: 9px 10px;
+}
+
+.eks-preset-panel {
+  margin-bottom: 12px;
+}
+
+.eks-preset-panel .eks-picker-field {
+  align-items: stretch;
+}
+
+.eks-preset-panel .eks-picker-field select {
+  flex: 1;
+  min-width: 0;
 }
 
 .eks-planner-toolbar {

@@ -29,6 +29,9 @@ import type {
   CloudWatchQueryHistoryInput,
   CloudWatchSavedQuery,
   CloudWatchSavedQueryInput,
+  ConnectionPreset,
+  ConnectionPresetFilter,
+  ConnectionPresetInput,
   DirectAccessResolution,
   DbConnectionResolveInput,
   DbConnectionResolutionResult,
@@ -174,6 +177,7 @@ import type {
   VaultEntryFilter,
   VaultEntryInput,
   VaultEntrySummary,
+  VaultSshKeyInspection,
   VaultEntryUsageInput,
   SsoAccountAssignment,
   SsoGroupSummary,
@@ -282,9 +286,13 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   recordCloudWatchInvestigationHistory: 'phase1-foundations',
   clearCloudWatchInvestigationHistory: 'phase1-foundations',
   listDbConnectionPresets: 'phase1-foundations',
+  listConnectionPresets: 'phase1-foundations',
   saveDbConnectionPreset: 'phase1-foundations',
+  saveConnectionPreset: 'phase1-foundations',
   deleteDbConnectionPreset: 'phase1-foundations',
+  deleteConnectionPreset: 'phase1-foundations',
   markDbConnectionPresetUsed: 'phase1-foundations',
+  markConnectionPresetUsed: 'phase1-foundations',
   listDbVaultCredentials: 'phase1-foundations',
   saveDbVaultCredential: 'phase1-foundations',
   deleteDbVaultCredential: 'phase1-foundations',
@@ -442,6 +450,9 @@ const MUTATING_METHODS = new Set<keyof AwsLensBridge>([
   'saveDbConnectionPreset',
   'deleteDbConnectionPreset',
   'markDbConnectionPresetUsed',
+  'saveConnectionPreset',
+  'deleteConnectionPreset',
+  'markConnectionPresetUsed',
   'saveDbVaultCredential',
   'deleteDbVaultCredential',
   'saveVaultEntry',
@@ -1062,16 +1073,32 @@ export async function listDbConnectionPresets(filter?: DbConnectionPresetFilter)
   return unwrap((await awsBridge().listDbConnectionPresets(filter)) as Wrapped<DbConnectionPreset[]>)
 }
 
+export async function listConnectionPresets(filter?: ConnectionPresetFilter): Promise<ConnectionPreset[]> {
+  return unwrap((await awsBridge().listConnectionPresets(filter)) as Wrapped<ConnectionPreset[]>)
+}
+
 export async function saveDbConnectionPreset(input: DbConnectionPresetInput): Promise<DbConnectionPreset> {
   return unwrap((await awsBridge().saveDbConnectionPreset(input)) as Wrapped<DbConnectionPreset>)
+}
+
+export async function saveConnectionPreset(input: ConnectionPresetInput): Promise<ConnectionPreset> {
+  return unwrap((await awsBridge().saveConnectionPreset(input)) as Wrapped<ConnectionPreset>)
 }
 
 export async function deleteDbConnectionPreset(id: string): Promise<void> {
   return unwrap((await awsBridge().deleteDbConnectionPreset(id)) as Wrapped<void>)
 }
 
+export async function deleteConnectionPreset(id: string): Promise<void> {
+  return unwrap((await awsBridge().deleteConnectionPreset(id)) as Wrapped<void>)
+}
+
 export async function markDbConnectionPresetUsed(id: string): Promise<DbConnectionPreset> {
   return unwrap((await awsBridge().markDbConnectionPresetUsed(id)) as Wrapped<DbConnectionPreset>)
+}
+
+export async function markConnectionPresetUsed(id: string): Promise<ConnectionPreset> {
+  return unwrap((await awsBridge().markConnectionPresetUsed(id)) as Wrapped<ConnectionPreset>)
 }
 
 export async function listDbVaultCredentials(): Promise<DbVaultCredentialSummary[]> {
@@ -1115,6 +1142,10 @@ export async function revealVaultEntrySecret(entryId: string): Promise<string> {
 
 export async function recordVaultEntryUse(input: VaultEntryUsageInput): Promise<VaultEntrySummary> {
   return unwrap((await rawAwsBridge().recordVaultEntryUse(input)) as Wrapped<VaultEntrySummary>)
+}
+
+export async function inspectVaultSshKey(entryId: string): Promise<VaultSshKeyInspection> {
+  return unwrap((await rawAwsBridge().inspectVaultSshKey(entryId)) as Wrapped<VaultSshKeyInspection>)
 }
 
 export async function listComparisonBaselines(): Promise<ComparisonBaselineSummary[]> {

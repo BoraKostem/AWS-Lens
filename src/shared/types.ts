@@ -631,10 +631,9 @@ export type Ec2SshKeySuggestion = {
 }
 
 export type Ec2ChosenSshKey = {
-  stagedPath: string
-  originalPath: string
   vaultEntryId: string
   vaultEntryName: string
+  sourceLabel: string
 }
 
 export type Ec2SnapshotSummary = {
@@ -1258,13 +1257,15 @@ export type VaultEntryKind =
   | 'access-key'
   | 'generic'
   | 'db-credential'
+  | 'kubeconfig-fragment'
+  | 'api-token'
   | 'connection-secret'
 
 export type VaultOrigin =
   | 'manual'
-  | 'imported-file'
+  | 'imported'
   | 'aws-secrets-manager'
-  | 'aws-iam'
+  | 'aws-ssm'
   | 'generated'
   | 'unknown'
 
@@ -1279,6 +1280,25 @@ export type VaultEntryUsage = {
   resourceLabel: string
 }
 
+export type VaultSshKeyInspectionSource =
+  | 'metadata-inline'
+  | 'metadata-path'
+  | 'source-path'
+  | 'legacy-staged-path'
+  | 'derived-from-private-key'
+  | 'unavailable'
+
+export type VaultSshKeyInspection = {
+  entryId: string
+  entryName: string
+  kind: Extract<VaultEntryKind, 'pem' | 'ssh-key'>
+  keyNameHints: string[]
+  fingerprintSha256: string
+  fingerprintMd5: string
+  publicKeySource: VaultSshKeyInspectionSource
+  publicKeyAvailable: boolean
+}
+
 export type VaultEntrySummary = {
   id: string
   kind: VaultEntryKind
@@ -1289,6 +1309,8 @@ export type VaultEntrySummary = {
   origin: VaultOrigin
   rotationState: VaultRotationState
   rotationUpdatedAt: string
+  reminderAt: string
+  expiryAt: string
   lastUsedAt: string
   lastUsedContext: VaultEntryUsage | null
 }
@@ -1307,6 +1329,8 @@ export type VaultEntryInput = {
   origin?: VaultOrigin
   rotationState?: VaultRotationState
   rotationUpdatedAt?: string
+  reminderAt?: string
+  expiryAt?: string
 }
 
 export type VaultEntryUsageInput = {
@@ -1374,6 +1398,54 @@ export type DbConnectionPresetInput = Omit<DbConnectionPreset, 'id' | 'createdAt
   id?: string
 }
 
+export type ConnectionPresetKind = 'rds' | 'bastion-ssh' | 'eks'
+
+export type ConnectionPresetResourceKind = DbConnectionResourceKind | 'ec2-instance' | 'eks-cluster' | 'manual'
+
+export type ConnectionPresetFilter = {
+  kind?: ConnectionPresetKind
+  profile?: string
+  region?: string
+  resourceId?: string
+}
+
+export type ConnectionPreset = {
+  id: string
+  name: string
+  kind: ConnectionPresetKind
+  profile: string
+  region: string
+  resourceKind: ConnectionPresetResourceKind
+  resourceId: string
+  resourceLabel: string
+  engine: DbConnectionEngine
+  host: string
+  port: number
+  databaseName: string
+  username: string
+  credentialSourceKind: DbConnectionCredentialSourceKind | ''
+  credentialSourceRef: string
+  connectInput: string
+  vaultEntryId: string
+  vaultEntryName: string
+  sshUser: string
+  bastionImageId: string
+  bastionInstanceType: string
+  subnetId: string
+  keyName: string
+  securityGroupId: string
+  contextName: string
+  kubeconfigPath: string
+  notes: string
+  createdAt: string
+  updatedAt: string
+  lastUsedAt: string
+}
+
+export type ConnectionPresetInput = Omit<ConnectionPreset, 'id' | 'createdAt' | 'updatedAt' | 'lastUsedAt'> & {
+  id?: string
+}
+
 export type DbConnectionResolveInput = {
   presetId?: string
   resourceKind: DbConnectionResourceKind
@@ -1396,6 +1468,11 @@ export type DbConnectionHelperSnippet = {
   sensitive: boolean
 }
 
+export type DbConnectionSecretHandling =
+  | 'persisted-local-vault'
+  | 'runtime-secrets-manager'
+  | 'ephemeral-manual'
+
 export type DbConnectionResolutionResult = {
   presetId: string
   displayName: string
@@ -1410,6 +1487,8 @@ export type DbConnectionResolutionResult = {
   credentialSourceKind: DbConnectionCredentialSourceKind
   credentialSourceRef: string
   sourceSummary: string
+  secretHandling: DbConnectionSecretHandling
+  secretHandlingSummary: string
   warnings: string[]
   snippets: DbConnectionHelperSnippet[]
   terminalCommand: string

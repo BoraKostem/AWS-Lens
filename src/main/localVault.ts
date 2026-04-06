@@ -28,6 +28,8 @@ type VaultEntry = {
   origin: VaultOrigin
   rotationState: VaultRotationState
   rotationUpdatedAt: string
+  reminderAt: string
+  expiryAt: string
   lastUsedAt: string
   lastUsedContext: VaultEntryUsage | null
 }
@@ -106,6 +108,8 @@ function sanitizeKind(value: unknown): VaultEntryKind {
     case 'access-key':
     case 'generic':
     case 'db-credential':
+    case 'kubeconfig-fragment':
+    case 'api-token':
     case 'connection-secret':
       return value
     default:
@@ -116,12 +120,16 @@ function sanitizeKind(value: unknown): VaultEntryKind {
 function sanitizeOrigin(value: unknown): VaultOrigin {
   switch (value) {
     case 'manual':
-    case 'imported-file':
+    case 'imported':
     case 'aws-secrets-manager':
-    case 'aws-iam':
+    case 'aws-ssm':
     case 'generated':
     case 'unknown':
       return value
+    case 'imported-file':
+      return 'imported'
+    case 'aws-iam':
+      return 'unknown'
     default:
       return DEFAULT_VAULT_ORIGIN
   }
@@ -181,6 +189,8 @@ function sanitizeVaultEntry(value: unknown): VaultEntry | null {
     origin: sanitizeOrigin(raw.origin),
     rotationState: sanitizeRotationState(raw.rotationState),
     rotationUpdatedAt: sanitizeString(raw.rotationUpdatedAt),
+    reminderAt: sanitizeString(raw.reminderAt),
+    expiryAt: sanitizeString(raw.expiryAt),
     lastUsedAt: sanitizeString(raw.lastUsedAt),
     lastUsedContext: sanitizeLastUsedContext(raw.lastUsedContext)
   }
@@ -204,6 +214,8 @@ function toSummary(entry: VaultEntry): VaultEntrySummary {
     origin: entry.origin,
     rotationState: entry.rotationState,
     rotationUpdatedAt: entry.rotationUpdatedAt,
+    reminderAt: entry.reminderAt,
+    expiryAt: entry.expiryAt,
     lastUsedAt: entry.lastUsedAt,
     lastUsedContext: entry.lastUsedContext
   }
@@ -259,6 +271,8 @@ export function setVaultSecret(kind: VaultEntryKind, name: string, secret: strin
     origin: existing?.origin ?? DEFAULT_VAULT_ORIGIN,
     rotationState: existing?.rotationState ?? DEFAULT_ROTATION_STATE,
     rotationUpdatedAt: existing?.rotationUpdatedAt ?? '',
+    reminderAt: existing?.reminderAt ?? '',
+    expiryAt: existing?.expiryAt ?? '',
     lastUsedAt: existing?.lastUsedAt ?? '',
     lastUsedContext: existing?.lastUsedContext ?? null
   })
@@ -472,6 +486,8 @@ export function saveVaultEntry(input: VaultEntryInput): VaultEntrySummary {
     origin: input.origin ?? existing?.origin ?? DEFAULT_VAULT_ORIGIN,
     rotationState: input.rotationState ?? existing?.rotationState ?? DEFAULT_ROTATION_STATE,
     rotationUpdatedAt: sanitizeString(input.rotationUpdatedAt) || existing?.rotationUpdatedAt || '',
+    reminderAt: sanitizeString(input.reminderAt) || existing?.reminderAt || '',
+    expiryAt: sanitizeString(input.expiryAt) || existing?.expiryAt || '',
     lastUsedAt: existing?.lastUsedAt ?? '',
     lastUsedContext: existing?.lastUsedContext ?? null
   }

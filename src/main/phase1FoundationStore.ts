@@ -15,6 +15,11 @@ import type {
   CloudWatchQueryHistoryInput,
   CloudWatchSavedQuery,
   CloudWatchSavedQueryInput,
+  ConnectionPreset,
+  ConnectionPresetFilter,
+  ConnectionPresetInput,
+  ConnectionPresetKind,
+  ConnectionPresetResourceKind,
   DbConnectionEngine,
   DbConnectionPreset,
   DbConnectionPresetFilter,
@@ -33,6 +38,7 @@ type Phase1FoundationState = {
   cloudWatchSavedQueries: CloudWatchSavedQuery[]
   cloudWatchQueryHistory: CloudWatchQueryHistoryEntry[]
   cloudWatchInvestigationHistory: CloudWatchInvestigationHistoryEntry[]
+  connectionPresets: ConnectionPreset[]
   dbConnectionPresets: DbConnectionPreset[]
 }
 
@@ -155,6 +161,7 @@ const DEFAULT_STATE: Phase1FoundationState = {
   cloudWatchSavedQueries: [],
   cloudWatchQueryHistory: [],
   cloudWatchInvestigationHistory: [],
+  connectionPresets: [],
   dbConnectionPresets: []
 }
 
@@ -385,6 +392,78 @@ function sanitizeDbEngine(value: unknown): DbConnectionEngine {
     : 'unknown'
 }
 
+function sanitizeConnectionPresetKind(value: unknown): ConnectionPresetKind | '' {
+  return value === 'rds' || value === 'bastion-ssh' || value === 'eks'
+    ? value
+    : ''
+}
+
+function sanitizeConnectionPresetResourceKind(value: unknown): ConnectionPresetResourceKind {
+  return value === 'rds-instance' ||
+    value === 'rds-cluster' ||
+    value === 'aurora-cluster' ||
+    value === 'ec2-instance' ||
+    value === 'eks-cluster'
+    ? value
+    : 'manual'
+}
+
+function sanitizeCredentialSourceKind(value: unknown): DbConnectionPreset['credentialSourceKind'] | '' {
+  return value === 'local-vault' || value === 'aws-secrets-manager' || value === 'manual'
+    ? value
+    : ''
+}
+
+function sanitizeConnectionPreset(value: unknown): ConnectionPreset | null {
+  const raw = isRecord(value) ? value : null
+  if (!raw) {
+    return null
+  }
+
+  const id = sanitizeString(raw.id)
+  const name = sanitizeString(raw.name)
+  const profile = sanitizeString(raw.profile)
+  const region = sanitizeString(raw.region)
+  const kind = sanitizeConnectionPresetKind(raw.kind)
+
+  if (!id || !name || !profile || !region || !kind) {
+    return null
+  }
+
+  return {
+    id,
+    name,
+    kind,
+    profile,
+    region,
+    resourceKind: sanitizeConnectionPresetResourceKind(raw.resourceKind),
+    resourceId: sanitizeString(raw.resourceId),
+    resourceLabel: sanitizeString(raw.resourceLabel),
+    engine: sanitizeDbEngine(raw.engine),
+    host: sanitizeString(raw.host),
+    port: sanitizePositiveInteger(raw.port, 22),
+    databaseName: sanitizeString(raw.databaseName),
+    username: sanitizeString(raw.username),
+    credentialSourceKind: sanitizeCredentialSourceKind(raw.credentialSourceKind),
+    credentialSourceRef: sanitizeString(raw.credentialSourceRef),
+    connectInput: sanitizeString(raw.connectInput),
+    vaultEntryId: sanitizeString(raw.vaultEntryId),
+    vaultEntryName: sanitizeString(raw.vaultEntryName),
+    sshUser: sanitizeString(raw.sshUser),
+    bastionImageId: sanitizeString(raw.bastionImageId),
+    bastionInstanceType: sanitizeString(raw.bastionInstanceType),
+    subnetId: sanitizeString(raw.subnetId),
+    keyName: sanitizeString(raw.keyName),
+    securityGroupId: sanitizeString(raw.securityGroupId),
+    contextName: sanitizeString(raw.contextName),
+    kubeconfigPath: sanitizeString(raw.kubeconfigPath),
+    notes: sanitizeString(raw.notes),
+    createdAt: sanitizeString(raw.createdAt),
+    updatedAt: sanitizeString(raw.updatedAt),
+    lastUsedAt: sanitizeString(raw.lastUsedAt)
+  }
+}
+
 function sanitizeDbConnectionPreset(value: unknown): DbConnectionPreset | null {
   const raw = isRecord(value) ? value : null
   if (!raw) {
@@ -462,6 +541,11 @@ function sanitizeState(value: unknown): Phase1FoundationState {
         .map((entry) => sanitizeCloudWatchInvestigationHistoryEntry(entry))
         .filter((entry): entry is CloudWatchInvestigationHistoryEntry => Boolean(entry))
       : [],
+    connectionPresets: Array.isArray(raw.connectionPresets)
+      ? raw.connectionPresets
+        .map((entry) => sanitizeConnectionPreset(entry))
+        .filter((entry): entry is ConnectionPreset => Boolean(entry))
+      : [],
     dbConnectionPresets: Array.isArray(raw.dbConnectionPresets)
       ? raw.dbConnectionPresets
         .map((entry) => sanitizeDbConnectionPreset(entry))
@@ -502,6 +586,23 @@ function sortDbConnectionPresets(presets: DbConnectionPreset[]): DbConnectionPre
     (right.lastUsedAt || right.updatedAt).localeCompare(left.lastUsedAt || left.updatedAt) ||
     left.name.localeCompare(right.name)
   )
+}
+
+function sortConnectionPresets(presets: ConnectionPreset[]): ConnectionPreset[] {
+  return [...presets].sort((left, right) =>
+    (right.lastUsedAt || right.updatedAt).localeCompare(left.lastUsedAt || left.updatedAt) ||
+    left.name.localeCompare(right.name)
+  )
+}
+
+function upsertConnectionPreset(state: Phase1FoundationState, entry: ConnectionPreset): Phase1FoundationState {
+  return {
+    ...state,
+    connectionPresets: sortConnectionPresets([
+      ...state.connectionPresets.filter((candidate) => candidate.id !== entry.id),
+      entry
+    ])
+  }
 }
 
 function matchesCloudWatchFilter(
@@ -822,6 +923,119 @@ export function listDbConnectionPresets(filter?: DbConnectionPresetFilter): DbCo
   }))
 }
 
+export function listConnectionPresets(filter?: ConnectionPresetFilter): ConnectionPreset[] {
+  const state = readState()
+  return sortConnectionPresets(state.connectionPresets.filter((entry) => {
+    if (!filter) {
+      return true
+    }
+    if (filter.kind && entry.kind !== filter.kind) {
+      return false
+    }
+    if (filter.profile && entry.profile !== filter.profile.trim()) {
+      return false
+    }
+    if (filter.region && entry.region !== filter.region.trim()) {
+      return false
+    }
+    if (filter.resourceId && entry.resourceId !== filter.resourceId.trim()) {
+      return false
+    }
+    return true
+  }))
+}
+
+export function saveConnectionPreset(input: ConnectionPresetInput): ConnectionPreset {
+  const name = input.name.trim()
+  const profile = input.profile.trim()
+  const region = input.region.trim()
+  const kind = sanitizeConnectionPresetKind(input.kind)
+
+  if (!name) {
+    throw new Error('Connection preset name is required.')
+  }
+  if (!profile || !region) {
+    throw new Error('Connection presets must be scoped to a profile and region.')
+  }
+  if (!kind) {
+    throw new Error('Connection preset kind is required.')
+  }
+
+  const state = readState()
+  const now = new Date().toISOString()
+  const existingId = input.id?.trim() ?? ''
+  const existing = existingId ? state.connectionPresets.find((entry) => entry.id === existingId) : null
+  const nextEntry: ConnectionPreset = {
+    id: existing?.id ?? randomUUID(),
+    name,
+    kind,
+    profile,
+    region,
+    resourceKind: sanitizeConnectionPresetResourceKind(input.resourceKind),
+    resourceId: input.resourceId.trim(),
+    resourceLabel: input.resourceLabel.trim(),
+    engine: sanitizeDbEngine(input.engine),
+    host: input.host.trim(),
+    port: sanitizePositiveInteger(input.port, kind === 'rds' ? 5432 : 22),
+    databaseName: input.databaseName.trim(),
+    username: input.username.trim(),
+    credentialSourceKind: sanitizeCredentialSourceKind(input.credentialSourceKind),
+    credentialSourceRef: input.credentialSourceRef.trim(),
+    connectInput: input.connectInput.trim(),
+    vaultEntryId: input.vaultEntryId.trim(),
+    vaultEntryName: input.vaultEntryName.trim(),
+    sshUser: input.sshUser.trim(),
+    bastionImageId: input.bastionImageId.trim(),
+    bastionInstanceType: input.bastionInstanceType.trim(),
+    subnetId: input.subnetId.trim(),
+    keyName: input.keyName.trim(),
+    securityGroupId: input.securityGroupId.trim(),
+    contextName: input.contextName.trim(),
+    kubeconfigPath: input.kubeconfigPath.trim(),
+    notes: input.notes.trim(),
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+    lastUsedAt: existing?.lastUsedAt ?? ''
+  }
+
+  writeState(upsertConnectionPreset(state, nextEntry))
+  return nextEntry
+}
+
+export function deleteConnectionPreset(id: string): void {
+  const normalizedId = id.trim()
+  if (!normalizedId) {
+    return
+  }
+
+  const state = readState()
+  writeState({
+    ...state,
+    connectionPresets: state.connectionPresets.filter((entry) => entry.id !== normalizedId)
+  })
+}
+
+export function markConnectionPresetUsed(id: string): ConnectionPreset {
+  const normalizedId = id.trim()
+  if (!normalizedId) {
+    throw new Error('Connection preset id is required.')
+  }
+
+  const state = readState()
+  const existing = state.connectionPresets.find((entry) => entry.id === normalizedId)
+  if (!existing) {
+    throw new Error('Connection preset was not found.')
+  }
+
+  const nextEntry: ConnectionPreset = {
+    ...existing,
+    lastUsedAt: new Date().toISOString()
+  }
+
+  writeState(upsertConnectionPreset(state, nextEntry))
+  return nextEntry
+}
+
 export function saveDbConnectionPreset(input: DbConnectionPresetInput): DbConnectionPreset {
   const name = input.name.trim()
   const profile = input.profile.trim()
@@ -862,13 +1076,46 @@ export function saveDbConnectionPreset(input: DbConnectionPresetInput): DbConnec
     lastUsedAt: existing?.lastUsedAt ?? ''
   }
 
-  writeState({
+  let nextState = writeState({
     ...state,
     dbConnectionPresets: sortDbConnectionPresets([
       ...state.dbConnectionPresets.filter((entry) => entry.id !== nextEntry.id),
       nextEntry
     ])
   })
+
+  nextState = writeState(upsertConnectionPreset(nextState, {
+    id: `rds:${nextEntry.id}`,
+    name: nextEntry.name,
+    kind: 'rds',
+    profile: nextEntry.profile,
+    region: nextEntry.region,
+    resourceKind: nextEntry.resourceKind,
+    resourceId: nextEntry.resourceId,
+    resourceLabel: nextEntry.name,
+    engine: nextEntry.engine,
+    host: nextEntry.host,
+    port: nextEntry.port,
+    databaseName: nextEntry.databaseName,
+    username: nextEntry.username,
+    credentialSourceKind: nextEntry.credentialSourceKind,
+    credentialSourceRef: nextEntry.credentialSourceRef,
+    connectInput: '',
+    vaultEntryId: '',
+    vaultEntryName: '',
+    sshUser: '',
+    bastionImageId: '',
+    bastionInstanceType: '',
+    subnetId: '',
+    keyName: '',
+    securityGroupId: '',
+    contextName: '',
+    kubeconfigPath: '',
+    notes: nextEntry.notes,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+    lastUsedAt: existing?.lastUsedAt ?? ''
+  }))
 
   return nextEntry
 }
@@ -882,6 +1129,7 @@ export function deleteDbConnectionPreset(id: string): void {
   const state = readState()
   writeState({
     ...state,
+    connectionPresets: state.connectionPresets.filter((entry) => entry.id !== `rds:${normalizedId}`),
     dbConnectionPresets: state.dbConnectionPresets.filter((entry) => entry.id !== normalizedId)
   })
 }
@@ -903,13 +1151,22 @@ export function markDbConnectionPresetUsed(id: string): DbConnectionPreset {
     lastUsedAt: new Date().toISOString()
   }
 
-  writeState({
+  const nextState = writeState({
     ...state,
     dbConnectionPresets: sortDbConnectionPresets([
       ...state.dbConnectionPresets.filter((entry) => entry.id !== normalizedId),
       nextEntry
     ])
   })
+
+  const syncedConnectionPreset = nextState.connectionPresets.find((entry) => entry.id === `rds:${normalizedId}`)
+  if (syncedConnectionPreset) {
+    writeState(upsertConnectionPreset(nextState, {
+      ...syncedConnectionPreset,
+      lastUsedAt: nextEntry.lastUsedAt,
+      updatedAt: syncedConnectionPreset.updatedAt
+    }))
+  }
 
   return nextEntry
 }

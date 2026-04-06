@@ -182,7 +182,7 @@ function migrateLegacyManualProfilesToVault(): void {
       continue
     }
 
-    setAwsProfileVaultSecret(profileName, { accessKeyId, secretAccessKey }, { origin: 'imported-file' })
+    setAwsProfileVaultSecret(profileName, { accessKeyId, secretAccessKey }, { origin: 'imported' })
     mutated = true
   }
 

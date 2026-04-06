@@ -77,6 +77,10 @@ It is built around a simple idea: AWS work is usually a chain of small actions a
 - Direct Resource Access for cases where you know the resource identifier but cannot list the whole service
 - An embedded terminal that follows the active AWS context
 - A local encrypted vault for app-managed credentials and other sensitive app state
+- Vault workflows for AWS credentials, DB logins, API tokens, kubeconfig fragments, PEM files, and SSH private keys
+- Rotation, expiry, reminder, origin, and last-used visibility for local vault entries
+- Connection presets for EC2 SSH, EKS kubeconfig, and RDS helper flows
+- PEM and SSH key fingerprint inspection with EC2 key pair correlation
 
 ## Getting started
 
@@ -135,7 +139,9 @@ It also stores local app state under Electron `userData`, including files such a
 Important behavior:
 
 - app-managed credentials are stored in the encrypted local vault instead of being written back to `~/.aws/credentials`
+- imported PEM and SSH keys are encrypted into the local vault instead of depending on a durable plaintext temp copy
 - temporary assumed-role credentials stay in memory
+- Secrets Manager and manual runtime credentials can be resolved for a session without being silently persisted into the local vault
 - mutating actions run through the Electron main process
 - the renderer talks to that layer through the preload bridge
 
