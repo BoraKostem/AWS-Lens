@@ -476,6 +476,16 @@ function summarizeFocusForDiagnostics(focus: TokenizedFocus<NavigationFocus['ser
         resourceId: focus.clusterName,
         summary: focus.clusterName
       }
+    case 'terraform':
+      return {
+        service: focus.service,
+        resourceId: focus.projectId || focus.runId || focus.driftItemKey || focus.detailTab || 'workspace',
+        summary: focus.runId
+          ? `History run ${focus.runId}`
+          : focus.driftItemKey
+            ? `Drift item ${focus.driftItemKey}`
+            : focus.projectId || focus.detailTab || 'Terraform workspace'
+      }
     case 'cloudtrail':
       return {
         service: focus.service,
@@ -1884,6 +1894,7 @@ export function App() {
             <TerraformConsole
               connection={connection}
               refreshNonce={pageRefreshNonceByScreen['terraform'] ?? 0}
+              focus={getFocus('terraform')}
               observabilityLabEnabled={observabilityLabEnabled}
               onRunTerminalCommand={handleOpenTerminalCommand}
               onNavigateService={navigateToServiceWithResourceId}
@@ -1956,9 +1967,9 @@ export function App() {
     }
 
     if (targetScreen === 'overview') {
-      return <OverviewConsole state={connectionState} embedded refreshNonce={pageRefreshNonceByScreen['overview'] ?? 0} onNavigate={(target) => {
-        if (IMPLEMENTED_SCREENS.has(target)) setScreen(target as Screen)
-      }} onNavigateCloudWatch={(focus) => navigateWithFocus({ service: 'cloudwatch', ...focus })} onNavigateCloudTrail={(focus) => navigateWithFocus({ service: 'cloudtrail', ...focus })} onNavigateTerraform={() => setScreen('terraform')} />
+      return <OverviewConsole state={connectionState} embedded refreshNonce={pageRefreshNonceByScreen['overview'] ?? 0} onNavigate={(target, resourceId) => {
+        if (IMPLEMENTED_SCREENS.has(target)) navigateToServiceWithResourceId(target as ServiceId, resourceId)
+      }} onNavigateCloudWatch={(focus) => navigateWithFocus({ service: 'cloudwatch', ...focus })} onNavigateCloudTrail={(focus) => navigateWithFocus({ service: 'cloudtrail', ...focus })} onNavigateTerraform={(focus) => focus ? navigateWithFocus({ service: 'terraform', ...focus }) : setScreen('terraform')} onRunTerminalCommand={handleOpenTerminalCommand} />
     }
 
     if (targetScreen === 'session-hub') {
@@ -2417,9 +2428,9 @@ export function App() {
         )}
 
         {screen === 'overview' && (
-          <OverviewConsole state={connectionState} embedded onNavigate={(target) => {
-            if (IMPLEMENTED_SCREENS.has(target)) setScreen(target as Screen)
-          }} onNavigateCloudWatch={(focus) => navigateWithFocus({ service: 'cloudwatch', ...focus })} onNavigateCloudTrail={(focus) => navigateWithFocus({ service: 'cloudtrail', ...focus })} onNavigateTerraform={() => setScreen('terraform')} />
+          <OverviewConsole state={connectionState} embedded onNavigate={(target, resourceId) => {
+            if (IMPLEMENTED_SCREENS.has(target)) navigateToServiceWithResourceId(target as ServiceId, resourceId)
+          }} onNavigateCloudWatch={(focus) => navigateWithFocus({ service: 'cloudwatch', ...focus })} onNavigateCloudTrail={(focus) => navigateWithFocus({ service: 'cloudtrail', ...focus })} onNavigateTerraform={(focus) => focus ? navigateWithFocus({ service: 'terraform', ...focus }) : setScreen('terraform')} onRunTerminalCommand={handleOpenTerminalCommand} />
         )}
 
         {screen === 'vpc' && selectedService?.id === 'vpc' && (

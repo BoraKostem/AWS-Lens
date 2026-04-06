@@ -1651,6 +1651,13 @@ export type NavigationFocus =
   | { service: 'ecs'; clusterArn: string; serviceName: string }
   | { service: 'eks'; clusterName: string }
   | {
+      service: 'terraform'
+      projectId?: string
+      detailTab?: 'operations' | 'actions' | 'state' | 'resources' | 'drift' | 'lab' | 'history'
+      runId?: string
+      driftItemKey?: string
+    }
+  | {
       service: 'cloudtrail'
       resourceName?: string
       startTime?: string

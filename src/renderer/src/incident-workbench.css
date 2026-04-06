@@ -298,6 +298,10 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  height: 620px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .tf-guardrail-card.success {
@@ -464,6 +468,10 @@
   .tf-guardrail-grid {
     grid-template-columns: 1fr;
   }
+
+  .tf-guardrail-card {
+    height: 520px;
+  }
 }
 
 @media (max-width: 700px) {
@@ -476,5 +484,9 @@
 
   .tf-guardrail-row-side {
     width: 100%;
+  }
+
+  .tf-guardrail-card {
+    height: 460px;
   }
 }

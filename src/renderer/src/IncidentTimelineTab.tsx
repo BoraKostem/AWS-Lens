@@ -42,6 +42,9 @@ type TimelineItem = {
   resourceName?: string
   logGroupNames?: string[]
   serviceHint?: ServiceId | ''
+  terminalCommand?: string
+  terraformRunId?: string
+  terraformDriftKey?: string
 }
 
 type TimelineSourceFilter = 'all' | TimelineSource
@@ -191,7 +194,40 @@ function summarizeTerraformRun(record: TerraformRunRecord): { tone: TimelineTone
   }
 }
 
-function buildTerraformTimelineItems(records: TerraformRunRecord[], window: TimelineWindow): TimelineItem[] {
+function buildTerraformTerminalCommand(record: TerraformRunRecord, project: TerraformProject | null): string {
+  const args = [record.command, ...record.args].join(' ').trim()
+  if (!args) return ''
+  if (!project?.rootPath) return `terraform ${args}`.trim()
+  return `cd "${project.rootPath}" && terraform ${args}`.trim()
+}
+
+function driftItemKey(item: TerraformDriftItem): string {
+  return `${item.terraformAddress}|${item.resourceType}|${item.cloudIdentifier}|${item.logicalName}|${item.status}`
+}
+
+function serviceIdFromCloudTrailEvent(event: CloudTrailEventSummary): ServiceId | '' {
+  const source = event.eventSource.toLowerCase()
+  if (source === 'iam.amazonaws.com') return 'iam'
+  if (source === 'ec2.amazonaws.com') return 'ec2'
+  if (source === 'lambda.amazonaws.com') return 'lambda'
+  if (source === 'ecs.amazonaws.com') return 'ecs'
+  if (source === 'eks.amazonaws.com') return 'eks'
+  if (source === 'rds.amazonaws.com') return 'rds'
+  if (source === 'elasticloadbalancing.amazonaws.com') return 'load-balancers'
+  if (source === 'route53.amazonaws.com') return 'route53'
+  if (source === 'cloudformation.amazonaws.com') return 'cloudformation'
+  if (source === 's3.amazonaws.com') return 's3'
+  if (source === 'sqs.amazonaws.com') return 'sqs'
+  if (source === 'sns.amazonaws.com') return 'sns'
+  if (source === 'kms.amazonaws.com') return 'kms'
+  if (source === 'secretsmanager.amazonaws.com') return 'secrets-manager'
+  if (source === 'wafv2.amazonaws.com' || source === 'waf.amazonaws.com') return 'waf'
+  if (source === 'logs.amazonaws.com' || source === 'cloudwatch.amazonaws.com') return 'cloudwatch'
+  if (source === 'sts.amazonaws.com') return 'session-hub'
+  return ''
+}
+
+function buildTerraformTimelineItems(records: TerraformRunRecord[], window: TimelineWindow, project: TerraformProject | null): TimelineItem[] {
   return records
     .filter((record) => isWithinWindow(record.finishedAt || record.startedAt, window))
     .map((record) => {
@@ -205,6 +241,9 @@ function buildTerraformTimelineItems(records: TerraformRunRecord[], window: Time
         source: 'terraform',
         tone: outcome.tone,
         occurredAt: record.finishedAt || record.startedAt,
+        serviceHint: 'terraform',
+        terminalCommand: buildTerraformTerminalCommand(record, project),
+        terraformRunId: record.id,
         title: `${record.command.toUpperCase()} • ${record.projectName}`,
         summary: outcome.summary,
         detail: `${planSummary} Region: ${record.region || '-'} • Connection: ${record.connectionLabel || '-'}`
@@ -223,6 +262,7 @@ function buildCloudTrailTimelineItems(events: CloudTrailEventSummary[]): Timelin
       title: `${event.eventName} • ${event.eventSource}`,
       summary: `${event.username || 'Unknown actor'} from ${event.sourceIpAddress || 'unknown IP'} touched ${event.resourceName || event.resourceType || 'an AWS resource'}.`,
       detail: `Region: ${event.awsRegion || '-'} • Resource type: ${event.resourceType || '-'} • Read only: ${event.readOnly ? 'Yes' : 'No'}`,
+      serviceHint: serviceIdFromCloudTrailEvent(event),
       resourceName: event.resourceName || undefined
     }))
 }
@@ -272,6 +312,7 @@ function buildDriftTimelineItems(report: TerraformDriftReport | null, window: Ti
   if (!report?.history.snapshots.length) return []
   const latest = report.history.snapshots[0]
   if (!isWithinWindow(latest.scannedAt, window)) return []
+  const topActionableItem = report.items.find((item) => item.status !== 'in_sync' && item.status !== 'unsupported')
 
   const actionableCount = latest.summary.statusCounts.drifted
     + latest.summary.statusCounts.missing_in_aws
@@ -282,6 +323,9 @@ function buildDriftTimelineItems(report: TerraformDriftReport | null, window: Ti
     source: 'drift',
     tone: actionableCount > 0 ? 'warning' : 'success',
     occurredAt: latest.scannedAt,
+    serviceHint: 'terraform',
+    terminalCommand: topActionableItem?.terminalCommand,
+    terraformDriftKey: topActionableItem ? driftItemKey(topActionableItem) : undefined,
     title: 'Drift snapshot updated',
     summary: actionableCount > 0
       ? `${actionableCount} actionable drift signals are visible in the latest snapshot.`
@@ -546,7 +590,8 @@ export function IncidentTimelineTab({
   onNavigateService,
   onNavigateCloudWatch,
   onNavigateCloudTrail,
-  onNavigateTerraform
+  onNavigateTerraform,
+  onRunTerminalCommand
 }: {
   scope?: IncidentTimelineScope
   project?: TerraformProject | null
@@ -557,7 +602,8 @@ export function IncidentTimelineTab({
   onNavigateService?: (serviceId: ServiceId, resourceId?: string) => void
   onNavigateCloudWatch?: (focus: { logGroupNames?: string[]; queryString?: string; sourceLabel?: string; serviceHint?: ServiceId | '' }) => void
   onNavigateCloudTrail?: (focus: { resourceName?: string; startTime?: string; endTime?: string; filter?: string }) => void
-  onNavigateTerraform?: () => void
+  onNavigateTerraform?: (focus?: { projectId?: string; detailTab?: 'operations' | 'actions' | 'state' | 'resources' | 'drift' | 'lab' | 'history'; runId?: string; driftItemKey?: string }) => void
+  onRunTerminalCommand?: (command: string) => void
 }) {
   const [windowMode, setWindowMode] = useState<TimelineWindowMode>('30m')
   const [viewMode, setViewMode] = useState<IncidentViewMode>(scope === 'overview' ? 'grouped' : 'signals')
@@ -671,7 +717,7 @@ export function IncidentTimelineTab({
       ])
 
       const terraformHistory = linkedProject && runHistoryResult.status === 'fulfilled' && Array.isArray(runHistoryResult.value)
-        ? buildTerraformTimelineItems(runHistoryResult.value as TerraformRunRecord[], activeWindow)
+        ? buildTerraformTimelineItems(runHistoryResult.value as TerraformRunRecord[], activeWindow, linkedProject)
         : []
       if (linkedProject && runHistoryResult.status === 'rejected') {
         nextWarnings.push(`Terraform history: ${runHistoryResult.reason instanceof Error ? runHistoryResult.reason.message : String(runHistoryResult.reason)}`)
@@ -794,20 +840,40 @@ export function IncidentTimelineTab({
     }
   }, [linkedDriftReport, linkedProject])
 
-  function handleOpenTerraformSignal(): void {
-    if (onOpenHistory) {
+  function handleOpenTerraformSignal(focus?: { detailTab?: 'operations' | 'actions' | 'state' | 'resources' | 'drift' | 'lab' | 'history'; runId?: string; driftItemKey?: string }): void {
+    if (!focus?.detailTab && !focus?.runId && !focus?.driftItemKey && onOpenHistory) {
       onOpenHistory()
       return
     }
 
     if (onNavigateTerraform) {
-      onNavigateTerraform()
+      onNavigateTerraform({
+        projectId: linkedProject?.id,
+        ...focus
+      })
+    }
+  }
+
+  function handleRunTerminalCommand(command?: string): void {
+    if (!command || !onRunTerminalCommand) return
+    onRunTerminalCommand(command)
+  }
+
+  function relatedServiceForItems(clusterItems: TimelineItem[]): { serviceId: ServiceId; resourceId?: string } | null {
+    const first = clusterItems.find((item) => item.serviceHint && item.serviceHint !== 'terraform' && item.serviceHint !== 'cloudwatch' && item.serviceHint !== 'cloudtrail')
+    if (!first?.serviceHint) return null
+    return {
+      serviceId: first.serviceHint,
+      resourceId: first.resourceName
     }
   }
 
   function handleOpenRiskyAction(entry: RiskyActionEntry): void {
     if (entry.serviceId === 'terraform') {
-      onNavigateTerraform?.()
+      onNavigateTerraform?.({
+        projectId: linkedProject?.id,
+        detailTab: 'history'
+      })
       return
     }
 
@@ -837,13 +903,27 @@ export function IncidentTimelineTab({
   }
 
   function renderClusterActions(cluster: CorrelationCluster): ReactNode {
+    const relatedService = relatedServiceForItems(cluster.items)
+    const firstTerraform = cluster.items.find((item) => item.source === 'terraform')
+    const firstDrift = cluster.items.find((item) => item.source === 'drift')
+    const terminalCandidate = cluster.items.find((item) => item.terminalCommand)
+
     return (
       <div className="tf-incident-actions">
         {cluster.items.some((item) => item.source === 'terraform') && (
-          <button type="button" className="tf-toolbar-btn" onClick={handleOpenTerraformSignal}>Open Terraform</button>
+          <button type="button" className="tf-toolbar-btn" onClick={() => handleOpenTerraformSignal({
+            detailTab: firstTerraform?.terraformRunId ? 'history' : 'operations',
+            runId: firstTerraform?.terraformRunId
+          })}>Open Terraform</button>
         )}
         {cluster.items.some((item) => item.source === 'drift') && (onOpenDrift || onNavigateTerraform) && (
-          <button type="button" className="tf-toolbar-btn" onClick={onOpenDrift ?? onNavigateTerraform}>Open Drift</button>
+          <button type="button" className="tf-toolbar-btn" onClick={() => {
+            if (firstDrift?.terraformDriftKey && onNavigateTerraform) {
+              handleOpenTerraformSignal({ detailTab: 'drift', driftItemKey: firstDrift.terraformDriftKey })
+              return
+            }
+            ;(onOpenDrift ?? onNavigateTerraform)?.()
+          }}>Open Drift</button>
         )}
         {cluster.items.some((item) => item.source === 'cloudwatch') && onNavigateCloudWatch && (
           <button
@@ -880,6 +960,16 @@ export function IncidentTimelineTab({
             Open CloudTrail
           </button>
         )}
+        {relatedService && onNavigateService && (
+          <button type="button" className="tf-toolbar-btn" onClick={() => onNavigateService(relatedService.serviceId, relatedService.resourceId)}>
+            Open Service
+          </button>
+        )}
+        {terminalCandidate?.terminalCommand && onRunTerminalCommand && (
+          <button type="button" className="tf-toolbar-btn" onClick={() => handleRunTerminalCommand(terminalCandidate.terminalCommand)}>
+            Run in Terminal
+          </button>
+        )}
       </div>
     )
   }
@@ -888,10 +978,19 @@ export function IncidentTimelineTab({
     return (
       <div className="tf-incident-actions">
         {item.source === 'terraform' && (onOpenHistory || onNavigateTerraform) && (
-          <button type="button" className="tf-toolbar-btn" onClick={handleOpenTerraformSignal}>Open Terraform</button>
+          <button type="button" className="tf-toolbar-btn" onClick={() => handleOpenTerraformSignal({
+            detailTab: item.terraformRunId ? 'history' : 'operations',
+            runId: item.terraformRunId
+          })}>Open Terraform</button>
         )}
         {item.source === 'drift' && (onOpenDrift || onNavigateTerraform) && (
-          <button type="button" className="tf-toolbar-btn" onClick={onOpenDrift ?? onNavigateTerraform}>Open Drift</button>
+          <button type="button" className="tf-toolbar-btn" onClick={() => {
+            if (item.terraformDriftKey && onNavigateTerraform) {
+              handleOpenTerraformSignal({ detailTab: 'drift', driftItemKey: item.terraformDriftKey })
+              return
+            }
+            ;(onOpenDrift ?? onNavigateTerraform)?.()
+          }}>Open Drift</button>
         )}
         {item.source === 'cloudtrail' && onNavigateCloudTrail && (
           <button
@@ -932,6 +1031,16 @@ export function IncidentTimelineTab({
               </button>
             )}
           </>
+        )}
+        {item.serviceHint && item.serviceHint !== 'terraform' && item.serviceHint !== 'cloudtrail' && item.serviceHint !== 'cloudwatch' && onNavigateService && (
+          <button type="button" className="tf-toolbar-btn" onClick={() => onNavigateService(item.serviceHint as ServiceId, item.resourceName)}>
+            Open Service
+          </button>
+        )}
+        {item.terminalCommand && onRunTerminalCommand && (
+          <button type="button" className="tf-toolbar-btn" onClick={() => handleRunTerminalCommand(item.terminalCommand)}>
+            Run in Terminal
+          </button>
         )}
       </div>
     )
@@ -1080,7 +1189,21 @@ export function IncidentTimelineTab({
                         <strong>{item.terraformAddress}</strong>
                         <span>{item.suggestedNextStep}</span>
                       </div>
-                      <span>{item.status.replace(/_/g, ' ')}</span>
+                      <div className="tf-guardrail-row-side">
+                        <span>{item.status.replace(/_/g, ' ')}</span>
+                        <div className="tf-incident-actions">
+                          {onNavigateTerraform && (
+                            <button type="button" className="tf-toolbar-btn" onClick={() => handleOpenTerraformSignal({ detailTab: 'drift', driftItemKey: driftItemKey(item) })}>
+                              Open Drift
+                            </button>
+                          )}
+                          {item.terminalCommand && onRunTerminalCommand && (
+                            <button type="button" className="tf-toolbar-btn" onClick={() => handleRunTerminalCommand(item.terminalCommand)}>
+                              Run in Terminal
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   )) : (
                     <div className="tf-guardrail-empty">No remediation entry is currently needed.</div>
@@ -1096,12 +1219,18 @@ export function IncidentTimelineTab({
             )}
             <div className="tf-incident-actions">
               {(onOpenDrift || onNavigateTerraform) && (
-                <button type="button" className="tf-toolbar-btn" onClick={onOpenDrift ?? onNavigateTerraform}>
+                <button type="button" className="tf-toolbar-btn" onClick={() => {
+                  if (onNavigateTerraform) {
+                    handleOpenTerraformSignal({ detailTab: 'drift' })
+                    return
+                  }
+                  onOpenDrift?.()
+                }}>
                   Open Drift
                 </button>
               )}
               {onNavigateTerraform && (
-                <button type="button" className="tf-toolbar-btn" onClick={onNavigateTerraform}>
+                <button type="button" className="tf-toolbar-btn" onClick={() => onNavigateTerraform({ projectId: linkedProject?.id, detailTab: 'operations' })}>
                   Open Terraform
                 </button>
               )}

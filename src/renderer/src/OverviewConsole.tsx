@@ -128,15 +128,17 @@ export function OverviewConsole({
   onNavigateCloudWatch,
   onNavigateCloudTrail,
   onNavigateTerraform,
+  onRunTerminalCommand,
   state,
   embedded = false,
   refreshNonce = 0
 }: {
   onBack?: () => void
-  onNavigate?: (serviceId: ServiceId) => void
+  onNavigate?: (serviceId: ServiceId, resourceId?: string) => void
   onNavigateCloudWatch?: (focus: { logGroupNames?: string[]; queryString?: string; sourceLabel?: string; serviceHint?: ServiceId | '' }) => void
   onNavigateCloudTrail?: (focus: { resourceName?: string; startTime?: string; endTime?: string; filter?: string }) => void
-  onNavigateTerraform?: () => void
+  onNavigateTerraform?: (focus?: { projectId?: string; detailTab?: 'operations' | 'actions' | 'state' | 'resources' | 'drift' | 'lab' | 'history'; runId?: string; driftItemKey?: string }) => void
+  onRunTerminalCommand?: (command: string) => void
   state?: ReturnType<typeof useAwsPageConnection>
   embedded?: boolean
   refreshNonce?: number
@@ -840,10 +842,11 @@ export function OverviewConsole({
               <IncidentTimelineTab
                 scope="overview"
                 connection={connectionState.connection}
-                onNavigateService={(serviceId) => onNavigate?.(serviceId)}
+                onNavigateService={(serviceId, resourceId) => onNavigate?.(serviceId, resourceId)}
                 onNavigateCloudWatch={onNavigateCloudWatch}
                 onNavigateCloudTrail={onNavigateCloudTrail}
                 onNavigateTerraform={onNavigateTerraform}
+                onRunTerminalCommand={onRunTerminalCommand}
               />
             </section>
           )}
