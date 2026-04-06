@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 import type {
   AwsCapabilitySubject,
+  AppDiagnosticsSnapshot,
   AppSettings,
   ComparisonBaselineInput,
   ComparisonRequest,
@@ -120,7 +121,7 @@ const awsLensApi = {
   checkForAppUpdates: () => ipcRenderer.invoke('app:update:check'),
   downloadAppUpdate: () => ipcRenderer.invoke('app:update:download'),
   installAppUpdate: () => ipcRenderer.invoke('app:update:install'),
-  exportDiagnosticsBundle: () => ipcRenderer.invoke('app:export-diagnostics'),
+  exportDiagnosticsBundle: (snapshot?: AppDiagnosticsSnapshot) => ipcRenderer.invoke('app:export-diagnostics', snapshot),
   getCallerIdentity: (connection: AwsConnection) => ipcRenderer.invoke('sts:get-caller-identity', connection),
   listEc2Instances: (connection: AwsConnection) => ipcRenderer.invoke('ec2:list', connection),
   listEbsVolumes: (connection: AwsConnection) => ipcRenderer.invoke('ec2:list-volumes', connection),

@@ -4,6 +4,7 @@ import { LEGACY_BLOCKED_ACTION_EVENT } from '@shared/branding'
 import type {
   AwsCapabilitySnapshot,
   AwsCapabilitySubject,
+  AppDiagnosticsSnapshot,
   AppSettings,
   ComparisonBaseline,
   ComparisonBaselineInput,
@@ -1237,8 +1238,8 @@ export async function installAppUpdate(): Promise<AppReleaseInfo> {
   return unwrap((await rawAwsBridge().installAppUpdate()) as Wrapped<AppReleaseInfo>)
 }
 
-export async function exportDiagnosticsBundle(): Promise<AppDiagnosticsExportResult> {
-  return unwrap((await rawAwsBridge().exportDiagnosticsBundle()) as Wrapped<AppDiagnosticsExportResult>)
+export async function exportDiagnosticsBundle(snapshot?: AppDiagnosticsSnapshot): Promise<AppDiagnosticsExportResult> {
+  return unwrap((await rawAwsBridge().exportDiagnosticsBundle(snapshot)) as Wrapped<AppDiagnosticsExportResult>)
 }
 
 export async function openPath(targetPath: string): Promise<void> {

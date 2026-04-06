@@ -8,6 +8,7 @@ import {
 } from '@shared/branding'
 import type {
   AwsConnection,
+  AppDiagnosticsSnapshot,
   AppReleaseInfo,
   AppSecuritySummary,
   AppSettings,
@@ -4904,13 +4905,49 @@ export function App() {
     setEnterpriseBusy(true)
     setSettingsMessage('')
     try {
-      const exported = await exportDiagnosticsBundle()
+      const snapshot: AppDiagnosticsSnapshot = {
+        generatedAt: new Date().toISOString(),
+        activeProviderId,
+        activeScreen: screen,
+        selectedServiceId: selectedService?.id ?? '',
+        accessMode: enterpriseSettings.accessMode,
+        terminalOpen,
+        terminalContextReady: isAwsProviderActive ? Boolean(activeShellConnection && activeShellConnected) : Boolean(providerTerminalTarget),
+        selectedPreviewModeId: selectedPreviewMode?.id ?? '',
+        selectedPreviewModeLabel: selectedPreviewMode?.label ?? '',
+        aws: isAwsProviderActive ? {
+          connected: connectionState.connected,
+          profile: connectionState.selectedProfile?.name || connectionState.profile || '',
+          region: connectionState.region,
+          activeSessionId: connectionState.activeSession?.id ?? '',
+          activeSessionLabel: connectionState.activeSession?.label ?? ''
+        } : undefined,
+        gcp: (activeProviderId === 'gcp' || gcpCliContext || recentGcpProjectIds.length > 0) ? {
+          cliDetected: gcpCliContext?.detected === true,
+          cliError: gcpCliError,
+          activeConfigurationName: gcpCliContext?.activeConfigurationName ?? '',
+          activeAccount: gcpCliContext?.activeAccount ?? '',
+          activeProjectId: gcpCliContext?.activeProjectId ?? '',
+          activeRegion: gcpCliContext?.activeRegion ?? '',
+          activeZone: gcpCliContext?.activeZone ?? '',
+          selectedProjectId: activeGcpConnectionDraft?.projectId.trim() ?? '',
+          selectedLocation: activeGcpConnectionDraft?.location.trim() ?? '',
+          recentProjectIds: recentGcpProjectIds,
+          catalogProjectCount: gcpCatalogProjects.length,
+          configurationCount: gcpCliContext?.configurations.length ?? 0,
+          locationCount: gcpLocationOptions.length
+        } : undefined,
+        azure: activeProviderId === 'azure'
+          ? { modeLabel: selectedPreviewMode?.label ?? '' }
+          : undefined
+      }
+      const exported = await exportDiagnosticsBundle(snapshot)
       if (!exported.path) {
         return
       }
 
       setSettingsMessage(
-        `Exported diagnostics bundle with ${exported.bundleEntries} item${exported.bundleEntries === 1 ? '' : 's'} to ${exported.path}`
+        `Exported diagnostics bundle with ${exported.bundleEntries} item${exported.bundleEntries === 1 ? '' : 's'} including workspace context to ${exported.path}`
       )
     } catch (err) {
       setSettingsMessage(err instanceof Error ? err.message : String(err))

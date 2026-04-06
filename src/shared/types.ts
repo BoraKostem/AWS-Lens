@@ -1803,6 +1803,43 @@ export type EnterpriseAuditExportResult = {
   rangeDays?: 1 | 7
 }
 
+export type AppDiagnosticsSnapshot = {
+  generatedAt: string
+  activeProviderId: CloudProviderId
+  activeScreen: string
+  selectedServiceId: ServiceId | ''
+  accessMode: EnterpriseAccessMode
+  terminalOpen: boolean
+  terminalContextReady: boolean
+  selectedPreviewModeId: string
+  selectedPreviewModeLabel: string
+  aws?: {
+    connected: boolean
+    profile: string
+    region: string
+    activeSessionId: string
+    activeSessionLabel: string
+  }
+  gcp?: {
+    cliDetected: boolean
+    cliError: string
+    activeConfigurationName: string
+    activeAccount: string
+    activeProjectId: string
+    activeRegion: string
+    activeZone: string
+    selectedProjectId: string
+    selectedLocation: string
+    recentProjectIds: string[]
+    catalogProjectCount: number
+    configurationCount: number
+    locationCount: number
+  }
+  azure?: {
+    modeLabel: string
+  }
+}
+
 export type AppDiagnosticsExportResult = {
   path: string
   bundleEntries: number

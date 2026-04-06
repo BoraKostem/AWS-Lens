@@ -2,6 +2,7 @@
 
 import type {
   AwsCapabilitySubject,
+  AppDiagnosticsSnapshot,
   AppSettings,
   ComparisonBaselineInput,
   ComparisonRequest,
@@ -107,7 +108,7 @@ declare global {
       checkForAppUpdates: () => Promise<unknown>
       downloadAppUpdate: () => Promise<unknown>
       installAppUpdate: () => Promise<unknown>
-      exportDiagnosticsBundle: () => Promise<unknown>
+      exportDiagnosticsBundle: (snapshot?: AppDiagnosticsSnapshot) => Promise<unknown>
       getCallerIdentity: (connection: AwsConnection) => Promise<unknown>
       listEc2Instances: (connection: AwsConnection) => Promise<unknown>
       listEbsVolumes: (connection: AwsConnection) => Promise<unknown>

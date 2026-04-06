@@ -5,7 +5,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { dialog, ipcMain, shell, app, type BrowserWindow, type OpenDialogOptions } from 'electron'
 
-import type { AppSecuritySummary, AppSettings, AwsConnection, CloudProviderId, Ec2ChosenSshKey, TerraformCommandRequest, TerraformInputConfiguration, TerraformRunHistoryFilter } from '@shared/types'
+import type { AppDiagnosticsSnapshot, AppSecuritySummary, AppSettings, AwsConnection, CloudProviderId, Ec2ChosenSshKey, TerraformCommandRequest, TerraformInputConfiguration, TerraformRunHistoryFilter } from '@shared/types'
 import { getAppSettings, resetAppSettings, updateAppSettings } from './appSettings'
 import { importAwsConfigFile } from './aws/profiles'
 import { getWorkspaceCatalog, listServiceCatalog } from './catalog'
@@ -470,7 +470,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('app:update:check', async () => wrap(() => checkForAppUpdates()))
   ipcMain.handle('app:update:download', async () => wrap(() => downloadAppUpdate()))
   ipcMain.handle('app:update:install', async () => wrap(() => installAppUpdate()))
-  ipcMain.handle('app:export-diagnostics', async () => wrap(() => exportDiagnosticsBundle(getWindow())))
+  ipcMain.handle('app:export-diagnostics', async (_event, snapshot: AppDiagnosticsSnapshot | undefined) => wrap(() => exportDiagnosticsBundle(getWindow(), snapshot)))
   ipcMain.handle('enterprise:get-settings', async () => wrap(() => getEnterpriseSettings()))
   ipcMain.handle('enterprise:set-access-mode', async (_event, accessMode: 'read-only' | 'operator') =>
     wrap(() => setEnterpriseAccessMode(accessMode))

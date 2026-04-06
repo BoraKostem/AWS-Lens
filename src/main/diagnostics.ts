@@ -6,7 +6,7 @@ import AdmZip from 'adm-zip'
 import { app, dialog, type BrowserWindow } from 'electron'
 
 import { PRODUCT_BRAND_SLUG } from '@shared/branding'
-import type { AppDiagnosticsExportResult } from '@shared/types'
+import type { AppDiagnosticsExportResult, AppDiagnosticsSnapshot } from '@shared/types'
 import { listEnterpriseAuditEvents } from './enterprise'
 import { listVaultEntries } from './localVault'
 import { getStructuredLogPath } from './observability'
@@ -97,7 +97,7 @@ function defaultBundleName(): string {
   return `${PRODUCT_BRAND_SLUG}-diagnostics-${new Date().toISOString().slice(0, 10)}.zip`
 }
 
-export async function exportDiagnosticsBundle(owner?: BrowserWindow | null): Promise<AppDiagnosticsExportResult> {
+export async function exportDiagnosticsBundle(owner?: BrowserWindow | null, snapshot?: AppDiagnosticsSnapshot): Promise<AppDiagnosticsExportResult> {
   const generatedAt = new Date().toISOString()
   const result = owner
     ? await dialog.showSaveDialog(owner, {
@@ -125,6 +125,9 @@ export async function exportDiagnosticsBundle(owner?: BrowserWindow | null): Pro
   zip.addFile('release-info.json', Buffer.from(`${JSON.stringify(releaseInfo, null, 2)}\n`, 'utf-8'))
   zip.addFile('audit-events.json', Buffer.from(`${JSON.stringify(auditEvents, null, 2)}\n`, 'utf-8'))
   zip.addFile('terraform-run-history.json', Buffer.from(`${JSON.stringify(terraformHistory, null, 2)}\n`, 'utf-8'))
+  if (snapshot) {
+    zip.addFile('workspace-context.json', Buffer.from(`${JSON.stringify(snapshot, null, 2)}\n`, 'utf-8'))
+  }
 
   if (fs.existsSync(logPath)) {
     zip.addLocalFile(logPath, 'logs')
