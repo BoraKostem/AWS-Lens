@@ -35,6 +35,7 @@ import type {
   SubnetSummary,
   TerraformAdoptionDetectionResult,
   TerraformAdoptionTarget,
+  TerraformProjectListItem,
   VaultEntrySummary
 } from '@shared/types'
 import {
@@ -96,7 +97,7 @@ import {
   terminateEc2Instance
 } from './ec2Api'
 import { ConfirmButton } from './ConfirmButton'
-import { detectAdoption } from './terraformApi'
+import { detectAdoption, listProjects as listTerraformProjects } from './terraformApi'
 
 type MainTab = 'instances' | 'volumes' | 'snapshots'
 type SideTab = 'overview' | 'ssm' | 'timeline'
@@ -241,6 +242,61 @@ function buildEc2AdoptionTarget(connection: AwsConnection, instance: Ec2Instance
     name: instance.name && instance.name !== '-' ? instance.name : '',
     tags: instance.tags
   }
+}
+
+type CompatibilityTone = 'match' | 'warning' | 'unknown'
+
+function normalizeCompatibilityValue(value: string): string {
+  return value.trim().toLowerCase().replace(/[\s_-]+/g, '')
+}
+
+function resolveInstanceEnvironmentTag(tags: Record<string, string>): string {
+  return tags.Environment?.trim()
+    || tags.environment?.trim()
+    || tags.env?.trim()
+    || ''
+}
+
+function projectContextLabel(connection: AwsConnection): string {
+  return connection.kind === 'profile'
+    ? connection.profile
+    : `${connection.sourceProfile} -> ${connection.roleArn.split('/').pop() ?? connection.roleArn}`
+}
+
+function projectCompatibility(
+  connection: AwsConnection,
+  instance: Ec2InstanceDetail,
+  project: TerraformProjectListItem
+): Array<{ label: string; tone: CompatibilityTone; detail: string }> {
+  const profileDetail = project.environment.connectionLabel || projectContextLabel(connection)
+  const instanceEnvironment = resolveInstanceEnvironmentTag(instance.tags)
+  const projectWorkspace = project.currentWorkspace || project.environment.workspaceName || 'default'
+  const environmentLabel = project.environment.environmentLabel || projectWorkspace
+
+  const regionTone: CompatibilityTone = !project.environment.region
+    ? 'unknown'
+    : project.environment.region === connection.region
+      ? 'match'
+      : 'warning'
+
+  const workspaceTone: CompatibilityTone = !instanceEnvironment
+    ? 'unknown'
+    : normalizeCompatibilityValue(instanceEnvironment) === normalizeCompatibilityValue(projectWorkspace)
+      || normalizeCompatibilityValue(instanceEnvironment) === normalizeCompatibilityValue(environmentLabel)
+      ? 'match'
+      : 'warning'
+
+  return [
+    { label: 'Profile', tone: 'match', detail: profileDetail },
+    { label: 'Region', tone: regionTone, detail: project.environment.region || 'No region inferred yet' },
+    {
+      label: 'Workspace',
+      tone: workspaceTone,
+      detail: instanceEnvironment
+        ? `${projectWorkspace} vs resource tag ${instanceEnvironment}`
+        : `${projectWorkspace} (${environmentLabel || 'no environment label'})`
+    }
+  ]
 }
 
 function ssmStatusTone(status: Ec2InstanceSummary['ssmStatus'] | Ec2InstanceDetail['ssmStatus'] | SsmConnectionTarget['status']): string {
@@ -440,6 +496,123 @@ async function waitForBastionRemoval(
   throw new Error(`Timed out waiting for bastion ${bastionId} to be removed.`)
 }
 
+function TerraformProjectPickerDialog({
+  connection,
+  instance,
+  projects,
+  loading,
+  error,
+  selectedProjectId,
+  onSelectProject,
+  onConfirm,
+  onClose
+}: {
+  connection: AwsConnection
+  instance: Ec2InstanceDetail
+  projects: TerraformProjectListItem[]
+  loading: boolean
+  error: string
+  selectedProjectId: string
+  onSelectProject: (projectId: string) => void
+  onConfirm: () => void
+  onClose: () => void
+}) {
+  const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null
+
+  return (
+    <div className="ec2-status-overlay" onClick={onClose}>
+      <div className="ec2-status-dialog ec2-project-picker-dialog" onClick={(event) => event.stopPropagation()}>
+        <div className="ec2-status-header">
+          <div>
+            <div className="ec2-status-eyebrow">Project Selection</div>
+            <h3>Select Terraform Project</h3>
+            <p className="ec2-sidebar-hint" style={{ marginTop: 8, marginBottom: 0 }}>
+              Choose the tracked project that should adopt <strong>{instance.name !== '-' ? instance.name : instance.instanceId}</strong>.
+            </p>
+          </div>
+          <button type="button" className="ec2-action-btn" onClick={onClose}>Close</button>
+        </div>
+
+        <div className="ec2-project-picker-summary">
+          <div className="ec2-project-picker-context">
+            <span className="ec2-adoption-label">Context</span>
+            <strong>{projectContextLabel(connection)}</strong>
+            <small>Region {connection.region}</small>
+          </div>
+          <div className="ec2-project-picker-context">
+            <span className="ec2-adoption-label config">Resource</span>
+            <strong>{instance.instanceId}</strong>
+            <small>{resolveInstanceEnvironmentTag(instance.tags) ? `Environment tag ${resolveInstanceEnvironmentTag(instance.tags)}` : 'No Environment tag on resource'}</small>
+          </div>
+        </div>
+
+        {error && <div className="ec2-adoption-error">{error}</div>}
+        {loading ? (
+          <div className="ec2-adoption-empty">Loading tracked Terraform projects...</div>
+        ) : projects.length === 0 ? (
+          <div className="ec2-adoption-empty">No tracked Terraform projects are available in this AWS context yet.</div>
+        ) : (
+          <div className="ec2-project-picker-list">
+            {projects.map((project) => {
+              const selected = project.id === selectedProjectId
+              const compatibility = projectCompatibility(connection, instance, project)
+              return (
+                <button
+                  key={project.id}
+                  type="button"
+                  className={`ec2-project-picker-card ${selected ? 'active' : ''}`}
+                  onClick={() => onSelectProject(project.id)}
+                >
+                  <div className="ec2-project-picker-head">
+                    <div>
+                      <strong>{project.name}</strong>
+                      <small>{project.rootPath}</small>
+                    </div>
+                    <span className={`ec2-adoption-pill ${compatibility.some((item) => item.tone === 'warning') ? 'config' : compatibility.some((item) => item.tone === 'unknown') ? 'unmanaged' : 'managed'}`}>
+                      {compatibility.some((item) => item.tone === 'warning')
+                        ? 'Needs review'
+                        : compatibility.some((item) => item.tone === 'unknown')
+                          ? 'Partial context'
+                          : 'Best fit'}
+                    </span>
+                  </div>
+                  <div className="ec2-project-picker-meta">
+                    <span>Workspace {project.currentWorkspace || 'default'}</span>
+                    <span>Region {project.environment.region || '-'}</span>
+                    <span>Backend {project.metadata.backendType || '-'}</span>
+                  </div>
+                  <div className="ec2-project-picker-compat">
+                    {compatibility.map((item) => (
+                      <div key={`${project.id}:${item.label}`} className={`ec2-project-picker-compat-item ${item.tone}`}>
+                        <span>{item.label}</span>
+                        <strong>{item.detail}</strong>
+                      </div>
+                    ))}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        <div className="ec2-project-picker-actions">
+          <div className="ec2-sidebar-hint" style={{ marginBottom: 0 }}>
+            {selectedProject
+              ? `Selected project: ${selectedProject.name} (${selectedProject.currentWorkspace || 'default'})`
+              : 'Select a target project to continue.'}
+          </div>
+          <div className="ec2-btn-row">
+            <button type="button" className="ec2-action-btn" onClick={onClose}>Cancel</button>
+            <button type="button" className="ec2-action-btn terraform" onClick={onConfirm} disabled={!selectedProject}>
+              Use Project
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function Ec2Console({
   connection,
   refreshNonce = 0,
@@ -506,6 +679,12 @@ export function Ec2Console({
   const [adoptionError, setAdoptionError] = useState('')
   const adoptionSectionRef = useRef<HTMLDivElement | null>(null)
   const adoptionRequestRef = useRef(0)
+  const [showProjectPicker, setShowProjectPicker] = useState(false)
+  const [projectPickerLoading, setProjectPickerLoading] = useState(false)
+  const [projectPickerError, setProjectPickerError] = useState('')
+  const [projectPickerProjects, setProjectPickerProjects] = useState<TerraformProjectListItem[]>([])
+  const [selectedProjectCandidateId, setSelectedProjectCandidateId] = useState('')
+  const [selectedAdoptionProject, setSelectedAdoptionProject] = useState<TerraformProjectListItem | null>(null)
 
   /* ── Snapshots state ─────────────────────────────────────── */
   const [snapshots, setSnapshots] = useState<Ec2SnapshotSummary[]>([])
@@ -754,7 +933,41 @@ export function Ec2Console({
 
   function handleManageInTerraform(): void {
     adoptionSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    void loadAdoptionDetection(detail)
+    if (!detail) return
+    void openProjectPicker(detail)
+  }
+
+  async function openProjectPicker(nextDetail: Ec2InstanceDetail): Promise<void> {
+    setShowProjectPicker(true)
+    setProjectPickerLoading(true)
+    setProjectPickerError('')
+    try {
+      const projects = await listTerraformProjects(terraformContextKey(connection), connection)
+      const ranked = [...projects].sort((left, right) => {
+        const leftRegion = left.environment.region === connection.region ? 1 : 0
+        const rightRegion = right.environment.region === connection.region ? 1 : 0
+        return rightRegion - leftRegion || left.name.localeCompare(right.name)
+      })
+      setProjectPickerProjects(ranked)
+      const preferred = selectedAdoptionProject && ranked.some((project) => project.id === selectedAdoptionProject.id)
+        ? selectedAdoptionProject.id
+        : ranked[0]?.id ?? ''
+      setSelectedProjectCandidateId(preferred)
+    } catch (error) {
+      setProjectPickerProjects([])
+      setSelectedProjectCandidateId('')
+      setProjectPickerError(error instanceof Error ? error.message : 'Failed to load Terraform projects.')
+    } finally {
+      setProjectPickerLoading(false)
+    }
+  }
+
+  function handleConfirmProjectSelection(): void {
+    const selectedProject = projectPickerProjects.find((project) => project.id === selectedProjectCandidateId) ?? null
+    if (!selectedProject) return
+    setSelectedAdoptionProject(selectedProject)
+    setShowProjectPicker(false)
+    setMsg(`Terraform target project selected: ${selectedProject.name}`)
   }
 
   useEffect(() => {
@@ -764,6 +977,14 @@ export function Ec2Console({
   useEffect(() => {
     void loadAdoptionDetection(detail)
   }, [connection.region, connection.sessionId, detail?.instanceId, detail?.name])
+
+  useEffect(() => {
+    setSelectedAdoptionProject(null)
+    setSelectedProjectCandidateId('')
+    setShowProjectPicker(false)
+    setProjectPickerProjects([])
+    setProjectPickerError('')
+  }, [detail?.instanceId])
 
   /* ── Recommendations state ──────────────────────────────── */
   const [recommendations, setRecommendations] = useState<Ec2Recommendation[]>([])
@@ -2251,6 +2472,15 @@ export function Ec2Console({
                             {adoptionDetection.scannedProjectCount} tracked project{adoptionDetection.scannedProjectCount === 1 ? '' : 's'} scanned in {connection.region}.
                           </span>
                         </div>
+                        {selectedAdoptionProject && (
+                          <div className="ec2-adoption-selected-project">
+                            <span className="ec2-adoption-label">Selected project</span>
+                            <strong>{selectedAdoptionProject.name}</strong>
+                            <small>
+                              Workspace {selectedAdoptionProject.currentWorkspace || 'default'} | Region {selectedAdoptionProject.environment.region || '-'}
+                            </small>
+                          </div>
+                        )}
                         {adoptionDetection.projects.length === 0 ? (
                           <div className="ec2-adoption-empty">
                             No tracked Terraform project currently claims this instance in state or config.
@@ -3229,6 +3459,20 @@ export function Ec2Console({
             )}
           </div>
         </div>
+      )}
+
+      {showProjectPicker && detail && (
+        <TerraformProjectPickerDialog
+          connection={connection}
+          instance={detail}
+          projects={projectPickerProjects}
+          loading={projectPickerLoading}
+          error={projectPickerError}
+          selectedProjectId={selectedProjectCandidateId}
+          onSelectProject={setSelectedProjectCandidateId}
+          onConfirm={handleConfirmProjectSelection}
+          onClose={() => setShowProjectPicker(false)}
+        />
       )}
 
       {bastionLaunchStatus && (
