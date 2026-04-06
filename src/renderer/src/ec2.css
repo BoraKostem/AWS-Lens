@@ -350,6 +350,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
   padding: 8px 10px;
   border-radius: 10px;
   background: rgba(32, 44, 60, 0.72);
@@ -358,11 +359,16 @@
 .ec2-adoption-row code {
   font-size: 11px;
   color: #edf1f6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .ec2-adoption-row small {
   color: #9ca7b7;
   line-height: 1.4;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .ec2-adoption-label {
@@ -428,6 +434,11 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ec2-adoption-mapping-head > * {
+  min-width: 0;
 }
 
 .ec2-adoption-mapping-head h4 {
@@ -442,9 +453,14 @@
   gap: 10px;
 }
 
+.ec2-adoption-mapping-grid > * {
+  min-width: 0;
+}
+
 .ec2-adoption-code-preview {
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 
 .ec2-project-picker-dialog {
