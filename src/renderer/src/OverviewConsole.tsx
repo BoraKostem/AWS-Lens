@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { AwsCapabilityHint, AwsConnection, CostBreakdown, InsightItem, OverviewAccountContext, OverviewMetrics, OverviewStatistics, RegionMetric, RegionalSignal, RelationshipMap, ServiceId, ServiceRelationship, TagSearchResult } from '@shared/types'
 import { useAwsPageConnection } from './AwsPage'
@@ -144,6 +144,7 @@ export function OverviewConsole({
   const [tagResults, setTagResults] = useState<TagSearchResult | null>(null)
   const [tab, setTab] = useState<OverviewTab>('overview')
   const [loading, setLoading] = useState(false)
+  const [supplementalLoading, setSupplementalLoading] = useState(false)
   const [globalLoading, setGlobalLoading] = useState(false)
   const [pageError, setPageError] = useState('')
   const [tagKey, setTagKey] = useState('')
@@ -156,6 +157,7 @@ export function OverviewConsole({
   const [edgePage, setEdgePage] = useState(0)
   const [insightFilter, setInsightFilter] = useState<InsightFilter>('all')
   const [signalFilter, setSignalFilter] = useState<SignalFilter>('all')
+  const regionalLoadTokenRef = useRef(0)
 
   const availableRegions = useMemo(
     () => connectionState.regions.map((item) => item.id),
@@ -171,26 +173,48 @@ export function OverviewConsole({
   }, [connectionState.connection, connectionState.connected, connectionState.region, refreshNonce])
 
   async function loadRegionalOverview(connection: AwsConnection) {
+    const loadToken = regionalLoadTokenRef.current + 1
+    regionalLoadTokenRef.current = loadToken
     setLoading(true)
+    setSupplementalLoading(true)
     setPageError('')
+    setMetrics(null)
+    setStatistics(null)
+    setAccountContext(null)
+    setRelationships(null)
+    setCostBreakdown(null)
     try {
-      const [nextMetrics, nextStatistics, nextAccountContext, nextRelationships, nextCost] = await Promise.all([
-        getOverviewMetrics(connection, [connection.region]),
-        getOverviewStatistics(connection),
-        getOverviewAccountContext(connection).catch(() => null),
-        getRelationshipMap(connection),
-        getCostBreakdown(connection).catch(() => null)
-      ])
+      const nextMetrics = await getOverviewMetrics(connection, [connection.region])
+      if (regionalLoadTokenRef.current !== loadToken) {
+        return
+      }
       setMetrics(nextMetrics)
-      setStatistics(nextStatistics)
-      setAccountContext(nextAccountContext)
-      setRelationships(nextRelationships)
-      setCostBreakdown(nextCost)
+      setLoading(false)
+
+      void Promise.allSettled([
+        getOverviewStatistics(connection),
+        getOverviewAccountContext(connection),
+        getRelationshipMap(connection),
+        getCostBreakdown(connection)
+      ]).then(([statisticsResult, accountContextResult, relationshipsResult, costResult]) => {
+        if (regionalLoadTokenRef.current !== loadToken) {
+          return
+        }
+
+        setStatistics(statisticsResult.status === 'fulfilled' ? statisticsResult.value : null)
+        setAccountContext(accountContextResult.status === 'fulfilled' ? accountContextResult.value : null)
+        setRelationships(relationshipsResult.status === 'fulfilled' ? relationshipsResult.value : null)
+        setCostBreakdown(costResult.status === 'fulfilled' ? costResult.value : null)
+        setSupplementalLoading(false)
+      })
     } catch (error) {
+      if (regionalLoadTokenRef.current !== loadToken) {
+        return
+      }
       setAccountContext(null)
       setPageError(error instanceof Error ? error.message : String(error))
-    } finally {
       setLoading(false)
+      setSupplementalLoading(false)
     }
   }
 
@@ -379,6 +403,13 @@ export function OverviewConsole({
               {loading && <SvcState variant="loading" resourceName="overview data" compact />}
               {metrics && (
                 <>
+                  {supplementalLoading && (
+                    <SvcState
+                      variant="loading"
+                      message="Loading account context, relationship mapping, and insight panels in the background..."
+                      compact
+                    />
+                  )}
                   <section className="overview-surface">
                     <div className="overview-hero-card">
                       <div className="overview-hero-copy">
@@ -425,6 +456,14 @@ export function OverviewConsole({
                         </div>
                       </div>
                     </div>
+
+                    {supplementalLoading && !accountContext && (
+                      <SvcState
+                        variant="loading"
+                        message="Loading account and billing posture..."
+                        compact
+                      />
+                    )}
 
                     {accountContext && (
                       <>
@@ -664,6 +703,16 @@ export function OverviewConsole({
                         </div>
                       </div>
 
+                      {supplementalLoading && !costBreakdown && (
+                        <div className="panel overview-data-panel">
+                          <SvcState
+                            variant="loading"
+                            message="Loading current-month service cost breakdown..."
+                            compact
+                          />
+                        </div>
+                      )}
+
                       {costBreakdown && costBreakdown.entries.length > 0 && (
                         <div className="panel overview-data-panel">
                           <div className="panel-header">
@@ -688,6 +737,9 @@ export function OverviewConsole({
                     <div className="column stack">
                       <div className="panel overview-insights-panel">
                         <div className="panel-header"><h3>Insights</h3></div>
+                        {supplementalLoading && !statistics && (
+                          <SvcState variant="loading" resourceName="insights" compact />
+                        )}
                         {(statistics?.insights ?? []).map((item: InsightItem, index) => (
                           <div key={`${item.service}-${index}`} className="insight-card">
                             <div className="insight-card-badge">
@@ -699,7 +751,7 @@ export function OverviewConsole({
                             <div className="insight-card-message">{item.message}</div>
                           </div>
                         ))}
-                        {!statistics?.insights.length && <SvcState variant="empty" resourceName="insights" message="No insights generated." compact />}
+                        {!supplementalLoading && !statistics?.insights.length && <SvcState variant="empty" resourceName="insights" message="No insights generated." compact />}
                       </div>
                     </div>
                   </section>
@@ -713,6 +765,10 @@ export function OverviewConsole({
 
           {/* ── Relationships tab ─────────────────────────────── */}
           {tab === 'relationships' && (() => {
+            if (supplementalLoading && !relationships) {
+              return <SvcState variant="loading" resourceName="relationship map" compact />
+            }
+
             const allEdges = relationships?.edges ?? []
             const allNodes = relationships?.nodes ?? []
 
@@ -907,6 +963,10 @@ export function OverviewConsole({
 
           {/* ── Statistics tab ────────────────────────────────── */}
           {tab === 'statistics' && (() => {
+            if (supplementalLoading && !statistics) {
+              return <SvcState variant="loading" resourceName="statistics" compact />
+            }
+
             const allInsights = statistics?.insights ?? []
             const allSignals = statistics?.signals ?? []
             const allStats = (statistics?.stats ?? []).map((stat) => {

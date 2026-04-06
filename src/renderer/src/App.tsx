@@ -926,6 +926,10 @@ export function App() {
         return current
       }
 
+      if (SOFT_REFRESH_SCREENS.has(current.screen)) {
+        return null
+      }
+
       if (awsActivity.pendingCount > 0) {
         return current.sawPending ? current : { ...current, sawPending: true }
       }
@@ -958,7 +962,9 @@ export function App() {
         return
       }
 
-      setRefreshState({ screen, sawPending: false })
+      if (!SOFT_REFRESH_SCREENS.has(screen)) {
+        setRefreshState({ screen, sawPending: false })
+      }
       for (const tag of refreshTags) {
         invalidatePageCache(tag)
       }
@@ -984,7 +990,9 @@ export function App() {
       return
     }
 
-    setRefreshState({ screen, sawPending: false })
+    if (!SOFT_REFRESH_SCREENS.has(screen)) {
+      setRefreshState({ screen, sawPending: false })
+    }
     for (const tag of refreshTags) {
       invalidatePageCache(tag)
     }

@@ -363,6 +363,24 @@
   margin-top: 10px;
 }
 
+.lbw-danger-zone {
+  margin-top: 22px;
+  padding: 22px 24px 24px;
+  border-color: rgba(167, 58, 43, 0.4);
+  background:
+    linear-gradient(180deg, rgba(29, 17, 18, 0.98), rgba(16, 12, 14, 0.98));
+}
+
+.lbw-danger-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.lbw-danger-button {
+  min-width: 220px;
+}
+
 .lbw-table-wrap,
 .lbw-timeline {
   overflow: auto;
@@ -422,8 +440,13 @@
     grid-template-columns: 1fr;
   }
 
+  .lbw-danger-actions {
+    justify-content: stretch;
+  }
+
   .lbw-column-pill,
-  .tf-toolbar-btn {
+  .tf-toolbar-btn,
+  .lbw-danger-button {
     width: 100%;
     justify-content: center;
   }
