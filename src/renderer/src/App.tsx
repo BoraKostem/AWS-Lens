@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import appLogoUrl from '../../../assets/aws-lens-logo.png'
+import { isObservabilityLabEnabled } from '@shared/featureFlags'
 import type {
   AppDiagnosticsActiveContext,
   AppDiagnosticsConnectionSummary,
@@ -609,14 +610,18 @@ export function App() {
   const terminalAutoOpenedScopeRef = useRef('')
   const diagnosticsContextSignatureRef = useRef('')
 
+  async function refreshServiceCatalog(): Promise<void> {
+    try {
+      const loadedServices = await listServices()
+      setServices(loadedServices)
+      setCatalogError('')
+    } catch (error) {
+      setCatalogError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
   useEffect(() => {
-    void listServices()
-      .then((loadedServices) => {
-        setServices(loadedServices)
-      })
-      .catch((error) => {
-        setCatalogError(error instanceof Error ? error.message : String(error))
-      })
+    void refreshServiceCatalog()
       .finally(() => setServicesHydrated(true))
   }, [])
 
@@ -784,6 +789,15 @@ export function App() {
     setPinnedServiceIds((current) => current.filter((serviceId) => validServiceIds.has(serviceId) && !NAV_HIDDEN_SERVICE_IDS.has(serviceId)))
   }, [services])
 
+  useEffect(() => {
+    const allowedScreens = new Set<Screen>(['profiles', 'settings', 'direct-access', ...services.map((service) => service.id)])
+    setVisitedScreens((current) => current.filter((visitedScreen) => allowedScreens.has(visitedScreen)))
+
+    if (!allowedScreens.has(screen)) {
+      setScreen('profiles')
+    }
+  }, [screen, services])
+
   const pinnedServices = useMemo(() => {
     const serviceById = new Map(services.map((service) => [service.id, service]))
     return pinnedServiceIds
@@ -878,6 +892,7 @@ export function App() {
     : releaseInfo?.updateStatus === 'available' || releaseInfo?.updateStatus === 'downloaded' || releaseInfo?.updateStatus === 'error'
       ? 'settings-status-pill-preview'
       : 'settings-status-pill-stable'
+  const observabilityLabEnabled = isObservabilityLabEnabled(appSettings?.features)
   const environmentIssueCount = useMemo(() => {
     if (!environmentHealth) {
       return 0
@@ -1343,6 +1358,19 @@ export function App() {
     }
   }
 
+  async function handleUpdateFeatureSettings(update: AppSettings['features']): Promise<void> {
+    setSettingsMessage('')
+    try {
+      const nextSettings = await updateAppSettings({ features: update })
+      setAppSettings(nextSettings)
+      invalidatePageCache('shell')
+      await refreshServiceCatalog()
+      setSettingsMessage('Beta registry saved.')
+    } catch (err) {
+      setSettingsMessage(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   async function handleUpdateToolchainSettings(update: AppSettings['toolchain']): Promise<void> {
     setToolchainBusy(true)
     setSettingsMessage('')
@@ -1769,6 +1797,7 @@ export function App() {
             <TerraformConsole
               connection={connection}
               refreshNonce={pageRefreshNonceByScreen['terraform'] ?? 0}
+              observabilityLabEnabled={observabilityLabEnabled}
               onRunTerminalCommand={handleOpenTerminalCommand}
               onNavigateService={navigateToServiceWithResourceId}
               onNavigateCloudWatch={(focus) => navigateWithFocus({ service: 'cloudwatch', ...focus })}
@@ -1819,6 +1848,7 @@ export function App() {
           enterpriseBusy={enterpriseBusy}
           settingsMessage={settingsMessage}
           onUpdateGeneralSettings={(update) => void handleUpdateGeneralSettings(update)}
+          onUpdateFeatureSettings={(update) => void handleUpdateFeatureSettings(update)}
           onUpdateTerminalSettings={(update) => void handleUpdateTerminalSettings(update)}
           onUpdateRefreshSettings={(update) => void handleUpdateRefreshSettings(update)}
           onUpdateGovernanceDefaults={(update) => void handleUpdateGovernanceDefaults(update)}
@@ -1943,10 +1973,10 @@ export function App() {
     if (targetScreen === 'rds' && targetService?.id === 'rds') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <RdsConsole connection={connection} onNavigateCloudWatch={(focus) => navigateWithFocus({ service: 'cloudwatch', ...focus })} onRunTerminalCommand={handleOpenTerminalCommand} />}</ConnectedServiceScreen>
     if (targetScreen === 'lambda' && targetService?.id === 'lambda') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <LambdaConsole connection={connection} focusFunctionName={getFocus('lambda')} onNavigateCloudWatch={(focus) => navigateWithFocus({ service: 'cloudwatch', ...focus })} />}</ConnectedServiceScreen>
     if (targetScreen === 'auto-scaling' && targetService?.id === 'auto-scaling') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <AutoScalingConsole connection={connection} />}</ConnectedServiceScreen>
-    if (targetScreen === 'ecs' && targetService?.id === 'ecs') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <EcsConsole connection={connection} refreshNonce={pageRefreshNonceByScreen['ecs'] ?? 0} focusService={getFocus('ecs')} onRunTerminalCommand={handleOpenTerminalCommand} onNavigateCloudWatch={(focus) => navigateWithFocus({ service: 'cloudwatch', ...focus })} />}</ConnectedServiceScreen>
+    if (targetScreen === 'ecs' && targetService?.id === 'ecs') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <EcsConsole connection={connection} refreshNonce={pageRefreshNonceByScreen['ecs'] ?? 0} focusService={getFocus('ecs')} observabilityLabEnabled={observabilityLabEnabled} onRunTerminalCommand={handleOpenTerminalCommand} onNavigateCloudWatch={(focus) => navigateWithFocus({ service: 'cloudwatch', ...focus })} />}</ConnectedServiceScreen>
     if (targetScreen === 'acm' && targetService?.id === 'acm') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <AcmConsole connection={connection} onOpenRoute53={(record) => navigateWithFocus({ service: 'route53', record })} onOpenLoadBalancer={(loadBalancerArn) => navigateWithFocus({ service: 'load-balancers', loadBalancerArn })} onOpenWaf={(webAclName) => navigateWithFocus({ service: 'waf', webAclName })} />}</ConnectedServiceScreen>
     if (targetScreen === 'ecr' && targetService?.id === 'ecr') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <EcrConsole connection={connection} />}</ConnectedServiceScreen>
-    if (targetScreen === 'eks' && targetService?.id === 'eks') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <EksConsole connection={connection} focusClusterName={getFocus('eks')} onRunTerminalCommand={handleOpenTerminalCommand} onNavigateCloudWatch={(focus) => navigateWithFocus({ service: 'cloudwatch', ...focus })} onNavigateCloudTrail={(focus) => navigateWithFocus({ service: 'cloudtrail', ...focus })} />}</ConnectedServiceScreen>
+    if (targetScreen === 'eks' && targetService?.id === 'eks') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <EksConsole connection={connection} focusClusterName={getFocus('eks')} observabilityLabEnabled={observabilityLabEnabled} onRunTerminalCommand={handleOpenTerminalCommand} onNavigateCloudWatch={(focus) => navigateWithFocus({ service: 'cloudwatch', ...focus })} onNavigateCloudTrail={(focus) => navigateWithFocus({ service: 'cloudtrail', ...focus })} />}</ConnectedServiceScreen>
     if (targetScreen === 'iam' && targetService?.id === 'iam') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <IamConsole connection={connection} />}</ConnectedServiceScreen>
     if (targetScreen === 'identity-center' && targetService?.id === 'identity-center') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <IdentityCenterConsole connection={connection} />}</ConnectedServiceScreen>
     if (targetScreen === 'secrets-manager' && targetService?.id === 'secrets-manager') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <SecretsManagerConsole connection={connection} onNavigate={(target) => {

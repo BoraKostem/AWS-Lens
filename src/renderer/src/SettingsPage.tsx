@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { CollapsibleInfoPanel } from './CollapsibleInfoPanel'
 import { VaultManagerPanel } from './VaultManagerPanel'
+import { APP_FEATURE_FLAGS, getDefaultAppFeatureSettings, isFeatureFlagEnabled } from '@shared/featureFlags'
 
 import type {
   AppReleaseInfo,
@@ -18,7 +19,7 @@ import type {
   TerraformCliInfo
 } from '@shared/types'
 
-type SettingsTab = 'general' | 'terminal' | 'refresh' | 'governance' | 'toolchain' | 'updates' | 'security'
+type SettingsTab = 'general' | 'registry' | 'terminal' | 'refresh' | 'governance' | 'toolchain' | 'updates' | 'security'
 
 type SettingsPageProps = {
   isVisible: boolean
@@ -45,6 +46,7 @@ type SettingsPageProps = {
   enterpriseBusy: boolean
   settingsMessage: string
   onUpdateGeneralSettings: (update: AppSettings['general']) => void
+  onUpdateFeatureSettings: (update: AppSettings['features']) => void
   onUpdateTerminalSettings: (update: AppSettings['terminal']) => void
   onUpdateRefreshSettings: (update: AppSettings['refresh']) => void
   onUpdateGovernanceDefaults: (update: GovernanceTagDefaults) => void
@@ -63,6 +65,7 @@ type SettingsPageProps = {
 
 const TAB_ITEMS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'general', label: 'App' },
+  { id: 'registry', label: 'Registry' },
   { id: 'terminal', label: 'Terminal' },
   { id: 'refresh', label: 'Refresh' },
   { id: 'governance', label: 'Governance' },
@@ -164,6 +167,7 @@ export function SettingsPage({
   enterpriseBusy,
   settingsMessage,
   onUpdateGeneralSettings,
+  onUpdateFeatureSettings,
   onUpdateTerminalSettings,
   onUpdateRefreshSettings,
   onUpdateGovernanceDefaults,
@@ -185,6 +189,7 @@ export function SettingsPage({
     defaultRegion: 'us-east-1',
     launchScreen: 'profiles'
   })
+  const [featureDraft, setFeatureDraft] = useState<AppSettings['features']>(getDefaultAppFeatureSettings())
   const [terminalDraft, setTerminalDraft] = useState<AppSettings['terminal']>({
     autoOpen: false,
     defaultCommand: '',
@@ -221,6 +226,7 @@ export function SettingsPage({
   useEffect(() => {
     if (!appSettings) return
     setGeneralDraft(appSettings.general)
+    setFeatureDraft(appSettings.features)
     setTerminalDraft(appSettings.terminal)
     setRefreshDraft(appSettings.refresh)
     setToolchainDraft(appSettings.toolchain)
@@ -240,6 +246,10 @@ export function SettingsPage({
     if (!toolchainInfo.found) return toolchainInfo.error || 'No CLI detected'
     return `${toolchainInfo.label} ${toolchainInfo.version}`
   }, [toolchainInfo])
+
+  function registryTone(maturity: 'beta' | 'experimental'): 'stable' | 'preview' | 'unknown' {
+    return maturity === 'experimental' ? 'preview' : 'unknown'
+  }
 
   function renderGeneralTab(): JSX.Element {
     return (
@@ -290,6 +300,84 @@ export function SettingsPage({
         <div className="settings-tab-actions">
           <button type="button" className="accent" disabled={!appSettings} onClick={() => onUpdateGeneralSettings(generalDraft)}>
             Save app preferences
+          </button>
+        </div>
+      </>
+    )
+  }
+
+  function renderRegistryTab(): JSX.Element {
+    const labFlags = APP_FEATURE_FLAGS.filter((flag) => flag.surface === 'lab')
+    const serviceFlags = APP_FEATURE_FLAGS.filter((flag) => flag.surface === 'service')
+    const enabledCount = APP_FEATURE_FLAGS.filter((flag) => isFeatureFlagEnabled(featureDraft, flag.id)).length
+
+    return (
+      <>
+        <SettingSection title="Labs">
+          {labFlags.map((flag) => {
+            const enabled = isFeatureFlagEnabled(featureDraft, flag.id)
+            return (
+              <SettingRow key={flag.id} label={flag.label} description={`${flag.description} Default: ${flag.defaultEnabled ? 'enabled' : 'disabled'}.`}>
+                <div className="settings-inline-actions">
+                  <span className={`settings-status-pill settings-status-pill-${registryTone(flag.maturity)}`}>{flag.maturity}</span>
+                  <label className="settings-toggle">
+                    <input
+                      type="checkbox"
+                      checked={enabled}
+                      onChange={(event) => setFeatureDraft((current) => ({
+                        ...current,
+                        registry: {
+                          ...current.registry,
+                          [flag.id]: event.target.checked
+                        }
+                      }))}
+                      disabled={!appSettings}
+                    />
+                    <span>{enabled ? 'Enabled' : 'Disabled'}</span>
+                  </label>
+                </div>
+              </SettingRow>
+            )
+          })}
+        </SettingSection>
+
+        <SettingSection title="Experimental Services">
+          {serviceFlags.map((flag) => {
+            const enabled = isFeatureFlagEnabled(featureDraft, flag.id)
+            return (
+              <SettingRow key={flag.id} label={flag.label} description={flag.description}>
+                <div className="settings-inline-actions">
+                  <span className={`settings-status-pill settings-status-pill-${registryTone(flag.maturity)}`}>{flag.maturity}</span>
+                  <label className="settings-toggle">
+                    <input
+                      type="checkbox"
+                      checked={enabled}
+                      onChange={(event) => setFeatureDraft((current) => ({
+                        ...current,
+                        registry: {
+                          ...current.registry,
+                          [flag.id]: event.target.checked
+                        }
+                      }))}
+                      disabled={!appSettings}
+                    />
+                    <span>{enabled ? 'Enabled' : 'Disabled'}</span>
+                  </label>
+                </div>
+              </SettingRow>
+            )
+          })}
+        </SettingSection>
+
+        <SettingSection title="Registry Summary">
+          <SettingRow label="Enabled surfaces" description="Only flagged labs and experimental services stay visible in the shell when enabled here.">
+            <div className="settings-static-value">{enabledCount} / {APP_FEATURE_FLAGS.length}</div>
+          </SettingRow>
+        </SettingSection>
+
+        <div className="settings-tab-actions">
+          <button type="button" className="accent" disabled={!appSettings} onClick={() => onUpdateFeatureSettings(featureDraft)}>
+            Save registry
           </button>
         </div>
       </>
@@ -806,6 +894,8 @@ export function SettingsPage({
 
   function renderActiveTab(): JSX.Element {
     switch (activeTab) {
+      case 'registry':
+        return renderRegistryTab()
       case 'terminal':
         return renderTerminalTab()
       case 'refresh':
@@ -868,6 +958,7 @@ export function SettingsPage({
           <CollapsibleInfoPanel title="Quick Help" className="settings-info-panel">
             <div className="settings-tab-section__body">
               {activeTab === 'general' && <p>Set the default profile, region, and launch screen when you want AWS Lens to boot into a predictable operator context.</p>}
+              {activeTab === 'registry' && <p>Registry controls whether embedded lab panels and experimental services are visible in the shell without changing the rest of the operator workflow.</p>}
               {activeTab === 'terminal' && <p>Terminal preferences control how the embedded shell opens after a session becomes active. Operator mode is still required for command execution.</p>}
               {activeTab === 'refresh' && <p>Use refresh policy to decide whether heavy screens re-query automatically or only on demand. Conservative defaults reduce surprise AWS API traffic.</p>}
               {activeTab === 'governance' && <p>Governance defaults define reusable ownership tags that AWS Lens can inherit into supported EC2 workflows and reapply from resource consoles.</p>}

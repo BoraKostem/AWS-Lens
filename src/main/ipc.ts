@@ -17,7 +17,7 @@ import type {
 } from '@shared/types'
 import { getAppSettings, resetAppSettings, updateAppSettings } from './appSettings'
 import { importAwsConfigFile } from './aws/profiles'
-import { SERVICE_CATALOG } from './catalog'
+import { getVisibleServiceCatalog } from './catalog'
 import { exportDiagnosticsBundle } from './diagnostics'
 import { recordDiagnosticsFailure, updateDiagnosticsActiveContext } from './diagnosticsState'
 import { getEnvironmentHealthReport } from './environment'
@@ -189,7 +189,7 @@ async function openInVisualStudioCode(targetPath: string): Promise<void> {
 }
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
-  ipcMain.handle('services:list', async () => wrap(() => SERVICE_CATALOG))
+  ipcMain.handle('services:list', async () => wrap(() => getVisibleServiceCatalog(getAppSettings().features)))
   ipcMain.handle('terraform:cli:detect', async () => wrap(() => detectTerraformCli()))
   ipcMain.handle('terraform:cli:info', async () => wrap(() => getCachedCliInfo()))
   ipcMain.handle('terraform:cli:set-kind', async (_event, kind: 'terraform' | 'opentofu') => wrap(() => setActiveTerraformCli(kind)))

@@ -391,12 +391,19 @@ export type AppSettingsUpdates = {
   autoDownload: boolean
 }
 
+export type AppFeatureFlagId = 'labs.observability' | `service.${ServiceId}`
+
+export type AppSettingsFeatures = {
+  registry: Partial<Record<AppFeatureFlagId, boolean>>
+}
+
 export type AppSettings = {
   general: AppSettingsGeneral
   terminal: AppSettingsTerminal
   refresh: AppSettingsRefresh
   toolchain: AppSettingsToolchain
   updates: AppSettingsUpdates
+  features: AppSettingsFeatures
 }
 
 export type AppSecuritySummary = {
@@ -1527,6 +1534,18 @@ export type AwsCapabilitySnapshot = {
 }
 
 export type ServiceMaturity = 'production-ready' | 'beta' | 'experimental'
+
+export type AppFeatureFlagSurface = 'service' | 'lab'
+
+export type AppFeatureFlagDefinition = {
+  id: AppFeatureFlagId
+  label: string
+  description: string
+  maturity: Extract<ServiceMaturity, 'beta' | 'experimental'>
+  surface: AppFeatureFlagSurface
+  serviceId?: ServiceId
+  defaultEnabled: boolean
+}
 
 export type ServiceDescriptor = {
   id: ServiceId
