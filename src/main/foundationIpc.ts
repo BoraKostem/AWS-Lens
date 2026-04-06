@@ -8,6 +8,8 @@ import type {
   CloudWatchQueryFilter,
   CloudWatchQueryHistoryInput,
   CloudWatchSavedQueryInput,
+  ConnectionPresetFilter,
+  ConnectionPresetInput,
   DirectAccessResolution,
   DbConnectionResolveInput,
   DbConnectionPresetFilter,
@@ -50,17 +52,21 @@ import { createHandlerWrapper } from './operations'
 import {
   clearCloudWatchInvestigationHistory,
   clearCloudWatchQueryHistory,
+  deleteConnectionPreset,
   deleteCloudWatchSavedQuery,
   deleteDbConnectionPreset,
   getGovernanceTagDefaults,
+  listConnectionPresets,
   listCloudWatchInvestigationHistory,
   listCloudWatchQueryHistory,
   listCloudWatchSavedQueries,
   listDbConnectionPresets,
+  markConnectionPresetUsed,
   markDbConnectionPresetUsed,
   recordCloudWatchInvestigationHistory,
   recordCloudWatchQueryHistory,
   saveCloudWatchSavedQuery,
+  saveConnectionPreset,
   saveDbConnectionPreset,
   updateGovernanceTagDefaults
 } from './phase1FoundationStore'
@@ -106,14 +112,26 @@ export function registerFoundationIpcHandlers(): void {
   ipcMain.handle('phase1:list-db-connection-presets', async (_event, filter?: DbConnectionPresetFilter) =>
     wrap(() => listDbConnectionPresets(filter))
   )
+  ipcMain.handle('phase1:list-connection-presets', async (_event, filter?: ConnectionPresetFilter) =>
+    wrap(() => listConnectionPresets(filter))
+  )
   ipcMain.handle('phase1:save-db-connection-preset', async (_event, input: DbConnectionPresetInput) =>
     wrap(() => saveDbConnectionPreset(input))
+  )
+  ipcMain.handle('phase1:save-connection-preset', async (_event, input: ConnectionPresetInput) =>
+    wrap(() => saveConnectionPreset(input))
   )
   ipcMain.handle('phase1:delete-db-connection-preset', async (_event, id: string) =>
     wrap(() => deleteDbConnectionPreset(id))
   )
+  ipcMain.handle('phase1:delete-connection-preset', async (_event, id: string) =>
+    wrap(() => deleteConnectionPreset(id))
+  )
   ipcMain.handle('phase1:mark-db-connection-preset-used', async (_event, id: string) =>
     wrap(() => markDbConnectionPresetUsed(id))
+  )
+  ipcMain.handle('phase1:mark-connection-preset-used', async (_event, id: string) =>
+    wrap(() => markConnectionPresetUsed(id))
   )
   ipcMain.handle('phase1:list-db-vault-credentials', async () =>
     wrap(() => listDbVaultCredentials())

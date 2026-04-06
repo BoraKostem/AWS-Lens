@@ -15,6 +15,8 @@ import type {
   CloudWatchQueryExecutionInput,
   CloudWatchQueryHistoryInput,
   CloudWatchSavedQueryInput,
+  ConnectionPresetFilter,
+  ConnectionPresetInput,
   EksUpgradePlannerRequest,
   DbConnectionResolveInput,
   DbConnectionPresetFilter,
@@ -66,9 +68,13 @@ declare global {
       recordCloudWatchInvestigationHistory: (input: CloudWatchInvestigationHistoryInput) => Promise<unknown>
       clearCloudWatchInvestigationHistory: (filter?: CloudWatchQueryFilter) => Promise<unknown>
       listDbConnectionPresets: (filter?: DbConnectionPresetFilter) => Promise<unknown>
+      listConnectionPresets: (filter?: ConnectionPresetFilter) => Promise<unknown>
       saveDbConnectionPreset: (input: DbConnectionPresetInput) => Promise<unknown>
+      saveConnectionPreset: (input: ConnectionPresetInput) => Promise<unknown>
       deleteDbConnectionPreset: (id: string) => Promise<unknown>
+      deleteConnectionPreset: (id: string) => Promise<unknown>
       markDbConnectionPresetUsed: (id: string) => Promise<unknown>
+      markConnectionPresetUsed: (id: string) => Promise<unknown>
       listDbVaultCredentials: () => Promise<unknown>
       saveDbVaultCredential: (input: DbVaultCredentialInput) => Promise<unknown>
       deleteDbVaultCredential: (name: string) => Promise<unknown>

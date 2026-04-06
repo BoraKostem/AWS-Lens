@@ -1380,6 +1380,54 @@ export type DbConnectionPresetInput = Omit<DbConnectionPreset, 'id' | 'createdAt
   id?: string
 }
 
+export type ConnectionPresetKind = 'rds' | 'bastion-ssh' | 'eks'
+
+export type ConnectionPresetResourceKind = DbConnectionResourceKind | 'ec2-instance' | 'eks-cluster' | 'manual'
+
+export type ConnectionPresetFilter = {
+  kind?: ConnectionPresetKind
+  profile?: string
+  region?: string
+  resourceId?: string
+}
+
+export type ConnectionPreset = {
+  id: string
+  name: string
+  kind: ConnectionPresetKind
+  profile: string
+  region: string
+  resourceKind: ConnectionPresetResourceKind
+  resourceId: string
+  resourceLabel: string
+  engine: DbConnectionEngine
+  host: string
+  port: number
+  databaseName: string
+  username: string
+  credentialSourceKind: DbConnectionCredentialSourceKind | ''
+  credentialSourceRef: string
+  connectInput: string
+  vaultEntryId: string
+  vaultEntryName: string
+  sshUser: string
+  bastionImageId: string
+  bastionInstanceType: string
+  subnetId: string
+  keyName: string
+  securityGroupId: string
+  contextName: string
+  kubeconfigPath: string
+  notes: string
+  createdAt: string
+  updatedAt: string
+  lastUsedAt: string
+}
+
+export type ConnectionPresetInput = Omit<ConnectionPreset, 'id' | 'createdAt' | 'updatedAt' | 'lastUsedAt'> & {
+  id?: string
+}
+
 export type DbConnectionResolveInput = {
   presetId?: string
   resourceKind: DbConnectionResourceKind

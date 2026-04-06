@@ -8,6 +8,7 @@ import type {
   BastionAmiOption,
   BastionConnectionInfo,
   CloudTrailEventSummary,
+  ConnectionPreset,
   Ec2BulkInstanceAction,
   Ec2IamAssociation,
   Ec2InstanceAction,
@@ -34,7 +35,19 @@ import type {
   SubnetSummary,
   VaultEntrySummary
 } from '@shared/types'
-import { getGovernanceTagDefaults, listKeyPairs, listSecurityGroupsForVpc, listSubnets, listVaultEntries, lookupCloudTrailEventsByResource, recordVaultEntryUse } from './api'
+import {
+  deleteConnectionPreset,
+  getGovernanceTagDefaults,
+  listConnectionPresets,
+  listKeyPairs,
+  listSecurityGroupsForVpc,
+  listSubnets,
+  listVaultEntries,
+  lookupCloudTrailEventsByResource,
+  markConnectionPresetUsed,
+  recordVaultEntryUse,
+  saveConnectionPreset
+} from './api'
 import {
   attachEbsVolume,
   attachIamProfile,
@@ -226,6 +239,14 @@ function sleep(ms: number): Promise<void> {
 
 function formatTimestamp(value: string): string {
   return value && value !== '-' ? new Date(value).toLocaleString() : '-'
+}
+
+function defaultConnectionPresetName(instance: Pick<Ec2InstanceDetail, 'instanceId' | 'name'> | null): string {
+  if (!instance) {
+    return ''
+  }
+
+  return `${instance.name !== '-' ? instance.name : instance.instanceId} access`
 }
 
 function formatVolumeSettings(volume: EbsVolumeSummary | EbsVolumeDetail): string {
@@ -508,6 +529,9 @@ export function Ec2Console({
   const [bastionSecurityGroups, setBastionSecurityGroups] = useState<SecurityGroupSummary[]>([])
   const [loadingBastionNetworkOptions, setLoadingBastionNetworkOptions] = useState(false)
   const [bastionLaunchStatus, setBastionLaunchStatus] = useState<BastionWorkflowStatus | null>(null)
+  const [connectionPresets, setConnectionPresets] = useState<ConnectionPreset[]>([])
+  const [selectedConnectionPresetId, setSelectedConnectionPresetId] = useState('')
+  const [connectionPresetName, setConnectionPresetName] = useState('')
 
   /* ── Timeline state ────────────────────────────────────── */
   const [timelineEvents, setTimelineEvents] = useState<CloudTrailEventSummary[]>([])
@@ -553,6 +577,115 @@ export function Ec2Console({
       setTimelineError(err instanceof Error ? err.message : 'Failed to load events')
     } finally {
       setTimelineLoading(false)
+    }
+  }
+
+  async function hydrateConnectionPresets(resourceId = selectedId): Promise<void> {
+    if (!resourceId) {
+      setConnectionPresets([])
+      setSelectedConnectionPresetId('')
+      setConnectionPresetName('')
+      return
+    }
+
+    try {
+      const presets = await listConnectionPresets({
+        kind: 'bastion-ssh',
+        profile: connection.profile,
+        region: connection.region,
+        resourceId
+      })
+      setConnectionPresets(presets)
+      setSelectedConnectionPresetId((current) => presets.some((entry) => entry.id === current) ? current : '')
+    } catch {
+      setConnectionPresets([])
+      setSelectedConnectionPresetId('')
+    }
+  }
+
+  function applyConnectionPreset(presetId: string): void {
+    setSelectedConnectionPresetId(presetId)
+    if (!presetId) {
+      setConnectionPresetName(defaultConnectionPresetName(detail))
+      return
+    }
+
+    const preset = connectionPresets.find((entry) => entry.id === presetId)
+    if (!preset) {
+      return
+    }
+
+    setConnectionPresetName(preset.name)
+    setSshUser(preset.sshUser || 'ec2-user')
+    applySshKeyInput(preset.connectInput || preset.vaultEntryName, preset.vaultEntryId)
+    setBastionAmi(preset.bastionImageId)
+    setBastionType(preset.bastionInstanceType || 't3.micro')
+    setBastionSubnet(preset.subnetId)
+    setBastionKeyPair(preset.keyName)
+    setBastionSg(preset.securityGroupId)
+
+    void markConnectionPresetUsed(preset.id)
+      .then(() => hydrateConnectionPresets(detail?.instanceId ?? selectedId))
+      .catch(() => undefined)
+  }
+
+  async function handleSaveConnectionPreset(): Promise<void> {
+    if (!detail) {
+      return
+    }
+
+    try {
+      const name = connectionPresetName.trim() || defaultConnectionPresetName(detail)
+      const saved = await saveConnectionPreset({
+        id: selectedConnectionPresetId || undefined,
+        name,
+        kind: 'bastion-ssh',
+        profile: connection.profile,
+        region: connection.region,
+        resourceKind: 'ec2-instance',
+        resourceId: detail.instanceId,
+        resourceLabel: detail.name !== '-' ? detail.name : detail.instanceId,
+        engine: 'unknown',
+        host: detail.privateIp !== '-' ? detail.privateIp : detail.publicIp,
+        port: 22,
+        databaseName: '',
+        username: '',
+        credentialSourceKind: '',
+        credentialSourceRef: '',
+        connectInput: sshKey,
+        vaultEntryId: sshVaultEntryId,
+        vaultEntryName: sshVaultEntryName,
+        sshUser,
+        bastionImageId: bastionAmi,
+        bastionInstanceType: bastionType,
+        subnetId: bastionSubnet,
+        keyName: bastionKeyPair,
+        securityGroupId: bastionSg,
+        contextName: '',
+        kubeconfigPath: '',
+        notes: ''
+      })
+      setSelectedConnectionPresetId(saved.id)
+      setConnectionPresetName(saved.name)
+      setMsg(`Connection preset saved: ${saved.name}`)
+      await hydrateConnectionPresets(detail.instanceId)
+    } catch (error) {
+      setMsg(error instanceof Error ? error.message : 'Failed to save connection preset.')
+    }
+  }
+
+  async function handleDeleteConnectionPreset(): Promise<void> {
+    if (!selectedConnectionPresetId) {
+      return
+    }
+
+    try {
+      await deleteConnectionPreset(selectedConnectionPresetId)
+      setSelectedConnectionPresetId('')
+      setMsg('Connection preset deleted.')
+      await hydrateConnectionPresets(detail?.instanceId ?? selectedId)
+    } catch (error) {
+      setMsg(error instanceof Error ? error.message : 'Failed to delete connection preset.')
     }
   }
 
@@ -810,6 +943,9 @@ export function Ec2Console({
     const d = await describeEc2Instance(connection, id)
     setDetail(d)
     if (d) {
+      if ((options?.reason ?? 'selection') !== 'background' || !connectionPresetName) {
+        setConnectionPresetName(defaultConnectionPresetName(d))
+      }
       setResizeType(d.type)
       try { setIamAssoc(await getIamAssociation(connection, id)) } catch { setIamAssoc(null) }
       if (d.vpcId !== '-') {
@@ -817,10 +953,14 @@ export function Ec2Console({
       }
       try { setLinkedBastions(await findBastionConnectionsForInstance(connection, id)) } catch { setLinkedBastions([]) }
       await loadSsmForInstance(id, options?.reason ?? 'selection')
+      await hydrateConnectionPresets(id)
     } else {
       setLinkedBastions([])
       setSsmTarget(null)
       setSsmSessions([])
+      setConnectionPresets([])
+      setSelectedConnectionPresetId('')
+      setConnectionPresetName('')
     }
   }
 
@@ -2165,6 +2305,41 @@ export function Ec2Console({
                             {ssmStatusLabel(ssmTarget?.status ?? detail?.ssmStatus ?? 'not-managed')}
                           </span>
                           {detail?.isTempInspectionInstance && <span className="ec2-inline-flag">Temp inspection</span>}
+                        </div>
+                      </div>
+                      <div className="ec2-connect-row">
+                        <span className="ec2-connect-label">Preset</span>
+                        <div className="ec2-connect-field">
+                          <div className="ec2-connect-inline">
+                            <select
+                              className="ec2-connect-select"
+                              value={selectedConnectionPresetId}
+                              onChange={(event) => applyConnectionPreset(event.target.value)}
+                            >
+                              <option value="">Current form values</option>
+                              {connectionPresets.map((preset) => (
+                                <option key={preset.id} value={preset.id}>
+                                  {preset.name}
+                                </option>
+                              ))}
+                            </select>
+                            <button className="ec2-action-btn" type="button" onClick={() => void handleSaveConnectionPreset()} disabled={!detail}>
+                              {selectedConnectionPresetId ? 'Update' : 'Save'}
+                            </button>
+                            <button className="ec2-action-btn remove" type="button" onClick={() => void handleDeleteConnectionPreset()} disabled={!selectedConnectionPresetId}>
+                              Delete
+                            </button>
+                          </div>
+                          <input
+                            value={connectionPresetName}
+                            onChange={(event) => setConnectionPresetName(event.target.value)}
+                            placeholder="Preset name"
+                          />
+                          <div className="ec2-connect-note">
+                            {selectedConnectionPresetId
+                              ? `Preset scope: ${detail?.instanceId ?? '-'}${connectionPresets.find((preset) => preset.id === selectedConnectionPresetId)?.lastUsedAt ? ` | Last used ${formatTimestamp(connectionPresets.find((preset) => preset.id === selectedConnectionPresetId)?.lastUsedAt ?? '')}` : ''}`
+                              : `${connectionPresets.length} saved bastion preset${connectionPresets.length === 1 ? '' : 's'} for this instance`}
+                          </div>
                         </div>
                       </div>
                       <div className="ec2-connect-row">
