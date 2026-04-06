@@ -25,19 +25,6 @@ export async function lockDownPrivateKey(filePath: string): Promise<void> {
   await fs.chmod(filePath, 0o600)
 }
 
-export async function stageSshPrivateKey(sourcePath: string): Promise<string> {
-  const extension = path.extname(sourcePath) || '.pem'
-  const targetDir = path.join(app.getPath('temp'), 'aws-lens', 'ssh-keys')
-  const targetPath = path.join(targetDir, `${randomUUID()}${extension}`)
-
-  await fs.mkdir(targetDir, { recursive: true })
-  await fs.copyFile(sourcePath, targetPath)
-  await fs.copyFile(`${sourcePath}.pub`, `${targetPath}.pub`).catch(() => undefined)
-  await lockDownPrivateKey(targetPath)
-
-  return targetPath
-}
-
 export async function deriveSshPublicKey(privateKeyPath: string): Promise<string> {
   try {
     const { stdout } = await execFileAsync('ssh-keygen', ['-y', '-f', privateKeyPath], { windowsHide: true })
@@ -207,20 +194,20 @@ export function inferSshVaultKind(filePath: string): 'pem' | 'ssh-key' {
 }
 
 export async function importSshPrivateKeyToVault(sourcePath: string): Promise<Ec2ChosenSshKey> {
-  const stagedPath = await stageSshPrivateKey(sourcePath)
   const content = await fs.readFile(sourcePath, 'utf8')
   const baseName = path.basename(sourcePath)
-  const publicKey = await fs.readFile(`${sourcePath}.pub`, 'utf8').then((value) => value.trim()).catch(() => '')
+  let publicKey = await fs.readFile(`${sourcePath}.pub`, 'utf8').then((value) => value.trim()).catch(() => '')
+  if (!publicKey) {
+    publicKey = await deriveSshPublicKey(sourcePath)
+  }
   const fingerprints = await inspectPublicKey(publicKey)
   const saved = saveVaultEntry({
     kind: inferSshVaultKind(sourcePath),
     name: baseName,
     secret: content,
     metadata: {
-      sourcePath,
       fileName: baseName,
       publicKey,
-      publicKeyPath: `${sourcePath}.pub`,
       sshFingerprintSha256: fingerprints.fingerprintSha256,
       sshFingerprintMd5: fingerprints.fingerprintMd5
     },
@@ -229,9 +216,8 @@ export async function importSshPrivateKeyToVault(sourcePath: string): Promise<Ec
   })
 
   return {
-    stagedPath,
-    originalPath: sourcePath,
     vaultEntryId: saved.id,
-    vaultEntryName: saved.name
+    vaultEntryName: saved.name,
+    sourceLabel: baseName
   }
 }

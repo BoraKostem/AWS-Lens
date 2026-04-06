@@ -631,10 +631,9 @@ export type Ec2SshKeySuggestion = {
 }
 
 export type Ec2ChosenSshKey = {
-  stagedPath: string
-  originalPath: string
   vaultEntryId: string
   vaultEntryName: string
+  sourceLabel: string
 }
 
 export type Ec2SnapshotSummary = {
