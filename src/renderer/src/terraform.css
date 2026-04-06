@@ -3199,8 +3199,126 @@
   font-size: 12px;
 }
 
+.tf-correlation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+  margin-bottom: 14px;
+}
+
+.tf-correlation-card {
+  border: 1px solid rgba(120, 138, 160, 0.18);
+  border-top-width: 3px;
+  border-radius: 16px;
+  padding: 14px;
+  background: rgba(10, 16, 27, 0.92);
+}
+
+.tf-correlation-card.info {
+  border-top-color: #4a8fe7;
+}
+
+.tf-correlation-card.success {
+  border-top-color: #22c55e;
+}
+
+.tf-correlation-card.warning {
+  border-top-color: #f59e0b;
+}
+
+.tf-correlation-card.danger {
+  border-top-color: #ef4444;
+}
+
+.tf-correlation-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.tf-correlation-card h4 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+.tf-correlation-card p {
+  margin: 10px 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.tf-correlation-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.tf-correlation-confidence {
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tf-correlation-confidence.high {
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+}
+
+.tf-correlation-confidence.medium {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fcd34d;
+}
+
+.tf-correlation-confidence.low {
+  background: rgba(74, 143, 231, 0.12);
+  color: #93c5fd;
+}
+
+.tf-correlation-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.tf-correlation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tf-correlation-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(17, 24, 39, 0.72);
+}
+
+.tf-correlation-item strong {
+  font-size: 12px;
+}
+
+.tf-correlation-item span {
+  font-size: 12px;
+  color: #a5b4c7;
+  line-height: 1.4;
+}
+
 @media (max-width: 960px) {
   .tf-incident-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .tf-correlation-grid {
     grid-template-columns: 1fr;
   }
 }

@@ -1958,7 +1958,7 @@ export function App() {
     if (targetScreen === 'overview') {
       return <OverviewConsole state={connectionState} embedded refreshNonce={pageRefreshNonceByScreen['overview'] ?? 0} onNavigate={(target) => {
         if (IMPLEMENTED_SCREENS.has(target)) setScreen(target as Screen)
-      }} />
+      }} onNavigateCloudWatch={(focus) => navigateWithFocus({ service: 'cloudwatch', ...focus })} onNavigateCloudTrail={(focus) => navigateWithFocus({ service: 'cloudtrail', ...focus })} onNavigateTerraform={() => setScreen('terraform')} />
     }
 
     if (targetScreen === 'session-hub') {
@@ -2419,7 +2419,7 @@ export function App() {
         {screen === 'overview' && (
           <OverviewConsole state={connectionState} embedded onNavigate={(target) => {
             if (IMPLEMENTED_SCREENS.has(target)) setScreen(target as Screen)
-          }} />
+          }} onNavigateCloudWatch={(focus) => navigateWithFocus({ service: 'cloudwatch', ...focus })} onNavigateCloudTrail={(focus) => navigateWithFocus({ service: 'cloudtrail', ...focus })} onNavigateTerraform={() => setScreen('terraform')} />
         )}
 
         {screen === 'vpc' && selectedService?.id === 'vpc' && (
