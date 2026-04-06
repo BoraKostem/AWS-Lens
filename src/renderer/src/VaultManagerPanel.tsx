@@ -1076,7 +1076,7 @@ export function VaultManagerPanel({
         <div className="vault-manager-detail">
           <div className="vault-manager-pane__title">Detail</div>
           {selectedEntry ? (
-            <div className="vault-manager-card">
+            <div className="vault-manager-card vault-manager-card-detail">
               <div className="vault-manager-card__header">
                 <div>
                   <h3>{selectedEntry.name}</h3>
