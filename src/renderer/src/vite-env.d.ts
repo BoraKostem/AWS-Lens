@@ -33,6 +33,7 @@ import type {
   SsmSendCommandRequest,
   SsmStartSessionRequest,
   SnapshotLaunchConfig,
+  TerraformAdoptionTarget,
   TerraformInputConfiguration,
   TerraformInputValidationResult,
   TerraformCommandRequest,
@@ -444,6 +445,7 @@ declare global {
       getProject: (profileName: string, projectId: string, connection?: AwsConnection) => Promise<unknown>
       getDrift: (profileName: string, projectId: string, connection: AwsConnection, options?: { forceRefresh?: boolean }) => Promise<unknown>
       getObservabilityReport: (profileName: string, projectId: string, connection: AwsConnection) => Promise<unknown>
+      detectAdoption: (profileName: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget) => Promise<unknown>
       chooseProjectDirectory: () => Promise<unknown>
       addProject: (profileName: string, rootPath: string, connection?: AwsConnection) => Promise<unknown>
       renameProject: (profileName: string, projectId: string, name: string) => Promise<unknown>

@@ -3918,6 +3918,57 @@ export type TerraformProjectListItem = Pick<
   'id' | 'name' | 'rootPath' | 'status' | 'stateSource' | 'metadata' | 'lastPlanSummary' | 'lastCommandAt' | 'inventory' | 'environment' | 'currentWorkspace'
 >
 
+export type TerraformAdoptionResourceType = 'aws_instance'
+
+export type TerraformAdoptionTarget = {
+  serviceId: ServiceId
+  resourceType: TerraformAdoptionResourceType
+  region: string
+  displayName: string
+  identifier: string
+  arn: string
+  name: string
+  tags?: Record<string, string>
+}
+
+export type TerraformAdoptionStateMatch = {
+  address: string
+  resourceType: string
+  matchedOn: 'identifier' | 'arn' | 'name' | 'eks-nodegroup'
+  matchedValue: string
+}
+
+export type TerraformAdoptionConfigMatch = {
+  relativePath: string
+  lineNumber: number
+  matchedOn: 'identifier' | 'arn' | 'name'
+  matchedValue: string
+  excerpt: string
+}
+
+export type TerraformAdoptionProjectSignal = {
+  projectId: string
+  projectName: string
+  rootPath: string
+  currentWorkspace: string
+  region: string
+  backendType: string
+  status: 'managed' | 'config-hint'
+  stateMatches: TerraformAdoptionStateMatch[]
+  configMatches: TerraformAdoptionConfigMatch[]
+}
+
+export type TerraformAdoptionDetectionResult = {
+  target: TerraformAdoptionTarget
+  supported: boolean
+  checkedAt: string
+  scannedProjectCount: number
+  matchingProjectCount: number
+  managedProjectCount: number
+  configHintProjectCount: number
+  projects: TerraformAdoptionProjectSignal[]
+}
+
 export type TerraformProgressEvent = {
   address: string
   status: string

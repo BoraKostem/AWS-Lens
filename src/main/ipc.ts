@@ -11,6 +11,7 @@ import type {
   AppSettings,
   AwsConnection,
   Ec2ChosenSshKey,
+  TerraformAdoptionTarget,
   TerraformCommandRequest,
   TerraformInputConfiguration,
   TerraformRunHistoryFilter
@@ -49,6 +50,7 @@ import {
   validateProjectInputs,
   getProjectContext
 } from './terraform'
+import { detectTerraformAdoption } from './terraformAdoption'
 import { getTerraformDriftReport } from './terraformDrift'
 import { listRunRecords, getRunOutput, deleteRunRecord } from './terraformHistoryStore'
 import { detectGovernanceTools, getCachedGovernanceToolkit, runGovernanceChecks, getGovernanceReport } from './terraformGovernance'
@@ -267,6 +269,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   )
   ipcMain.handle('terraform:observability-report:get', async (_event, profileName: string, projectId: string, connection: AwsConnection) =>
     wrap(() => generateTerraformObservabilityReport(profileName, projectId, connection))
+  )
+  ipcMain.handle('terraform:adoption:detect', async (_event, profileName: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget) =>
+    wrap(() => detectTerraformAdoption(profileName, connection, target))
   )
   ipcMain.handle('terraform:inputs:update', async (_event, profileName: string, projectId: string, inputConfig: TerraformInputConfiguration, connection?: AwsConnection) =>
     wrap(() => updateProjectInputs(profileName, projectId, inputConfig, connection))
