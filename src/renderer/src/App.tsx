@@ -96,6 +96,7 @@ import { CloudWatchConsole } from './CloudWatchConsole'
 import { DirectResourceConsole } from './DirectResourceConsole'
 import { GcpCompareWorkspace } from './GcpCompareWorkspace'
 import { GcpComplianceCenter } from './GcpComplianceCenter'
+import { GcpDirectAccessWorkspace } from './GcpDirectAccessWorkspace'
 import { GcpSessionHub } from './GcpSessionHub'
 import { useAwsPageConnection } from './AwsPage'
 import { EcsConsole } from './EcsConsole'
@@ -5696,6 +5697,21 @@ export function App() {
               onOpenCompliance={() => setScreen('compliance-center')}
               onOpenProjects={() => navigateToService('gcp-projects')}
               onOpenLogging={() => navigateToService('gcp-logging')}
+              onRunTerminalCommand={handleOpenTerminalCommand}
+            />
+          )
+        }
+
+        if (activeProviderId === 'gcp' && targetScreen === 'direct-access') {
+          return (
+            <GcpDirectAccessWorkspace
+              projectId={activeGcpConnectionDraft?.projectId.trim() ?? ''}
+              location={activeGcpConnectionDraft?.location.trim() ?? ''}
+              catalogProjects={gcpCatalogProjects}
+              refreshNonce={pageRefreshNonceByScreen['direct-access'] ?? 0}
+              canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+              terminalReady={Boolean(providerTerminalTarget)}
+              onNavigate={(serviceId, resourceId) => navigateToServiceWithResourceId(serviceId, resourceId)}
               onRunTerminalCommand={handleOpenTerminalCommand}
             />
           )
