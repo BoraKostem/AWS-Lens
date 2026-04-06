@@ -187,6 +187,12 @@
   color: #7dd3fc;
 }
 
+.freshness-pill.cached {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.28);
+  color: #93c5fd;
+}
+
 .freshness-pill.stale {
   background: rgba(245, 158, 11, 0.12);
   border-color: rgba(245, 158, 11, 0.28);

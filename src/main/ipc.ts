@@ -4,11 +4,22 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { dialog, ipcMain, shell, app, type BrowserWindow, type OpenDialogOptions } from 'electron'
 
-import type { AppSecuritySummary, AppSettings, AwsConnection, Ec2ChosenSshKey, TerraformCommandRequest, TerraformInputConfiguration, TerraformRunHistoryFilter } from '@shared/types'
+import type {
+  AppDiagnosticsActiveContext,
+  AppDiagnosticsFailureInput,
+  AppSecuritySummary,
+  AppSettings,
+  AwsConnection,
+  Ec2ChosenSshKey,
+  TerraformCommandRequest,
+  TerraformInputConfiguration,
+  TerraformRunHistoryFilter
+} from '@shared/types'
 import { getAppSettings, resetAppSettings, updateAppSettings } from './appSettings'
 import { importAwsConfigFile } from './aws/profiles'
-import { SERVICE_CATALOG } from './catalog'
+import { getVisibleServiceCatalog } from './catalog'
 import { exportDiagnosticsBundle } from './diagnostics'
+import { recordDiagnosticsFailure, updateDiagnosticsActiveContext } from './diagnosticsState'
 import { getEnvironmentHealthReport } from './environment'
 import { exportEnterpriseAuditEvents, getEnterpriseSettings, listEnterpriseAuditEvents, setEnterpriseAccessMode } from './enterprise'
 import { getVaultEntryCounts } from './localVault'
@@ -178,7 +189,7 @@ async function openInVisualStudioCode(targetPath: string): Promise<void> {
 }
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
-  ipcMain.handle('services:list', async () => wrap(() => SERVICE_CATALOG))
+  ipcMain.handle('services:list', async () => wrap(() => getVisibleServiceCatalog(getAppSettings().features)))
   ipcMain.handle('terraform:cli:detect', async () => wrap(() => detectTerraformCli()))
   ipcMain.handle('terraform:cli:info', async () => wrap(() => getCachedCliInfo()))
   ipcMain.handle('terraform:cli:set-kind', async (_event, kind: 'terraform' | 'opentofu') => wrap(() => setActiveTerraformCli(kind)))
@@ -305,6 +316,14 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('app:update:download', async () => wrap(() => downloadAppUpdate()))
   ipcMain.handle('app:update:install', async () => wrap(() => installAppUpdate()))
   ipcMain.handle('app:export-diagnostics', async () => wrap(() => exportDiagnosticsBundle(getWindow())))
+  ipcMain.handle('app:diagnostics:set-active-context', async (_event, context: AppDiagnosticsActiveContext): Promise<HandlerResult<null>> => {
+    updateDiagnosticsActiveContext(context)
+    return { ok: true, data: null }
+  })
+  ipcMain.handle('app:diagnostics:record-failure', async (_event, input: AppDiagnosticsFailureInput): Promise<HandlerResult<null>> => {
+    recordDiagnosticsFailure(input)
+    return { ok: true, data: null }
+  })
   ipcMain.handle('enterprise:get-settings', async () => wrap(() => getEnterpriseSettings()))
   ipcMain.handle('enterprise:set-access-mode', async (_event, accessMode: 'read-only' | 'operator') =>
     wrap(() => setEnterpriseAccessMode(accessMode))

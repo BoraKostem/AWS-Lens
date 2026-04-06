@@ -6,6 +6,7 @@ import type {
   AppSettings,
   AppSettingsGeneral,
   AppSettingsLaunchScreen,
+  AppSettingsFeatures,
   AppSettingsRefresh,
   AppSettingsRefreshMode,
   AppSettingsReleaseChannelPreference,
@@ -15,6 +16,7 @@ import type {
   AppSettingsUpdates,
   TerraformCliKind
 } from '@shared/types'
+import { getDefaultAppFeatureSettings, sanitizeAppFeatureSettings } from '@shared/featureFlags'
 import { readSecureJsonFile, writeSecureJsonFile } from './secureJson'
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -44,8 +46,13 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   updates: {
     releaseChannel: 'system',
     autoDownload: false
-  }
+  },
+  features: getDefaultAppFeatureSettings()
 }
+
+function sanitizeFeatures(value: unknown): AppSettingsFeatures {
+  return sanitizeAppFeatureSettings(value)
+  }
 
 function settingsPath(): string {
   return path.join(app.getPath('userData'), 'app-settings.json')
@@ -198,7 +205,8 @@ function sanitizeAppSettings(value: unknown): AppSettings {
     terminal: sanitizeTerminal(raw.terminal),
     refresh: sanitizeRefresh(raw.refresh),
     toolchain: sanitizeToolchain(raw.toolchain),
-    updates: sanitizeUpdates(raw.updates)
+    updates: sanitizeUpdates(raw.updates),
+    features: sanitizeFeatures(raw.features)
   }
 }
 
@@ -233,7 +241,15 @@ export function updateAppSettings(update: Partial<AppSettings>): AppSettings {
     terminal: { ...current.terminal, ...(update.terminal ?? {}) },
     refresh: { ...current.refresh, ...(update.refresh ?? {}) },
     toolchain: { ...current.toolchain, ...(update.toolchain ?? {}) },
-    updates: { ...current.updates, ...(update.updates ?? {}) }
+    updates: { ...current.updates, ...(update.updates ?? {}) },
+    features: {
+      ...current.features,
+      ...(update.features ?? {}),
+      registry: {
+        ...current.features.registry,
+        ...(update.features?.registry ?? {})
+      }
+    }
   })
 
   return write(next)

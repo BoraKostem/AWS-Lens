@@ -6,10 +6,11 @@ import type {
   LoadBalancerTimelineEvent,
   LoadBalancerWorkspace
 } from '@shared/types'
+import { deleteLoadBalancer, getCachedQuerySnapshot, listEc2Instances, listLoadBalancerWorkspaces } from './api'
 import { ConfirmButton } from './ConfirmButton'
 import { FreshnessIndicator, useFreshnessState } from './freshness'
+import { SvcState } from './SvcState'
 import './load-balancers.css'
-import { deleteLoadBalancer, listEc2Instances, listLoadBalancerWorkspaces } from './workspaceApi'
 
 type ColKey = 'name' | 'type' | 'scheme' | 'state' | 'dnsName' | 'listeners' | 'targets'
 type SideTab = 'details' | 'targets' | 'rules' | 'timeline'
@@ -64,6 +65,10 @@ function countTargets(workspace: LoadBalancerWorkspace | null): number {
   return Object.values(workspace.targetsByGroup).flat().length
 }
 
+function isEc2InstanceTarget(targetId: string): boolean {
+  return /^i-[a-z0-9]+$/i.test(targetId)
+}
+
 export function WorkspaceApp({
   connection,
   refreshNonce = 0,
@@ -75,6 +80,9 @@ export function WorkspaceApp({
 }) {
   const [workspaces, setWorkspaces] = useState<LoadBalancerWorkspace[]>([])
   const [instances, setInstances] = useState<Ec2InstanceSummary[]>([])
+  const [instancesLoading, setInstancesLoading] = useState(false)
+  const [instanceLookupReady, setInstanceLookupReady] = useState(false)
+  const [instanceLookupError, setInstanceLookupError] = useState('')
   const [selectedArn, setSelectedArn] = useState('')
   const [selectedListenerArn, setSelectedListenerArn] = useState('')
   const [selectedGroupArn, setSelectedGroupArn] = useState('')
@@ -86,7 +94,9 @@ export function WorkspaceApp({
   const [visCols, setVisCols] = useState<Set<ColKey>>(() => new Set(COLUMNS.map((column) => column.key)))
   const [sideTab, setSideTab] = useState<SideTab>('details')
   const [appliedFocusToken, setAppliedFocusToken] = useState(0)
-  const { freshness, beginRefresh, completeRefresh, failRefresh } = useFreshnessState({ staleAfterMs: 5 * 60 * 1000 })
+  const { freshness, beginRefresh, completeRefresh, failRefresh, replaceFetchedAt } = useFreshnessState({
+    staleAfterMs: 5 * 60 * 1000
+  })
 
   const selected = useMemo(() => workspaces.find((workspace) => workspace.summary.arn === selectedArn) ?? null, [workspaces, selectedArn])
   const selectedListener = useMemo(() => selected?.listeners.find((listener) => listener.arn === selectedListenerArn) ?? null, [selected, selectedListenerArn])
@@ -95,6 +105,7 @@ export function WorkspaceApp({
   const selectedTargets = useMemo(() => (selectedGroup ? selected?.targetsByGroup[selectedGroup.arn] ?? [] : []), [selected, selectedGroup])
   const selectedTarget = useMemo(() => selectedTargets.find((target) => target.id === selectedTargetId) ?? null, [selectedTargets, selectedTargetId])
   const relatedInstance = useMemo(() => instances.find((instance) => instance.instanceId === selectedTargetId) ?? null, [instances, selectedTargetId])
+  const selectedTargetNeedsInstanceLookup = Boolean(selectedTarget && isEc2InstanceTarget(selectedTarget.id))
   const activeCols = useMemo(() => COLUMNS.filter((column) => visCols.has(column.key)), [visCols])
   const filteredWorkspaces = useMemo(() => {
     const query = filter.trim().toLowerCase()
@@ -122,16 +133,47 @@ export function WorkspaceApp({
     setSelectedTargetId(nextSelectedTarget?.id ?? '')
   }
 
+  async function ensureInstancesLoaded(force = false): Promise<void> {
+    if (!force && (instanceLookupReady || instancesLoading)) {
+      return
+    }
+
+    setInstancesLoading(true)
+    setInstanceLookupError('')
+
+    try {
+      const ec2Instances = await listEc2Instances(connection)
+      setInstances(ec2Instances)
+      setInstanceLookupReady(true)
+    } catch (loadError) {
+      setInstances([])
+      setInstanceLookupReady(false)
+      setInstanceLookupError(loadError instanceof Error ? loadError.message : String(loadError))
+    } finally {
+      setInstancesLoading(false)
+    }
+  }
+
   async function load(reason: 'initial' | 'manual' | 'background' = 'manual') {
+    const workspaceArgs = [connection]
+    const workspaceSnapshot = getCachedQuerySnapshot<LoadBalancerWorkspace[]>('load-balancers', 'listLoadBalancerWorkspaces', workspaceArgs)
+
     beginRefresh(reason)
+    replaceFetchedAt(workspaceSnapshot.fetchedAt, workspaceSnapshot.source)
     setLoading(true)
     setError('')
+
+    if (workspaceSnapshot.value) {
+      setWorkspaces(workspaceSnapshot.value)
+      pickDefaults(workspaceSnapshot.value)
+    }
+
     try {
-      const [loadBalancers, ec2Instances] = await Promise.all([listLoadBalancerWorkspaces(connection), listEc2Instances(connection)])
+      const loadBalancers = await listLoadBalancerWorkspaces(connection)
+      const resolvedWorkspaceSnapshot = getCachedQuerySnapshot<LoadBalancerWorkspace[]>('load-balancers', 'listLoadBalancerWorkspaces', workspaceArgs)
       setWorkspaces(loadBalancers)
-      setInstances(ec2Instances)
       pickDefaults(loadBalancers)
-      completeRefresh()
+      completeRefresh(resolvedWorkspaceSnapshot.fetchedAt ?? Date.now(), resolvedWorkspaceSnapshot.source ?? 'live')
     } catch (loadError) {
       failRefresh()
       setError(loadError instanceof Error ? loadError.message : String(loadError))
@@ -141,14 +183,20 @@ export function WorkspaceApp({
   }
 
   useEffect(() => {
+    setInstances([])
+    setInstanceLookupReady(false)
+    setInstanceLookupError('')
     void load('initial')
   }, [connection.sessionId, connection.region])
 
   useEffect(() => {
     if (refreshNonce !== 0) {
       void load('manual')
+      if (instanceLookupReady) {
+        void ensureInstancesLoaded(true)
+      }
     }
-  }, [refreshNonce])
+  }, [instanceLookupReady, refreshNonce])
 
   useEffect(() => {
     if (!focusLoadBalancer || focusLoadBalancer.token === appliedFocusToken) return
@@ -158,6 +206,14 @@ export function WorkspaceApp({
     setSideTab('details')
     selectLB(match.summary.arn)
   }, [appliedFocusToken, focusLoadBalancer, workspaces])
+
+  useEffect(() => {
+    if (sideTab !== 'targets' || !selectedTargetNeedsInstanceLookup) {
+      return
+    }
+
+    void ensureInstancesLoaded()
+  }, [selectedTargetNeedsInstanceLookup, sideTab])
 
   function selectLB(arn: string) {
     const workspace = workspaces.find((item) => item.summary.arn === arn)
@@ -226,7 +282,17 @@ export function WorkspaceApp({
         </div>
         <div className="lbw-toolbar-side">
           <FreshnessIndicator freshness={freshness} label="Workspace last updated" />
-          <button type="button" className="tf-toolbar-btn accent" onClick={() => void load('manual')} disabled={loading}>
+          <button
+            type="button"
+            className="tf-toolbar-btn accent"
+            onClick={() => {
+              void load('manual')
+              if (instanceLookupReady || (sideTab === 'targets' && selectedTargetNeedsInstanceLookup)) {
+                void ensureInstancesLoaded(true)
+              }
+            }}
+            disabled={loading}
+          >
             {loading ? 'Loading...' : 'Refresh Inventory'}
           </button>
         </div>
@@ -310,26 +376,6 @@ export function WorkspaceApp({
               {sideTab === 'details' && (
                 <div className="lbw-tab-stack">
                   <section className="tf-section">
-                    <div className="lbw-section-head"><div><span className="lbw-pane-kicker">Action</span><h3>Mutation controls</h3></div></div>
-                    <div className="lbw-action-row">
-                      <ConfirmButton
-                        className="tf-toolbar-btn danger"
-                        onConfirm={() => void doDelete()}
-                        modalTitle="Delete load balancer"
-                        modalBody="This removes the selected load balancer from AWS and can immediately impact live traffic."
-                        summaryItems={[
-                          `Load balancer: ${selected.summary.name}`,
-                          `ARN: ${selected.summary.arn}`,
-                          `Region: ${connection.region}`
-                        ]}
-                        confirmPhrase={selected.summary.name}
-                        confirmButtonLabel="Delete load balancer"
-                      >
-                        Delete load balancer
-                      </ConfirmButton>
-                    </div>
-                  </section>
-                  <section className="tf-section">
                     <div className="lbw-section-head"><div><span className="lbw-pane-kicker">Topology</span><h3>Load balancer summary</h3></div></div>
                     <div className="svc-kv">
                       <div className="svc-kv-row"><div className="svc-kv-label">Name</div><div className="svc-kv-value">{selected.summary.name}</div></div>
@@ -379,6 +425,31 @@ export function WorkspaceApp({
                       )}
                     </section>
                   </div>
+                  <section className="tf-section lbw-danger-zone">
+                    <div className="lbw-section-head">
+                      <div>
+                        <span className="lbw-pane-kicker">Danger zone</span>
+                        <h3>Delete load balancer</h3>
+                      </div>
+                    </div>
+                    <div className="lbw-danger-actions">
+                      <ConfirmButton
+                        className="tf-toolbar-btn danger lbw-danger-button"
+                        onConfirm={() => void doDelete()}
+                        modalTitle="Delete load balancer"
+                        modalBody="This removes the selected load balancer from AWS and can immediately impact live traffic."
+                        summaryItems={[
+                          `Load balancer: ${selected.summary.name}`,
+                          `ARN: ${selected.summary.arn}`,
+                          `Region: ${connection.region}`
+                        ]}
+                        confirmPhrase={selected.summary.name}
+                        confirmButtonLabel="Delete load balancer"
+                      >
+                        Delete load balancer
+                      </ConfirmButton>
+                    </div>
+                  </section>
                 </div>
               )}
 
@@ -403,6 +474,25 @@ export function WorkspaceApp({
                     </div>
                     {!selectedTargets.length && <div className="svc-empty">No targets in this group.</div>}
                   </section>
+                  {selectedTargetNeedsInstanceLookup && instancesLoading && (
+                    <section className="tf-section">
+                      <SvcState variant="loading" message="Loading related EC2 instance context..." compact />
+                    </section>
+                  )}
+                  {selectedTargetNeedsInstanceLookup && !instancesLoading && instanceLookupError && (
+                    <section className="tf-section">
+                      <SvcState
+                        variant="partial-data"
+                        message={`Related EC2 instance context could not be loaded: ${instanceLookupError}`}
+                        compact
+                      />
+                    </section>
+                  )}
+                  {selectedTargetNeedsInstanceLookup && !instancesLoading && instanceLookupReady && !relatedInstance && !instanceLookupError && (
+                    <section className="tf-section">
+                      <SvcState variant="empty" message="No EC2 instance metadata was found for the selected target." compact />
+                    </section>
+                  )}
                   {selectedTarget && relatedInstance && (
                     <section className="tf-section">
                       <div className="lbw-section-head"><div><span className="lbw-pane-kicker">Mapped compute</span><h3>EC2 instance detail</h3></div></div>

@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 import type {
   AwsCapabilitySubject,
+  AppDiagnosticsActiveContext,
+  AppDiagnosticsFailureInput,
   AppSettings,
   ComparisonBaselineInput,
   ComparisonPresetInput,
@@ -119,6 +121,8 @@ const awsLensApi = {
   downloadAppUpdate: () => ipcRenderer.invoke('app:update:download'),
   installAppUpdate: () => ipcRenderer.invoke('app:update:install'),
   exportDiagnosticsBundle: () => ipcRenderer.invoke('app:export-diagnostics'),
+  updateDiagnosticsActiveContext: (context: AppDiagnosticsActiveContext) => ipcRenderer.invoke('app:diagnostics:set-active-context', context),
+  recordDiagnosticsFailure: (input: AppDiagnosticsFailureInput) => ipcRenderer.invoke('app:diagnostics:record-failure', input),
   getCallerIdentity: (connection: AwsConnection) => ipcRenderer.invoke('sts:get-caller-identity', connection),
   listEc2Instances: (connection: AwsConnection) => ipcRenderer.invoke('ec2:list', connection),
   listEbsVolumes: (connection: AwsConnection) => ipcRenderer.invoke('ec2:list-volumes', connection),

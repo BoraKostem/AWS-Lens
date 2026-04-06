@@ -1,4 +1,5 @@
-import type { ServiceDescriptor } from '@shared/types'
+import { isServiceEnabled } from '@shared/featureFlags'
+import type { AppSettingsFeatures, ServiceDescriptor } from '@shared/types'
 
 export const SERVICE_CATALOG: ServiceDescriptor[] = [
   { id: 'terraform', label: 'Terraform', category: 'Infrastructure', migrated: false, maturity: 'beta' },
@@ -32,3 +33,7 @@ export const SERVICE_CATALOG: ServiceDescriptor[] = [
   { id: 'secrets-manager', label: 'Secrets Manager', category: 'Security', migrated: false, maturity: 'beta' },
   { id: 'key-pairs', label: 'Key Pairs', category: 'Security', migrated: false, maturity: 'beta' }
 ]
+
+export function getVisibleServiceCatalog(features: AppSettingsFeatures): ServiceDescriptor[] {
+  return SERVICE_CATALOG.filter((service) => isServiceEnabled(features, service.id))
+}

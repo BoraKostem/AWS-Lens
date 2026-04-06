@@ -391,12 +391,19 @@ export type AppSettingsUpdates = {
   autoDownload: boolean
 }
 
+export type AppFeatureFlagId = 'labs.observability' | `service.${ServiceId}`
+
+export type AppSettingsFeatures = {
+  registry: Partial<Record<AppFeatureFlagId, boolean>>
+}
+
 export type AppSettings = {
   general: AppSettingsGeneral
   terminal: AppSettingsTerminal
   refresh: AppSettingsRefresh
   toolchain: AppSettingsToolchain
   updates: AppSettingsUpdates
+  features: AppSettingsFeatures
 }
 
 export type AppSecuritySummary = {
@@ -1528,6 +1535,18 @@ export type AwsCapabilitySnapshot = {
 
 export type ServiceMaturity = 'production-ready' | 'beta' | 'experimental'
 
+export type AppFeatureFlagSurface = 'service' | 'lab'
+
+export type AppFeatureFlagDefinition = {
+  id: AppFeatureFlagId
+  label: string
+  description: string
+  maturity: Extract<ServiceMaturity, 'beta' | 'experimental'>
+  surface: AppFeatureFlagSurface
+  serviceId?: ServiceId
+  defaultEnabled: boolean
+}
+
 export type ServiceDescriptor = {
   id: ServiceId
   label: string
@@ -1571,6 +1590,56 @@ export type AppDiagnosticsExportResult = {
   path: string
   bundleEntries: number
   generatedAt: string
+}
+
+export type AppDiagnosticsScreen = 'profiles' | 'settings' | 'direct-access' | ServiceId
+
+export type AppDiagnosticsConnectionSummary = {
+  status: 'connected' | 'disconnected'
+  kind: AwsConnection['kind'] | ''
+  label: string
+  profile: string
+  sourceProfile: string
+  region: string
+  sessionId: string
+  accountId: string
+  roleArn: string
+  assumedRoleArn: string
+}
+
+export type AppDiagnosticsFocusSummary = {
+  service: NavigationFocus['service']
+  resourceId: string
+  summary: string
+}
+
+export type AppDiagnosticsActiveContext = {
+  capturedAt: string
+  screen: AppDiagnosticsScreen
+  screenLabel: string
+  connection: AppDiagnosticsConnectionSummary
+  focus: AppDiagnosticsFocusSummary | null
+}
+
+export type AppDiagnosticsFailureInput = {
+  method: string
+  action: string
+  serviceId: ServiceId | ''
+  connection: AppDiagnosticsConnectionSummary | null
+  errorTitle: string
+  errorMessage: string
+  rawError: string
+}
+
+export type AppDiagnosticsFailedAction = AppDiagnosticsFailureInput & {
+  capturedAt: string
+  activeContext: AppDiagnosticsActiveContext | null
+}
+
+export type AppDiagnosticsSnapshot = {
+  updatedAt: string
+  activeContext: AppDiagnosticsActiveContext | null
+  lastFailedAction: AppDiagnosticsFailedAction | null
 }
 
 /* ── Navigation Focus ────────────────────────────────────── */

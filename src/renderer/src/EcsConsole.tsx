@@ -153,12 +153,14 @@ export function EcsConsole({
   connection,
   refreshNonce = 0,
   focusService,
+  observabilityLabEnabled = true,
   onRunTerminalCommand,
   onNavigateCloudWatch
 }: {
   connection: AwsConnection
   refreshNonce?: number
   focusService?: { token: number; clusterArn: string; serviceName: string } | null
+  observabilityLabEnabled?: boolean
   onRunTerminalCommand?: (command: string) => void
   onNavigateCloudWatch?: (focus: { logGroupNames?: string[]; queryString?: string; sourceLabel?: string; serviceHint?: ServiceId | '' }) => void
 }) {
@@ -200,6 +202,12 @@ export function EcsConsole({
     completeRefresh: completeLabRefresh,
     failRefresh: failLabRefresh
   } = useFreshnessState({ staleAfterMs: 5 * 60 * 1000 })
+
+  useEffect(() => {
+    if (!observabilityLabEnabled && mainTab === 'lab') {
+      setMainTab('services')
+    }
+  }, [mainTab, observabilityLabEnabled])
 
   const selectedCluster = useMemo(
     () => clusters.find((cluster) => cluster.clusterArn === selectedClusterArn) ?? null,
@@ -753,9 +761,11 @@ export function EcsConsole({
                 <button className={mainTab === 'tasks' ? 'active' : ''} type="button" onClick={() => setMainTab('tasks')}>
                   Tasks ({taskRows.length})
                 </button>
-                <button className={mainTab === 'lab' ? 'active' : ''} type="button" onClick={() => setMainTab('lab')}>
-                  Resilience Lab
-                </button>
+                {observabilityLabEnabled && (
+                  <button className={mainTab === 'lab' ? 'active' : ''} type="button" onClick={() => setMainTab('lab')}>
+                    Resilience Lab
+                  </button>
+                )}
               </div>
 
               {mainTab !== 'lab' && (

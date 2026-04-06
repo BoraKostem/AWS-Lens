@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 export type RefreshReason = 'initial' | 'manual' | 'background' | 'workflow' | 'selection' | 'session'
+export type FreshnessSource = 'live' | 'local'
 
 export type FreshnessState = {
   fetchedAt: number | null
   loading: boolean
   stale: boolean
   refreshReason: RefreshReason | null
+  source: FreshnessSource | null
 }
 
 function computeStale(fetchedAt: number | null, staleAfterMs: number): boolean {
@@ -66,16 +68,19 @@ export function formatFreshnessAgo(fetchedAt: number | null): string {
 
 export function useFreshnessState({
   staleAfterMs = 5 * 60 * 1000,
-  initialFetchedAt = null
+  initialFetchedAt = null,
+  initialSource = null
 }: {
   staleAfterMs?: number
   initialFetchedAt?: number | null
+  initialSource?: FreshnessSource | null
 } = {}) {
   const [freshness, setFreshness] = useState<FreshnessState>(() => ({
     fetchedAt: initialFetchedAt,
     loading: false,
     stale: computeStale(initialFetchedAt, staleAfterMs),
-    refreshReason: null
+    refreshReason: null,
+    source: initialSource
   }))
 
   useEffect(() => {
@@ -98,14 +103,15 @@ export function useFreshnessState({
     }))
   }, [staleAfterMs])
 
-  const completeRefresh = useCallback((fetchedAt = Date.now()) => {
+  const completeRefresh = useCallback((fetchedAt = Date.now(), source: FreshnessSource = 'live') => {
     setFreshness({
       fetchedAt,
       loading: false,
-      stale: false,
-      refreshReason: null
+      stale: computeStale(fetchedAt, staleAfterMs),
+      refreshReason: null,
+      source
     })
-  }, [])
+  }, [staleAfterMs])
 
   const failRefresh = useCallback(() => {
     setFreshness((current) => ({
@@ -115,11 +121,12 @@ export function useFreshnessState({
     }))
   }, [staleAfterMs])
 
-  const replaceFetchedAt = useCallback((fetchedAt: number | null) => {
+  const replaceFetchedAt = useCallback((fetchedAt: number | null, source: FreshnessSource | null = null) => {
     setFreshness((current) => ({
       ...current,
       fetchedAt,
-      stale: computeStale(fetchedAt, staleAfterMs)
+      stale: computeStale(fetchedAt, staleAfterMs),
+      source: fetchedAt ? source : null
     }))
   }, [staleAfterMs])
 
@@ -159,8 +166,9 @@ export function FreshnessIndicator({
       </div>
       <div className="freshness-indicator__badges">
         {freshness.loading && <span className="freshness-pill loading">{reasonLabel(freshness.refreshReason)}</span>}
+        {freshness.fetchedAt && freshness.source === 'local' && <span className="freshness-pill cached">Cached</span>}
         {!freshness.loading && freshness.stale && <span className="freshness-pill stale">{staleLabel}</span>}
-        {freshness.fetchedAt && !freshness.loading && !freshness.stale && <span className="freshness-pill ready">Fresh</span>}
+        {freshness.fetchedAt && !freshness.loading && !freshness.stale && freshness.source !== 'local' && <span className="freshness-pill ready">Fresh</span>}
       </div>
     </div>
   )

@@ -148,12 +148,14 @@ async function copyText(value: string): Promise<void> {
 export function EksConsole({
   connection,
   focusClusterName,
+  observabilityLabEnabled = true,
   onRunTerminalCommand,
   onNavigateCloudWatch,
   onNavigateCloudTrail
 }: {
   connection: AwsConnection
   focusClusterName?: { token: number; clusterName: string } | null
+  observabilityLabEnabled?: boolean
   onRunTerminalCommand?: (command: string) => void
   onNavigateCloudWatch?: (focus: { logGroupNames?: string[]; queryString?: string; sourceLabel?: string; serviceHint?: ServiceId | '' }) => void
   onNavigateCloudTrail?: (focus: { resourceName?: string; startTime?: string; endTime?: string; filter?: string }) => void
@@ -208,6 +210,12 @@ export function EksConsole({
   const [upgradePlan, setUpgradePlan] = useState<EksUpgradePlan | null>(null)
   const [plannerTargetVersion, setPlannerTargetVersion] = useState('')
   const [plannerLoading, setPlannerLoading] = useState(false)
+
+  useEffect(() => {
+    if (!observabilityLabEnabled && sideTab === 'lab') {
+      setSideTab('overview')
+    }
+  }, [observabilityLabEnabled, sideTab])
   const [plannerError, setPlannerError] = useState('')
   const [plannerCopiedCommandId, setPlannerCopiedCommandId] = useState('')
 
@@ -783,7 +791,9 @@ export function EksConsole({
                 <button className={sideTab === 'overview' ? 'active' : ''} type="button" onClick={() => setSideTab('overview')}>Overview</button>
                 <button className={sideTab === 'planner' ? 'active' : ''} type="button" onClick={() => setSideTab('planner')}>Upgrade planner</button>
                 <button className={sideTab === 'timeline' ? 'active' : ''} type="button" onClick={() => setSideTab('timeline')}>Change timeline</button>
-                <button className={sideTab === 'lab' ? 'active' : ''} type="button" onClick={() => setSideTab('lab')}>Resilience lab</button>
+                {observabilityLabEnabled && (
+                  <button className={sideTab === 'lab' ? 'active' : ''} type="button" onClick={() => setSideTab('lab')}>Resilience lab</button>
+                )}
               </div>
 
               {sideTab === 'overview' && (

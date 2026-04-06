@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import appLogoUrl from '../../../assets/aws-lens-logo.png'
+import { isObservabilityLabEnabled } from '@shared/featureFlags'
 import type {
+  AppDiagnosticsActiveContext,
+  AppDiagnosticsConnectionSummary,
+  AppDiagnosticsFocusSummary,
+  AppDiagnosticsScreen,
   AppReleaseInfo,
   AppSecuritySummary,
   AppSettings,
@@ -42,6 +47,7 @@ import {
   setTerraformCliKind,
   setEnterpriseAccessMode,
   updateAppSettings,
+  updateDiagnosticsActiveContext,
   updateGovernanceTagDefaults,
   useAwsActivity,
   useEnterpriseSettings,
@@ -104,6 +110,12 @@ type EnvironmentOnboardingState = {
 type FocusMap = Partial<Record<NavigationFocus['service'], TokenizedFocus>>
 const NAV_HIDDEN_SERVICE_IDS = new Set<ServiceId>(['overview', 'session-hub', 'compare'])
 const ENVIRONMENT_ONBOARDING_STEPS: EnvironmentOnboardingStep[] = ['profile', 'region', 'tooling', 'access']
+const ENVIRONMENT_ONBOARDING_STEP_LABELS: Record<EnvironmentOnboardingStep, string> = {
+  profile: 'Profile',
+  region: 'Region',
+  tooling: 'Tooling',
+  access: 'Access mode'
+}
 
 const SERVICE_CATEGORY_ORDER = [
   'Infrastructure',
@@ -415,6 +427,145 @@ function refreshTagsForScreen(screen: Screen): CacheTag[] {
   }
 }
 
+function diagnosticsScreenLabel(screen: Screen, service: ServiceDescriptor | null): string {
+  switch (screen) {
+    case 'profiles':
+      return 'Profile Catalog'
+    case 'settings':
+      return 'Settings'
+    case 'direct-access':
+      return 'Direct Access'
+    default:
+      return service?.label ?? screen
+  }
+}
+
+function summarizeFocusForDiagnostics(focus: TokenizedFocus<NavigationFocus['service']> | null): AppDiagnosticsFocusSummary | null {
+  if (!focus) {
+    return null
+  }
+
+  switch (focus.service) {
+    case 'route53':
+      return {
+        service: focus.service,
+        resourceId: `${focus.record.name}:${focus.record.type}`,
+        summary: `${focus.record.name} ${focus.record.type}`
+      }
+    case 'load-balancers':
+      return {
+        service: focus.service,
+        resourceId: focus.loadBalancerArn,
+        summary: focus.loadBalancerArn.split('/').pop() ?? focus.loadBalancerArn
+      }
+    case 'lambda':
+      return {
+        service: focus.service,
+        resourceId: focus.functionName,
+        summary: focus.functionName
+      }
+    case 'ecs':
+      return {
+        service: focus.service,
+        resourceId: focus.serviceName,
+        summary: `${focus.serviceName} (${focus.clusterArn.split('/').pop() ?? focus.clusterArn})`
+      }
+    case 'eks':
+      return {
+        service: focus.service,
+        resourceId: focus.clusterName,
+        summary: focus.clusterName
+      }
+    case 'cloudtrail':
+      return {
+        service: focus.service,
+        resourceId: focus.resourceName || focus.filter || 'timeline',
+        summary: focus.resourceName || focus.filter || 'CloudTrail event search'
+      }
+    case 'ec2':
+      return {
+        service: focus.service,
+        resourceId: focus.instanceId || focus.volumeId || focus.tab || 'inventory',
+        summary: focus.instanceId || focus.volumeId || focus.tab || 'EC2 inventory'
+      }
+    case 'cloudwatch':
+      return {
+        service: focus.service,
+        resourceId: focus.ec2InstanceId || focus.logGroupNames?.[0] || focus.serviceHint || 'workspace',
+        summary: focus.ec2InstanceId || focus.logGroupNames?.join(', ') || focus.queryString || 'CloudWatch workspace'
+      }
+    case 'vpc':
+      return {
+        service: focus.service,
+        resourceId: focus.vpcId,
+        summary: focus.vpcId
+      }
+    case 'security-groups':
+      return {
+        service: focus.service,
+        resourceId: focus.securityGroupId,
+        summary: focus.securityGroupId
+      }
+    case 'waf':
+      return {
+        service: focus.service,
+        resourceId: focus.webAclName,
+        summary: focus.webAclName
+      }
+    default:
+      return null
+  }
+}
+
+function summarizeConnectionForDiagnostics(
+  connection: ReturnType<typeof useAwsPageConnection>['connection'],
+  connected: boolean,
+  accountId: string
+): AppDiagnosticsConnectionSummary {
+  if (!connection) {
+    return {
+      status: 'disconnected',
+      kind: '',
+      label: '',
+      profile: '',
+      sourceProfile: '',
+      region: '',
+      sessionId: '',
+      accountId: '',
+      roleArn: '',
+      assumedRoleArn: ''
+    }
+  }
+
+  if (connection.kind === 'assumed-role') {
+    return {
+      status: connected ? 'connected' : 'disconnected',
+      kind: connection.kind,
+      label: connection.label,
+      profile: connection.profile,
+      sourceProfile: connection.sourceProfile,
+      region: connection.region,
+      sessionId: connection.sessionId,
+      accountId: connection.accountId,
+      roleArn: connection.roleArn,
+      assumedRoleArn: connection.assumedRoleArn
+    }
+  }
+
+  return {
+    status: connected ? 'connected' : 'disconnected',
+    kind: connection.kind,
+    label: connection.label,
+    profile: connection.profile,
+    sourceProfile: '',
+    region: connection.region,
+    sessionId: connection.sessionId,
+    accountId,
+    roleArn: '',
+    assumedRoleArn: ''
+  }
+}
+
 export function App() {
   const [releaseInfo, setReleaseInfo] = useState<AppReleaseInfo | null>(null)
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null)
@@ -463,15 +614,20 @@ export function App() {
   const enterpriseSettings = useEnterpriseSettings()
   const launchScreenInitializedRef = useRef(false)
   const terminalAutoOpenedScopeRef = useRef('')
+  const diagnosticsContextSignatureRef = useRef('')
+
+  async function refreshServiceCatalog(): Promise<void> {
+    try {
+      const loadedServices = await listServices()
+      setServices(loadedServices)
+      setCatalogError('')
+    } catch (error) {
+      setCatalogError(error instanceof Error ? error.message : String(error))
+    }
+  }
 
   useEffect(() => {
-    void listServices()
-      .then((loadedServices) => {
-        setServices(loadedServices)
-      })
-      .catch((error) => {
-        setCatalogError(error instanceof Error ? error.message : String(error))
-      })
+    void refreshServiceCatalog()
       .finally(() => setServicesHydrated(true))
   }, [])
 
@@ -639,6 +795,15 @@ export function App() {
     setPinnedServiceIds((current) => current.filter((serviceId) => validServiceIds.has(serviceId) && !NAV_HIDDEN_SERVICE_IDS.has(serviceId)))
   }, [services])
 
+  useEffect(() => {
+    const allowedScreens = new Set<Screen>(['profiles', 'settings', 'direct-access', ...services.map((service) => service.id)])
+    setVisitedScreens((current) => current.filter((visitedScreen) => allowedScreens.has(visitedScreen)))
+
+    if (!allowedScreens.has(screen)) {
+      setScreen('profiles')
+    }
+  }, [screen, services])
+
   const pinnedServices = useMemo(() => {
     const serviceById = new Map(services.map((service) => [service.id, service]))
     return pinnedServiceIds
@@ -705,6 +870,9 @@ export function App() {
       : 'Idle'
 
   const selectedService = (services.find((service) => service.id === screen) ?? null) as ServiceDescriptor | null
+  const currentDiagnosticsFocus = (screen === 'profiles' || screen === 'settings' || screen === 'direct-access'
+    ? null
+    : (focusMap[screen as NavigationFocus['service']] ?? null)) as TokenizedFocus<NavigationFocus['service']> | null
   const activeCacheTag = screenCacheTag(screen)
   const activePageNonce = pageRefreshNonceByScreen[screen] ?? 0
   const isCurrentScreenRefreshing = refreshState?.screen === screen
@@ -730,6 +898,7 @@ export function App() {
     : releaseInfo?.updateStatus === 'available' || releaseInfo?.updateStatus === 'downloaded' || releaseInfo?.updateStatus === 'error'
       ? 'settings-status-pill-preview'
       : 'settings-status-pill-stable'
+  const observabilityLabEnabled = isObservabilityLabEnabled(appSettings?.features)
   const environmentIssueCount = useMemo(() => {
     if (!environmentHealth) {
       return 0
@@ -743,6 +912,11 @@ export function App() {
   const onboardingStepIndex = ENVIRONMENT_ONBOARDING_STEPS.indexOf(environmentOnboardingStep)
   const onboardingBackEnabled = onboardingStepIndex > 0
   const onboardingNextLabel = onboardingStepIndex === ENVIRONMENT_ONBOARDING_STEPS.length - 1 ? 'Finish onboarding' : 'Next step'
+  const onboardingProgress = ENVIRONMENT_ONBOARDING_STEPS.map((step, index) => ({
+    step,
+    label: ENVIRONMENT_ONBOARDING_STEP_LABELS[step],
+    status: index < onboardingStepIndex ? 'done' : index === onboardingStepIndex ? 'active' : 'pending'
+  }))
 
   function togglePinnedService(serviceId: ServiceId) {
     setPinnedServiceIds((current) =>
@@ -913,6 +1087,41 @@ export function App() {
     setConnectionRenderEpoch((current) => current + 1)
   }, [connectionScopeKey])
 
+  useEffect(() => {
+    const context: AppDiagnosticsActiveContext = {
+      capturedAt: new Date().toISOString(),
+      screen: screen as AppDiagnosticsScreen,
+      screenLabel: diagnosticsScreenLabel(screen, selectedService),
+      connection: summarizeConnectionForDiagnostics(
+        connectionState.connection,
+        connectionState.connected,
+        connectionState.identity?.account ?? ''
+      ),
+      focus: summarizeFocusForDiagnostics(currentDiagnosticsFocus)
+    }
+
+    const signature = JSON.stringify({
+      screen: context.screen,
+      screenLabel: context.screenLabel,
+      connection: context.connection,
+      focus: context.focus
+    })
+
+    if (diagnosticsContextSignatureRef.current === signature) {
+      return
+    }
+
+    diagnosticsContextSignatureRef.current = signature
+    void updateDiagnosticsActiveContext(context)
+  }, [
+    connectionState.connected,
+    connectionState.connection,
+    connectionState.identity?.account,
+    currentDiagnosticsFocus,
+    screen,
+    selectedService
+  ])
+
   // Redirect to profiles when connection fails (e.g. SSO session expired)
   useEffect(() => {
     if (connectionState.error && !connectionState.connected && connectionState.connection) {
@@ -924,6 +1133,10 @@ export function App() {
     setRefreshState((current) => {
       if (!current) {
         return current
+      }
+
+      if (SOFT_REFRESH_SCREENS.has(current.screen)) {
+        return null
       }
 
       if (awsActivity.pendingCount > 0) {
@@ -958,7 +1171,9 @@ export function App() {
         return
       }
 
-      setRefreshState({ screen, sawPending: false })
+      if (!SOFT_REFRESH_SCREENS.has(screen)) {
+        setRefreshState({ screen, sawPending: false })
+      }
       for (const tag of refreshTags) {
         invalidatePageCache(tag)
       }
@@ -984,7 +1199,9 @@ export function App() {
       return
     }
 
-    setRefreshState({ screen, sawPending: false })
+    if (!SOFT_REFRESH_SCREENS.has(screen)) {
+      setRefreshState({ screen, sawPending: false })
+    }
     for (const tag of refreshTags) {
       invalidatePageCache(tag)
     }
@@ -1152,6 +1369,19 @@ export function App() {
     }
   }
 
+  async function handleUpdateFeatureSettings(update: AppSettings['features']): Promise<void> {
+    setSettingsMessage('')
+    try {
+      const nextSettings = await updateAppSettings({ features: update })
+      setAppSettings(nextSettings)
+      invalidatePageCache('shell')
+      await refreshServiceCatalog()
+      setSettingsMessage('Beta registry saved.')
+    } catch (err) {
+      setSettingsMessage(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   async function handleUpdateToolchainSettings(update: AppSettings['toolchain']): Promise<void> {
     setToolchainBusy(true)
     setSettingsMessage('')
@@ -1243,6 +1473,10 @@ export function App() {
     }
   }
 
+  function handleOpenReleasePage(): void {
+    void openExternalUrl(releaseInfo?.latestRelease.url || releaseInfo?.releaseUrl || 'https://github.com/BoraKostem/AWS-Lens/releases/')
+  }
+
   async function handleRefreshEnvironmentHealth(): Promise<void> {
     setEnvironmentBusy(true)
     setToolchainBusy(true)
@@ -1298,6 +1532,12 @@ export function App() {
     setEnvironmentOnboardingStepSafe(previousStep)
   }
 
+  function openManualCredentialsFlowFromOnboarding(): void {
+    setCredError('')
+    setFabMode('credentials')
+    dismissEnvironmentOnboarding('profiles')
+  }
+
   let onboardingTitle = 'Connect a profile before you explore AWS workflows.'
   let onboardingDescription = 'AWS Lens keeps one active account and region context across the shell, service consoles, and embedded terminal.'
   let onboardingSummary = `Detected ${connectionState.profiles.length} local AWS profile${connectionState.profiles.length === 1 ? '' : 's'}. ${connectionState.selectedProfile?.name ? `Current selection: ${connectionState.selectedProfile.name}.` : 'No profile is selected yet.'}`
@@ -1306,6 +1546,11 @@ export function App() {
   let onboardingSecondaryActionLabel = 'Continue here'
   let onboardingSecondaryAction: (() => void) | null = null
   let onboardingDetailContent: React.ReactNode = null
+  let onboardingGuidance: string[] = [
+    'Choose or create a profile so the shell has one AWS account context.',
+    'Confirm the default region and startup screen before you spread across services.',
+    'Run environment checks before terminal-backed or Terraform actions.'
+  ]
 
   if (environmentOnboardingStep === 'region') {
     onboardingTitle = 'Confirm the region and launch defaults for this workspace.'
@@ -1315,6 +1560,11 @@ export function App() {
     onboardingPrimaryAction = () => dismissEnvironmentOnboarding('settings')
     onboardingSecondaryActionLabel = 'Go to overview'
     onboardingSecondaryAction = connectionState.connected ? () => setScreen('overview') : null
+    onboardingGuidance = [
+      'Pick the region you inspect most often so the shell opens in the right scope.',
+      'Use startup defaults if operators share this workstation.',
+      'Go to Overview only after profile and region look correct.'
+    ]
     onboardingDetailContent = (
       <div className="environment-onboarding-grid">
         <section className="environment-onboarding-section">
@@ -1348,6 +1598,11 @@ export function App() {
     onboardingPrimaryAction = environmentBusy ? null : () => void handleRefreshEnvironmentHealth()
     onboardingSecondaryActionLabel = 'Open settings'
     onboardingSecondaryAction = () => dismissEnvironmentOnboarding('settings')
+    onboardingGuidance = [
+      'Resolve missing CLIs before you rely on terminal handoff or Terraform operations.',
+      'Fix permission failures for local state, diagnostics, and helper outputs early.',
+      'Open Settings if you need path overrides or a full machine check view.'
+    ]
     onboardingDetailContent = (
       <div className="environment-onboarding-grid">
         <section className="environment-onboarding-section">
@@ -1404,6 +1659,11 @@ export function App() {
     onboardingPrimaryAction = () => dismissEnvironmentOnboarding('settings')
     onboardingSecondaryActionLabel = 'Open session hub'
     onboardingSecondaryAction = connectionState.connected ? () => setScreen('session-hub') : null
+    onboardingGuidance = [
+      'Stay in read-only mode until profile, tooling, and diagnostics all look healthy.',
+      'Use operator mode only when you intend to mutate infrastructure or run commands.',
+      'Security settings are the right place for audit export and diagnostics bundle review.'
+    ]
     onboardingDetailContent = (
       <div className="environment-onboarding-grid">
         <section className="environment-onboarding-section">
@@ -1434,6 +1694,24 @@ export function App() {
       </div>
     )
   } else {
+    if (connectionState.profiles.length === 0) {
+      onboardingTitle = 'Load or create a profile before you explore AWS workflows.'
+      onboardingDescription = 'AWS Lens needs one local AWS profile or vault credential before overview, service consoles, Session Hub, and direct access can share a common context.'
+      onboardingSummary = 'No local AWS profiles were detected yet. Import your AWS config or save credentials into the encrypted local vault to create the first operator context.'
+      onboardingPrimaryActionLabel = 'Import AWS config'
+      onboardingPrimaryAction = () => {
+        dismissEnvironmentOnboarding('profiles')
+        void handleLoadAwsConfig()
+      }
+      onboardingSecondaryActionLabel = 'Add credentials'
+      onboardingSecondaryAction = () => openManualCredentialsFlowFromOnboarding()
+      onboardingGuidance = [
+        'Import existing ~/.aws config when you already have named workstation profiles.',
+        'Use vault-backed credentials when you want the app to store them locally and encrypted.',
+        'After the first profile is loaded, pin frequent accounts so switching is faster.'
+      ]
+    }
+
     onboardingDetailContent = (
       <div className="environment-onboarding-grid">
         <section className="environment-onboarding-section">
@@ -1445,6 +1723,15 @@ export function App() {
             </div>
             <div className="settings-environment-meta">
               <code>{connectionState.profiles.length} discovered</code>
+            </div>
+          </div>
+          <div className="settings-environment-row">
+            <div>
+              <strong>First-run paths</strong>
+              <p>{connectionState.profiles.length > 0 ? 'Your catalog already has profiles to choose from. If you need more, import the AWS config file or add a vault-backed credential from the catalog.' : 'No profile inventory is available yet. Start by importing the local AWS config file or by creating a vault-backed credential inside the catalog.'}</p>
+            </div>
+            <div className="settings-environment-meta">
+              <span className={`settings-status-pill settings-status-pill-${connectionState.profiles.length > 0 ? 'stable' : 'unknown'}`}>{connectionState.profiles.length > 0 ? 'ready' : 'pending'}</span>
             </div>
           </div>
           <div className="settings-environment-row">
@@ -1475,7 +1762,7 @@ export function App() {
 
     if (targetScreen === 'profiles') {
       return (
-        <section className="profile-catalog-shell">
+      <section className="profile-catalog-shell">
           <div className="profile-catalog-hero">
             <div className="profile-catalog-hero-copy">
               <div className="eyebrow">Profile Catalog</div>
@@ -1558,6 +1845,25 @@ export function App() {
                   </div>
                 </div>
               ))
+            ) : connectionState.profiles.length === 0 && !profileSearch.trim() ? (
+              <div className="profile-catalog-empty profile-catalog-empty-guided">
+                <div className="eyebrow">First profile</div>
+                <h3>No AWS profiles are loaded yet</h3>
+                <p className="hero-path">Import an existing AWS config file or save credentials into the encrypted local vault to create the first operator context.</p>
+                <div className="profile-catalog-empty__actions">
+                  <button type="button" className="accent" onClick={() => void handleLoadAwsConfig()}>
+                    Import AWS config
+                  </button>
+                  <button type="button" onClick={() => { setCredError(''); setFabMode('credentials') }}>
+                    Add credentials manually
+                  </button>
+                </div>
+                <div className="profile-catalog-empty__checklist">
+                  <span>1. Load one profile or vault credential.</span>
+                  <span>2. Select it as the base workspace context.</span>
+                  <span>3. Pin frequent accounts so future switches stay in the left rail.</span>
+                </div>
+              </div>
             ) : (
               <div className="profile-catalog-empty">
                 <div className="eyebrow">No Matches</div>
@@ -1578,6 +1884,7 @@ export function App() {
             <TerraformConsole
               connection={connection}
               refreshNonce={pageRefreshNonceByScreen['terraform'] ?? 0}
+              observabilityLabEnabled={observabilityLabEnabled}
               onRunTerminalCommand={handleOpenTerminalCommand}
               onNavigateService={navigateToServiceWithResourceId}
               onNavigateCloudWatch={(focus) => navigateWithFocus({ service: 'cloudwatch', ...focus })}
@@ -1628,6 +1935,7 @@ export function App() {
           enterpriseBusy={enterpriseBusy}
           settingsMessage={settingsMessage}
           onUpdateGeneralSettings={(update) => void handleUpdateGeneralSettings(update)}
+          onUpdateFeatureSettings={(update) => void handleUpdateFeatureSettings(update)}
           onUpdateTerminalSettings={(update) => void handleUpdateTerminalSettings(update)}
           onUpdateRefreshSettings={(update) => void handleUpdateRefreshSettings(update)}
           onUpdateGovernanceDefaults={(update) => void handleUpdateGovernanceDefaults(update)}
@@ -1752,10 +2060,10 @@ export function App() {
     if (targetScreen === 'rds' && targetService?.id === 'rds') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <RdsConsole connection={connection} onNavigateCloudWatch={(focus) => navigateWithFocus({ service: 'cloudwatch', ...focus })} onRunTerminalCommand={handleOpenTerminalCommand} />}</ConnectedServiceScreen>
     if (targetScreen === 'lambda' && targetService?.id === 'lambda') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <LambdaConsole connection={connection} focusFunctionName={getFocus('lambda')} onNavigateCloudWatch={(focus) => navigateWithFocus({ service: 'cloudwatch', ...focus })} />}</ConnectedServiceScreen>
     if (targetScreen === 'auto-scaling' && targetService?.id === 'auto-scaling') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <AutoScalingConsole connection={connection} />}</ConnectedServiceScreen>
-    if (targetScreen === 'ecs' && targetService?.id === 'ecs') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <EcsConsole connection={connection} refreshNonce={pageRefreshNonceByScreen['ecs'] ?? 0} focusService={getFocus('ecs')} onRunTerminalCommand={handleOpenTerminalCommand} onNavigateCloudWatch={(focus) => navigateWithFocus({ service: 'cloudwatch', ...focus })} />}</ConnectedServiceScreen>
+    if (targetScreen === 'ecs' && targetService?.id === 'ecs') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <EcsConsole connection={connection} refreshNonce={pageRefreshNonceByScreen['ecs'] ?? 0} focusService={getFocus('ecs')} observabilityLabEnabled={observabilityLabEnabled} onRunTerminalCommand={handleOpenTerminalCommand} onNavigateCloudWatch={(focus) => navigateWithFocus({ service: 'cloudwatch', ...focus })} />}</ConnectedServiceScreen>
     if (targetScreen === 'acm' && targetService?.id === 'acm') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <AcmConsole connection={connection} onOpenRoute53={(record) => navigateWithFocus({ service: 'route53', record })} onOpenLoadBalancer={(loadBalancerArn) => navigateWithFocus({ service: 'load-balancers', loadBalancerArn })} onOpenWaf={(webAclName) => navigateWithFocus({ service: 'waf', webAclName })} />}</ConnectedServiceScreen>
     if (targetScreen === 'ecr' && targetService?.id === 'ecr') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <EcrConsole connection={connection} />}</ConnectedServiceScreen>
-    if (targetScreen === 'eks' && targetService?.id === 'eks') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <EksConsole connection={connection} focusClusterName={getFocus('eks')} onRunTerminalCommand={handleOpenTerminalCommand} onNavigateCloudWatch={(focus) => navigateWithFocus({ service: 'cloudwatch', ...focus })} onNavigateCloudTrail={(focus) => navigateWithFocus({ service: 'cloudtrail', ...focus })} />}</ConnectedServiceScreen>
+    if (targetScreen === 'eks' && targetService?.id === 'eks') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <EksConsole connection={connection} focusClusterName={getFocus('eks')} observabilityLabEnabled={observabilityLabEnabled} onRunTerminalCommand={handleOpenTerminalCommand} onNavigateCloudWatch={(focus) => navigateWithFocus({ service: 'cloudwatch', ...focus })} onNavigateCloudTrail={(focus) => navigateWithFocus({ service: 'cloudtrail', ...focus })} />}</ConnectedServiceScreen>
     if (targetScreen === 'iam' && targetService?.id === 'iam') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <IamConsole connection={connection} />}</ConnectedServiceScreen>
     if (targetScreen === 'identity-center' && targetService?.id === 'identity-center') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <IdentityCenterConsole connection={connection} />}</ConnectedServiceScreen>
     if (targetScreen === 'secrets-manager' && targetService?.id === 'secrets-manager') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <SecretsManagerConsole connection={connection} onNavigate={(target) => {
@@ -1833,9 +2141,9 @@ export function App() {
                   <button
                     type="button"
                     className="app-update-indicator"
-                    aria-label={`Update available. Latest version is ${releaseInfo.latestVersion}. Open releases page.`}
+                    aria-label={`Update available. Latest version is ${releaseInfo.latestVersion}. Open settings.`}
                     title={`Update available: v${releaseInfo.latestVersion}`}
-                    onClick={() => void openExternalUrl(releaseInfo.releaseUrl)}
+                    onClick={() => setScreen('settings')}
                   >
                     ↑
                   </button>
@@ -1978,6 +2286,24 @@ export function App() {
                 <strong>{onboardingSummary}</strong>
                 <span>Environment: {environmentHealth?.overallSeverity ?? (environmentBusy ? 'checking' : 'idle')}</span>
                 <span>Checked: {environmentHealth?.checkedAt ? new Date(environmentHealth.checkedAt).toLocaleString() : environmentBusy ? 'Running now' : 'Not checked yet'}</span>
+              </div>
+
+              <div className="environment-onboarding-progress" aria-label="First-run progress">
+                {onboardingProgress.map((item) => (
+                  <div key={item.step} className={`environment-onboarding-progress__item ${item.status}`}>
+                    <span>{item.label}</span>
+                    <strong>{item.status === 'done' ? 'Done' : item.status === 'active' ? 'Current' : 'Pending'}</strong>
+                  </div>
+                ))}
+              </div>
+
+              <div className="environment-onboarding-guidance">
+                <div className="eyebrow">Recommended next moves</div>
+                <div className="environment-onboarding-guidance__list">
+                  {onboardingGuidance.map((item) => (
+                    <span key={item}>{item}</span>
+                  ))}
+                </div>
               </div>
 
               {onboardingDetailContent}

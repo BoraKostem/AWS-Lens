@@ -3529,9 +3529,17 @@ function HistoryTab({
   )
 }
 
-export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCommand, onNavigateService, onNavigateCloudWatch }: {
+export function TerraformConsole({
+  connection,
+  refreshNonce = 0,
+  observabilityLabEnabled = true,
+  onRunTerminalCommand,
+  onNavigateService,
+  onNavigateCloudWatch
+}: {
   connection: AwsConnection
   refreshNonce?: number
+  observabilityLabEnabled?: boolean
   onRunTerminalCommand?: (command: string) => void
   onNavigateService?: (serviceId: ServiceId, resourceId?: string) => void
   onNavigateCloudWatch?: (focus: { logGroupNames?: string[]; queryString?: string; sourceLabel?: string; serviceHint?: ServiceId | '' }) => void
@@ -3605,6 +3613,12 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   const persistedHistoryFilters = detail ? uiState.historyFiltersByProject[detail.id] : undefined
   const persistedDriftStatusFilter = detail ? (uiState.driftStatusFilterByProject[detail.id] ?? 'all') : 'all'
   const persistedDriftTypeFilter = detail ? (uiState.driftTypeFilterByProject[detail.id] ?? 'all') : 'all'
+
+  useEffect(() => {
+    if (!observabilityLabEnabled && detailTab === 'lab') {
+      setDetailTab('operations')
+    }
+  }, [detailTab, observabilityLabEnabled])
 
   useEffect(() => {
     saveTerraformUiState(uiState)
@@ -4571,7 +4585,9 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
                 <button className={detailTab === 'state' ? 'active' : ''} onClick={() => setDetailTab('state')}>State</button>
                 <button className={detailTab === 'resources' ? 'active' : ''} onClick={() => setDetailTab('resources')}>Resources</button>
                 <button className={detailTab === 'drift' ? 'active' : ''} onClick={() => setDetailTab('drift')}>Drift</button>
-                <button className={detailTab === 'lab' ? 'active' : ''} onClick={() => setDetailTab('lab')}>Lab</button>
+                {observabilityLabEnabled && (
+                  <button className={detailTab === 'lab' ? 'active' : ''} onClick={() => setDetailTab('lab')}>Lab</button>
+                )}
                 <button className={detailTab === 'history' ? 'active' : ''} onClick={() => setDetailTab('history')}>History</button>
               </div>
 

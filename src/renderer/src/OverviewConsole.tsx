@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { AwsCapabilityHint, AwsConnection, CostBreakdown, InsightItem, OverviewAccountContext, OverviewMetrics, OverviewStatistics, RegionMetric, RegionalSignal, RelationshipMap, ServiceId, ServiceRelationship, TagSearchResult } from '@shared/types'
 import { useAwsPageConnection } from './AwsPage'
-import { getCostBreakdown, getOverviewAccountContext, getOverviewMetrics, getOverviewStatistics, getRelationshipMap, searchByTag } from './api'
+import { getCachedQuerySnapshot, getCostBreakdown, getOverviewAccountContext, getOverviewMetrics, getOverviewStatistics, getRelationshipMap, searchByTag } from './api'
+import { FreshnessIndicator, useFreshnessState } from './freshness'
 import { SvcState, variantForError } from './SvcState'
 
 type OverviewTab = 'overview' | 'relationships' | 'statistics' | 'tags'
@@ -144,6 +145,7 @@ export function OverviewConsole({
   const [tagResults, setTagResults] = useState<TagSearchResult | null>(null)
   const [tab, setTab] = useState<OverviewTab>('overview')
   const [loading, setLoading] = useState(false)
+  const [supplementalLoading, setSupplementalLoading] = useState(false)
   const [globalLoading, setGlobalLoading] = useState(false)
   const [pageError, setPageError] = useState('')
   const [tagKey, setTagKey] = useState('')
@@ -156,6 +158,12 @@ export function OverviewConsole({
   const [edgePage, setEdgePage] = useState(0)
   const [insightFilter, setInsightFilter] = useState<InsightFilter>('all')
   const [signalFilter, setSignalFilter] = useState<SignalFilter>('all')
+  const regionalLoadTokenRef = useRef(0)
+  const lastRegionalLoadScopeRef = useRef<string | null>(null)
+  const lastRegionalRefreshNonceRef = useRef(refreshNonce)
+  const { freshness, beginRefresh, completeRefresh, failRefresh, replaceFetchedAt } = useFreshnessState({
+    staleAfterMs: 5 * 60 * 1000
+  })
 
   const availableRegions = useMemo(
     () => connectionState.regions.map((item) => item.id),
@@ -165,32 +173,94 @@ export function OverviewConsole({
   // Auto-load regional overview when connection is ready or refresh is triggered
   useEffect(() => {
     if (connectionState.connection && connectionState.connected) {
-      void loadRegionalOverview(connectionState.connection)
+      const scopeKey = `${connectionState.connection.sessionId}:${connectionState.region}`
+      let reason: 'initial' | 'manual' | 'selection' = 'initial'
+
+      if (lastRegionalLoadScopeRef.current === null) {
+        reason = 'initial'
+      } else if (lastRegionalLoadScopeRef.current !== scopeKey) {
+        reason = 'selection'
+      } else if (lastRegionalRefreshNonceRef.current !== refreshNonce) {
+        reason = 'manual'
+      } else {
+        reason = 'manual'
+      }
+
+      lastRegionalLoadScopeRef.current = scopeKey
+      lastRegionalRefreshNonceRef.current = refreshNonce
+      void loadRegionalOverview(connectionState.connection, reason)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionState.connection, connectionState.connected, connectionState.region, refreshNonce])
 
-  async function loadRegionalOverview(connection: AwsConnection) {
-    setLoading(true)
+  async function loadRegionalOverview(connection: AwsConnection, reason: 'initial' | 'manual' | 'selection' = 'manual') {
+    const loadToken = regionalLoadTokenRef.current + 1
+    regionalLoadTokenRef.current = loadToken
     setPageError('')
+
+    const metricsArgs = [connection, [connection.region]]
+    const sharedArgs = [connection]
+    const metricsSnapshot = getCachedQuerySnapshot<OverviewMetrics>('overview', 'getOverviewMetrics', metricsArgs)
+    const statisticsSnapshot = getCachedQuerySnapshot<OverviewStatistics>('overview', 'getOverviewStatistics', sharedArgs)
+    const accountContextSnapshot = getCachedQuerySnapshot<OverviewAccountContext>('overview', 'getOverviewAccountContext', sharedArgs)
+    const relationshipsSnapshot = getCachedQuerySnapshot<RelationshipMap>('overview', 'getRelationshipMap', sharedArgs)
+    const costSnapshot = getCachedQuerySnapshot<CostBreakdown>('overview', 'getCostBreakdown', sharedArgs)
+    const retainedMetrics = metricsSnapshot.value ?? metrics
+    const retainedStatistics = statisticsSnapshot.value ?? statistics
+    const retainedAccountContext = accountContextSnapshot.value ?? accountContext
+    const retainedRelationships = relationshipsSnapshot.value ?? relationships
+    const retainedCostBreakdown = costSnapshot.value ?? costBreakdown
+
+    beginRefresh(reason)
+    replaceFetchedAt(metricsSnapshot.fetchedAt, metricsSnapshot.source)
+    setLoading(!retainedMetrics)
+    setSupplementalLoading(true)
+    setMetrics(retainedMetrics)
+    setStatistics(retainedStatistics)
+    setAccountContext(retainedAccountContext)
+    setRelationships(retainedRelationships)
+    setCostBreakdown(retainedCostBreakdown)
+
     try {
-      const [nextMetrics, nextStatistics, nextAccountContext, nextRelationships, nextCost] = await Promise.all([
-        getOverviewMetrics(connection, [connection.region]),
-        getOverviewStatistics(connection),
-        getOverviewAccountContext(connection).catch(() => null),
-        getRelationshipMap(connection),
-        getCostBreakdown(connection).catch(() => null)
-      ])
+      const nextMetrics = await getOverviewMetrics(connection, [connection.region])
+      if (regionalLoadTokenRef.current !== loadToken) {
+        return
+      }
+
+      const resolvedMetricsSnapshot = getCachedQuerySnapshot<OverviewMetrics>('overview', 'getOverviewMetrics', metricsArgs)
       setMetrics(nextMetrics)
-      setStatistics(nextStatistics)
-      setAccountContext(nextAccountContext)
-      setRelationships(nextRelationships)
-      setCostBreakdown(nextCost)
-    } catch (error) {
-      setAccountContext(null)
-      setPageError(error instanceof Error ? error.message : String(error))
-    } finally {
       setLoading(false)
+      completeRefresh(resolvedMetricsSnapshot.fetchedAt ?? Date.now(), resolvedMetricsSnapshot.source ?? 'live')
+
+      void Promise.allSettled([
+        getOverviewStatistics(connection),
+        getOverviewAccountContext(connection),
+        getRelationshipMap(connection),
+        getCostBreakdown(connection)
+      ]).then(([statisticsResult, accountContextResult, relationshipsResult, costResult]) => {
+        if (regionalLoadTokenRef.current !== loadToken) {
+          return
+        }
+
+        setStatistics(statisticsResult.status === 'fulfilled' ? statisticsResult.value : retainedStatistics)
+        setAccountContext(accountContextResult.status === 'fulfilled' ? accountContextResult.value : retainedAccountContext)
+        setRelationships(relationshipsResult.status === 'fulfilled' ? relationshipsResult.value : retainedRelationships)
+        setCostBreakdown(costResult.status === 'fulfilled' ? costResult.value : retainedCostBreakdown)
+        setSupplementalLoading(false)
+      })
+    } catch (error) {
+      if (regionalLoadTokenRef.current !== loadToken) {
+        return
+      }
+      failRefresh()
+      setPageError(error instanceof Error ? error.message : String(error))
+      setLoading(false)
+      setSupplementalLoading(false)
+      setMetrics(retainedMetrics)
+      setStatistics(retainedStatistics)
+      setAccountContext(retainedAccountContext)
+      setRelationships(retainedRelationships)
+      setCostBreakdown(retainedCostBreakdown)
     }
   }
 
@@ -198,6 +268,19 @@ export function OverviewConsole({
     if (!connectionState.connection || !connectionState.connected) return
     setGlobalLoading(true)
     setPageError('')
+
+    const metricsArgs = [connectionState.connection, availableRegions]
+    const costArgs = [connectionState.connection]
+    const metricsSnapshot = getCachedQuerySnapshot<OverviewMetrics>('overview', 'getOverviewMetrics', metricsArgs)
+    const costSnapshot = getCachedQuerySnapshot<CostBreakdown>('overview', 'getCostBreakdown', costArgs)
+
+    if (metricsSnapshot.value) {
+      setGlobalMetrics(metricsSnapshot.value)
+    }
+    if (costSnapshot.value) {
+      setCostBreakdown(costSnapshot.value)
+    }
+
     try {
       const [nextMetrics, nextCost] = await Promise.all([
         getOverviewMetrics(connectionState.connection, availableRegions),
@@ -278,16 +361,21 @@ export function OverviewConsole({
         <>
           {/* ── Tab bar ──────────────────────────────────────── */}
           <nav className="overview-tab-bar">
-            {(Object.keys(tabLabels) as OverviewTab[]).map((value) => (
-              <button
-                key={value}
-                type="button"
-                className={tab === value ? 'overview-tab active' : 'overview-tab'}
-                onClick={() => setTab(value)}
-              >
-                {tabLabels[value]}
-              </button>
-            ))}
+            <div className="overview-tab-bar__tabs">
+              {(Object.keys(tabLabels) as OverviewTab[]).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={tab === value ? 'overview-tab active' : 'overview-tab'}
+                  onClick={() => setTab(value)}
+                >
+                  {tabLabels[value]}
+                </button>
+              ))}
+            </div>
+            <div className="overview-tab-bar__status">
+              <FreshnessIndicator freshness={freshness} label="Regional snapshot" staleLabel="Refresh regional view" />
+            </div>
           </nav>
 
           {/* ── Global Overview (all tabs) ────────────────────── */}
@@ -379,6 +467,13 @@ export function OverviewConsole({
               {loading && <SvcState variant="loading" resourceName="overview data" compact />}
               {metrics && (
                 <>
+                  {supplementalLoading && (
+                    <SvcState
+                      variant="loading"
+                      message="Loading account context, relationship mapping, and insight panels in the background..."
+                      compact
+                    />
+                  )}
                   <section className="overview-surface">
                     <div className="overview-hero-card">
                       <div className="overview-hero-copy">
@@ -425,6 +520,14 @@ export function OverviewConsole({
                         </div>
                       </div>
                     </div>
+
+                    {supplementalLoading && !accountContext && (
+                      <SvcState
+                        variant="loading"
+                        message="Loading account and billing posture..."
+                        compact
+                      />
+                    )}
 
                     {accountContext && (
                       <>
@@ -664,6 +767,16 @@ export function OverviewConsole({
                         </div>
                       </div>
 
+                      {supplementalLoading && !costBreakdown && (
+                        <div className="panel overview-data-panel">
+                          <SvcState
+                            variant="loading"
+                            message="Loading current-month service cost breakdown..."
+                            compact
+                          />
+                        </div>
+                      )}
+
                       {costBreakdown && costBreakdown.entries.length > 0 && (
                         <div className="panel overview-data-panel">
                           <div className="panel-header">
@@ -688,6 +801,9 @@ export function OverviewConsole({
                     <div className="column stack">
                       <div className="panel overview-insights-panel">
                         <div className="panel-header"><h3>Insights</h3></div>
+                        {supplementalLoading && !statistics && (
+                          <SvcState variant="loading" resourceName="insights" compact />
+                        )}
                         {(statistics?.insights ?? []).map((item: InsightItem, index) => (
                           <div key={`${item.service}-${index}`} className="insight-card">
                             <div className="insight-card-badge">
@@ -699,7 +815,7 @@ export function OverviewConsole({
                             <div className="insight-card-message">{item.message}</div>
                           </div>
                         ))}
-                        {!statistics?.insights.length && <SvcState variant="empty" resourceName="insights" message="No insights generated." compact />}
+                        {!supplementalLoading && !statistics?.insights.length && <SvcState variant="empty" resourceName="insights" message="No insights generated." compact />}
                       </div>
                     </div>
                   </section>
@@ -713,6 +829,10 @@ export function OverviewConsole({
 
           {/* ── Relationships tab ─────────────────────────────── */}
           {tab === 'relationships' && (() => {
+            if (supplementalLoading && !relationships) {
+              return <SvcState variant="loading" resourceName="relationship map" compact />
+            }
+
             const allEdges = relationships?.edges ?? []
             const allNodes = relationships?.nodes ?? []
 
@@ -907,6 +1027,10 @@ export function OverviewConsole({
 
           {/* ── Statistics tab ────────────────────────────────── */}
           {tab === 'statistics' && (() => {
+            if (supplementalLoading && !statistics) {
+              return <SvcState variant="loading" resourceName="statistics" compact />
+            }
+
             const allInsights = statistics?.insights ?? []
             const allSignals = statistics?.signals ?? []
             const allStats = (statistics?.stats ?? []).map((stat) => {

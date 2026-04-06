@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { CollapsibleInfoPanel } from './CollapsibleInfoPanel'
 import { VaultManagerPanel } from './VaultManagerPanel'
+import { APP_FEATURE_FLAGS, getDefaultAppFeatureSettings, isFeatureFlagEnabled } from '@shared/featureFlags'
 
 import type {
   AppReleaseInfo,
@@ -18,7 +19,7 @@ import type {
   TerraformCliInfo
 } from '@shared/types'
 
-type SettingsTab = 'general' | 'terminal' | 'refresh' | 'governance' | 'toolchain' | 'updates' | 'security'
+type SettingsTab = 'general' | 'registry' | 'terminal' | 'refresh' | 'governance' | 'toolchain' | 'updates' | 'security'
 
 type SettingsPageProps = {
   isVisible: boolean
@@ -45,6 +46,7 @@ type SettingsPageProps = {
   enterpriseBusy: boolean
   settingsMessage: string
   onUpdateGeneralSettings: (update: AppSettings['general']) => void
+  onUpdateFeatureSettings: (update: AppSettings['features']) => void
   onUpdateTerminalSettings: (update: AppSettings['terminal']) => void
   onUpdateRefreshSettings: (update: AppSettings['refresh']) => void
   onUpdateGovernanceDefaults: (update: GovernanceTagDefaults) => void
@@ -63,6 +65,7 @@ type SettingsPageProps = {
 
 const TAB_ITEMS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'general', label: 'App' },
+  { id: 'registry', label: 'Registry' },
   { id: 'terminal', label: 'Terminal' },
   { id: 'refresh', label: 'Refresh' },
   { id: 'governance', label: 'Governance' },
@@ -164,6 +167,7 @@ export function SettingsPage({
   enterpriseBusy,
   settingsMessage,
   onUpdateGeneralSettings,
+  onUpdateFeatureSettings,
   onUpdateTerminalSettings,
   onUpdateRefreshSettings,
   onUpdateGovernanceDefaults,
@@ -185,6 +189,7 @@ export function SettingsPage({
     defaultRegion: 'us-east-1',
     launchScreen: 'profiles'
   })
+  const [featureDraft, setFeatureDraft] = useState<AppSettings['features']>(getDefaultAppFeatureSettings())
   const [terminalDraft, setTerminalDraft] = useState<AppSettings['terminal']>({
     autoOpen: false,
     defaultCommand: '',
@@ -221,6 +226,7 @@ export function SettingsPage({
   useEffect(() => {
     if (!appSettings) return
     setGeneralDraft(appSettings.general)
+    setFeatureDraft(appSettings.features)
     setTerminalDraft(appSettings.terminal)
     setRefreshDraft(appSettings.refresh)
     setToolchainDraft(appSettings.toolchain)
@@ -232,7 +238,12 @@ export function SettingsPage({
     setGovernanceDraft(governanceDefaults)
   }, [governanceDefaults])
 
-  const releaseNotesPreview = releaseInfo?.latestRelease.notes?.trim() ?? ''
+  const releaseNotesPreview = releaseInfo?.latestRelease.notes?.trim() || 'No release notes are available yet.'
+  const releasePackagingLabel = !releaseInfo?.supportsAutoUpdate
+    ? 'Dev shell or unpackaged build'
+    : releaseInfo.updateMechanism === 'electron-updater'
+      ? 'Packaged auto-update flow'
+      : 'Release check only'
   const selectedTabLabel = TAB_ITEMS.find((item) => item.id === activeTab)?.label ?? 'App'
 
   const toolchainSummary = useMemo(() => {
@@ -240,6 +251,10 @@ export function SettingsPage({
     if (!toolchainInfo.found) return toolchainInfo.error || 'No CLI detected'
     return `${toolchainInfo.label} ${toolchainInfo.version}`
   }, [toolchainInfo])
+
+  function registryTone(maturity: 'beta' | 'experimental'): 'stable' | 'preview' | 'unknown' {
+    return maturity === 'experimental' ? 'preview' : 'unknown'
+  }
 
   function renderGeneralTab(): JSX.Element {
     return (
@@ -290,6 +305,84 @@ export function SettingsPage({
         <div className="settings-tab-actions">
           <button type="button" className="accent" disabled={!appSettings} onClick={() => onUpdateGeneralSettings(generalDraft)}>
             Save app preferences
+          </button>
+        </div>
+      </>
+    )
+  }
+
+  function renderRegistryTab(): JSX.Element {
+    const labFlags = APP_FEATURE_FLAGS.filter((flag) => flag.surface === 'lab')
+    const serviceFlags = APP_FEATURE_FLAGS.filter((flag) => flag.surface === 'service')
+    const enabledCount = APP_FEATURE_FLAGS.filter((flag) => isFeatureFlagEnabled(featureDraft, flag.id)).length
+
+    return (
+      <>
+        <SettingSection title="Labs">
+          {labFlags.map((flag) => {
+            const enabled = isFeatureFlagEnabled(featureDraft, flag.id)
+            return (
+              <SettingRow key={flag.id} label={flag.label} description={`${flag.description} Default: ${flag.defaultEnabled ? 'enabled' : 'disabled'}.`}>
+                <div className="settings-inline-actions">
+                  <span className={`settings-status-pill settings-status-pill-${registryTone(flag.maturity)}`}>{flag.maturity}</span>
+                  <label className="settings-toggle">
+                    <input
+                      type="checkbox"
+                      checked={enabled}
+                      onChange={(event) => setFeatureDraft((current) => ({
+                        ...current,
+                        registry: {
+                          ...current.registry,
+                          [flag.id]: event.target.checked
+                        }
+                      }))}
+                      disabled={!appSettings}
+                    />
+                    <span>{enabled ? 'Enabled' : 'Disabled'}</span>
+                  </label>
+                </div>
+              </SettingRow>
+            )
+          })}
+        </SettingSection>
+
+        <SettingSection title="Experimental Services">
+          {serviceFlags.map((flag) => {
+            const enabled = isFeatureFlagEnabled(featureDraft, flag.id)
+            return (
+              <SettingRow key={flag.id} label={flag.label} description={flag.description}>
+                <div className="settings-inline-actions">
+                  <span className={`settings-status-pill settings-status-pill-${registryTone(flag.maturity)}`}>{flag.maturity}</span>
+                  <label className="settings-toggle">
+                    <input
+                      type="checkbox"
+                      checked={enabled}
+                      onChange={(event) => setFeatureDraft((current) => ({
+                        ...current,
+                        registry: {
+                          ...current.registry,
+                          [flag.id]: event.target.checked
+                        }
+                      }))}
+                      disabled={!appSettings}
+                    />
+                    <span>{enabled ? 'Enabled' : 'Disabled'}</span>
+                  </label>
+                </div>
+              </SettingRow>
+            )
+          })}
+        </SettingSection>
+
+        <SettingSection title="Registry Summary">
+          <SettingRow label="Enabled surfaces" description="Only flagged labs and experimental services stay visible in the shell when enabled here.">
+            <div className="settings-static-value">{enabledCount} / {APP_FEATURE_FLAGS.length}</div>
+          </SettingRow>
+        </SettingSection>
+
+        <div className="settings-tab-actions">
+          <button type="button" className="accent" disabled={!appSettings} onClick={() => onUpdateFeatureSettings(featureDraft)}>
+            Save registry
           </button>
         </div>
       </>
@@ -499,6 +592,11 @@ export function SettingsPage({
     const attentionTools = environmentHealth?.tools.filter((tool) => tool.status !== 'available') ?? []
     const readyPermissions = environmentHealth?.permissions.filter((item) => item.status === 'ok') ?? []
     const attentionPermissions = environmentHealth?.permissions.filter((item) => item.status !== 'ok') ?? []
+    const readyCheckCount = readyTools.length + readyPermissions.length
+    const attentionCheckCount = attentionTools.length + attentionPermissions.length
+    const diagnosticsNextStep = attentionPermissions[0]?.remediation
+      || attentionTools[0]?.remediation
+      || 'Machine checks look healthy. Export a diagnostics bundle only when you need to share workstation context or support state.'
 
     return (
       <>
@@ -563,11 +661,32 @@ export function SettingsPage({
           <SettingRow label="Detected CLI" description={toolchainInfo?.found ? `Path: ${toolchainInfo.path || 'resolved by runtime'}` : (toolchainInfo?.error || 'No CLI detected yet.')}>
             <div className="settings-static-value">{toolchainSummary}</div>
           </SettingRow>
-          <SettingRow label="Machine validation" description={environmentHealth?.summary ?? 'Run a rescan to refresh tool and permission state.'}>
+          <div className="settings-check-grid">
+            <div className="settings-check-card">
+              <span>Ready</span>
+              <strong>{readyCheckCount}</strong>
+            </div>
+            <div className="settings-check-card">
+              <span>Needs attention</span>
+              <strong>{attentionCheckCount}</strong>
+            </div>
+            <div className="settings-check-card">
+              <span>Last checked</span>
+              <strong>{environmentHealth?.checkedAt ? new Date(environmentHealth.checkedAt).toLocaleTimeString() : environmentBusy ? 'Running now' : 'Not checked yet'}</strong>
+            </div>
+          </div>
+          <div className="settings-check-callout">
+            <strong>{environmentHealth?.summary ?? 'Run a rescan to refresh tool and permission state.'}</strong>
+            <span>{diagnosticsNextStep}</span>
+          </div>
+          <div className="settings-action-row">
             <button type="button" className="accent" disabled={environmentBusy} onClick={onRefreshEnvironment}>
               {environmentBusy ? 'Refreshing...' : 'Rescan environment'}
             </button>
-          </SettingRow>
+            <button type="button" disabled={enterpriseBusy} onClick={onDiagnosticsExport}>
+              Diagnostics bundle
+            </button>
+          </div>
           {environmentHealth && (
             <div className="environment-onboarding-grid">
               <section className="environment-onboarding-section">
@@ -681,41 +800,73 @@ export function SettingsPage({
           </SettingRow>
         </SettingSection>
 
-        <SettingSection title="Release State">
-          <SettingRow label="Current version">
-            <div className="settings-static-value">{releaseInfo?.currentVersion ? `v${releaseInfo.currentVersion}` : 'Unknown'}</div>
-          </SettingRow>
-          <SettingRow label="Selected channel">
-            <div className="settings-static-value">{releaseInfo?.selectedChannel ?? 'unknown'}</div>
-          </SettingRow>
-          <SettingRow label="Latest release">
-            <div className="settings-static-value">{releaseInfo?.latestVersion ? `v${releaseInfo.latestVersion}` : 'Unavailable'}</div>
-          </SettingRow>
-          <SettingRow label="Last checked">
-            <div className="settings-static-value">
-              {releaseInfo?.checkedAt
-                ? new Date(releaseInfo.checkedAt).toLocaleString()
-                : releaseInfo?.supportsAutoUpdate
-                  ? 'Not checked yet'
-                  : 'Disabled in dev build'}
+        <SettingSection title="Release Center">
+          <div className="settings-update-overview">
+            <div>
+              <div className="eyebrow">Release Center</div>
+              <h3>Updater, packaging, and release notes</h3>
+              <p>Keep all release visibility here: update state, build channel, package behavior, and the latest published notes.</p>
             </div>
-          </SettingRow>
-          <SettingRow label="Release actions" description={releaseInfo?.error ?? (releaseNotesPreview || 'No release notes are available yet.')}>
-            <div className="settings-inline-actions">
-              <button type="button" className="accent" disabled={!releaseInfo?.canCheckForUpdates} onClick={onCheckForUpdates}>
-                {releaseInfo?.checkStatus === 'checking' ? 'Checking...' : 'Check'}
-              </button>
-              <button type="button" disabled={!releaseInfo?.canDownloadUpdate} onClick={onDownloadUpdate}>
-                {releaseInfo?.updateStatus === 'downloading' ? 'Downloading...' : 'Download'}
-              </button>
-              <button type="button" disabled={!releaseInfo?.canInstallUpdate} onClick={onInstallUpdate}>
-                Install
-              </button>
-              <button type="button" onClick={onOpenReleasePage}>
-                Release page
-              </button>
+            <div className="settings-update-overview__badges">
+              <span className={`settings-status-pill settings-status-pill-${releaseInfo?.currentBuild.channel ?? 'unknown'}`}>
+                {releaseInfo?.currentBuild.channel ?? 'unknown'}
+              </span>
+              <span className={`settings-status-pill ${releaseStateTone}`}>{releaseStateLabel}</span>
             </div>
-          </SettingRow>
+          </div>
+
+          <div className="settings-update-stats">
+            <div className="settings-update-stat">
+              <span>Current</span>
+              <strong>{releaseInfo?.currentVersion ? `v${releaseInfo.currentVersion}` : 'Unknown'}</strong>
+            </div>
+            <div className="settings-update-stat">
+              <span>Selected channel</span>
+              <strong>{releaseInfo?.selectedChannel ?? 'unknown'}</strong>
+            </div>
+            <div className="settings-update-stat">
+              <span>Latest</span>
+              <strong>{releaseInfo?.latestVersion ? `v${releaseInfo.latestVersion}` : 'Unavailable'}</strong>
+            </div>
+            <div className="settings-update-stat">
+              <span>Packaging</span>
+              <strong>{releasePackagingLabel}</strong>
+            </div>
+            <div className="settings-update-stat">
+              <span>Published</span>
+              <strong>{releaseInfo?.latestRelease.publishedAt ? new Date(releaseInfo.latestRelease.publishedAt).toLocaleDateString() : 'Unknown'}</strong>
+            </div>
+            <div className="settings-update-stat">
+              <span>Last checked</span>
+              <strong>
+                {releaseInfo?.checkedAt
+                  ? new Date(releaseInfo.checkedAt).toLocaleString()
+                  : releaseInfo?.supportsAutoUpdate
+                    ? 'Not checked yet'
+                    : 'Disabled in dev build'}
+              </strong>
+            </div>
+          </div>
+
+          <div className="settings-release-notes">
+            <div className="eyebrow">Release Notes</div>
+            <pre>{releaseInfo?.error ?? releaseNotesPreview}</pre>
+          </div>
+
+          <div className="settings-action-row">
+            <button type="button" className="accent" disabled={!releaseInfo?.canCheckForUpdates} onClick={onCheckForUpdates}>
+              {releaseInfo?.checkStatus === 'checking' ? 'Checking...' : 'Check'}
+            </button>
+            <button type="button" disabled={!releaseInfo?.canDownloadUpdate} onClick={onDownloadUpdate}>
+              {releaseInfo?.updateStatus === 'downloading' ? 'Downloading...' : 'Download'}
+            </button>
+            <button type="button" disabled={!releaseInfo?.canInstallUpdate} onClick={onInstallUpdate}>
+              Install
+            </button>
+            <button type="button" onClick={onOpenReleasePage}>
+              Full notes
+            </button>
+          </div>
         </SettingSection>
 
         <div className="settings-tab-actions">
@@ -806,6 +957,8 @@ export function SettingsPage({
 
   function renderActiveTab(): JSX.Element {
     switch (activeTab) {
+      case 'registry':
+        return renderRegistryTab()
       case 'terminal':
         return renderTerminalTab()
       case 'refresh':
@@ -868,6 +1021,7 @@ export function SettingsPage({
           <CollapsibleInfoPanel title="Quick Help" className="settings-info-panel">
             <div className="settings-tab-section__body">
               {activeTab === 'general' && <p>Set the default profile, region, and launch screen when you want AWS Lens to boot into a predictable operator context.</p>}
+              {activeTab === 'registry' && <p>Registry controls whether embedded lab panels and experimental services are visible in the shell without changing the rest of the operator workflow.</p>}
               {activeTab === 'terminal' && <p>Terminal preferences control how the embedded shell opens after a session becomes active. Operator mode is still required for command execution.</p>}
               {activeTab === 'refresh' && <p>Use refresh policy to decide whether heavy screens re-query automatically or only on demand. Conservative defaults reduce surprise AWS API traffic.</p>}
               {activeTab === 'governance' && <p>Governance defaults define reusable ownership tags that AWS Lens can inherit into supported EC2 workflows and reapply from resource consoles.</p>}

@@ -2,6 +2,8 @@
 
 import type {
   AwsCapabilitySubject,
+  AppDiagnosticsActiveContext,
+  AppDiagnosticsFailureInput,
   AppSettings,
   ComparisonBaselineInput,
   ComparisonPresetInput,
@@ -106,6 +108,8 @@ declare global {
       downloadAppUpdate: () => Promise<unknown>
       installAppUpdate: () => Promise<unknown>
       exportDiagnosticsBundle: () => Promise<unknown>
+      updateDiagnosticsActiveContext: (context: AppDiagnosticsActiveContext) => Promise<unknown>
+      recordDiagnosticsFailure: (input: AppDiagnosticsFailureInput) => Promise<unknown>
       getCallerIdentity: (connection: AwsConnection) => Promise<unknown>
       listEc2Instances: (connection: AwsConnection) => Promise<unknown>
       listEbsVolumes: (connection: AwsConnection) => Promise<unknown>
