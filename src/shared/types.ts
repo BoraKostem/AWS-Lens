@@ -1291,6 +1291,8 @@ export type VaultEntrySummary = {
   origin: VaultOrigin
   rotationState: VaultRotationState
   rotationUpdatedAt: string
+  reminderAt: string
+  expiryAt: string
   lastUsedAt: string
   lastUsedContext: VaultEntryUsage | null
 }
@@ -1309,6 +1311,8 @@ export type VaultEntryInput = {
   origin?: VaultOrigin
   rotationState?: VaultRotationState
   rotationUpdatedAt?: string
+  reminderAt?: string
+  expiryAt?: string
 }
 
 export type VaultEntryUsageInput = {

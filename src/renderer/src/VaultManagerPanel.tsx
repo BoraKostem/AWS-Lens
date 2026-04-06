@@ -30,6 +30,10 @@ type VaultDraft = {
   origin: VaultOrigin
   name: string
   secret: string
+  rotationState: VaultRotationState
+  rotationUpdatedAt: string
+  reminderAt: string
+  expiryAt: string
   accessKeyId: string
   secretAccessKey: string
   usernameHint: string
@@ -135,6 +139,10 @@ function createDraft(mode: DraftMode): VaultDraft {
     origin: mode === 'import' ? 'imported' : 'manual',
     name: '',
     secret: '',
+    rotationState: 'unknown',
+    rotationUpdatedAt: '',
+    reminderAt: '',
+    expiryAt: '',
     accessKeyId: '',
     secretAccessKey: '',
     usernameHint: '',
@@ -198,6 +206,83 @@ function defaultRotationState(kind: VaultEntryKind): VaultRotationState {
   return kind === 'pem' || kind === 'ssh-key' ? 'not-applicable' : 'unknown'
 }
 
+function normalizeDateTimeInput(value: string): string {
+  if (!value.trim()) {
+    return ''
+  }
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return ''
+  }
+
+  return parsed.toISOString()
+}
+
+function formatDateTimeInput(value: string): string {
+  if (!value) {
+    return ''
+  }
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return ''
+  }
+
+  const year = parsed.getFullYear()
+  const month = String(parsed.getMonth() + 1).padStart(2, '0')
+  const day = String(parsed.getDate()).padStart(2, '0')
+  const hours = String(parsed.getHours()).padStart(2, '0')
+  const minutes = String(parsed.getMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day}T${hours}:${minutes}`
+}
+
+function describeTimeDistance(value: string): string {
+  if (!value) {
+    return 'Not scheduled'
+  }
+
+  const target = new Date(value)
+  if (Number.isNaN(target.getTime())) {
+    return value
+  }
+
+  const diffMs = target.getTime() - Date.now()
+  const absHours = Math.round(Math.abs(diffMs) / (1000 * 60 * 60))
+  if (absHours < 24) {
+    return diffMs >= 0 ? `in ${absHours}h` : `${absHours}h ago`
+  }
+
+  const absDays = Math.round(absHours / 24)
+  return diffMs >= 0 ? `in ${absDays}d` : `${absDays}d ago`
+}
+
+function isTimestampDue(value: string): boolean {
+  if (!value) {
+    return false
+  }
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return false
+  }
+
+  return parsed.getTime() <= Date.now()
+}
+
+function hasRecentUse(value: string): boolean {
+  if (!value) {
+    return false
+  }
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return false
+  }
+
+  return Date.now() - parsed.getTime() <= 1000 * 60 * 60 * 24 * 14
+}
+
 function buildCreatePayload(draft: VaultDraft): VaultEntryInput {
   const name = draft.name.trim()
 
@@ -217,7 +302,10 @@ function buildCreatePayload(draft: VaultDraft): VaultEntryInput {
           secretAccessKey
         }),
         origin: draft.origin,
-        rotationState: defaultRotationState(draft.kind),
+        rotationState: draft.rotationState,
+        rotationUpdatedAt: draft.rotationUpdatedAt,
+        reminderAt: draft.reminderAt,
+        expiryAt: draft.expiryAt,
         metadata: {
           profileName: name
         }
@@ -239,7 +327,10 @@ function buildCreatePayload(draft: VaultDraft): VaultEntryInput {
           notes: draft.notes.trim()
         }),
         origin: draft.origin,
-        rotationState: defaultRotationState(draft.kind),
+        rotationState: draft.rotationState,
+        rotationUpdatedAt: draft.rotationUpdatedAt,
+        reminderAt: draft.reminderAt,
+        expiryAt: draft.expiryAt,
         metadata: {
           usernameHint: draft.usernameHint.trim(),
           engine: draft.dbEngine,
@@ -253,7 +344,10 @@ function buildCreatePayload(draft: VaultDraft): VaultEntryInput {
         name,
         secret: draft.secret,
         origin: draft.origin,
-        rotationState: defaultRotationState(draft.kind),
+        rotationState: draft.rotationState,
+        rotationUpdatedAt: draft.rotationUpdatedAt,
+        reminderAt: draft.reminderAt,
+        expiryAt: draft.expiryAt,
         metadata: {
           service: draft.service.trim(),
           notes: draft.notes.trim()
@@ -265,7 +359,10 @@ function buildCreatePayload(draft: VaultDraft): VaultEntryInput {
         name,
         secret: draft.secret,
         origin: draft.origin,
-        rotationState: defaultRotationState(draft.kind),
+        rotationState: draft.rotationState,
+        rotationUpdatedAt: draft.rotationUpdatedAt,
+        reminderAt: draft.reminderAt,
+        expiryAt: draft.expiryAt,
         metadata: {
           format: 'kubeconfig'
         }
@@ -276,7 +373,10 @@ function buildCreatePayload(draft: VaultDraft): VaultEntryInput {
         name,
         secret: draft.secret,
         origin: draft.origin,
-        rotationState: defaultRotationState(draft.kind)
+        rotationState: draft.rotationState,
+        rotationUpdatedAt: draft.rotationUpdatedAt,
+        reminderAt: draft.reminderAt,
+        expiryAt: draft.expiryAt
       }
   }
 }
@@ -348,6 +448,14 @@ function formatTimestamp(value: string): string {
 }
 
 function formatListTimestamp(entry: VaultEntrySummary): string {
+  if (entry.expiryAt && isTimestampDue(entry.expiryAt)) {
+    return `Expired ${formatTimestamp(entry.expiryAt)}`
+  }
+
+  if (entry.reminderAt && isTimestampDue(entry.reminderAt)) {
+    return `Reminder due ${formatTimestamp(entry.reminderAt)}`
+  }
+
   if (entry.lastUsedAt) {
     return `Used ${formatTimestamp(entry.lastUsedAt)}`
   }
@@ -372,6 +480,34 @@ function describeUsage(entry: VaultEntrySummary): string {
   ].filter(Boolean)
 
   return parts.join(' | ')
+}
+
+function describeUsageStatus(entry: VaultEntrySummary): string {
+  if (!entry.lastUsedAt) {
+    return 'Never used'
+  }
+
+  return hasRecentUse(entry.lastUsedAt) ? 'Used in the last 14 days' : 'No recent usage'
+}
+
+function describeReminderStatus(entry: VaultEntrySummary): string {
+  if (!entry.reminderAt) {
+    return 'No reminder set'
+  }
+
+  return isTimestampDue(entry.reminderAt)
+    ? `Reminder due (${describeTimeDistance(entry.reminderAt)})`
+    : `Reminder scheduled ${describeTimeDistance(entry.reminderAt)}`
+}
+
+function describeExpiryStatus(entry: VaultEntrySummary): string {
+  if (!entry.expiryAt) {
+    return 'No expiry tracked'
+  }
+
+  return isTimestampDue(entry.expiryAt)
+    ? `Expired ${describeTimeDistance(entry.expiryAt)}`
+    : `Expires ${describeTimeDistance(entry.expiryAt)}`
 }
 
 export function VaultManagerPanel({
@@ -423,6 +559,12 @@ export function VaultManagerPanel({
     () => allEntries.find((entry) => entry.id === selectedEntryId) ?? null,
     [allEntries, selectedEntryId]
   )
+
+  const rotationSummary = useMemo(() => ({
+    due: allEntries.filter((entry) => entry.rotationState === 'rotation-due' || isTimestampDue(entry.reminderAt)).length,
+    expired: allEntries.filter((entry) => isTimestampDue(entry.expiryAt)).length,
+    recentlyUsed: allEntries.filter((entry) => hasRecentUse(entry.lastUsedAt)).length
+  }), [allEntries])
 
   const countsByKind = useMemo(() => {
     const counts = {
@@ -540,6 +682,7 @@ export function VaultManagerPanel({
       setDraft({
         ...createDraft('import'),
         kind: selected.suggestedKind,
+        rotationState: defaultRotationState(selected.suggestedKind),
         name: selected.fileName,
         secret: selected.content
       })
@@ -567,7 +710,10 @@ export function VaultManagerPanel({
         name: draft.name,
         secret: importSelection.content,
         origin: draft.origin,
-        rotationState: defaultRotationState(draft.kind),
+        rotationState: draft.rotationState,
+        rotationUpdatedAt: draft.rotationUpdatedAt,
+        reminderAt: draft.reminderAt,
+        expiryAt: draft.expiryAt,
         metadata: {
           fileName: importSelection.fileName
         }
@@ -644,7 +790,15 @@ export function VaultManagerPanel({
     }
   }
 
-  const summaryChips = allEntries.length > 0
+  function updateDraftKind(nextKind: VaultEntryKind): void {
+    setDraft((current) => ({
+      ...current,
+      kind: nextKind,
+      rotationState: defaultRotationState(nextKind)
+    }))
+  }
+
+  const typeSummaryChips = allEntries.length > 0
     ? [
         `Total ${countsByKind.total}`,
         `AWS ${countsByKind['aws-profile']}`,
@@ -663,13 +817,32 @@ export function VaultManagerPanel({
         `Keys ${securitySummary?.vaultEntryCounts.accessKeys ?? 0}`
       ]
 
+  const lifecycleSummaryChips = [
+    `Due ${rotationSummary.due}`,
+    `Expired ${rotationSummary.expired}`,
+    `Recent use ${rotationSummary.recentlyUsed}`,
+    `${visibleEntries.length} visible`
+  ]
+
   return (
     <div className="vault-manager">
-      <div className="settings-security-inline">
-        {summaryChips.map((chip) => (
-          <span key={chip}>{chip}</span>
-        ))}
-        <span>{visibleEntries.length} visible</span>
+      <div className="vault-manager-summary">
+        <div className="vault-manager-summary__group">
+          <div className="vault-manager-summary__label">Types</div>
+          <div className="settings-security-inline">
+            {typeSummaryChips.map((chip) => (
+              <span key={chip}>{chip}</span>
+            ))}
+          </div>
+        </div>
+        <div className="vault-manager-summary__group">
+          <div className="vault-manager-summary__label">Lifecycle</div>
+          <div className="settings-security-inline">
+            {lifecycleSummaryChips.map((chip) => (
+              <span key={chip}>{chip}</span>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="vault-manager-toolbar">
@@ -777,8 +950,20 @@ export function VaultManagerPanel({
                   <strong>{formatTimestamp(selectedEntry.updatedAt)}</strong>
                 </div>
                 <div className="vault-manager-stat">
+                  <span>Reminder</span>
+                  <strong>{describeReminderStatus(selectedEntry)}</strong>
+                </div>
+                <div className="vault-manager-stat">
+                  <span>Expiry</span>
+                  <strong>{describeExpiryStatus(selectedEntry)}</strong>
+                </div>
+                <div className="vault-manager-stat">
                   <span>Last used</span>
                   <strong>{formatTimestamp(selectedEntry.lastUsedAt)}</strong>
+                </div>
+                <div className="vault-manager-stat">
+                  <span>Usage status</span>
+                  <strong>{describeUsageStatus(selectedEntry)}</strong>
                 </div>
                 <div className="vault-manager-stat">
                   <span>Usage context</span>
@@ -851,7 +1036,7 @@ export function VaultManagerPanel({
                 <div className="vault-manager-form vault-manager-form-simple">
                   <label className="vault-manager-form__field">
                     <span>Kind</span>
-                    <select value={draft.kind} onChange={(event) => setDraft((current) => ({ ...current, kind: event.target.value as VaultEntryKind }))}>
+                    <select value={draft.kind} onChange={(event) => updateDraftKind(event.target.value as VaultEntryKind)}>
                       {KIND_OPTIONS.filter((option) => option.value !== 'all').map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
                       ))}
@@ -867,6 +1052,38 @@ export function VaultManagerPanel({
                   </label>
                   <div className="settings-static-muted vault-manager-form__field-span-2">{KIND_DESCRIPTIONS[draft.kind]}</div>
                   <div className="settings-static-muted vault-manager-form__field-span-2">{describeOriginSelection(draft.origin)}</div>
+                  <label className="vault-manager-form__field">
+                    <span>Rotation state</span>
+                    <select value={draft.rotationState} onChange={(event) => setDraft((current) => ({ ...current, rotationState: event.target.value as VaultRotationState }))}>
+                      {Object.entries(ROTATION_LABELS).map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="vault-manager-form__field">
+                    <span>Rotation updated</span>
+                    <input
+                      type="datetime-local"
+                      value={formatDateTimeInput(draft.rotationUpdatedAt)}
+                      onChange={(event) => setDraft((current) => ({ ...current, rotationUpdatedAt: normalizeDateTimeInput(event.target.value) }))}
+                    />
+                  </label>
+                  <label className="vault-manager-form__field">
+                    <span>Reminder at</span>
+                    <input
+                      type="datetime-local"
+                      value={formatDateTimeInput(draft.reminderAt)}
+                      onChange={(event) => setDraft((current) => ({ ...current, reminderAt: normalizeDateTimeInput(event.target.value) }))}
+                    />
+                  </label>
+                  <label className="vault-manager-form__field">
+                    <span>Expiry at</span>
+                    <input
+                      type="datetime-local"
+                      value={formatDateTimeInput(draft.expiryAt)}
+                      onChange={(event) => setDraft((current) => ({ ...current, expiryAt: normalizeDateTimeInput(event.target.value) }))}
+                    />
+                  </label>
 
                   {draft.kind === 'aws-profile' ? (
                     <>
@@ -1029,7 +1246,7 @@ export function VaultManagerPanel({
                   </label>
                   <label className="vault-manager-form__field">
                     <span>Kind</span>
-                    <select value={draft.kind} onChange={(event) => setDraft((current) => ({ ...current, kind: event.target.value as VaultEntryKind }))}>
+                    <select value={draft.kind} onChange={(event) => updateDraftKind(event.target.value as VaultEntryKind)}>
                       {KIND_OPTIONS.filter((option) => option.value !== 'all').map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
                       ))}
@@ -1044,11 +1261,35 @@ export function VaultManagerPanel({
                     </select>
                   </label>
                   <label className="vault-manager-form__field">
+                    <span>Rotation state</span>
+                    <select value={draft.rotationState} onChange={(event) => setDraft((current) => ({ ...current, rotationState: event.target.value as VaultRotationState }))}>
+                      {Object.entries(ROTATION_LABELS).map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="vault-manager-form__field">
                     <span>Name</span>
                     <input
                       value={draft.name}
                       onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
                       placeholder="vault entry name"
+                    />
+                  </label>
+                  <label className="vault-manager-form__field">
+                    <span>Reminder at</span>
+                    <input
+                      type="datetime-local"
+                      value={formatDateTimeInput(draft.reminderAt)}
+                      onChange={(event) => setDraft((current) => ({ ...current, reminderAt: normalizeDateTimeInput(event.target.value) }))}
+                    />
+                  </label>
+                  <label className="vault-manager-form__field">
+                    <span>Expiry at</span>
+                    <input
+                      type="datetime-local"
+                      value={formatDateTimeInput(draft.expiryAt)}
+                      onChange={(event) => setDraft((current) => ({ ...current, expiryAt: normalizeDateTimeInput(event.target.value) }))}
                     />
                   </label>
                   <div className="settings-static-muted vault-manager-form__field-span-2">{describeOriginSelection(draft.origin)}</div>

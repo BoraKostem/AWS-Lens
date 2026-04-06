@@ -5410,6 +5410,24 @@ button.overview-tile.clickable.active strong {
   gap: 0.9rem;
 }
 
+.vault-manager-summary {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.vault-manager-summary__group {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.vault-manager-summary__label {
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8ea3b8;
+}
+
 .vault-manager-toolbar {
   display: grid;
   grid-template-columns: minmax(0, 1.8fr) minmax(180px, 0.9fr) repeat(3, auto);
