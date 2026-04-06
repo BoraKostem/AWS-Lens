@@ -1,17 +1,22 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 
 import type {
+  AwsConnection,
   AppSecuritySummary,
   DbConnectionEngine,
   EnterpriseAccessMode,
+  KeyPairSummary,
   VaultEntryInput,
   VaultEntryKind,
   VaultEntrySummary,
   VaultOrigin,
-  VaultRotationState
+  VaultRotationState,
+  VaultSshKeyInspection
 } from '@shared/types'
 import {
   deleteVaultEntry,
+  inspectVaultSshKey,
+  listKeyPairs,
   listVaultEntries,
   revealVaultEntrySecret,
   saveVaultEntry
@@ -510,6 +515,61 @@ function describeExpiryStatus(entry: VaultEntrySummary): string {
     : `Expires ${describeTimeDistance(entry.expiryAt)}`
 }
 
+function isSshVaultEntry(entry: VaultEntrySummary | null): entry is VaultEntrySummary {
+  return entry?.kind === 'pem' || entry?.kind === 'ssh-key'
+}
+
+function normalizeSshKeyName(value: string): string {
+  return value.trim().toLowerCase().replace(/\.(pem|ppk|key|pub)$/g, '')
+}
+
+function normalizeFingerprint(value: string): string {
+  return value.trim().replace(/^md5:/i, '').toLowerCase()
+}
+
+function fingerprintsMatch(pair: KeyPairSummary, inspection: VaultSshKeyInspection): boolean {
+  const pairFingerprint = normalizeFingerprint(pair.fingerprint)
+  if (!pairFingerprint) {
+    return false
+  }
+
+  return pairFingerprint === normalizeFingerprint(inspection.fingerprintSha256)
+    || pairFingerprint === normalizeFingerprint(inspection.fingerprintMd5)
+}
+
+function describeInspectionSource(source: VaultSshKeyInspection['publicKeySource']): string {
+  switch (source) {
+    case 'metadata-inline':
+      return 'Stored with the vault entry'
+    case 'metadata-path':
+      return 'Read from the saved public key path'
+    case 'source-path':
+      return 'Read from the original import path'
+    case 'legacy-staged-path':
+      return 'Recovered from legacy staged temp metadata'
+    case 'derived-from-private-key':
+      return 'Derived from the private key contents'
+    default:
+      return 'Public key unavailable'
+  }
+}
+
+function buildVaultLookupConnection(entry: VaultEntrySummary): AwsConnection | null {
+  const profile = entry.lastUsedContext?.profile?.trim()
+  const region = entry.lastUsedContext?.region?.trim()
+  if (!profile || !region) {
+    return null
+  }
+
+  return {
+    kind: 'profile',
+    sessionId: `vault-keypair-lookup:${entry.id}`,
+    label: `Vault lookup ${profile}`,
+    profile,
+    region
+  }
+}
+
 export function VaultManagerPanel({
   accessMode,
   active,
@@ -529,6 +589,12 @@ export function VaultManagerPanel({
   const [importSelection, setImportSelection] = useState<ImportSelection | null>(null)
   const [revealedEntryId, setRevealedEntryId] = useState('')
   const [revealedSecret, setRevealedSecret] = useState('')
+  const [sshInspection, setSshInspection] = useState<VaultSshKeyInspection | null>(null)
+  const [sshInspectionBusy, setSshInspectionBusy] = useState(false)
+  const [sshInspectionError, setSshInspectionError] = useState('')
+  const [relatedKeyPairs, setRelatedKeyPairs] = useState<KeyPairSummary[]>([])
+  const [relatedKeyPairsBusy, setRelatedKeyPairsBusy] = useState(false)
+  const [relatedKeyPairsError, setRelatedKeyPairsError] = useState('')
 
   const visibleEntries = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -560,6 +626,11 @@ export function VaultManagerPanel({
     [allEntries, selectedEntryId]
   )
 
+  const lookupConnection = useMemo(
+    () => (selectedEntry ? buildVaultLookupConnection(selectedEntry) : null),
+    [selectedEntry]
+  )
+
   const rotationSummary = useMemo(() => ({
     due: allEntries.filter((entry) => entry.rotationState === 'rotation-due' || isTimestampDue(entry.reminderAt)).length,
     expired: allEntries.filter((entry) => isTimestampDue(entry.expiryAt)).length,
@@ -587,6 +658,35 @@ export function VaultManagerPanel({
     return counts
   }, [allEntries])
 
+  const relatedKeyPairSummary = useMemo(() => {
+    if (!sshInspection) {
+      return {
+        fingerprintMatches: [] as KeyPairSummary[],
+        nameMatches: [] as KeyPairSummary[]
+      }
+    }
+
+    const normalizedHints = sshInspection.keyNameHints.map((hint) => normalizeSshKeyName(hint))
+    const fingerprintMatches: KeyPairSummary[] = []
+    const nameMatches: KeyPairSummary[] = []
+
+    for (const pair of relatedKeyPairs) {
+      if (fingerprintsMatch(pair, sshInspection)) {
+        fingerprintMatches.push(pair)
+        continue
+      }
+
+      if (normalizedHints.includes(normalizeSshKeyName(pair.keyName))) {
+        nameMatches.push(pair)
+      }
+    }
+
+    return {
+      fingerprintMatches,
+      nameMatches
+    }
+  }, [relatedKeyPairs, sshInspection])
+
   useEffect(() => {
     if (!selectedEntryId || visibleEntries.some((entry) => entry.id === selectedEntryId)) {
       return
@@ -611,6 +711,73 @@ export function VaultManagerPanel({
 
     void hydrateEntries()
   }, [active])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function hydrateSshInspection(): Promise<void> {
+      if (!selectedEntry || !isSshVaultEntry(selectedEntry)) {
+        setSshInspection(null)
+        setSshInspectionError('')
+        setSshInspectionBusy(false)
+        setRelatedKeyPairs([])
+        setRelatedKeyPairsError('')
+        setRelatedKeyPairsBusy(false)
+        return
+      }
+
+      setSshInspectionBusy(true)
+      setSshInspectionError('')
+      try {
+        const inspection = await inspectVaultSshKey(selectedEntry.id)
+        if (!cancelled) {
+          setSshInspection(inspection)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setSshInspection(null)
+          setSshInspectionError(error instanceof Error ? error.message : 'Failed to inspect the selected key.')
+        }
+      } finally {
+        if (!cancelled) {
+          setSshInspectionBusy(false)
+        }
+      }
+
+      if (!lookupConnection) {
+        if (!cancelled) {
+          setRelatedKeyPairs([])
+          setRelatedKeyPairsError('')
+          setRelatedKeyPairsBusy(false)
+        }
+        return
+      }
+
+      setRelatedKeyPairsBusy(true)
+      setRelatedKeyPairsError('')
+      try {
+        const keyPairs = await listKeyPairs(lookupConnection)
+        if (!cancelled) {
+          setRelatedKeyPairs(keyPairs)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setRelatedKeyPairs([])
+          setRelatedKeyPairsError(error instanceof Error ? error.message : 'Failed to load EC2 key pairs for this context.')
+        }
+      } finally {
+        if (!cancelled) {
+          setRelatedKeyPairsBusy(false)
+        }
+      }
+    }
+
+    void hydrateSshInspection()
+
+    return () => {
+      cancelled = true
+    }
+  }, [lookupConnection, selectedEntry])
 
   async function hydrateEntries(preferredSelectionId?: string): Promise<void> {
     setInventoryBusy(true)
@@ -909,7 +1076,7 @@ export function VaultManagerPanel({
         <div className="vault-manager-detail">
           <div className="vault-manager-pane__title">Detail</div>
           {selectedEntry ? (
-            <div className="vault-manager-card">
+            <div className="vault-manager-card vault-manager-card-detail">
               <div className="vault-manager-card__header">
                 <div>
                   <h3>{selectedEntry.name}</h3>
@@ -975,6 +1142,96 @@ export function VaultManagerPanel({
                 <div className="vault-manager-secret">
                   <div className="vault-manager-pane__subtitle">Revealed secret</div>
                   <pre>{revealedSecret}</pre>
+                </div>
+              )}
+
+              {isSshVaultEntry(selectedEntry) && (
+                <div className="vault-manager-metadata">
+                  <div className="vault-manager-pane__subtitle">Fingerprint verification</div>
+                  {sshInspectionBusy ? (
+                    <div className="settings-static-muted">Inspecting SSH key material and public fingerprint data.</div>
+                  ) : sshInspectionError ? (
+                    <div className="settings-static-muted">{sshInspectionError}</div>
+                  ) : sshInspection ? (
+                    <>
+                      <div className="vault-manager-metadata__list">
+                        <div className="vault-manager-metadata__row">
+                          <span>Verification status</span>
+                          <strong>
+                            {relatedKeyPairSummary.fingerprintMatches.length > 0
+                              ? `Verified against ${relatedKeyPairSummary.fingerprintMatches.length} EC2 key pair`
+                              : sshInspection.publicKeyAvailable
+                                ? 'No matching EC2 fingerprint yet'
+                                : 'Public key unavailable'}
+                          </strong>
+                        </div>
+                        <div className="vault-manager-metadata__row">
+                          <span>SHA256 fingerprint</span>
+                          <strong>{sshInspection.fingerprintSha256 || '-'}</strong>
+                        </div>
+                        <div className="vault-manager-metadata__row">
+                          <span>MD5 fingerprint</span>
+                          <strong>{sshInspection.fingerprintMd5 || '-'}</strong>
+                        </div>
+                        <div className="vault-manager-metadata__row">
+                          <span>Public key source</span>
+                          <strong>{describeInspectionSource(sshInspection.publicKeySource)}</strong>
+                        </div>
+                        <div className="vault-manager-metadata__row">
+                          <span>Key pair name hints</span>
+                          <strong>{sshInspection.keyNameHints.join(', ') || '-'}</strong>
+                        </div>
+                        <div className="vault-manager-metadata__row">
+                          <span>Lookup context</span>
+                          <strong>
+                            {lookupConnection
+                              ? `${lookupConnection.profile} | ${lookupConnection.region}`
+                              : 'No AWS profile/region context recorded yet'}
+                          </strong>
+                        </div>
+                      </div>
+
+                      <div className="vault-manager-related-pairs">
+                        <div className="vault-manager-pane__subtitle">Related EC2 key pairs</div>
+                        {relatedKeyPairsBusy ? (
+                          <div className="settings-static-muted">Loading EC2 key pairs for the last used profile and region.</div>
+                        ) : relatedKeyPairsError ? (
+                          <div className="settings-static-muted">{relatedKeyPairsError}</div>
+                        ) : !lookupConnection ? (
+                          <div className="settings-static-muted">Use this key in an EC2 workflow once to capture profile/region context for live key pair matching.</div>
+                        ) : relatedKeyPairSummary.fingerprintMatches.length === 0 && relatedKeyPairSummary.nameMatches.length === 0 ? (
+                          <div className="settings-static-muted">No EC2 key pairs in the last used context matched this key by fingerprint or normalized name.</div>
+                        ) : (
+                          <>
+                            {relatedKeyPairSummary.fingerprintMatches.map((pair) => (
+                              <div key={`fingerprint:${pair.keyPairId || pair.keyName}`} className="vault-manager-related-pair">
+                                <strong>{pair.keyName}</strong>
+                                <div className="vault-manager-related-pair__meta">
+                                  <span>Fingerprint verified</span>
+                                  <span>{pair.keyPairId || 'No key pair ID'}</span>
+                                  <span>{pair.keyType || 'Unknown type'}</span>
+                                  <span>{pair.fingerprint || 'No fingerprint'}</span>
+                                </div>
+                              </div>
+                            ))}
+                            {relatedKeyPairSummary.nameMatches.map((pair) => (
+                              <div key={`name:${pair.keyPairId || pair.keyName}`} className="vault-manager-related-pair">
+                                <strong>{pair.keyName}</strong>
+                                <div className="vault-manager-related-pair__meta">
+                                  <span>Name match only</span>
+                                  <span>{pair.keyPairId || 'No key pair ID'}</span>
+                                  <span>{pair.keyType || 'Unknown type'}</span>
+                                  <span>{pair.fingerprint || 'No fingerprint'}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="settings-static-muted">No fingerprint details available for this key yet.</div>
+                  )}
                 </div>
               )}
 

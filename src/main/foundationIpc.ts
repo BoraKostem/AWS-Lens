@@ -70,6 +70,7 @@ import {
   saveDbConnectionPreset,
   updateGovernanceTagDefaults
 } from './phase1FoundationStore'
+import { inspectVaultSshKey } from './sshKeyMaterial'
 
 type HandlerResult<T> = { ok: true; data: T } | { ok: false; error: string }
 const wrap: <T>(fn: () => Promise<T> | T, label?: string) => Promise<HandlerResult<T>> =
@@ -162,6 +163,9 @@ export function registerFoundationIpcHandlers(): void {
   )
   ipcMain.handle('phase2:record-vault-entry-use', async (_event, input: VaultEntryUsageInput) =>
     wrap(() => recordVaultEntryUse(input))
+  )
+  ipcMain.handle('phase2:inspect-vault-ssh-key', async (_event, entryId: string) =>
+    wrap(() => inspectVaultSshKey(entryId))
   )
   ipcMain.handle('phase2:list-comparison-baselines', async () =>
     wrap(() => listComparisonBaselines())

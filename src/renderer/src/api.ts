@@ -177,6 +177,7 @@ import type {
   VaultEntryFilter,
   VaultEntryInput,
   VaultEntrySummary,
+  VaultSshKeyInspection,
   VaultEntryUsageInput,
   SsoAccountAssignment,
   SsoGroupSummary,
@@ -1141,6 +1142,10 @@ export async function revealVaultEntrySecret(entryId: string): Promise<string> {
 
 export async function recordVaultEntryUse(input: VaultEntryUsageInput): Promise<VaultEntrySummary> {
   return unwrap((await rawAwsBridge().recordVaultEntryUse(input)) as Wrapped<VaultEntrySummary>)
+}
+
+export async function inspectVaultSshKey(entryId: string): Promise<VaultSshKeyInspection> {
+  return unwrap((await rawAwsBridge().inspectVaultSshKey(entryId)) as Wrapped<VaultSshKeyInspection>)
 }
 
 export async function listComparisonBaselines(): Promise<ComparisonBaselineSummary[]> {

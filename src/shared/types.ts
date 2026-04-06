@@ -1281,6 +1281,25 @@ export type VaultEntryUsage = {
   resourceLabel: string
 }
 
+export type VaultSshKeyInspectionSource =
+  | 'metadata-inline'
+  | 'metadata-path'
+  | 'source-path'
+  | 'legacy-staged-path'
+  | 'derived-from-private-key'
+  | 'unavailable'
+
+export type VaultSshKeyInspection = {
+  entryId: string
+  entryName: string
+  kind: Extract<VaultEntryKind, 'pem' | 'ssh-key'>
+  keyNameHints: string[]
+  fingerprintSha256: string
+  fingerprintMd5: string
+  publicKeySource: VaultSshKeyInspectionSource
+  publicKeyAvailable: boolean
+}
+
 export type VaultEntrySummary = {
   id: string
   kind: VaultEntryKind

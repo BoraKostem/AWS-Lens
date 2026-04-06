@@ -96,6 +96,7 @@ const awsLensApi = {
   deleteVaultEntry: (entryId: string) => ipcRenderer.invoke('phase2:delete-vault-entry', entryId),
   revealVaultEntrySecret: (entryId: string) => ipcRenderer.invoke('phase2:reveal-vault-entry-secret', entryId),
   recordVaultEntryUse: (input: VaultEntryUsageInput) => ipcRenderer.invoke('phase2:record-vault-entry-use', input),
+  inspectVaultSshKey: (entryId: string) => ipcRenderer.invoke('phase2:inspect-vault-ssh-key', entryId),
   listComparisonBaselines: () => ipcRenderer.invoke('phase2:list-comparison-baselines'),
   listComparisonPresets: () => ipcRenderer.invoke('phase2:list-comparison-presets'),
   getComparisonBaseline: (baselineId: string) => ipcRenderer.invoke('phase2:get-comparison-baseline', baselineId),

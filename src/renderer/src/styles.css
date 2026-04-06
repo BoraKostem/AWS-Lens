@@ -5571,10 +5571,39 @@ button.overview-tile.clickable.active strong {
   line-height: 1.5;
 }
 
+.vault-manager-card-detail {
+  gap: 0.75rem;
+  padding: 0.9rem 0.95rem;
+}
+
+.vault-manager-card-detail .vault-manager-card__header {
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
+.vault-manager-card-detail .vault-manager-card__header h3 {
+  font-size: 1rem;
+}
+
+.vault-manager-card-detail .vault-manager-card__header p {
+  margin-top: 0.14rem;
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.vault-manager-card-detail .settings-inline-actions {
+  gap: 0.45rem;
+}
+
 .vault-manager-detail-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.7rem;
+}
+
+.vault-manager-card-detail .vault-manager-detail-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
 }
 
 .vault-manager-stat {
@@ -5599,6 +5628,21 @@ button.overview-tile.clickable.active strong {
   word-break: break-word;
 }
 
+.vault-manager-card-detail .vault-manager-stat {
+  gap: 0.18rem;
+  padding: 0.62rem 0.72rem;
+  border-radius: 12px;
+}
+
+.vault-manager-card-detail .vault-manager-stat span {
+  font-size: 0.72rem;
+}
+
+.vault-manager-card-detail .vault-manager-stat strong {
+  font-size: 0.82rem;
+  line-height: 1.3;
+}
+
 .vault-manager-secret pre {
   margin: 0;
   padding: 0.95rem 1rem;
@@ -5610,16 +5654,32 @@ button.overview-tile.clickable.active strong {
   word-break: break-word;
 }
 
+.vault-manager-card-detail .vault-manager-secret pre {
+  max-height: 220px;
+  padding: 0.75rem 0.85rem;
+  font-size: 0.8rem;
+}
+
 .vault-manager-metadata {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
 }
 
+.vault-manager-card-detail .vault-manager-metadata {
+  gap: 0.45rem;
+}
+
 .vault-manager-metadata__list {
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
+}
+
+.vault-manager-card-detail .vault-manager-metadata__list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
 }
 
 .vault-manager-metadata__row {
@@ -5642,6 +5702,102 @@ button.overview-tile.clickable.active strong {
   color: #eaf2fb;
   text-align: right;
   word-break: break-word;
+}
+
+.vault-manager-card-detail .vault-manager-metadata__row {
+  gap: 0.55rem;
+  padding: 0.58rem 0.7rem;
+  border-radius: 12px;
+  flex-direction: column;
+}
+
+.vault-manager-card-detail .vault-manager-metadata__row span {
+  font-size: 0.72rem;
+}
+
+.vault-manager-card-detail .vault-manager-metadata__row strong {
+  text-align: left;
+  font-size: 0.81rem;
+  line-height: 1.3;
+}
+
+.vault-manager-related-pairs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.vault-manager-card-detail .vault-manager-related-pairs {
+  gap: 0.45rem;
+}
+
+.vault-manager-card-detail .vault-manager-pane__subtitle {
+  font-size: 0.76rem;
+  margin-bottom: 0.05rem;
+}
+
+.vault-manager-card-detail .settings-static-muted {
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.vault-manager-related-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.85rem 0.9rem;
+  border-radius: 14px;
+  border: 1px solid rgba(123, 146, 171, 0.12);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.vault-manager-card-detail .vault-manager-related-pairs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.vault-manager-card-detail .vault-manager-related-pairs > .vault-manager-pane__subtitle,
+.vault-manager-card-detail .vault-manager-related-pairs > .settings-static-muted {
+  grid-column: 1 / -1;
+}
+
+.vault-manager-card-detail .vault-manager-related-pair {
+  gap: 0.38rem;
+  padding: 0.68rem 0.72rem;
+  border-radius: 12px;
+}
+
+.vault-manager-related-pair strong {
+  color: #eef4fb;
+  font-size: 0.9rem;
+}
+
+.vault-manager-card-detail .vault-manager-related-pair strong {
+  font-size: 0.84rem;
+}
+
+.vault-manager-related-pair__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.vault-manager-related-pair__meta span {
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(74, 143, 231, 0.14);
+  color: #d8e9fb;
+  font-size: 0.76rem;
+  word-break: break-word;
+}
+
+.vault-manager-card-detail .vault-manager-related-pair__meta {
+  gap: 0.35rem;
+}
+
+.vault-manager-card-detail .vault-manager-related-pair__meta span {
+  padding: 0.18rem 0.45rem;
+  font-size: 0.7rem;
 }
 
 .vault-manager-form {
@@ -8242,6 +8398,12 @@ textarea {
   }
 
   .vault-manager-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .vault-manager-card-detail .vault-manager-detail-grid,
+  .vault-manager-card-detail .vault-manager-metadata__list,
+  .vault-manager-card-detail .vault-manager-related-pairs {
     grid-template-columns: 1fr;
   }
 }

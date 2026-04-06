@@ -85,6 +85,7 @@ declare global {
       deleteVaultEntry: (entryId: string) => Promise<unknown>
       revealVaultEntrySecret: (entryId: string) => Promise<unknown>
       recordVaultEntryUse: (input: VaultEntryUsageInput) => Promise<unknown>
+      inspectVaultSshKey: (entryId: string) => Promise<unknown>
       listComparisonBaselines: () => Promise<unknown>
       listComparisonPresets: () => Promise<unknown>
       getComparisonBaseline: (baselineId: string) => Promise<unknown>
