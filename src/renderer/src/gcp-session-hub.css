@@ -1,0 +1,136 @@
+.gcp-session-layout {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.gcp-session-panel {
+  min-width: 0;
+}
+
+.gcp-session-toolbar {
+  align-items: center;
+}
+
+.gcp-session-toolbar-main {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.gcp-session-overview-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.gcp-session-kv-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.gcp-session-kv {
+  background: rgba(15, 23, 42, 0.3);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px 14px;
+}
+
+.gcp-session-kv span {
+  color: rgba(226, 232, 240, 0.72);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.gcp-session-kv strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.gcp-session-field,
+.gcp-session-search {
+  max-width: 320px;
+}
+
+.gcp-session-action-row,
+.gcp-session-card-actions,
+.gcp-session-recent-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.gcp-session-selection-list,
+.gcp-session-project-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.gcp-session-card,
+.gcp-session-project-card {
+  background: rgba(15, 23, 42, 0.32);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+}
+
+.gcp-session-card.active,
+.gcp-session-project-card.active {
+  border-color: rgba(74, 222, 128, 0.5);
+  box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.22);
+}
+
+.gcp-session-card-header {
+  align-items: start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.gcp-session-config-meta {
+  color: rgba(226, 232, 240, 0.72);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.gcp-session-project-toolbar {
+  display: flex;
+  justify-content: space-between;
+}
+
+.gcp-session-recent-chip {
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 999px;
+  color: inherit;
+  cursor: pointer;
+  padding: 8px 12px;
+}
+
+.gcp-session-recent-chip.active {
+  border-color: rgba(74, 222, 128, 0.55);
+  color: #dcfce7;
+}
+
+@media (max-width: 900px) {
+  .gcp-session-toolbar-main,
+  .gcp-session-project-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .gcp-session-field,
+  .gcp-session-search {
+    max-width: none;
+  }
+}

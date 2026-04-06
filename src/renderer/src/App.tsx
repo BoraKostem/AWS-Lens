@@ -96,6 +96,7 @@ import { CloudWatchConsole } from './CloudWatchConsole'
 import { DirectResourceConsole } from './DirectResourceConsole'
 import { GcpCompareWorkspace } from './GcpCompareWorkspace'
 import { GcpComplianceCenter } from './GcpComplianceCenter'
+import { GcpSessionHub } from './GcpSessionHub'
 import { useAwsPageConnection } from './AwsPage'
 import { EcsConsole } from './EcsConsole'
 import { Ec2Console } from './Ec2Console'
@@ -5672,6 +5673,34 @@ export function App() {
       }
 
       if (activeProviderId !== 'aws' && targetScreen !== 'settings') {
+        if (activeProviderId === 'gcp' && targetScreen === 'session-hub') {
+          return (
+            <GcpSessionHub
+              modeLabel={selectedPreviewMode?.label ?? 'Connection mode not selected'}
+              projectId={activeGcpConnectionDraft?.projectId.trim() ?? ''}
+              location={activeGcpConnectionDraft?.location.trim() ?? ''}
+              credentialHint={activeGcpConnectionDraft?.credentialHint.trim() ?? ''}
+              cliContext={gcpCliContext}
+              catalogProjects={gcpCatalogProjects}
+              recentProjects={recentGcpProjects}
+              locationOptions={gcpLocationOptions}
+              cliBusy={gcpCliBusy || gcpProjectCatalogBusy}
+              cliError={gcpCliError}
+              refreshNonce={pageRefreshNonceByScreen['session-hub'] ?? 0}
+              canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+              terminalReady={Boolean(providerTerminalTarget)}
+              onRefreshCatalog={loadGcpCliContext}
+              onApplyProject={handleApplyGcpProject}
+              onApplyLocation={handleApplyGcpLocation}
+              onOpenCompare={() => setScreen('compare')}
+              onOpenCompliance={() => setScreen('compliance-center')}
+              onOpenProjects={() => navigateToService('gcp-projects')}
+              onOpenLogging={() => navigateToService('gcp-logging')}
+              onRunTerminalCommand={handleOpenTerminalCommand}
+            />
+          )
+        }
+
         if (activeProviderId === 'gcp' && targetScreen === 'compare' && activeGcpConnectionDraft) {
           return (
             <GcpCompareWorkspace
