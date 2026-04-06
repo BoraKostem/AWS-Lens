@@ -6,13 +6,15 @@ import type {
   CloudTrailEventSummary,
   CloudWatchInvestigationHistoryEntry,
   CloudWatchQueryHistoryEntry,
+  EnterpriseAuditEvent,
   ServiceId,
+  TerraformDriftItem,
   TerraformDriftReport,
   TerraformProject,
   TerraformRunRecord
 } from '@shared/types'
 
-import { listCloudWatchInvestigationHistory, listCloudWatchQueryHistory, lookupCloudTrailEvents } from './api'
+import { listCloudWatchInvestigationHistory, listCloudWatchQueryHistory, listEnterpriseAuditEvents, lookupCloudTrailEvents } from './api'
 import './incident-workbench.css'
 import { SvcState } from './SvcState'
 import { getDrift, getProject, getSelectedProjectId, listRunHistory } from './terraformApi'
@@ -55,6 +57,40 @@ type CorrelationCluster = {
   items: TimelineItem[]
   sources: TimelineSource[]
   timeRangeLabel: string
+}
+
+type AssumeRoleUsage = {
+  roleLabel: string
+  count: number
+  lastSeen: string
+  actorLabels: string[]
+  concentration: 'normal' | 'elevated' | 'unexpected'
+}
+
+type RiskyActionEntry = {
+  id: string
+  title: string
+  summary: string
+  detail: string
+  occurredAt: string
+  tone: TimelineTone
+  serviceId: ServiceId | ''
+  resourceId: string
+}
+
+type AssumeRoleSummary = {
+  total: number
+  roles: AssumeRoleUsage[]
+}
+
+type TerraformGuardrailSummary = {
+  actionableCount: number
+  driftedCount: number
+  missingCount: number
+  unmanagedCount: number
+  topTypes: Array<{ resourceType: string; count: number }>
+  remediationItems: TerraformDriftItem[]
+  latestScanLabel: string
 }
 
 function formatIsoDate(value: string): string {
@@ -385,6 +421,121 @@ function terraformContextKey(connection: AwsConnection): string {
     : `assumed-role:${connection.sessionId}`
 }
 
+function normalizeRoleLabel(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed || trimmed === '-') return 'Unknown role'
+  const arnSlice = trimmed.split('/').pop()?.trim()
+  return arnSlice || trimmed
+}
+
+function humanizeAuditLabel(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[._/]+/g, ' ')
+    .replace(/:/g, ' / ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function matchesAuditConnection(event: EnterpriseAuditEvent, connection: AwsConnection): boolean {
+  if (event.region && event.region !== connection.region) return false
+  if (connection.kind === 'assumed-role' && event.accountId && event.accountId !== connection.accountId) return false
+  return true
+}
+
+function deriveAuditServiceId(event: EnterpriseAuditEvent): ServiceId | '' {
+  if (event.serviceId) return event.serviceId
+  if (event.channel.startsWith('terraform:')) return 'terraform'
+  if (event.channel.startsWith('terminal:')) return 'session-hub'
+  return ''
+}
+
+function classifyRiskyAuditTone(event: EnterpriseAuditEvent): TimelineTone {
+  const haystack = `${event.action} ${event.channel} ${event.summary} ${event.details.join(' ')}`.toLowerCase()
+  const destructive = /delete|destroy|terminate|detach|revoke|remove|force-unlock|state-rm|purge|drop/.test(haystack)
+  const privileged = /assume-role|apply|import|attach|policy|trust|access-key|login-profile|run-command|open-aws|terminal|update/.test(haystack)
+
+  if (destructive && event.outcome === 'success') return 'danger'
+  if (destructive || privileged) return 'warning'
+  if (event.outcome !== 'success') return 'info'
+  return 'info'
+}
+
+function isRiskyAuditEvent(event: EnterpriseAuditEvent): boolean {
+  const haystack = `${event.action} ${event.channel} ${event.summary} ${event.details.join(' ')}`.toLowerCase()
+  if (event.channel.startsWith('terraform:') || event.channel.startsWith('terminal:')) return true
+  return /assume-role|delete|destroy|terminate|detach|revoke|remove|force-unlock|state-rm|apply|import|attach|policy|trust|access-key|login-profile|run-command|console|purge|rotate/.test(haystack)
+}
+
+function buildAssumeRoleSummary(events: CloudTrailEventSummary[], connection: AwsConnection, window: TimelineWindow): AssumeRoleSummary {
+  const grouped = new Map<string, { count: number; lastSeen: string; actorLabels: Set<string> }>()
+
+  for (const event of events) {
+    if (!isWithinWindow(event.eventTime, window)) continue
+    if (event.awsRegion && event.awsRegion !== connection.region) continue
+    if (event.eventName.toLowerCase() !== 'assumerole') continue
+
+    const roleLabel = normalizeRoleLabel(event.resourceName || event.resourceType || 'Unknown role')
+    const existing = grouped.get(roleLabel) ?? {
+      count: 0,
+      lastSeen: event.eventTime,
+      actorLabels: new Set<string>()
+    }
+
+    existing.count += 1
+    if (new Date(event.eventTime).getTime() > new Date(existing.lastSeen).getTime()) {
+      existing.lastSeen = event.eventTime
+    }
+    if (event.username) {
+      existing.actorLabels.add(event.username)
+    }
+    grouped.set(roleLabel, existing)
+  }
+
+  const total = [...grouped.values()].reduce((sum, entry) => sum + entry.count, 0)
+  const roles = [...grouped.entries()]
+    .map(([roleLabel, entry]) => {
+      const share = total > 0 ? entry.count / total : 0
+      return {
+        roleLabel,
+        count: entry.count,
+        lastSeen: entry.lastSeen,
+        actorLabels: [...entry.actorLabels].sort(),
+        concentration: share >= 0.6 && entry.count >= 3 ? 'unexpected' : share >= 0.35 && entry.count >= 2 ? 'elevated' : 'normal'
+      } satisfies AssumeRoleUsage
+    })
+    .sort((left, right) => right.count - left.count || new Date(right.lastSeen).getTime() - new Date(left.lastSeen).getTime())
+    .slice(0, 4)
+
+  return { total, roles }
+}
+
+function buildRiskyActions(events: EnterpriseAuditEvent[], connection: AwsConnection, window: TimelineWindow): RiskyActionEntry[] {
+  return events
+    .filter((event) => isWithinWindow(event.happenedAt, window))
+    .filter((event) => matchesAuditConnection(event, connection))
+    .filter(isRiskyAuditEvent)
+    .sort((left, right) => new Date(right.happenedAt).getTime() - new Date(left.happenedAt).getTime())
+    .slice(0, 6)
+    .map((event) => ({
+      id: event.id,
+      title: humanizeAuditLabel(event.action || event.channel),
+      summary: `${event.actorLabel || 'Unknown actor'} - ${event.summary}`,
+      detail: `${humanizeAuditLabel(event.channel)} - ${event.outcome}${event.resourceId ? ` - ${event.resourceId}` : ''}`,
+      occurredAt: event.happenedAt,
+      tone: classifyRiskyAuditTone(event),
+      serviceId: deriveAuditServiceId(event),
+      resourceId: event.resourceId
+    }))
+}
+
+function driftRiskWeight(item: TerraformDriftItem): number {
+  if (item.status === 'missing_in_aws' || item.status === 'unmanaged_in_aws') return 3
+  if (item.status === 'drifted') return 2
+  if (item.status === 'unsupported') return 1
+  return 0
+}
+
 export function IncidentTimelineTab({
   scope = 'terraform',
   project,
@@ -413,6 +564,8 @@ export function IncidentTimelineTab({
   const [customStart, setCustomStart] = useState(() => toLocalInputValue(new Date(Date.now() - (30 * 60_000))))
   const [customEnd, setCustomEnd] = useState(() => toLocalInputValue(new Date()))
   const [items, setItems] = useState<TimelineItem[]>([])
+  const [cloudTrailEvents, setCloudTrailEvents] = useState<CloudTrailEventSummary[]>([])
+  const [auditEvents, setAuditEvents] = useState<EnterpriseAuditEvent[]>([])
   const [loading, setLoading] = useState(false)
   const [sourceWarnings, setSourceWarnings] = useState<string[]>([])
   const [sourceFilter, setSourceFilter] = useState<TimelineSourceFilter>('all')
@@ -499,7 +652,8 @@ export function IncidentTimelineTab({
     const nextWarnings: string[] = []
 
     try {
-      const timelineSources: Array<Promise<unknown>> = [
+      const [runHistoryResult, cloudWatchResult, cloudTrailResult, auditResult] = await Promise.allSettled([
+        linkedProject ? listRunHistory({ projectId: linkedProject.id }) : Promise.resolve(null),
         Promise.all([
           listCloudWatchInvestigationHistory({
             profile: connection.profile,
@@ -512,27 +666,15 @@ export function IncidentTimelineTab({
             limit: 100
           })
         ]),
-        lookupCloudTrailEvents(connection, activeWindow.startIso, activeWindow.endIso)
-      ]
+        lookupCloudTrailEvents(connection, activeWindow.startIso, activeWindow.endIso),
+        listEnterpriseAuditEvents()
+      ])
 
-      if (linkedProject) {
-        timelineSources.unshift(listRunHistory({ projectId: linkedProject.id }))
-      }
-
-      const results = await Promise.allSettled(timelineSources)
-      let resultIndex = 0
-
-      const runHistory = linkedProject && results[resultIndex]
-        ? results[resultIndex++]
-        : null
-      const cloudWatchResult = results[resultIndex++]
-      const cloudTrailResult = results[resultIndex]
-
-      const terraformHistory = runHistory?.status === 'fulfilled'
-        ? buildTerraformTimelineItems(runHistory.value as TerraformRunRecord[], activeWindow)
+      const terraformHistory = linkedProject && runHistoryResult.status === 'fulfilled' && Array.isArray(runHistoryResult.value)
+        ? buildTerraformTimelineItems(runHistoryResult.value as TerraformRunRecord[], activeWindow)
         : []
-      if (runHistory?.status === 'rejected') {
-        nextWarnings.push(`Terraform history: ${runHistory.reason instanceof Error ? runHistory.reason.message : String(runHistory.reason)}`)
+      if (linkedProject && runHistoryResult.status === 'rejected') {
+        nextWarnings.push(`Terraform history: ${runHistoryResult.reason instanceof Error ? runHistoryResult.reason.message : String(runHistoryResult.reason)}`)
       }
 
       const cloudWatchHistory = cloudWatchResult?.status === 'fulfilled'
@@ -545,11 +687,21 @@ export function IncidentTimelineTab({
         nextWarnings.push(`CloudWatch investigation history: ${cloudWatchResult.reason instanceof Error ? cloudWatchResult.reason.message : String(cloudWatchResult.reason)}`)
       }
 
+      const nextCloudTrailEvents = cloudTrailResult?.status === 'fulfilled'
+        ? (cloudTrailResult.value as CloudTrailEventSummary[])
+        : []
       const cloudTrailHistory = cloudTrailResult?.status === 'fulfilled'
-        ? buildCloudTrailTimelineItems(cloudTrailResult.value as CloudTrailEventSummary[])
+        ? buildCloudTrailTimelineItems(nextCloudTrailEvents)
         : []
       if (cloudTrailResult?.status === 'rejected') {
         nextWarnings.push(`CloudTrail lookup: ${cloudTrailResult.reason instanceof Error ? cloudTrailResult.reason.message : String(cloudTrailResult.reason)}`)
+      }
+
+      const nextAuditEvents = auditResult?.status === 'fulfilled'
+        ? (auditResult.value as EnterpriseAuditEvent[])
+        : []
+      if (auditResult?.status === 'rejected') {
+        nextWarnings.push(`Operator audit log: ${auditResult.reason instanceof Error ? auditResult.reason.message : String(auditResult.reason)}`)
       }
 
       if (terraformContextStatus === 'error' && terraformContextMessage) {
@@ -565,6 +717,8 @@ export function IncidentTimelineTab({
         ...cloudTrailHistory
       ].sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime())
 
+      setCloudTrailEvents(nextCloudTrailEvents)
+      setAuditEvents(nextAuditEvents)
       setItems(nextItems)
       setSourceWarnings(nextWarnings)
     } finally {
@@ -606,6 +760,40 @@ export function IncidentTimelineTab({
     [filteredItems]
   )
 
+  const assumeRoleSummary = useMemo(
+    () => buildAssumeRoleSummary(cloudTrailEvents, connection, activeWindow),
+    [activeWindow, cloudTrailEvents, connection]
+  )
+
+  const recentRiskyActions = useMemo(
+    () => buildRiskyActions(auditEvents, connection, activeWindow),
+    [activeWindow, auditEvents, connection]
+  )
+
+  const terraformGuardrail = useMemo<TerraformGuardrailSummary | null>(() => {
+    if (!linkedProject || !linkedDriftReport) return null
+
+    const actionableCount = linkedDriftReport.summary.statusCounts.drifted
+      + linkedDriftReport.summary.statusCounts.missing_in_aws
+      + linkedDriftReport.summary.statusCounts.unmanaged_in_aws
+
+    return {
+      actionableCount,
+      driftedCount: linkedDriftReport.summary.statusCounts.drifted,
+      missingCount: linkedDriftReport.summary.statusCounts.missing_in_aws,
+      unmanagedCount: linkedDriftReport.summary.statusCounts.unmanaged_in_aws,
+      topTypes: linkedDriftReport.summary.resourceTypeCounts
+        .filter((entry) => entry.count > 0)
+        .sort((left, right) => right.count - left.count)
+        .slice(0, 3),
+      remediationItems: [...linkedDriftReport.items]
+        .filter((item) => item.status !== 'in_sync' && item.status !== 'unsupported')
+        .sort((left, right) => driftRiskWeight(right) - driftRiskWeight(left) || right.differences.length - left.differences.length)
+        .slice(0, 3),
+      latestScanLabel: linkedDriftReport.history.latestScanAt || linkedDriftReport.summary.scannedAt
+    }
+  }, [linkedDriftReport, linkedProject])
+
   function handleOpenTerraformSignal(): void {
     if (onOpenHistory) {
       onOpenHistory()
@@ -615,6 +803,37 @@ export function IncidentTimelineTab({
     if (onNavigateTerraform) {
       onNavigateTerraform()
     }
+  }
+
+  function handleOpenRiskyAction(entry: RiskyActionEntry): void {
+    if (entry.serviceId === 'terraform') {
+      onNavigateTerraform?.()
+      return
+    }
+
+    if (entry.serviceId && onNavigateService) {
+      onNavigateService(entry.serviceId, entry.resourceId || undefined)
+    }
+  }
+
+  function renderRiskyActionButton(entry: RiskyActionEntry): ReactNode {
+    if (entry.serviceId === 'terraform' && onNavigateTerraform) {
+      return (
+        <button type="button" className="tf-toolbar-btn" onClick={() => handleOpenRiskyAction(entry)}>
+          Open Terraform
+        </button>
+      )
+    }
+
+    if (entry.serviceId && onNavigateService) {
+      return (
+        <button type="button" className="tf-toolbar-btn" onClick={() => handleOpenRiskyAction(entry)}>
+          Open Service
+        </button>
+      )
+    }
+
+    return null
   }
 
   function renderClusterActions(cluster: CorrelationCluster): ReactNode {
@@ -819,6 +1038,148 @@ export function IncidentTimelineTab({
                 : 'No selected Terraform project attached'}
             </span>
           </div>
+        </div>
+
+        <div className="tf-guardrail-grid">
+          <section className={`tf-guardrail-card ${terraformGuardrail?.actionableCount ? 'warning' : 'success'}`}>
+            <div className="tf-guardrail-head">
+              <div>
+                <span className="tf-guardrail-kicker">Terraform guardrails</span>
+                <h4>Current project posture</h4>
+              </div>
+              <strong>{terraformGuardrail ? `${terraformGuardrail.actionableCount} actionable` : linkedProject ? 'No drift snapshot' : 'No project linked'}</strong>
+            </div>
+            {terraformGuardrail ? (
+              <>
+                <p className="tf-guardrail-copy">
+                  {linkedProject?.name} on {linkedProject?.currentWorkspace}. Latest scan {formatIsoDate(terraformGuardrail.latestScanLabel)}.
+                </p>
+                <div className="tf-guardrail-metrics">
+                  <span>Drifted {terraformGuardrail.driftedCount}</span>
+                  <span>Missing {terraformGuardrail.missingCount}</span>
+                  <span>Unmanaged {terraformGuardrail.unmanagedCount}</span>
+                </div>
+                <div className="tf-guardrail-list">
+                  {terraformGuardrail.topTypes.length > 0 ? terraformGuardrail.topTypes.map((entry) => (
+                    <div key={entry.resourceType} className="tf-guardrail-row">
+                      <div>
+                        <strong>{entry.resourceType}</strong>
+                        <span>High-volume drift type</span>
+                      </div>
+                      <span>{entry.count}</span>
+                    </div>
+                  )) : (
+                    <div className="tf-guardrail-empty">No drift-heavy resource type is currently standing out.</div>
+                  )}
+                </div>
+                <div className="tf-guardrail-subtitle">Direct remediation entries</div>
+                <div className="tf-guardrail-list compact">
+                  {terraformGuardrail.remediationItems.length > 0 ? terraformGuardrail.remediationItems.map((item) => (
+                    <div key={item.terraformAddress} className="tf-guardrail-row stacked">
+                      <div>
+                        <strong>{item.terraformAddress}</strong>
+                        <span>{item.suggestedNextStep}</span>
+                      </div>
+                      <span>{item.status.replace(/_/g, ' ')}</span>
+                    </div>
+                  )) : (
+                    <div className="tf-guardrail-empty">No remediation entry is currently needed.</div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <p className="tf-guardrail-copy">
+                {linkedProject
+                  ? 'A Terraform project is linked, but there is no cached drift snapshot yet.'
+                  : 'Overview is currently AWS-only. Select a Terraform project to pull in drift guardrails.'}
+              </p>
+            )}
+            <div className="tf-incident-actions">
+              {(onOpenDrift || onNavigateTerraform) && (
+                <button type="button" className="tf-toolbar-btn" onClick={onOpenDrift ?? onNavigateTerraform}>
+                  Open Drift
+                </button>
+              )}
+              {onNavigateTerraform && (
+                <button type="button" className="tf-toolbar-btn" onClick={onNavigateTerraform}>
+                  Open Terraform
+                </button>
+              )}
+            </div>
+          </section>
+
+          <section className={`tf-guardrail-card ${assumeRoleSummary.roles[0]?.concentration === 'unexpected' ? 'danger' : assumeRoleSummary.total > 0 ? 'warning' : 'success'}`}>
+            <div className="tf-guardrail-head">
+              <div>
+                <span className="tf-guardrail-kicker">Operator guardrails</span>
+                <h4>AssumeRole concentration</h4>
+              </div>
+              <strong>{assumeRoleSummary.total} events</strong>
+            </div>
+            <p className="tf-guardrail-copy">
+              Most frequently assumed IAM roles in the active window. Elevated or unexpected concentration hints at operator focus narrowing onto one role.
+            </p>
+            <div className="tf-guardrail-list">
+              {assumeRoleSummary.roles.length > 0 ? assumeRoleSummary.roles.map((entry) => (
+                <div key={entry.roleLabel} className="tf-guardrail-row stacked">
+                  <div>
+                    <strong>{entry.roleLabel}</strong>
+                    <span>
+                      {entry.actorLabels.slice(0, 3).join(', ') || 'Unknown actor'} - last seen {formatIsoDate(entry.lastSeen)}
+                    </span>
+                  </div>
+                  <span className={`tf-guardrail-pill ${entry.concentration}`}>{entry.count} - {entry.concentration}</span>
+                </div>
+              )) : (
+                <div className="tf-guardrail-empty">No AssumeRole activity was captured in the selected time window.</div>
+              )}
+            </div>
+            {onNavigateCloudTrail && (
+              <div className="tf-incident-actions">
+                <button
+                  type="button"
+                  className="tf-toolbar-btn"
+                  onClick={() => onNavigateCloudTrail({
+                    startTime: activeWindow.startIso,
+                    endTime: activeWindow.endIso,
+                    filter: 'AssumeRole'
+                  })}
+                >
+                  Open CloudTrail
+                </button>
+              </div>
+            )}
+          </section>
+
+          <section className={`tf-guardrail-card ${recentRiskyActions.some((entry) => entry.tone === 'danger') ? 'danger' : recentRiskyActions.length > 0 ? 'warning' : 'success'}`}>
+            <div className="tf-guardrail-head">
+              <div>
+                <span className="tf-guardrail-kicker">Risk log</span>
+                <h4>Recent risky actions</h4>
+              </div>
+              <strong>{recentRiskyActions.length} entries</strong>
+            </div>
+            <p className="tf-guardrail-copy">
+              Blunt operator activity pulled from terminal, service-console, and Terraform audit flows for this account and region.
+            </p>
+            <div className="tf-guardrail-list compact">
+              {recentRiskyActions.length > 0 ? recentRiskyActions.map((entry) => (
+                <div key={entry.id} className="tf-guardrail-row stacked">
+                  <div>
+                    <strong>{entry.title}</strong>
+                    <span>{entry.summary}</span>
+                    <span>{entry.detail}</span>
+                  </div>
+                  <div className="tf-guardrail-row-side">
+                    <span className={`tf-guardrail-pill ${entry.tone}`}>{formatIsoDate(entry.occurredAt)}</span>
+                    {renderRiskyActionButton(entry)}
+                  </div>
+                </div>
+              )) : (
+                <div className="tf-guardrail-empty">No risky operator action was captured in the selected time window.</div>
+              )}
+            </div>
+          </section>
         </div>
 
         {sourceWarnings.length > 0 && (
