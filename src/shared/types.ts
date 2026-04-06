@@ -4065,6 +4065,20 @@ export type TerraformAdoptionImportExecutionResult = {
   log: TerraformCommandLog
 }
 
+export type TerraformAdoptionValidationStatus = 'passed' | 'needs-review' | 'failed'
+
+export type TerraformAdoptionValidationResult = {
+  checkedAt: string
+  projectId: string
+  projectName: string
+  address: string
+  status: TerraformAdoptionValidationStatus
+  summary: string
+  log: TerraformCommandLog
+  planSummary: TerraformPlanSummary
+  matchingChanges: TerraformPlanChange[]
+}
+
 export type TerraformProgressEvent = {
   address: string
   status: string

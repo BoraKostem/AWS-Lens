@@ -54,6 +54,7 @@ import { detectTerraformAdoption } from './terraformAdoption'
 import { generateTerraformAdoptionCode } from './terraformAdoptionCodegen'
 import { applyTerraformAdoptionCode, buildTerraformAdoptionImportExecutionResult } from './terraformAdoptionExecution'
 import { mapTerraformAdoption } from './terraformAdoptionMapping'
+import { validateTerraformAdoptionImport } from './terraformAdoptionValidation'
 import { getTerraformDriftReport } from './terraformDrift'
 import { listRunRecords, getRunOutput, deleteRunRecord } from './terraformHistoryStore'
 import { detectGovernanceTools, getCachedGovernanceToolkit, runGovernanceChecks, getGovernanceReport } from './terraformGovernance'
@@ -295,6 +296,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       }, getWindow())
       return buildTerraformAdoptionImportExecutionResult(applyResult, log)
     })
+  )
+  ipcMain.handle('terraform:adoption:validate', async (_event, profileName: string, projectId: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget) =>
+    wrap(() => validateTerraformAdoptionImport(profileName, projectId, connection, target, getWindow()))
   )
   ipcMain.handle('terraform:inputs:update', async (_event, profileName: string, projectId: string, inputConfig: TerraformInputConfiguration, connection?: AwsConnection) =>
     wrap(() => updateProjectInputs(profileName, projectId, inputConfig, connection))

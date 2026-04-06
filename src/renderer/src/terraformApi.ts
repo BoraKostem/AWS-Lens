@@ -4,6 +4,7 @@ import type {
   ObservabilityPostureReport,
   TerraformAdoptionDetectionResult,
   TerraformAdoptionImportExecutionResult,
+  TerraformAdoptionValidationResult,
   TerraformAdoptionMappingResult,
   TerraformAdoptionTarget,
   TerraformCliInfo,
@@ -101,6 +102,15 @@ export async function executeAdoptionImport(
   target: TerraformAdoptionTarget
 ): Promise<TerraformAdoptionImportExecutionResult> {
   return unwrap(await bridge().executeAdoptionImport(profileName, projectId, connection, target) as Wrapped<TerraformAdoptionImportExecutionResult>)
+}
+
+export async function validateAdoptionImport(
+  profileName: string,
+  projectId: string,
+  connection: AwsConnection | undefined,
+  target: TerraformAdoptionTarget
+): Promise<TerraformAdoptionValidationResult> {
+  return unwrap(await bridge().validateAdoptionImport(profileName, projectId, connection, target) as Wrapped<TerraformAdoptionValidationResult>)
 }
 
 export async function chooseProjectDirectory(): Promise<string> {

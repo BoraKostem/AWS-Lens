@@ -449,6 +449,7 @@ declare global {
       mapAdoption: (profileName: string, projectId: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget) => Promise<unknown>
       generateAdoptionCode: (profileName: string, projectId: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget) => Promise<unknown>
       executeAdoptionImport: (profileName: string, projectId: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget) => Promise<unknown>
+      validateAdoptionImport: (profileName: string, projectId: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget) => Promise<unknown>
       chooseProjectDirectory: () => Promise<unknown>
       addProject: (profileName: string, rootPath: string, connection?: AwsConnection) => Promise<unknown>
       renameProject: (profileName: string, projectId: string, name: string) => Promise<unknown>

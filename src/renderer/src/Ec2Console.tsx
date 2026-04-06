@@ -38,6 +38,7 @@ import type {
   TerraformAdoptionImportExecutionResult,
   TerraformAdoptionMappingResult,
   TerraformAdoptionTarget,
+  TerraformAdoptionValidationResult,
   TerraformProjectListItem,
   VaultEntrySummary
 } from '@shared/types'
@@ -100,7 +101,7 @@ import {
   terminateEc2Instance
 } from './ec2Api'
 import { ConfirmButton } from './ConfirmButton'
-import { detectAdoption, executeAdoptionImport, generateAdoptionCode, listProjects as listTerraformProjects, mapAdoption, reloadProject } from './terraformApi'
+import { detectAdoption, executeAdoptionImport, generateAdoptionCode, listProjects as listTerraformProjects, mapAdoption, reloadProject, validateAdoptionImport } from './terraformApi'
 
 type MainTab = 'instances' | 'volumes' | 'snapshots'
 type SideTab = 'overview' | 'ssm' | 'timeline'
@@ -264,6 +265,25 @@ function adoptionSourceLabel(source: TerraformAdoptionMappingResult['module']['s
   if (source === 'related-resource') return 'Related resources'
   if (source === 'existing-resource-type') return 'Existing resources'
   return 'Fallback'
+}
+
+function adoptionValidationTone(status: TerraformAdoptionValidationResult['status']): 'managed' | 'config' | 'unmanaged' {
+  if (status === 'passed') return 'managed'
+  if (status === 'needs-review') return 'config'
+  return 'unmanaged'
+}
+
+function adoptionValidationLabel(status: TerraformAdoptionValidationResult['status']): string {
+  if (status === 'passed') return 'Passed'
+  if (status === 'needs-review') return 'Needs review'
+  return 'Failed'
+}
+
+function adoptionPlanActionSymbol(action: string): string {
+  if (action === 'create') return '+'
+  if (action === 'delete') return '-'
+  if (action === 'update') return '~'
+  return '±'
 }
 
 type CompatibilityTone = 'match' | 'warning' | 'unknown'
@@ -718,6 +738,10 @@ export function Ec2Console({
   const [adoptionImportRunning, setAdoptionImportRunning] = useState(false)
   const [adoptionImportError, setAdoptionImportError] = useState('')
   const [adoptionImportResult, setAdoptionImportResult] = useState<TerraformAdoptionImportExecutionResult | null>(null)
+  const [adoptionValidationLoading, setAdoptionValidationLoading] = useState(false)
+  const [adoptionValidationError, setAdoptionValidationError] = useState('')
+  const [adoptionValidation, setAdoptionValidation] = useState<TerraformAdoptionValidationResult | null>(null)
+  const adoptionValidationRequestRef = useRef(0)
 
   /* ── Snapshots state ─────────────────────────────────────── */
   const [snapshots, setSnapshots] = useState<Ec2SnapshotSummary[]>([])
@@ -1053,6 +1077,9 @@ export function Ec2Console({
     setAdoptionImportRunning(true)
     setAdoptionImportError('')
     setAdoptionImportResult(null)
+    setAdoptionValidation(null)
+    setAdoptionValidationError('')
+    adoptionValidationRequestRef.current += 1
 
     try {
       const result = await executeAdoptionImport(
@@ -1074,14 +1101,61 @@ export function Ec2Console({
       setProjectPickerProjects((previous) => previous.map((project) => (
         project.id === refreshedProject.id ? refreshedProject : project
       )))
-      setAdoptionMapping(null)
-      setAdoptionCodegen(null)
+      setAdoptionValidation(null)
+      setAdoptionValidationError('')
       await loadAdoptionDetection(detail)
+      await runAdoptionValidation(detail, refreshedProject)
       setMsg(`Terraform import completed for ${detail.instanceId}.`)
     } catch (error) {
       setAdoptionImportError(error instanceof Error ? error.message : 'Terraform import execution failed.')
     } finally {
       setAdoptionImportRunning(false)
+    }
+  }
+
+  async function runAdoptionValidation(
+    nextDetail: Ec2InstanceDetail | null = detail,
+    project: TerraformProjectListItem | null = selectedAdoptionProject
+  ): Promise<void> {
+    const requestId = adoptionValidationRequestRef.current + 1
+    adoptionValidationRequestRef.current = requestId
+
+    if (!nextDetail || !project || adoptionValidationLoading) {
+      return
+    }
+
+    setAdoptionValidationLoading(true)
+    setAdoptionValidationError('')
+    setAdoptionValidation(null)
+
+    try {
+      const result = await validateAdoptionImport(
+        terraformContextKey(connection),
+        project.id,
+        connection,
+        buildEc2AdoptionTarget(connection, nextDetail)
+      )
+      if (requestId !== adoptionValidationRequestRef.current) {
+        return
+      }
+      setAdoptionValidation(result)
+
+      const refreshedProject = await reloadProject(terraformContextKey(connection), project.id, connection)
+      if (requestId !== adoptionValidationRequestRef.current) {
+        return
+      }
+      setSelectedAdoptionProject(refreshedProject)
+      setProjectPickerProjects((previous) => previous.map((entry) => (
+        entry.id === refreshedProject.id ? refreshedProject : entry
+      )))
+    } catch (error) {
+      if (requestId === adoptionValidationRequestRef.current) {
+        setAdoptionValidationError(error instanceof Error ? error.message : 'Post-import validation failed.')
+      }
+    } finally {
+      if (requestId === adoptionValidationRequestRef.current) {
+        setAdoptionValidationLoading(false)
+      }
     }
   }
 
@@ -1122,6 +1196,9 @@ export function Ec2Console({
     setSelectedAdoptionProject(selectedProject)
     setAdoptionImportError('')
     setAdoptionImportResult(null)
+    setAdoptionValidation(null)
+    setAdoptionValidationError('')
+    adoptionValidationRequestRef.current += 1
     setShowProjectPicker(false)
     setMsg(`Terraform target project selected: ${selectedProject.name}`)
   }
@@ -1157,6 +1234,10 @@ export function Ec2Console({
     setAdoptionImportRunning(false)
     setAdoptionImportError('')
     setAdoptionImportResult(null)
+    setAdoptionValidationLoading(false)
+    setAdoptionValidationError('')
+    setAdoptionValidation(null)
+    adoptionValidationRequestRef.current += 1
   }, [detail?.instanceId])
 
   /* ── Recommendations state ──────────────────────────────── */
@@ -2795,7 +2876,7 @@ export function Ec2Console({
                             )}
                           </div>
                         )}
-                        {selectedAdoptionProject && adoptionDetection.managedProjectCount === 0 && adoptionCodegen && (
+                        {selectedAdoptionProject && (adoptionCodegen || adoptionImportResult) && (
                           <div className="ec2-adoption-codegen">
                             <div className="ec2-adoption-mapping-head">
                               <div>
@@ -2811,7 +2892,7 @@ export function Ec2Console({
                             <div className="ec2-btn-row">
                               <ConfirmButton
                                 className="ec2-action-btn terraform"
-                                disabled={adoptionImportRunning}
+                                disabled={adoptionImportRunning || !adoptionCodegen}
                                 confirmLabel="Review import"
                                 modalTitle="Run Terraform Import"
                                 modalBody="This will persist the generated HCL preview into the suggested Terraform file if the resource block is missing, then run terraform import for the selected resource."
@@ -2820,9 +2901,9 @@ export function Ec2Console({
                                 summaryItems={[
                                   `Project: ${selectedAdoptionProject.name}`,
                                   `Workspace: ${selectedAdoptionProject.currentWorkspace || 'default'}`,
-                                  `Address: ${adoptionCodegen.mapping.suggestedAddress}`,
-                                  `Import ID: ${adoptionCodegen.mapping.importId}`,
-                                  `File: ${adoptionCodegen.filePlan.suggestedFilePath}`
+                                  `Address: ${(adoptionCodegen ?? adoptionImportResult?.applyResult.codegen)?.mapping.suggestedAddress ?? '-'}`,
+                                  `Import ID: ${(adoptionCodegen ?? adoptionImportResult?.applyResult.codegen)?.mapping.importId ?? '-'}`,
+                                  `File: ${(adoptionCodegen ?? adoptionImportResult?.applyResult.codegen)?.filePlan.suggestedFilePath ?? '-'}`
                                 ]}
                                 onConfirm={() => void handleExecuteAdoptionImport()}
                               >
@@ -2852,6 +2933,73 @@ export function Ec2Console({
                                 <div className="ec2-adoption-code-preview">
                                   <span className="ec2-adoption-label">Import Output</span>
                                   <pre className="s3-preview-text">{adoptionImportResult.log.output || 'No Terraform output was captured.'}</pre>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
+                        {selectedAdoptionProject && (adoptionImportResult?.log.success || adoptionValidationLoading || adoptionValidation || adoptionValidationError) && (
+                          <div className="ec2-adoption-codegen">
+                            <div className="ec2-adoption-mapping-head">
+                              <div>
+                                <h4>Post-Import Validation</h4>
+                                <div className="ec2-sidebar-hint">
+                                  Run a targeted `terraform plan` against the adopted address and confirm whether the imported EC2 resource is now stable in state.
+                                </div>
+                              </div>
+                              {adoptionValidationLoading && <span className="ec2-adoption-pill config">Validating...</span>}
+                              {!adoptionValidationLoading && adoptionValidation && (
+                                <span className={`ec2-adoption-pill ${adoptionValidationTone(adoptionValidation.status)}`}>
+                                  {adoptionValidationLabel(adoptionValidation.status)}
+                                </span>
+                              )}
+                            </div>
+                            <div className="ec2-btn-row">
+                              <button
+                                className="ec2-action-btn"
+                                type="button"
+                                disabled={adoptionValidationLoading || !adoptionImportResult?.log.success}
+                                onClick={() => void runAdoptionValidation()}
+                              >
+                                {adoptionValidationLoading ? 'Validating...' : 'Run Post-Import Validation'}
+                              </button>
+                            </div>
+                            {adoptionValidationError && <div className="ec2-sidebar-hint ec2-adoption-error">{adoptionValidationError}</div>}
+                            {adoptionValidation && (
+                              <>
+                                <div className="ec2-adoption-mapping-grid">
+                                  <div className="ec2-adoption-row">
+                                    <span className="ec2-adoption-label">Status</span>
+                                    <code>{adoptionValidationLabel(adoptionValidation.status)}</code>
+                                    <small>{adoptionValidation.summary}</small>
+                                  </div>
+                                  <div className="ec2-adoption-row">
+                                    <span className="ec2-adoption-label config">Address</span>
+                                    <code>{adoptionValidation.address}</code>
+                                    <small>Targeted plan in {selectedAdoptionProject.currentWorkspace || 'default'} workspace</small>
+                                  </div>
+                                  <div className="ec2-adoption-row">
+                                    <span className="ec2-adoption-label config">Plan</span>
+                                    <code>{adoptionValidation.planSummary.hasChanges ? 'changes detected' : 'clean'}</code>
+                                    <small>
+                                      {adoptionValidation.planSummary.create} create | {adoptionValidation.planSummary.update} update | {adoptionValidation.planSummary.delete} delete | {adoptionValidation.planSummary.replace} replace
+                                    </small>
+                                  </div>
+                                </div>
+                                {adoptionValidation.matchingChanges.length > 0 && (
+                                  <div className="ec2-adoption-list">
+                                    {adoptionValidation.matchingChanges.map((change) => (
+                                      <div key={`${change.address}:${change.actionLabel}`} className="ec2-adoption-row">
+                                        <span className="ec2-adoption-label config">Change</span>
+                                        <code>{change.address}</code>
+                                        <small>{adoptionPlanActionSymbol(change.actionLabel)} {change.actionLabel} | {change.type} | {change.modulePath === 'root' ? 'root module' : change.modulePath}</small>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                <div className="ec2-adoption-code-preview">
+                                  <span className="ec2-adoption-label">Validation Output</span>
+                                  <pre className="s3-preview-text">{adoptionValidation.log.output || 'No Terraform output was captured.'}</pre>
                                 </div>
                               </>
                             )}
