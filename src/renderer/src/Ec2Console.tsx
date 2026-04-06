@@ -1544,7 +1544,31 @@ export function Ec2Console({
       const resolvedKey = await resolveCurrentSshKeyInput()
       await markSelectedPemUsed('ec2-instance-connect', resolvedKey.vaultEntryId)
       const ok = await sendSshPublicKey(connection, selectedId, sshUser, resolvedKey.value, detail.availabilityZone)
-      setMsg(ok ? 'Public key sent (valid 60s)' : 'Failed to send key')
+      setMsg(ok ? `Public key sent for ${sshUser} (valid 60s)` : 'Failed to send key')
+    })
+  }
+
+  async function doEc2InstanceConnectSsh() {
+    if (!detail || !onRunTerminalCommand) {
+      return
+    }
+
+    await runEc2Mutation(async () => {
+      const resolvedKey = await resolveCurrentSshKeyInput()
+      await markSelectedPemUsed('ec2-instance-connect', resolvedKey.vaultEntryId)
+      const ok = await sendSshPublicKey(connection, selectedId, sshUser, resolvedKey.value, detail.availabilityZone)
+      if (!ok) {
+        setMsg('Failed to send key')
+        return
+      }
+
+      const sshTarget = detail.publicIp !== '-' ? detail.publicIp : detail.privateIp
+      onRunTerminalCommand(`ssh -i ${quoteSshArg(resolvedKey.value)} ${sshUser}@${sshTarget}`)
+      setMsg(
+        resolvedKey.vaultEntryName
+          ? `Temporary public key sent and SSH opened using vault key ${resolvedKey.vaultEntryName}`
+          : 'Temporary public key sent and SSH opened'
+      )
     })
   }
 
@@ -2412,10 +2436,22 @@ export function Ec2Console({
                           onClick={() => void doOpenSsmShell()}
                         >SSM Connect</button>
                         <button
+                          className="ec2-action-btn"
+                          type="button"
+                          disabled={!sshKey}
+                          onClick={() => void doSendKey()}
+                        >Send Key</button>
+                        <button
+                          className="ec2-action-btn apply"
+                          type="button"
+                          disabled={!onRunTerminalCommand || !sshKey}
+                          onClick={() => void doEc2InstanceConnectSsh()}
+                        >EIC + SSH</button>
+                        <button
                           className="ec2-action-btn ssh"
                           type="button"
                           onClick={() => void doSshConnect()}
-                        >SSH Connect</button>
+                        >Direct SSH</button>
                       </div>
                     </div>
                   </div>
