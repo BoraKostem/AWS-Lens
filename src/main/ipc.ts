@@ -52,6 +52,7 @@ import {
 } from './terraform'
 import { detectTerraformAdoption } from './terraformAdoption'
 import { generateTerraformAdoptionCode } from './terraformAdoptionCodegen'
+import { applyTerraformAdoptionCode, buildTerraformAdoptionImportExecutionResult } from './terraformAdoptionExecution'
 import { mapTerraformAdoption } from './terraformAdoptionMapping'
 import { getTerraformDriftReport } from './terraformDrift'
 import { listRunRecords, getRunOutput, deleteRunRecord } from './terraformHistoryStore'
@@ -280,6 +281,20 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   )
   ipcMain.handle('terraform:adoption:codegen', async (_event, profileName: string, projectId: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget) =>
     wrap(() => generateTerraformAdoptionCode(profileName, projectId, connection, target))
+  )
+  ipcMain.handle('terraform:adoption:execute-import', async (_event, profileName: string, projectId: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget) =>
+    wrap(async () => {
+      const applyResult = applyTerraformAdoptionCode(profileName, projectId, connection, target)
+      const log = await runProjectCommand({
+        profileName,
+        connection,
+        projectId,
+        command: 'import',
+        importAddress: applyResult.codegen.mapping.suggestedAddress,
+        importId: applyResult.codegen.mapping.importId
+      }, getWindow())
+      return buildTerraformAdoptionImportExecutionResult(applyResult, log)
+    })
   )
   ipcMain.handle('terraform:inputs:update', async (_event, profileName: string, projectId: string, inputConfig: TerraformInputConfiguration, connection?: AwsConnection) =>
     wrap(() => updateProjectInputs(profileName, projectId, inputConfig, connection))

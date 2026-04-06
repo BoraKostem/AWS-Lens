@@ -4047,6 +4047,24 @@ export type TerraformAdoptionCodegenResult = {
   warnings: string[]
 }
 
+export type TerraformAdoptionCodeApplyResult = {
+  checkedAt: string
+  projectId: string
+  projectName: string
+  filePath: string
+  action: 'created' | 'appended' | 'skipped'
+  bytesWritten: number
+  codegen: TerraformAdoptionCodegenResult
+}
+
+export type TerraformAdoptionImportExecutionResult = {
+  checkedAt: string
+  projectId: string
+  projectName: string
+  applyResult: TerraformAdoptionCodeApplyResult
+  log: TerraformCommandLog
+}
+
 export type TerraformProgressEvent = {
   address: string
   status: string

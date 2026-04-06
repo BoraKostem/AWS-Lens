@@ -33,8 +33,9 @@ import type {
   SsmPortForwardPreset,
   SsmSessionSummary,
   SubnetSummary,
-  TerraformAdoptionDetectionResult,
   TerraformAdoptionCodegenResult,
+  TerraformAdoptionDetectionResult,
+  TerraformAdoptionImportExecutionResult,
   TerraformAdoptionMappingResult,
   TerraformAdoptionTarget,
   TerraformProjectListItem,
@@ -99,7 +100,7 @@ import {
   terminateEc2Instance
 } from './ec2Api'
 import { ConfirmButton } from './ConfirmButton'
-import { detectAdoption, generateAdoptionCode, listProjects as listTerraformProjects, mapAdoption } from './terraformApi'
+import { detectAdoption, executeAdoptionImport, generateAdoptionCode, listProjects as listTerraformProjects, mapAdoption, reloadProject } from './terraformApi'
 
 type MainTab = 'instances' | 'volumes' | 'snapshots'
 type SideTab = 'overview' | 'ssm' | 'timeline'
@@ -714,6 +715,9 @@ export function Ec2Console({
   const [adoptionCodegenLoading, setAdoptionCodegenLoading] = useState(false)
   const [adoptionCodegenError, setAdoptionCodegenError] = useState('')
   const adoptionCodegenRequestRef = useRef(0)
+  const [adoptionImportRunning, setAdoptionImportRunning] = useState(false)
+  const [adoptionImportError, setAdoptionImportError] = useState('')
+  const [adoptionImportResult, setAdoptionImportResult] = useState<TerraformAdoptionImportExecutionResult | null>(null)
 
   /* ── Snapshots state ─────────────────────────────────────── */
   const [snapshots, setSnapshots] = useState<Ec2SnapshotSummary[]>([])
@@ -1041,6 +1045,46 @@ export function Ec2Console({
     }
   }
 
+  async function handleExecuteAdoptionImport(): Promise<void> {
+    if (!detail || !selectedAdoptionProject || !adoptionCodegen || adoptionImportRunning) {
+      return
+    }
+
+    setAdoptionImportRunning(true)
+    setAdoptionImportError('')
+    setAdoptionImportResult(null)
+
+    try {
+      const result = await executeAdoptionImport(
+        terraformContextKey(connection),
+        selectedAdoptionProject.id,
+        connection,
+        buildEc2AdoptionTarget(connection, detail)
+      )
+      setAdoptionImportResult(result)
+
+      if (!result.log.success) {
+        const tail = result.log.output.split('\n').map((line) => line.trim()).filter(Boolean).slice(-1)[0] || 'see command output for details'
+        setAdoptionImportError(`Terraform import failed: ${tail}`)
+        return
+      }
+
+      const refreshedProject = await reloadProject(terraformContextKey(connection), selectedAdoptionProject.id, connection)
+      setSelectedAdoptionProject(refreshedProject)
+      setProjectPickerProjects((previous) => previous.map((project) => (
+        project.id === refreshedProject.id ? refreshedProject : project
+      )))
+      setAdoptionMapping(null)
+      setAdoptionCodegen(null)
+      await loadAdoptionDetection(detail)
+      setMsg(`Terraform import completed for ${detail.instanceId}.`)
+    } catch (error) {
+      setAdoptionImportError(error instanceof Error ? error.message : 'Terraform import execution failed.')
+    } finally {
+      setAdoptionImportRunning(false)
+    }
+  }
+
   function handleManageInTerraform(): void {
     adoptionSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     if (!detail) return
@@ -1076,6 +1120,8 @@ export function Ec2Console({
     const selectedProject = projectPickerProjects.find((project) => project.id === selectedProjectCandidateId) ?? null
     if (!selectedProject) return
     setSelectedAdoptionProject(selectedProject)
+    setAdoptionImportError('')
+    setAdoptionImportResult(null)
     setShowProjectPicker(false)
     setMsg(`Terraform target project selected: ${selectedProject.name}`)
   }
@@ -1108,6 +1154,9 @@ export function Ec2Console({
     setAdoptionCodegen(null)
     setAdoptionCodegenError('')
     setAdoptionCodegenLoading(false)
+    setAdoptionImportRunning(false)
+    setAdoptionImportError('')
+    setAdoptionImportResult(null)
   }, [detail?.instanceId])
 
   /* ── Recommendations state ──────────────────────────────── */
@@ -2742,6 +2791,68 @@ export function Ec2Console({
                                     ))}
                                   </div>
                                 )}
+                              </>
+                            )}
+                          </div>
+                        )}
+                        {selectedAdoptionProject && adoptionDetection.managedProjectCount === 0 && adoptionCodegen && (
+                          <div className="ec2-adoption-codegen">
+                            <div className="ec2-adoption-mapping-head">
+                              <div>
+                                <h4>Import Execution</h4>
+                                <div className="ec2-sidebar-hint">
+                                  Write the reviewed HCL preview into the target Terraform file if needed, then run `terraform import` against the selected project.
+                                </div>
+                              </div>
+                              {adoptionImportRunning && <span className="ec2-adoption-pill config">Running...</span>}
+                              {!adoptionImportRunning && adoptionImportResult?.log.success && <span className="ec2-adoption-pill managed">Imported</span>}
+                              {!adoptionImportRunning && adoptionImportResult && adoptionImportResult.log.success === false && <span className="ec2-adoption-pill unmanaged">Failed</span>}
+                            </div>
+                            <div className="ec2-btn-row">
+                              <ConfirmButton
+                                className="ec2-action-btn terraform"
+                                disabled={adoptionImportRunning}
+                                confirmLabel="Review import"
+                                modalTitle="Run Terraform Import"
+                                modalBody="This will persist the generated HCL preview into the suggested Terraform file if the resource block is missing, then run terraform import for the selected resource."
+                                confirmPhrase="IMPORT"
+                                confirmButtonLabel={adoptionImportRunning ? 'Running...' : 'Write HCL and Import'}
+                                summaryItems={[
+                                  `Project: ${selectedAdoptionProject.name}`,
+                                  `Workspace: ${selectedAdoptionProject.currentWorkspace || 'default'}`,
+                                  `Address: ${adoptionCodegen.mapping.suggestedAddress}`,
+                                  `Import ID: ${adoptionCodegen.mapping.importId}`,
+                                  `File: ${adoptionCodegen.filePlan.suggestedFilePath}`
+                                ]}
+                                onConfirm={() => void handleExecuteAdoptionImport()}
+                              >
+                                {adoptionImportRunning ? 'Import Running...' : 'Write HCL and Run Import'}
+                              </ConfirmButton>
+                            </div>
+                            {adoptionImportError && <div className="ec2-sidebar-hint ec2-adoption-error">{adoptionImportError}</div>}
+                            {adoptionImportResult && (
+                              <>
+                                <div className="ec2-adoption-mapping-grid">
+                                  <div className="ec2-adoption-row">
+                                    <span className="ec2-adoption-label">File write</span>
+                                    <code>{adoptionImportResult.applyResult.action}</code>
+                                    <small>{adoptionImportResult.applyResult.filePath}</small>
+                                  </div>
+                                  <div className="ec2-adoption-row">
+                                    <span className="ec2-adoption-label config">Import</span>
+                                    <code>{adoptionImportResult.log.success ? 'success' : 'failed'}</code>
+                                    <small>Exit code {adoptionImportResult.log.exitCode ?? '-'}</small>
+                                  </div>
+                                  <div className="ec2-adoption-row">
+                                    <span className="ec2-adoption-label config">Bytes</span>
+                                    <code>{String(adoptionImportResult.applyResult.bytesWritten)}</code>
+                                    <small>Written before import execution</small>
+                                  </div>
+                                </div>
+                                <div className="ec2-adoption-code-preview">
+                                  <span className="ec2-adoption-label">Import Output</span>
+                                  <pre className="s3-preview-text">{adoptionImportResult.log.output || 'No Terraform output was captured.'}</pre>
+                                </div>
                               </>
                             )}
                           </div>

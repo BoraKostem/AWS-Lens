@@ -3,6 +3,7 @@ import type {
   TerraformAdoptionCodegenResult,
   ObservabilityPostureReport,
   TerraformAdoptionDetectionResult,
+  TerraformAdoptionImportExecutionResult,
   TerraformAdoptionMappingResult,
   TerraformAdoptionTarget,
   TerraformCliInfo,
@@ -91,6 +92,15 @@ export async function generateAdoptionCode(
   target: TerraformAdoptionTarget
 ): Promise<TerraformAdoptionCodegenResult> {
   return unwrap(await bridge().generateAdoptionCode(profileName, projectId, connection, target) as Wrapped<TerraformAdoptionCodegenResult>)
+}
+
+export async function executeAdoptionImport(
+  profileName: string,
+  projectId: string,
+  connection: AwsConnection | undefined,
+  target: TerraformAdoptionTarget
+): Promise<TerraformAdoptionImportExecutionResult> {
+  return unwrap(await bridge().executeAdoptionImport(profileName, projectId, connection, target) as Wrapped<TerraformAdoptionImportExecutionResult>)
 }
 
 export async function chooseProjectDirectory(): Promise<string> {
