@@ -114,12 +114,27 @@ export function CloudTrailConsole({
     }
   }, [appliedFocusToken, focus])
 
+  useEffect(() => {
+    if (appliedFocusToken === 0) return
+    void load()
+  }, [appliedFocusToken])
+
   const activeCols = useMemo(() => COLUMNS.filter((c) => visCols.has(c.key)), [visCols])
 
   const filteredEvents = useMemo(() => {
     if (!filter) return events
-    const q = filter.toLowerCase()
-    return events.filter((ev) => activeCols.some((c) => cellVal(ev, c.key).toLowerCase().includes(q)))
+    const tokens = filter
+      .toLowerCase()
+      .split(/\s+/)
+      .map((token) => token.trim())
+      .filter(Boolean)
+
+    if (tokens.length === 0) return events
+
+    return events.filter((ev) => {
+      const haystack = activeCols.map((c) => cellVal(ev, c.key).toLowerCase()).join(' ')
+      return tokens.every((token) => haystack.includes(token))
+    })
   }, [events, filter, activeCols])
 
   const stats = useMemo(() => {

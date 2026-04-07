@@ -38,6 +38,8 @@ You can track projects, work with workspaces and variables, inspect plans, revie
 
 AWS Lens also includes a Terraform adoption flow for unmanaged resources. From supported service detail screens you can use `Manage in Terraform` to detect whether a resource is already claimed, choose the target Terraform project, review the generated HCL and import plan, and then validate the result after import. When a full guided import is not available, the app falls back to a manual adoption preview with import commands, HCL skeletons, and rollback guidance.
 
+On top of that, the app now includes an overview-level incident timeline and operator guardrails. You can inspect the last `30m`, `1h`, or a custom window, correlate CloudTrail, CloudWatch, Terraform, and drift signals, surface frequent assume-role usage and risky actions, and then drill straight into CloudWatch, CloudTrail, Terraform history, drift detail, related service screens, or the embedded terminal without rebuilding context.
+
 ![Terraform workspace](images/terraform-main.png)
 
 ### Switch roles without the usual friction
@@ -74,6 +76,7 @@ It is built around a simple idea: AWS work is usually a chain of small actions a
 - AWS service workspaces for common day-to-day operations
 - A Terraform workspace for project tracking, drift inspection, governance checks, and state workflows
 - Cross-service Terraform adoption from AWS resources into tracked Terraform projects, with guided import for EC2 and manual adoption previews for RDS, S3, IAM, Security Groups, Route53, ECS, EKS, Lambda, SQS, SNS, Secrets Manager, and KMS
+- An overview-level incident timeline with correlation, guardrails, and context-preserving drill-down into CloudWatch, CloudTrail, Terraform, related service consoles, and terminal handoff
 - Session Hub for assume-role targets and temporary sessions
 - Compare Workspace for side by side account or region inspection
 - Compliance Center for findings and remediation tracking

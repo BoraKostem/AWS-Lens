@@ -36,7 +36,8 @@ import type {
   TerraformVariableLayer,
   TerraformVariableSet,
   TerraformWorkspaceSummary,
-  ServiceId
+  ServiceId,
+  TokenizedFocus
 } from '@shared/types'
 import { openExternalUrl } from './api'
 import {
@@ -229,11 +230,11 @@ function OperationsCenterTab({
             <div className="tf-section-hint">
               Plan, drift, and state posture for the current project in one operating surface.
             </div>
-          </div>
-          <div className="tf-drift-actions">
-            <button type="button" className="tf-toolbar-btn" onClick={onOpenActions}>Open Actions</button>
-            <button type="button" className="tf-toolbar-btn" onClick={onOpenDrift}>Open Drift</button>
-            <button type="button" className="tf-toolbar-btn" onClick={onOpenState}>Open State</button>
+        </div>
+        <div className="tf-drift-actions">
+          <button type="button" className="tf-toolbar-btn" onClick={onOpenActions}>Open Actions</button>
+          <button type="button" className="tf-toolbar-btn" onClick={onOpenDrift}>Open Drift</button>
+          <button type="button" className="tf-toolbar-btn" onClick={onOpenState}>Open State</button>
             <button type="button" className="tf-toolbar-btn" onClick={onOpenHistory}>Open History</button>
           </div>
         </div>
@@ -3265,12 +3266,14 @@ function DriftTab({
 
 function HistoryTab({
   projectId,
+  selectedRunId: externalSelectedRunId,
   initialFilters,
   onFiltersChange,
   onOpenProject,
   onOpenTab
 }: {
   projectId: string
+  selectedRunId?: string
   initialFilters?: {
     commandFilter: TerraformCommandName | 'all'
     successFilter: 'all' | 'success' | 'failure'
@@ -3317,6 +3320,12 @@ function HistoryTab({
     setOutputLoading(true)
     void getRunOutput(selectedRunId).then(setRunOutput).catch(() => setRunOutput('')).finally(() => setOutputLoading(false))
   }, [selectedRunId])
+
+  useEffect(() => {
+    if (!externalSelectedRunId) return
+    if (!records.some((record) => record.id === externalSelectedRunId)) return
+    setSelectedRunId(externalSelectedRunId)
+  }, [externalSelectedRunId, records])
 
   const selectedRecord = records.find((r) => r.id === selectedRunId)
 
@@ -3532,17 +3541,21 @@ function HistoryTab({
 export function TerraformConsole({
   connection,
   refreshNonce = 0,
+  focus,
   observabilityLabEnabled = true,
   onRunTerminalCommand,
   onNavigateService,
-  onNavigateCloudWatch
+  onNavigateCloudWatch,
+  onNavigateCloudTrail
 }: {
   connection: AwsConnection
   refreshNonce?: number
+  focus?: TokenizedFocus<'terraform'> | null
   observabilityLabEnabled?: boolean
   onRunTerminalCommand?: (command: string) => void
   onNavigateService?: (serviceId: ServiceId, resourceId?: string) => void
   onNavigateCloudWatch?: (focus: { logGroupNames?: string[]; queryString?: string; sourceLabel?: string; serviceHint?: ServiceId | '' }) => void
+  onNavigateCloudTrail?: (focus: { resourceName?: string; startTime?: string; endTime?: string; filter?: string }) => void
 }) {
   const [uiState, setUiState] = useState<TerraformUiState>(() => loadTerraformUiState())
   const [cliInfo, setCliInfo] = useState<TerraformCliInfo | null>(null)
@@ -3591,6 +3604,7 @@ export function TerraformConsole({
   const [progressLine, setProgressLine] = useState('')
   const [showProgress, setShowProgress] = useState(false)
   const [progressItems, setProgressItems] = useState<Map<string, { status: string; done: boolean }>>(new Map())
+  const [appliedFocusToken, setAppliedFocusToken] = useState(0)
   const driftLoadKeyRef = useRef('')
   const {
     freshness: workspaceFreshness,
@@ -3609,7 +3623,10 @@ export function TerraformConsole({
   const contextKey = terraformContextKey(connection)
   const projectConnection = connectionForProject(connection, detail)
   const persistedSelectedId = uiState.selectedProjectByContext[contextKey] ?? ''
-  const persistedDetailTab = uiState.detailTabByContext[contextKey] ?? 'operations'
+  const rawPersistedDetailTab = uiState.detailTabByContext[contextKey] as DetailTab | 'timeline' | undefined
+  const persistedDetailTab = rawPersistedDetailTab === 'timeline'
+    ? 'operations'
+    : (rawPersistedDetailTab ?? 'operations')
   const persistedHistoryFilters = detail ? uiState.historyFiltersByProject[detail.id] : undefined
   const persistedDriftStatusFilter = detail ? (uiState.driftStatusFilterByProject[detail.id] ?? 'all') : 'all'
   const persistedDriftTypeFilter = detail ? (uiState.driftTypeFilterByProject[detail.id] ?? 'all') : 'all'
@@ -3619,6 +3636,28 @@ export function TerraformConsole({
       setDetailTab('operations')
     }
   }, [detailTab, observabilityLabEnabled])
+
+  useEffect(() => {
+    if (!focus || focus.token === appliedFocusToken) return
+    setAppliedFocusToken(focus.token)
+
+    if (focus.projectId) {
+      setSelectedId(focus.projectId)
+    }
+
+    if (focus.detailTab) {
+      setDetailTab(focus.detailTab)
+    }
+
+    if (focus.runId) {
+      setDetailTab('history')
+    }
+
+    if (focus.driftItemKey) {
+      setDetailTab('drift')
+      setSelectedDriftKey(focus.driftItemKey)
+    }
+  }, [appliedFocusToken, focus])
 
   useEffect(() => {
     saveTerraformUiState(uiState)
@@ -4735,6 +4774,7 @@ export function TerraformConsole({
               {detailTab === 'history' && (
                 <HistoryTab
                   projectId={detail.id}
+                  selectedRunId={focus?.runId}
                   initialFilters={persistedHistoryFilters}
                   onFiltersChange={(filters) => setUiState((current) => {
                     const existing = current.historyFiltersByProject[detail.id]

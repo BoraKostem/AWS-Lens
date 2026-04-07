@@ -4,9 +4,10 @@ import type { AwsCapabilityHint, AwsConnection, CostBreakdown, InsightItem, Over
 import { useAwsPageConnection } from './AwsPage'
 import { getCachedQuerySnapshot, getCostBreakdown, getOverviewAccountContext, getOverviewMetrics, getOverviewStatistics, getRelationshipMap, searchByTag } from './api'
 import { FreshnessIndicator, useFreshnessState } from './freshness'
+import { IncidentTimelineTab } from './IncidentTimelineTab'
 import { SvcState, variantForError } from './SvcState'
 
-type OverviewTab = 'overview' | 'relationships' | 'statistics' | 'tags'
+type OverviewTab = 'overview' | 'incidents' | 'relationships' | 'statistics' | 'tags'
 type RelFilterType = 'all' | string
 type InsightFilter = 'all' | 'info' | 'warning' | 'error'
 type SignalFilter = 'all' | 'cost' | 'security' | 'operations' | 'cleanup'
@@ -124,12 +125,20 @@ function getTopServiceTiles(metrics: OverviewMetrics, limit = 8): Array<{ tile: 
 export function OverviewConsole({
   onBack,
   onNavigate,
+  onNavigateCloudWatch,
+  onNavigateCloudTrail,
+  onNavigateTerraform,
+  onRunTerminalCommand,
   state,
   embedded = false,
   refreshNonce = 0
 }: {
   onBack?: () => void
-  onNavigate?: (serviceId: ServiceId) => void
+  onNavigate?: (serviceId: ServiceId, resourceId?: string) => void
+  onNavigateCloudWatch?: (focus: { logGroupNames?: string[]; queryString?: string; sourceLabel?: string; serviceHint?: ServiceId | '' }) => void
+  onNavigateCloudTrail?: (focus: { resourceName?: string; startTime?: string; endTime?: string; filter?: string }) => void
+  onNavigateTerraform?: (focus?: { projectId?: string; detailTab?: 'operations' | 'actions' | 'state' | 'resources' | 'drift' | 'lab' | 'history'; runId?: string; driftItemKey?: string }) => void
+  onRunTerminalCommand?: (command: string) => void
   state?: ReturnType<typeof useAwsPageConnection>
   embedded?: boolean
   refreshNonce?: number
@@ -311,6 +320,7 @@ export function OverviewConsole({
 
   const tabLabels: Record<OverviewTab, string> = {
     overview: 'Overview (Region)',
+    incidents: 'Incident Timeline',
     relationships: 'Resource Relationship View',
     statistics: 'Statistics',
     tags: 'Search By Tag'
@@ -826,6 +836,19 @@ export function OverviewConsole({
                 <SvcState variant="empty" message="No regional data loaded yet." compact />
               )}
             </>
+          )}
+          {tab === 'incidents' && connectionState.connection && (
+            <section className="overview-surface">
+              <IncidentTimelineTab
+                scope="overview"
+                connection={connectionState.connection}
+                onNavigateService={(serviceId, resourceId) => onNavigate?.(serviceId, resourceId)}
+                onNavigateCloudWatch={onNavigateCloudWatch}
+                onNavigateCloudTrail={onNavigateCloudTrail}
+                onNavigateTerraform={onNavigateTerraform}
+                onRunTerminalCommand={onRunTerminalCommand}
+              />
+            </section>
           )}
 
           {/* ── Relationships tab ─────────────────────────────── */}

@@ -1,0 +1,492 @@
+.tf-incident-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tf-incident-toolbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.tf-incident-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.tf-incident-window-buttons,
+.tf-incident-view-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tf-incident-window-buttons button,
+.tf-incident-view-buttons button {
+  border: 1px solid rgba(120, 138, 160, 0.28);
+  background: rgba(14, 24, 38, 0.72);
+  color: #d9e2ef;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tf-incident-window-buttons button.active,
+.tf-incident-view-buttons button.active {
+  background: linear-gradient(135deg, rgba(74, 143, 231, 0.24), rgba(16, 185, 129, 0.18));
+  border-color: rgba(74, 143, 231, 0.55);
+}
+
+.tf-incident-custom-range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.tf-incident-warning-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.tf-incident-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.tf-incident-card {
+  border: 1px solid rgba(120, 138, 160, 0.16);
+  border-left-width: 4px;
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: rgba(9, 16, 28, 0.68);
+}
+
+.tf-incident-card.info {
+  border-left-color: #4a8fe7;
+}
+
+.tf-incident-card.success {
+  border-left-color: #22c55e;
+}
+
+.tf-incident-card.warning {
+  border-left-color: #f59e0b;
+}
+
+.tf-incident-card.danger {
+  border-left-color: #ef4444;
+}
+
+.tf-incident-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.tf-incident-card h4 {
+  margin: 6px 0 0;
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.tf-incident-card p {
+  margin: 8px 0 6px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.tf-incident-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.tf-incident-source,
+.tf-incident-time {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tf-incident-source {
+  background: rgba(56, 189, 248, 0.12);
+  color: #91d5ff;
+}
+
+.tf-incident-source.terraform {
+  background: rgba(124, 58, 237, 0.16);
+  color: #c4b5fd;
+}
+
+.tf-incident-source.cloudtrail {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fcd34d;
+}
+
+.tf-incident-source.cloudwatch {
+  background: rgba(34, 197, 94, 0.16);
+  color: #86efac;
+}
+
+.tf-incident-source.drift {
+  background: rgba(239, 68, 68, 0.14);
+  color: #fca5a5;
+}
+
+.tf-incident-time {
+  background: rgba(148, 163, 184, 0.14);
+  color: #cbd5e1;
+}
+
+.tf-incident-detail {
+  color: #94a3b8;
+  line-height: 1.5;
+  font-size: 12px;
+}
+
+.tf-incident-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.tf-incident-actions .tf-toolbar-btn {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.tf-correlation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.tf-correlation-card {
+  border: 1px solid rgba(120, 138, 160, 0.18);
+  border-top-width: 3px;
+  border-radius: 16px;
+  padding: 14px;
+  background: rgba(9, 16, 28, 0.72);
+}
+
+.tf-correlation-card.info {
+  border-top-color: #4a8fe7;
+}
+
+.tf-correlation-card.success {
+  border-top-color: #22c55e;
+}
+
+.tf-correlation-card.warning {
+  border-top-color: #f59e0b;
+}
+
+.tf-correlation-card.danger {
+  border-top-color: #ef4444;
+}
+
+.tf-correlation-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.tf-correlation-card h4 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+.tf-correlation-card p {
+  margin: 10px 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.tf-correlation-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.tf-correlation-confidence {
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.tf-correlation-confidence.high {
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+}
+
+.tf-correlation-confidence.medium {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fcd34d;
+}
+
+.tf-correlation-confidence.low {
+  background: rgba(74, 143, 231, 0.12);
+  color: #93c5fd;
+}
+
+.tf-correlation-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.tf-correlation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tf-correlation-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  background: rgba(17, 24, 39, 0.72);
+  border-radius: 12px;
+}
+
+.tf-correlation-item strong {
+  font-size: 12px;
+}
+
+.tf-correlation-item span {
+  font-size: 12px;
+  color: #a5b4c7;
+  line-height: 1.4;
+}
+
+.tf-guardrail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.tf-guardrail-card {
+  border: 1px solid rgba(120, 138, 160, 0.18);
+  border-top-width: 3px;
+  border-radius: 16px;
+  padding: 14px;
+  background: rgba(9, 16, 28, 0.72);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 620px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.tf-guardrail-card.success {
+  border-top-color: #22c55e;
+}
+
+.tf-guardrail-card.warning {
+  border-top-color: #f59e0b;
+}
+
+.tf-guardrail-card.danger {
+  border-top-color: #ef4444;
+}
+
+.tf-guardrail-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.tf-guardrail-head h4 {
+  margin: 4px 0 0;
+  font-size: 15px;
+}
+
+.tf-guardrail-head strong {
+  font-size: 13px;
+  color: #e2e8f0;
+}
+
+.tf-guardrail-kicker {
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+}
+
+.tf-guardrail-copy {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #a5b4c7;
+}
+
+.tf-guardrail-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tf-guardrail-metrics span,
+.tf-guardrail-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(148, 163, 184, 0.12);
+  color: #dbe5f3;
+}
+
+.tf-guardrail-pill.normal,
+.tf-guardrail-pill.info {
+  background: rgba(74, 143, 231, 0.14);
+  color: #93c5fd;
+}
+
+.tf-guardrail-pill.elevated,
+.tf-guardrail-pill.warning {
+  background: rgba(245, 158, 11, 0.14);
+  color: #fcd34d;
+}
+
+.tf-guardrail-pill.unexpected,
+.tf-guardrail-pill.danger {
+  background: rgba(239, 68, 68, 0.14);
+  color: #fca5a5;
+}
+
+.tf-guardrail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tf-guardrail-list.compact {
+  gap: 10px;
+}
+
+.tf-guardrail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(17, 24, 39, 0.72);
+}
+
+.tf-guardrail-row.stacked {
+  align-items: flex-start;
+}
+
+.tf-guardrail-row > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tf-guardrail-row strong {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.tf-guardrail-row span {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #a5b4c7;
+}
+
+.tf-guardrail-row-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.tf-guardrail-row-side .tf-toolbar-btn {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.tf-guardrail-subtitle {
+  font-size: 12px;
+  font-weight: 700;
+  color: #cbd5e1;
+}
+
+.tf-guardrail-empty {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(17, 24, 39, 0.52);
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+@media (max-width: 1100px) {
+  .tf-incident-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .tf-correlation-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tf-guardrail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tf-guardrail-card {
+    height: 520px;
+  }
+}
+
+@media (max-width: 700px) {
+  .tf-guardrail-head,
+  .tf-guardrail-row,
+  .tf-guardrail-row-side {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .tf-guardrail-row-side {
+    width: 100%;
+  }
+
+  .tf-guardrail-card {
+    height: 460px;
+  }
+}
