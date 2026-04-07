@@ -4814,7 +4814,11 @@ export function App() {
                       <small>{provider.connectionLabel}</small>
                     </div>
                     <span className={`enterprise-mode-pill ${provider.availability === 'available' ? 'operator' : 'read-only'}`}>
-                      {provider.availability === 'available' ? 'Live' : 'Preview'}
+                      {provider.availability === 'available'
+                        ? 'Live'
+                        : provider.id === 'gcp'
+                          ? 'Beta'
+                          : 'Preview'}
                     </span>
                   </div>
                   <div className="provider-selector-card-meta">
