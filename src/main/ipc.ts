@@ -22,6 +22,7 @@ import { checkForAppUpdates, downloadAppUpdate, getReleaseInfo, installAppUpdate
 import { getSelectedProjectId, setSelectedProjectId } from './store'
 import {
   addProject,
+  cancelProjectCommand,
   clearSavedPlan,
   createProjectWorkspace,
   detectMissingVars,
@@ -42,7 +43,7 @@ import {
   validateProjectInputs,
   getProjectContext
 } from './terraform'
-import { getTerraformDriftReport } from './terraformDrift'
+import { getTerraformDriftReport as getAwsTerraformDriftReport } from './terraformDrift'
 import { listRunRecords, getRunOutput, deleteRunRecord } from './terraformHistoryStore'
 import { detectGovernanceTools, getCachedGovernanceToolkit, runGovernanceChecks, getGovernanceReport } from './terraformGovernance'
 import { listProviders } from './providerRegistry'
@@ -62,7 +63,8 @@ import {
   putUserInlinePolicy, removeUserFromGroup, simulatePolicy,
   updateAccessKeyStatus, updateRoleTrustPolicy
 } from './aws/iam'
-import { generateTerraformObservabilityReport } from './aws/observabilityLab'
+import { generateTerraformObservabilityReport as generateAwsTerraformObservabilityReport } from './aws/observabilityLab'
+import { generateGcpTerraformObservabilityReport, getGcpTerraformDriftReport } from './gcpTerraformInsights'
 
 type HandlerResult<T> = { ok: true; data: T } | { ok: false; error: string }
 const execFileAsync = promisify(execFile)
@@ -374,10 +376,20 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     wrap(() => deleteProjectWorkspace(profileName, projectId, workspaceName, connection))
   )
   ipcMain.handle('terraform:drift:get', async (_event, profileName: string, projectId: string, connection: AwsConnection, options?: { forceRefresh?: boolean }) =>
-    wrap(() => getTerraformDriftReport(profileName, projectId, connection, options))
+    wrap(() => {
+      if (connection?.providerId === 'gcp' || profileName.startsWith('provider:gcp:terraform:')) {
+        return getGcpTerraformDriftReport(profileName, projectId, connection, options)
+      }
+      return getAwsTerraformDriftReport(profileName, projectId, connection, options)
+    })
   )
   ipcMain.handle('terraform:observability-report:get', async (_event, profileName: string, projectId: string, connection: AwsConnection) =>
-    wrap(() => generateTerraformObservabilityReport(profileName, projectId, connection))
+    wrap(() => {
+      if (connection?.providerId === 'gcp' || profileName.startsWith('provider:gcp:terraform:')) {
+        return generateGcpTerraformObservabilityReport(profileName, projectId, connection)
+      }
+      return generateAwsTerraformObservabilityReport(profileName, projectId, connection)
+    })
   )
   ipcMain.handle('terraform:inputs:update', async (_event, profileName: string, projectId: string, inputConfig: TerraformInputConfiguration, connection?: AwsConnection) =>
     wrap(() => updateProjectInputs(profileName, projectId, inputConfig, connection))
@@ -395,6 +407,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     // apply/destroy operations continue streaming progress events.
     wrap(() => runProjectCommand(request, getWindow()), 'terraform:command:run', { timeoutMs: 0 })
   )
+  ipcMain.handle('terraform:command:cancel', async (_event, projectId: string) => wrap(() => cancelProjectCommand(projectId)))
   ipcMain.handle('terraform:plan:has-saved', async (_event, projectId: string) => wrap(() => hasSavedPlan(projectId)))
   ipcMain.handle('terraform:plan:clear', async (_event, projectId: string) => wrap(() => clearSavedPlan(projectId)))
   ipcMain.handle('terraform:detect-missing-vars', async (_event, output: string) => wrap(() => detectMissingVars(output)))

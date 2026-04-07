@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { spawn, execFile, execFileSync } from 'node:child_process'
+import { spawn, execFile, execFileSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
 
 import { app, type BrowserWindow } from 'electron'
 
@@ -90,6 +90,16 @@ const STATE_BACKUP_LIMIT = 20
 const commandLogs = new Map<string, TerraformCommandLog[]>()
 const savedPlanPaths = new Map<string, string>()
 const activeDestructiveCommands = new Map<string, 'apply' | 'destroy'>()
+const activeTerraformRuns = new Map<string, ActiveTerraformRun>()
+
+type ActiveTerraformRun = {
+  projectId: string
+  logId: string
+  command: TerraformCommandRequest['command']
+  child: ChildProcessWithoutNullStreams | null
+  cancelRequested: boolean
+  cancelMessage: string
+}
 
 /* ── Helpers ──────────────────────────────────────────────── */
 
@@ -146,6 +156,41 @@ function hasSavedPlanArtifacts(rootPath: string): boolean {
 
 function stripAnsi(text: string): string {
   return text.replace(/\x1b\[[0-9;]*m/g, '')
+}
+
+class TerraformCommandCancelledError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'TerraformCommandCancelledError'
+  }
+}
+
+function buildCancelledMessage(command: TerraformCommandRequest['command']): string {
+  return `Terraform ${command} cancelled by operator.`
+}
+
+function terminateChildProcess(child: ChildProcessWithoutNullStreams | null): void {
+  if (!child) return
+
+  if (process.platform === 'win32' && child.pid) {
+    try {
+      const killer = spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
+        windowsHide: true,
+        stdio: 'ignore',
+        shell: false
+      })
+      killer.unref()
+      return
+    } catch {
+      /* fall back to direct kill */
+    }
+  }
+
+  try {
+    child.kill()
+  } catch {
+    /* ignore kill failures */
+  }
 }
 
 function terraformCommand(): string {
@@ -2371,20 +2416,42 @@ async function runChildProcess(
     timeoutMs?: number
     operationName?: string
     context?: Record<string, unknown>
+    activeRun?: ActiveTerraformRun
   } = {}
 ): Promise<{ output: string; exitCode: number }> {
   return await executeOperation(
     options.operationName ?? 'terraform.child-process',
     async () => await new Promise((resolve, reject) => {
       const child = spawn(command, args, { cwd, env, shell: false, windowsHide: true })
+      if (options.activeRun) {
+        options.activeRun.child = child
+        if (options.activeRun.cancelRequested) {
+          terminateChildProcess(child)
+        }
+      }
       let output = ''
       let timedOut = false
+      let settled = false
       const timer = options.timeoutMs && options.timeoutMs > 0
         ? setTimeout(() => {
             timedOut = true
-            child.kill()
+            terminateChildProcess(child)
           }, options.timeoutMs)
         : null
+
+      function rejectOnce(error: Error): void {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        reject(error)
+      }
+
+      function resolveOnce(result: { output: string; exitCode: number }): void {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        resolve(result)
+      }
 
       child.stdout.on('data', (buf) => {
         const chunk = buf.toString()
@@ -2399,18 +2466,25 @@ async function runChildProcess(
       })
 
       child.on('error', (err) => {
-        if (timer) clearTimeout(timer)
-        reject(err)
+        if (options.activeRun?.cancelRequested) {
+          rejectOnce(new TerraformCommandCancelledError(options.activeRun.cancelMessage || buildCancelledMessage(options.activeRun.command)))
+          return
+        }
+        rejectOnce(err)
       })
 
       child.on('close', (code) => {
-        if (timer) clearTimeout(timer)
         if (timedOut) {
-          reject(new OperationTimeoutError(`${command} ${args.join(' ')} timed out after ${options.timeoutMs}ms.`))
+          rejectOnce(new OperationTimeoutError(`${command} ${args.join(' ')} timed out after ${options.timeoutMs}ms.`))
           return
         }
 
-        resolve({ output, exitCode: code ?? -1 })
+        if (options.activeRun?.cancelRequested) {
+          rejectOnce(new TerraformCommandCancelledError(options.activeRun.cancelMessage || buildCancelledMessage(options.activeRun.command)))
+          return
+        }
+
+        resolveOnce({ output, exitCode: code ?? -1 })
       })
     }),
     {
@@ -2978,7 +3052,7 @@ export async function runProjectCommand(
     : null
   const gitMetadata = detectGitMetadata(project.rootPath)
   const gitCommitMetadata = toGitCommitMetadata(gitMetadata)
-  const destructiveStateOperation = request.command === 'state-mv' || request.command === 'state-rm' || request.command === 'force-unlock'
+  const stateBackupRequired = request.command === 'state-mv' || request.command === 'state-rm'
   const stateOperationSummary =
     request.command === 'import'
       ? `${request.importAddress?.trim() ?? ''} <= ${request.importId?.trim() ?? ''}`
@@ -3025,6 +3099,16 @@ export async function runProjectCommand(
   }
   saveRunRecord(runRecord, '')
 
+  const activeRun: ActiveTerraformRun = {
+    projectId: request.projectId,
+    logId: log.id,
+    command: request.command,
+    child: null,
+    cancelRequested: false,
+    cancelMessage: ''
+  }
+  activeTerraformRuns.set(request.projectId, activeRun)
+
   if (request.command === 'apply' || request.command === 'destroy') {
     activeDestructiveCommands.set(request.projectId, request.command)
   }
@@ -3032,7 +3116,7 @@ export async function runProjectCommand(
   let lastProgressTime = 0
 
   try {
-    if (destructiveStateOperation) {
+    if (stateBackupRequired) {
       backupSummary = await createStateBackup(project, env)
       log.output += `[backup] Saved Terraform state backup to ${backupSummary.path}\n`
       emit(window, { type: 'output', projectId: request.projectId, logId: log.id, chunk: `[backup] Saved Terraform state backup to ${backupSummary.path}\n` })
@@ -3068,6 +3152,7 @@ export async function runProjectCommand(
     }, {
       timeoutMs: commandTimeoutMs(request.command),
       operationName: `terraform.${request.command}`,
+      activeRun,
       context: {
         projectId: request.projectId,
         projectName: project.name,
@@ -3139,9 +3224,12 @@ export async function runProjectCommand(
     return log
   } catch (error) {
     log.finishedAt = new Date().toISOString()
-    log.exitCode = -1
+    log.exitCode = error instanceof TerraformCommandCancelledError ? 130 : -1
     log.success = false
-    log.output += `\n${error instanceof Error ? error.message : String(error)}`
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    if (!log.output.includes(errorMessage)) {
+      log.output += `${log.output.endsWith('\n') || !log.output ? '' : '\n'}${errorMessage}`
+    }
     emit(window, { type: 'completed', projectId: request.projectId, log, project: getProject(request.profileName, request.projectId, request.connection) })
 
     // Update history record on error
@@ -3157,10 +3245,25 @@ export async function runProjectCommand(
   } finally {
     runtimeVarFile?.cleanup()
     cleanupStateVarFile?.()
+    const trackedRun = activeTerraformRuns.get(request.projectId)
+    if (trackedRun?.logId === log.id) {
+      activeTerraformRuns.delete(request.projectId)
+    }
     if (request.command === 'apply' || request.command === 'destroy') {
       activeDestructiveCommands.delete(request.projectId)
     }
   }
+}
+
+export function cancelProjectCommand(projectId: string): boolean {
+  const activeRun = activeTerraformRuns.get(projectId)
+  if (!activeRun) return false
+  if (activeRun.cancelRequested) return true
+
+  activeRun.cancelRequested = true
+  activeRun.cancelMessage = buildCancelledMessage(activeRun.command)
+  terminateChildProcess(activeRun.child)
+  return true
 }
 
 export function hasActiveTerraformApplyOrDestroy(): boolean {

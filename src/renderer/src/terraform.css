@@ -216,8 +216,11 @@
 
 .tf-shell-status .freshness-indicator {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex: 1 1 170px;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: flex-start;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 8px 10px;
   border: 1px solid rgba(145, 176, 207, 0.14);
@@ -250,14 +253,18 @@
   font-size: 0.84rem;
   letter-spacing: -0.03em;
   line-height: 1.1;
+  overflow-wrap: anywhere;
 }
 
 .tf-shell-status .freshness-indicator__badges {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  flex-shrink: 0;
-  align-self: center;
+  justify-content: flex-start;
+  flex-shrink: 1;
+  flex-wrap: wrap;
+  align-self: flex-start;
+  min-width: 0;
+  width: 100%;
 }
 
 .tf-shell-status .freshness-pill {
@@ -267,6 +274,9 @@
   border-radius: 999px;
   font-size: 0.7rem;
   font-weight: 700;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .tf-shell-status .freshness-pill.stale {
@@ -1548,13 +1558,17 @@
   border-radius: 4px;
   padding: 12px;
   max-height: 400px;
-  overflow: auto;
+  max-width: 100%;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
   font-family: "Cascadia Code", "Fira Code", "JetBrains Mono", monospace;
   font-size: 11px;
   line-height: 1.5;
   color: #c0c8d2;
   white-space: pre-wrap;
-  word-break: break-all;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .tf-state-overview {
@@ -2165,6 +2179,12 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.tf-progress-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 
 .tf-progress-spinner {

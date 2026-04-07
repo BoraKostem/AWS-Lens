@@ -741,6 +741,7 @@ const api = {
     ipcRenderer.invoke('terraform:inputs:validate', profileName, projectId, connection),
   listCommandLogs: (projectId: string) => ipcRenderer.invoke('terraform:logs:list', projectId),
   runCommand: (request: TerraformCommandRequest) => ipcRenderer.invoke('terraform:command:run', request),
+  cancelCommand: (projectId: string) => ipcRenderer.invoke('terraform:command:cancel', projectId),
   hasSavedPlan: (projectId: string) => ipcRenderer.invoke('terraform:plan:has-saved', projectId),
   clearSavedPlan: (projectId: string) => ipcRenderer.invoke('terraform:plan:clear', projectId),
   detectMissingVars: (output: string) => ipcRenderer.invoke('terraform:detect-missing-vars', output),
