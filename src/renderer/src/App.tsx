@@ -5781,6 +5781,32 @@ export function App() {
             )
           }
 
+        if (activeProviderId === 'gcp' && targetScreen === 'terraform') {
+          const gcpTerraformProjectId = activeGcpConnectionDraft?.projectId.trim() ?? ''
+          const gcpTerraformLocation = activeGcpConnectionDraft?.location.trim() ?? ''
+          const gcpTerraformContextKey = `provider:gcp:terraform:${gcpTerraformProjectId || 'unscoped'}:${gcpTerraformLocation || 'global'}`
+          const gcpTerraformContextLabel = gcpTerraformProjectId
+            || gcpCliContext?.activeProjectId
+            || gcpCliContext?.activeConfigurationName
+            || 'Google Cloud context pending'
+          const gcpTerraformContextDetail = [
+            gcpTerraformLocation || gcpCliContext?.activeRegion || gcpCliContext?.activeZone || '',
+            gcpCliContext?.activeAccount || ''
+          ].filter(Boolean).join(' | ')
+          return (
+            <TerraformConsole
+              providerId="gcp"
+              contextKeyOverride={gcpTerraformContextKey}
+              contextLabel={gcpTerraformContextLabel}
+              contextDetail={gcpTerraformContextDetail}
+              commandsEnabled={enterpriseSettings.accessMode === 'operator'}
+              refreshNonce={pageRefreshNonceByScreen['terraform'] ?? 0}
+              onRunTerminalCommand={handleOpenTerminalCommand}
+              onNavigateService={navigateToServiceWithResourceId}
+            />
+          )
+        }
+
         if (isProviderService(targetService ?? null, activeProviderId)) {
           return renderCatalogPlaceholder(targetService!)
         }

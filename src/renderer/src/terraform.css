@@ -162,6 +162,23 @@
   border-color: rgba(74, 143, 231, 0.24);
 }
 
+.tf-console-gcp .tf-shell-hero,
+.tf-console-gcp .tf-detail-hero {
+  background:
+    radial-gradient(circle at top left, rgba(108, 201, 126, 0.16), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(71, 168, 120, 0.12), transparent 30%),
+    linear-gradient(180deg, rgba(19, 30, 27, 0.98), rgba(10, 17, 18, 0.98));
+  border-color: rgba(120, 191, 144, 0.16);
+}
+
+.tf-console-gcp .tf-shell-stat-card-accent,
+.tf-console-gcp .tf-detail-stat-card.success {
+  border-color: rgba(108, 201, 126, 0.34);
+  background:
+    radial-gradient(circle at top right, rgba(108, 201, 126, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(27, 47, 36, 0.96), rgba(17, 29, 22, 0.96));
+}
+
 /* ── Toolbar ─────────────────────────────────────────────── */
 
 .tf-shell-toolbar {
@@ -297,6 +314,12 @@
   color: #201106;
 }
 
+.tf-console-gcp .tf-toolbar-btn.accent {
+  background: linear-gradient(135deg, #79cf87, #b7efaa);
+  border-color: rgba(151, 226, 146, 0.24);
+  color: #102013;
+}
+
 .tf-toolbar-btn.danger {
   background: linear-gradient(135deg, rgba(171, 54, 40, 0.96), rgba(114, 26, 17, 0.96));
   border-color: rgba(231, 76, 60, 0.18);
@@ -346,6 +369,39 @@
   border-color: rgba(179, 58, 46, 0.45);
   background: linear-gradient(180deg, rgba(58, 32, 32, 0.96), rgba(40, 20, 20, 0.96));
   color: #ffd9d0;
+}
+
+.tf-remediation-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(108, 201, 126, 0.28);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(24, 42, 31, 0.96), rgba(15, 28, 20, 0.96));
+}
+
+.tf-remediation-banner-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tf-remediation-banner-copy strong {
+  color: #dff6e3;
+  font-size: 0.9rem;
+}
+
+.tf-remediation-banner-copy span {
+  color: #a8c8ae;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.tf-remediation-banner-actions {
+  flex-shrink: 0;
 }
 
 .tf-empty {
@@ -454,12 +510,24 @@
   transform: translateY(-1px);
 }
 
+.tf-console-gcp .tf-project-row:hover {
+  border-color: rgba(108, 201, 126, 0.24);
+}
+
 .tf-project-row.active {
   border-color: rgba(245, 154, 61, 0.34);
   background:
     radial-gradient(circle at top right, rgba(245, 154, 61, 0.12), transparent 40%),
     linear-gradient(180deg, rgba(28, 40, 55, 0.98), rgba(14, 23, 34, 0.98));
   box-shadow: inset 0 0 0 1px rgba(245, 154, 61, 0.08);
+}
+
+.tf-console-gcp .tf-project-row.active {
+  border-color: rgba(108, 201, 126, 0.36);
+  background:
+    radial-gradient(circle at top right, rgba(108, 201, 126, 0.13), transparent 40%),
+    linear-gradient(180deg, rgba(24, 39, 33, 0.98), rgba(13, 23, 21, 0.98));
+  box-shadow: inset 0 0 0 1px rgba(108, 201, 126, 0.08);
 }
 
 .tf-project-row-top,
@@ -593,10 +661,20 @@
   background: rgba(245, 154, 61, 0.08);
 }
 
+.tf-console-gcp .tf-detail-tabs button:hover {
+  border-color: rgba(108, 201, 126, 0.22);
+  background: rgba(108, 201, 126, 0.08);
+}
+
 .tf-detail-tabs button.active {
   color: #edf1f6;
   border-color: rgba(245, 154, 61, 0.28);
   background: linear-gradient(180deg, rgba(245, 154, 61, 0.16), rgba(245, 154, 61, 0.08));
+}
+
+.tf-console-gcp .tf-detail-tabs button.active {
+  border-color: rgba(108, 201, 126, 0.3);
+  background: linear-gradient(180deg, rgba(108, 201, 126, 0.18), rgba(108, 201, 126, 0.08));
 }
 
 /* ── Detail Section ──────────────────────────────────────── */
@@ -1295,6 +1373,26 @@
   width: 100%;
   height: 100%;
   min-height: 300px;
+}
+
+.tf-diagram-node-label {
+  font-family: "Cascadia Code", "Fira Code", monospace;
+}
+
+.tf-diagram-node-eyebrow {
+  fill: #8fa3ba;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+
+.tf-diagram-node-title {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tf-diagram-node-subtitle {
+  fill: #7c8a9d;
+  font-size: 10px;
 }
 
 .tf-diagram-empty {
@@ -2816,6 +2914,15 @@
 
   .tf-shell-toolbar {
     flex-direction: column;
+  }
+
+  .tf-remediation-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .tf-remediation-banner-actions {
+    width: 100%;
   }
 
   .tf-shell-status {

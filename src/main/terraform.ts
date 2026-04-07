@@ -59,6 +59,7 @@ import { getResolvedProcessEnv, resolveExecutablePath } from './shell'
 import { getConnectionEnv } from './sessionHub'
 import { saveRunRecord, updateRunRecord, redactArgs } from './terraformHistoryStore'
 import { invalidateTerraformDriftReports } from './terraformDrift'
+import { buildTerraformDiagram } from './terraformDiagramParser'
 import type { TerraformRunRecord } from '@shared/types'
 import { getPreferredTerraformCliKindSetting, listToolCommandCandidates } from './toolchain'
 
@@ -658,22 +659,35 @@ type ParsedNamedBlock = {
   body: string
 }
 
+const RESOURCE_REFERENCE_PATTERN = '(?:module\\.[\\w-]+\\.)*(?:data\\.)?[a-z][\\w-]*_[\\w-]+\\.[\\w-]+'
+const RESOURCE_REFERENCE_RE = new RegExp(RESOURCE_REFERENCE_PATTERN, 'g')
+const LEADING_RESOURCE_REFERENCE_RE = new RegExp(`^${RESOURCE_REFERENCE_PATTERN}`)
+
 function prefixAddress(modulePath: string, address: string): string {
   return modulePath ? `${modulePath}.${address}` : address
 }
 
 function normalizeConfigReference(reference: string, modulePath: string): string {
   if (!reference) return ''
-  if (reference.startsWith('module.') || reference.startsWith('var.') || reference.startsWith('local.') || reference.startsWith('path.')) {
-    return reference
+  const trimmed = reference.trim()
+  if (
+    trimmed.startsWith('var.')
+    || trimmed.startsWith('local.')
+    || trimmed.startsWith('path.')
+    || trimmed.startsWith('terraform.')
+    || trimmed.startsWith('provider.')
+    || trimmed.startsWith('count.')
+    || trimmed.startsWith('each.')
+    || trimmed.startsWith('self.')
+  ) {
+    return ''
   }
-  if (reference.startsWith('data.')) {
-    return prefixAddress(modulePath, reference)
+  const resourceReference = trimmed.match(LEADING_RESOURCE_REFERENCE_RE)?.[0] ?? ''
+  if (!resourceReference) return ''
+  if (resourceReference.startsWith('module.')) {
+    return resourceReference
   }
-  if (/^aws_[\w-]+\.[\w-]+$/.test(reference)) {
-    return prefixAddress(modulePath, reference)
-  }
-  return reference
+  return prefixAddress(modulePath, resourceReference)
 }
 
 function parseNamedBlocks(combined: string): ParsedNamedBlock[] {
@@ -772,11 +786,11 @@ function buildConfigEdges(blocks: ConfigBlock[]): TerraformGraphEdge[] {
       }
     }
     // Detect references like aws_vpc.main, data.aws_ami.latest
-    const refRe = /(?:data\.)?aws_[\w]+\.[\w]+/g
+    const refRe = new RegExp(RESOURCE_REFERENCE_RE)
     let refMatch: RegExpExecArray | null
     while ((refMatch = refRe.exec(block.body)) !== null) {
       const ref = normalizeConfigReference(refMatch[0], block.modulePath)
-      if (ref !== address && !ref.startsWith(address + '.')) {
+      if (ref && ref !== address && !ref.startsWith(address + '.')) {
         const key = `${ref}->${address}`
         if (!edgeSet.has(key)) { edgeSet.add(key); edges.push({ from: ref, to: address, relation: 'reference' }) }
       }
@@ -787,13 +801,92 @@ function buildConfigEdges(blocks: ConfigBlock[]): TerraformGraphEdge[] {
 
 /* ── Dynamic Identity Inference for Graph Edges ───────────── */
 
-const IDENTITY_KEYS = ['id', 'arn', 'name', 'bucket', 'cluster_identifier', 'db_instance_identifier']
+const IDENTITY_KEYS = ['id', 'arn', 'name', 'bucket', 'cluster_identifier', 'db_instance_identifier', 'self_link', 'email']
 const REFERENCE_KEYS = [
   'vpc_id', 'subnet_id', 'security_group_id', 'role_arn', 'instance_id', 'cluster_name',
   'target_group_arn', 'load_balancer_arn', 'log_group_name', 'kms_key_id', 'certificate_arn',
-  'hosted_zone_id', 'db_subnet_group_name', 'execution_role_arn', 'task_role_arn'
+  'hosted_zone_id', 'db_subnet_group_name', 'execution_role_arn', 'task_role_arn',
+  'network', 'subnetwork', 'router', 'instance', 'cluster'
 ]
-const PLURAL_REFERENCE_KEYS = ['subnet_ids', 'security_group_ids', 'security_groups', 'vpc_security_group_ids']
+const PLURAL_REFERENCE_KEYS = ['subnet_ids', 'security_group_ids', 'security_groups', 'vpc_security_group_ids', 'reserved_peering_ranges']
+
+function collectExpressionReferences(value: unknown, sink: Set<string>): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectExpressionReferences(item, sink)
+    return
+  }
+  if (!value || typeof value !== 'object') return
+  const record = value as Record<string, unknown>
+  if (Array.isArray(record.references)) {
+    for (const item of record.references) {
+      if (typeof item === 'string' && item.trim()) sink.add(item.trim())
+    }
+  }
+  for (const nested of Object.values(record)) {
+    collectExpressionReferences(nested, sink)
+  }
+}
+
+function buildPlanConfigEdges(rootPath: string): TerraformGraphEdge[] {
+  const plan = parseJsonFile<Record<string, unknown> | null>(planJsonPath(rootPath), null)
+  const configuration = plan?.configuration
+  if (!configuration || typeof configuration !== 'object') return []
+  const rootModule = (configuration as Record<string, unknown>).root_module
+  if (!rootModule || typeof rootModule !== 'object') return []
+
+  const edges: TerraformGraphEdge[] = []
+  const edgeSet = new Set<string>()
+
+  function addEdge(from: string, to: string): void {
+    if (!from || !to || from === to || from.startsWith(`${to}.`)) return
+    const key = `${from}->${to}`
+    if (!edgeSet.has(key)) {
+      edgeSet.add(key)
+      edges.push({ from, to, relation: 'reference' })
+    }
+  }
+
+  function walkModule(moduleNode: Record<string, unknown>, modulePath: string): void {
+    const resources = Array.isArray(moduleNode.resources) ? moduleNode.resources : []
+    for (const entry of resources) {
+      const resource = entry as Record<string, unknown>
+      const localAddress = typeof resource.address === 'string' ? resource.address : ''
+      if (!localAddress) continue
+      const address = prefixAddress(modulePath, localAddress)
+      const refs = new Set<string>()
+      collectExpressionReferences(resource.expressions, refs)
+      const dependsOn = Array.isArray(resource.depends_on)
+        ? resource.depends_on.filter((value): value is string => typeof value === 'string')
+        : []
+      for (const rawRef of [...refs, ...dependsOn]) {
+        const normalized = normalizeConfigReference(rawRef, modulePath)
+        if (normalized) addEdge(normalized, address)
+      }
+    }
+
+    const moduleCalls = moduleNode.module_calls
+    if (!moduleCalls || typeof moduleCalls !== 'object') return
+    for (const [moduleName, entry] of Object.entries(moduleCalls as Record<string, unknown>)) {
+      if (!entry || typeof entry !== 'object') continue
+      const childModule = (entry as Record<string, unknown>).module
+      if (!childModule || typeof childModule !== 'object') continue
+      walkModule(childModule as Record<string, unknown>, prefixAddress(modulePath, `module.${moduleName}`))
+    }
+  }
+
+  walkModule(rootModule as Record<string, unknown>, '')
+  return edges
+}
+
+function buildDiagramNodeLabel(address: string): string {
+  const moduleSegments = [...address.matchAll(/module\.([\w-]+)/g)].map((match) => match[1])
+  const moduleLabel = moduleSegments.length > 0 ? moduleSegments[moduleSegments.length - 1] : ''
+  const resourceReference = address.match(LEADING_RESOURCE_REFERENCE_RE)?.[0] ?? ''
+  const baseLabel = resourceReference || address
+  const suffix = resourceReference ? address.slice(address.indexOf(resourceReference) + resourceReference.length) : ''
+  const withModule = moduleLabel ? `${moduleLabel} / ${baseLabel}${suffix}` : `${baseLabel}${suffix}`
+  return withModule.length > 54 ? `${withModule.slice(0, 26)}...${withModule.slice(-24)}` : withModule
+}
 
 function inferDynamicEdges(inventory: TerraformResourceInventoryItem[]): TerraformGraphEdge[] {
   const identityIndex = new Map<string, string>() // value -> address
@@ -1621,10 +1714,10 @@ function buildDiagram(
 
   // Nodes from inventory
   for (const item of inventory) {
-    nodeMap.set(item.address, { id: item.address, label: item.address, category: item.type || 'resource' })
+    nodeMap.set(item.address, { id: item.address, label: buildDiagramNodeLabel(item.address), category: item.type || 'resource' })
     for (const dep of item.dependsOn) {
       addEdge({ from: dep, to: item.address, relation: 'depends_on' })
-      if (!nodeMap.has(dep)) nodeMap.set(dep, { id: dep, label: dep, category: 'dependency' })
+      if (!nodeMap.has(dep)) nodeMap.set(dep, { id: dep, label: buildDiagramNodeLabel(dep), category: 'dependency' })
     }
   }
 
@@ -1632,7 +1725,7 @@ function buildDiagram(
   for (const change of changes) {
     nodeMap.set(change.address, {
       id: change.address,
-      label: `${change.address} (${change.actionLabel})`,
+      label: buildDiagramNodeLabel(change.address),
       category: change.actionLabel
     })
   }
@@ -1641,8 +1734,16 @@ function buildDiagram(
   const configBlocks = parseConfigBlocks(rootPath)
   for (const edge of buildConfigEdges(configBlocks)) {
     addEdge(edge)
-    if (!nodeMap.has(edge.from)) nodeMap.set(edge.from, { id: edge.from, label: edge.from, category: 'config' })
-    if (!nodeMap.has(edge.to)) nodeMap.set(edge.to, { id: edge.to, label: edge.to, category: 'config' })
+    if (!nodeMap.has(edge.from)) nodeMap.set(edge.from, { id: edge.from, label: buildDiagramNodeLabel(edge.from), category: 'config' })
+    if (!nodeMap.has(edge.to)) nodeMap.set(edge.to, { id: edge.to, label: buildDiagramNodeLabel(edge.to), category: 'config' })
+  }
+
+  // Saved plan configuration edges capture provider references that do not
+  // survive cleanly in state snapshots, especially in Google modules.
+  for (const edge of buildPlanConfigEdges(rootPath)) {
+    addEdge(edge)
+    if (!nodeMap.has(edge.from)) nodeMap.set(edge.from, { id: edge.from, label: buildDiagramNodeLabel(edge.from), category: 'config' })
+    if (!nodeMap.has(edge.to)) nodeMap.set(edge.to, { id: edge.to, label: buildDiagramNodeLabel(edge.to), category: 'config' })
   }
 
   // Dynamic inference edges
@@ -2119,11 +2220,18 @@ function buildEnvWithVars(project: StoredProject, connection?: AwsConnection, ru
     if (!fs.existsSync(cliConfigPath)) fs.writeFileSync(cliConfigPath, '', 'utf-8')
   } catch { /* ok */ }
   env.TF_CLI_CONFIG_FILE = cliConfigPath
-  if (process.platform === 'win32') {
-    env.APPDATA = tmpDir
-  } else {
-    env.XDG_CONFIG_HOME = tmpDir
+
+  // Keep the user's native config directories intact so provider CLIs can
+  // still discover credentials like GCP ADC under gcloud's default paths.
+  if (!env.GOOGLE_APPLICATION_CREDENTIALS) {
+    const adcPath = process.platform === 'win32'
+      ? path.join(process.env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming'), 'gcloud', 'application_default_credentials.json')
+      : path.join(process.env.HOME ?? os.homedir(), '.config', 'gcloud', 'application_default_credentials.json')
+    if (fs.existsSync(adcPath)) {
+      env.GOOGLE_APPLICATION_CREDENTIALS = adcPath
+    }
   }
+
   const inputs = runtimeInputs?.values ?? readPersistedInputValues(project)
   for (const [key, value] of Object.entries(inputs)) {
     if (typeof value === 'string') env[`TF_VAR_${key}`] = value
@@ -2379,7 +2487,7 @@ function loadProject(project: StoredProject, profileName = '', connection?: AwsC
   const { planChanges, lastPlanSummary } = readPlanSnapshot(project.rootPath)
   const actionRows = buildActionRows(planChanges, inventory)
   const resourceRows = buildResourceRows(inventory)
-  const diagram = buildDiagram(inventory, planChanges, project.rootPath)
+  const diagram = buildTerraformDiagram(inventory, planChanges, project.rootPath)
   const environment = buildEnvironmentMetadata(project, profileName, connection, metadata, currentWorkspace, inventory)
   const stateBackups = listStateBackups(project.id)
   const stateLockInfo = readStateLockInfo(project.rootPath, metadata.backendType)

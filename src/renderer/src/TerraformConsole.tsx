@@ -75,6 +75,68 @@ import {
 import { ObservabilityResilienceLab } from './ObservabilityResilienceLab'
 
 type DetailTab = 'actions' | 'state' | 'resources' | 'drift' | 'lab' | 'history'
+type TerraformProviderId = 'aws' | 'gcp'
+
+const TERRAFORM_RESOURCE_TYPE_LABELS: Record<string, string> = {
+  google_compute_network: 'VPC Network',
+  google_compute_subnetwork: 'Subnet',
+  google_compute_router: 'Cloud Router',
+  google_compute_router_nat: 'Cloud NAT',
+  google_compute_firewall: 'Firewall Rule',
+  google_compute_global_address: 'Private Service Range',
+  google_service_networking_connection: 'Service Networking Connection',
+  google_service_account: 'Service Account',
+  google_project_iam_member: 'Project IAM Binding',
+  google_compute_instance: 'Compute VM',
+  google_container_cluster: 'GKE Cluster',
+  google_container_node_pool: 'GKE Node Pool',
+  google_sql_database_instance: 'Cloud SQL Instance',
+  google_sql_database: 'Cloud SQL Database',
+  google_sql_user: 'Cloud SQL User',
+  google_storage_bucket: 'Cloud Storage Bucket',
+  google_storage_bucket_object: 'Cloud Storage Object',
+  aws_vpc: 'VPC',
+  aws_subnet: 'Subnet',
+  aws_security_group: 'Security Group',
+  aws_instance: 'EC2 Instance',
+  aws_lb: 'Load Balancer',
+  aws_db_instance: 'RDS Instance',
+  aws_eks_cluster: 'EKS Cluster',
+  aws_eks_node_group: 'EKS Node Group',
+  azurerm_virtual_network: 'Virtual Network',
+  azurerm_subnet: 'Subnet',
+  azurerm_network_security_group: 'Network Security Group',
+  azurerm_linux_virtual_machine: 'Linux VM',
+  azurerm_windows_virtual_machine: 'Windows VM',
+  azurerm_kubernetes_cluster: 'AKS Cluster',
+  azurerm_postgresql_flexible_server: 'PostgreSQL Flexible Server',
+  huaweicloud_vpc: 'VPC',
+  huaweicloud_vpc_subnet: 'Subnet',
+  huaweicloud_compute_instance: 'Compute Instance'
+}
+
+const DIAGRAM_ACRONYMS: Record<string, string> = {
+  adc: 'ADC',
+  aks: 'AKS',
+  api: 'API',
+  arn: 'ARN',
+  aws: 'AWS',
+  cloudsql: 'Cloud SQL',
+  db: 'DB',
+  ec2: 'EC2',
+  eks: 'EKS',
+  gcp: 'GCP',
+  gke: 'GKE',
+  iam: 'IAM',
+  iap: 'IAP',
+  ip: 'IP',
+  nat: 'NAT',
+  rds: 'RDS',
+  sql: 'SQL',
+  ssh: 'SSH',
+  vpc: 'VPC',
+  vm: 'VM'
+}
 
 /* ── db_password validation ───────────────────────────────── */
 
@@ -377,26 +439,63 @@ function describeRunOutcome(record: TerraformRunRecord): string {
   return record.success ? 'Command completed successfully.' : 'Command failed. Review the output for the exact Terraform error.'
 }
 
-  function terraformContextKey(connection: AwsConnection): string {
-    return connection.kind === 'profile'
-      ? `profile:${connection.profile}`
-      : `assumed-role:${connection.sessionId}`
-  }
+function terraformContextKey(connection?: AwsConnection, override?: string): string {
+  if (override) return override
+  if (!connection) return 'workspace:default'
+  return connection.kind === 'profile'
+    ? `profile:${connection.profile}`
+    : `assumed-role:${connection.sessionId}`
+}
 
-  function connectionForProject(connection: AwsConnection, project: TerraformProject | null): AwsConnection {
-    const region = project?.environment.region || connection.region
-    return region === connection.region ? connection : { ...connection, region }
+function connectionForProject(connection: AwsConnection | undefined, project: TerraformProject | null): AwsConnection | undefined {
+  if (!connection) return undefined
+  const region = project?.environment.region || connection.region
+  return region === connection.region ? connection : { ...connection, region }
+}
+
+function providerLabel(providerId: TerraformProviderId): string {
+  return providerId === 'gcp' ? 'Google Cloud' : 'AWS'
+}
+
+function providerContextFieldLabel(providerId: TerraformProviderId): string {
+  return providerId === 'gcp' ? 'Project / CLI context' : 'Profile/Session'
+}
+
+function providerRegionFieldLabel(providerId: TerraformProviderId): string {
+  return providerId === 'gcp' ? 'Location' : 'Region'
+}
+
+function detectGcpTerraformAuthIssue(text: string): {
+  title: string
+  body: string
+  command: string
+} | null {
+  if (!text) return null
+  const normalized = text.toLowerCase()
+  const missingAdc = normalized.includes('application default credentials')
+    || normalized.includes('could not find default credentials')
+    || normalized.includes("gcloud auth application-default login")
+
+  if (!missingAdc) return null
+
+  return {
+    title: 'Google Cloud application default credentials are missing',
+    body: 'Terraform reached the Google provider, but ADC is not configured for this machine. Complete the ADC login flow, then rerun Init or Plan.',
+    command: 'gcloud auth application-default login'
   }
+}
 
 /* ── Inputs Dialog ────────────────────────────────────────── */
 
 function InputsDialog({
   project,
+  providerId,
   onSave,
   onClose,
   prefillMissing
 }: {
   project: TerraformProject
+  providerId: TerraformProviderId
   onSave: (inputConfig: TerraformInputConfiguration) => void
   onClose: () => void
   prefillMissing?: string[]
@@ -689,8 +788,13 @@ function InputsDialog({
       <div className="tf-inputs-dialog tf-inputs-dialog-wide" onClick={(e) => e.stopPropagation()}>
         <h3>Inputs for {project.name}</h3>
         <p style={{ margin: 0, fontSize: 12, color: '#9ca7b7' }}>
-          Base values stay local, overlays override by environment, and AWS secret refs resolve only at runtime.
+          Base values stay local, overlays override by environment, and runtime secret refs resolve only where provider integrations support them.
         </p>
+        {providerId === 'gcp' && (
+          <p className="tf-inputs-warning">
+            Secret reference storage keeps the AWS layout for now. In Google Cloud projects, prefer local values or var files until the Secret Manager runtime path lands.
+          </p>
+        )}
         {project.inputView.migratedFromLegacy && (
           <p className="tf-inputs-migration-note">
             Existing var file + JSON inputs were migrated into the selected variable set base layer.
@@ -1058,10 +1162,10 @@ function SummaryConfirmDialog({
 
 /* ── Diagram Component ────────────────────────────────────── */
 
-const NODE_W = 260
-const NODE_H = 44
-const LAYER_GAP_X = 100
-const SLOT_GAP_Y = 18
+const NODE_W = 312
+const NODE_H = 62
+const LAYER_GAP_X = 108
+const SLOT_GAP_Y = 20
 
 /* Colour palette – action types get vivid fills so create/delete/update
    are obvious at a glance, while "existing resource" stays muted. */
@@ -1084,6 +1188,65 @@ const EDGE_COLORS: Record<string, string> = {
 
 function styleFor(category: string) {
   return CATEGORY_STYLE[category] ?? CATEGORY_STYLE.resource
+}
+
+type DiagramNodeDisplay = {
+  eyebrow: string
+  title: string
+  subtitle: string
+}
+
+function humanizeDiagramToken(value: string): string {
+  const normalized = value
+    .replace(/\[(\d+)\]/g, ' $1')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\./g, ' ')
+    .trim()
+
+  if (!normalized) return ''
+
+  return normalized
+    .split(/\s+/)
+    .map((part) => {
+      const lower = part.toLowerCase()
+      if (DIAGRAM_ACRONYMS[lower]) return DIAGRAM_ACRONYMS[lower]
+      if (/^\d+$/.test(part)) return part
+      return part.charAt(0).toUpperCase() + part.slice(1)
+    })
+    .join(' ')
+}
+
+function humanizeTerraformResourceType(resourceType: string, isDataSource: boolean): string {
+  const label = TERRAFORM_RESOURCE_TYPE_LABELS[resourceType]
+    || humanizeDiagramToken(resourceType.replace(/^(?:google-beta|google|aws|azurerm|huaweicloud)_/, ''))
+    || resourceType
+  return isDataSource ? `Data Source / ${label}` : label
+}
+
+function buildDiagramNodeDisplay(node: TerraformGraphNode): DiagramNodeDisplay {
+  const moduleNames = [...node.id.matchAll(/module\.([\w-]+)/g)].map((match) => humanizeDiagramToken(match[1]))
+  const eyebrow = truncateMiddle(moduleNames.join(' / ') || 'Root module', { start: 22, end: 14 })
+  const resourceMatch = node.id.match(/(?:(?:module\.[\w-]+\.)*)((data\.)?([a-z][\w-]*_[\w-]+)\.([\w-]+))(.*)?$/)
+
+  if (!resourceMatch) {
+    return {
+      eyebrow,
+      title: truncateMiddle(node.label || node.id, { start: 24, end: 16 }),
+      subtitle: truncateMiddle(node.id, { start: 24, end: 18 })
+    }
+  }
+
+  const isDataSource = Boolean(resourceMatch[2])
+  const resourceType = resourceMatch[3]
+  const resourceName = `${resourceMatch[4]}${resourceMatch[5] ?? ''}`
+  const humanTitle = humanizeDiagramToken(resourceName)
+  const humanType = humanizeTerraformResourceType(resourceType, isDataSource)
+
+  return {
+    eyebrow,
+    title: truncateMiddle(humanType, { start: 24, end: 18 }),
+    subtitle: truncateMiddle(humanTitle || humanizeDiagramToken(resourceName) || resourceType, { start: 28, end: 18 })
+  }
 }
 
 /* ── Layered layout with crossing minimisation ────────────── */
@@ -1396,8 +1559,9 @@ function DiagramView({ diagram }: { diagram: TerraformDiagram }) {
           if (!pos) return null
           const s = styleFor(node.category)
           const dimmed = connectedNodes && !connectedNodes.has(node.id)
-          const label = node.id
+          const label = buildDiagramNodeDisplay(node)
           const badgeText = s.badge
+          const clipId = `clip-${node.id.replace(/[^a-zA-Z0-9]/g, '_')}`
           return (
             <g
               key={node.id}
@@ -1407,6 +1571,7 @@ function DiagramView({ diagram }: { diagram: TerraformDiagram }) {
               onMouseEnter={() => setHoveredNode(node.id)}
               onMouseLeave={() => setHoveredNode(null)}
             >
+              <title>{node.id}</title>
               <rect width={NODE_W} height={NODE_H} rx="6" fill={s.fill} stroke={s.stroke} strokeWidth="1.5" />
               {/* Action badge (top-right corner) */}
               {badgeText && (
@@ -1416,15 +1581,13 @@ function DiagramView({ diagram }: { diagram: TerraformDiagram }) {
                 </>
               )}
               {/* Resource address – full text, clipped to node width */}
-              <clipPath id={`clip-${node.id.replace(/[^a-zA-Z0-9]/g, '_')}`}>
+              <clipPath id={clipId}>
                 <rect x="8" y="0" width={badgeText ? NODE_W - 72 : NODE_W - 16} height={NODE_H} />
               </clipPath>
-              <text
-                x={10} y={badgeText ? NODE_H / 2 + 5 : NODE_H / 2 + 4}
-                fill={s.text} fontSize="11" fontFamily='"Cascadia Code","Fira Code",monospace'
-                clipPath={`url(#clip-${node.id.replace(/[^a-zA-Z0-9]/g, '_')})`}
-              >
-                {label}
+              <text className="tf-diagram-node-label" clipPath={`url(#${clipId})`}>
+                <tspan x="12" y="16" className="tf-diagram-node-eyebrow">{label.eyebrow}</tspan>
+                <tspan x="12" y="34" className="tf-diagram-node-title" fill={s.text}>{label.title}</tspan>
+                <tspan x="12" y="49" className="tf-diagram-node-subtitle">{label.subtitle}</tspan>
               </text>
             </g>
           )
@@ -1503,12 +1666,14 @@ function GovernancePanel({
   toolkit,
   report,
   running,
+  commandsEnabled,
   onRunChecks,
   onDetectTools
 }: {
   toolkit: TerraformGovernanceToolkit | null
   report: TerraformGovernanceReport | null
   running: boolean
+  commandsEnabled: boolean
   onRunChecks: () => void
   onDetectTools: () => void
 }) {
@@ -1528,11 +1693,11 @@ function GovernancePanel({
         </div>
         <div className="tf-governance-actions">
           {toolkit?.detectedAt ? (
-            <button className="tf-toolbar-btn accent" disabled={running || !hasAnyTool} onClick={onRunChecks}>
+            <button className="tf-toolbar-btn accent" disabled={running || !hasAnyTool || !commandsEnabled} onClick={onRunChecks}>
               {running ? 'Running...' : 'Run Checks'}
             </button>
           ) : (
-            <button className="tf-toolbar-btn" onClick={onDetectTools}>Detect Tools</button>
+            <button className="tf-toolbar-btn" onClick={onDetectTools} disabled={!commandsEnabled}>Detect Tools</button>
           )}
         </div>
       </div>
@@ -1553,6 +1718,7 @@ function GovernancePanel({
           <button
             className="tf-governance-rescan"
             onClick={onDetectTools}
+            disabled={!commandsEnabled}
             title="Re-detect tools"
           >
             Rescan
@@ -1666,7 +1832,9 @@ function ActionsTab({
   project,
   cliOk,
   cliLabel,
+  providerId,
   running,
+  commandsEnabled,
   lastLog,
   onInit,
   onPlan,
@@ -1682,7 +1850,9 @@ function ActionsTab({
   project: TerraformProject
   cliOk: boolean
   cliLabel: string
+  providerId: 'aws' | 'gcp'
   running: boolean
+  commandsEnabled: boolean
   lastLog: TerraformCommandLog | null
   onInit: () => void
   onPlan: (options?: TerraformPlanOptions) => void
@@ -1745,6 +1915,8 @@ function ActionsTab({
   const topFindings = governanceSummary.findings.slice(0, 3)
   const readinessTone = !cliOk
     ? 'blocked'
+    : !commandsEnabled
+      ? 'blocked'
     : !hasSavedPlan
       ? 'attention'
       : governanceBlocked || applyWarning || destructiveSignal
@@ -1752,6 +1924,8 @@ function ActionsTab({
         : 'ready'
   const readinessTitle = !cliOk
     ? `${cliLabel} unavailable`
+    : !commandsEnabled
+      ? 'Operator mode required'
     : !hasSavedPlan
       ? 'Run a saved plan before apply'
       : governanceBlocked
@@ -1763,6 +1937,8 @@ function ActionsTab({
             : 'Safe to continue to apply review'
   const readinessBody = !cliOk
     ? 'Infrastructure actions remain disabled until a supported CLI is detected.'
+    : !commandsEnabled
+      ? 'Read-only mode blocks Terraform command execution on this screen. Switch to Operator mode to enable the full workflow.'
     : !hasSavedPlan
       ? 'Apply and destroy stay disabled until a saved plan exists for this project and workspace.'
       : governanceBlocked
@@ -1796,13 +1972,13 @@ function ActionsTab({
         </div>
         <div className="tf-primary-action-area">
           <div className="tf-primary-action-stack">
-            <button className="tf-action-btn init" disabled={!cliOk || running} onClick={onInit}>Init</button>
-            <button className="tf-action-btn plan primary" disabled={!cliOk || running} onClick={() => onPlan()}>Run Saved Plan</button>
+            <button className="tf-action-btn init" disabled={!cliOk || running || !commandsEnabled} onClick={onInit}>Init</button>
+            <button className="tf-action-btn plan primary" disabled={!cliOk || running || !commandsEnabled} onClick={() => onPlan()}>Run Saved Plan</button>
           </div>
           <div className="tf-primary-action-stack tf-primary-action-stack-commit">
             <button
               className={`tf-action-btn apply primary${governanceBlocked ? ' governance-blocked' : ''}`}
-              disabled={!cliOk || running || !hasSavedPlan || governanceBlocked}
+              disabled={!cliOk || running || !hasSavedPlan || governanceBlocked || !commandsEnabled}
               onClick={onApply}
               title={!hasSavedPlan ? 'Run Plan first to enable Apply.' : governanceBlocked ? 'Blocked: governance checks failed.' : undefined}
             >
@@ -1810,7 +1986,7 @@ function ActionsTab({
             </button>
             <button
               className={`tf-action-btn destroy${governanceBlocked ? ' governance-blocked' : ''}`}
-              disabled={!cliOk || running || !hasSavedPlan || governanceBlocked}
+              disabled={!cliOk || running || !hasSavedPlan || governanceBlocked || !commandsEnabled}
               onClick={onDestroy}
               title={!hasSavedPlan ? 'Run Plan first to enable Destroy.' : governanceBlocked ? 'Blocked: governance checks failed.' : undefined}
             >
@@ -1819,7 +1995,7 @@ function ActionsTab({
           </div>
         </div>
         <div className="tf-plan-controls-toggle-row">
-          <button type="button" className="tf-toolbar-btn" onClick={() => setShowPlanControls((value) => !value)} disabled={!cliOk || running}>
+          <button type="button" className="tf-toolbar-btn" onClick={() => setShowPlanControls((value) => !value)} disabled={!cliOk || running || !commandsEnabled}>
             {showPlanControls ? 'Hide advanced plan controls' : 'Show advanced plan controls'}
           </button>
           {!hasSavedPlan && (
@@ -1849,7 +2025,7 @@ function ActionsTab({
                 className="tf-plan-address-input"
                 value={targetText}
                 onChange={(event) => setTargetText(event.target.value)}
-                placeholder={'module.network.aws_subnet.private[0]\naws_instance.web'}
+                placeholder={providerId === 'gcp' ? 'module.network.google_compute_subnetwork.private[0]\ngoogle_compute_instance.web' : 'module.network.aws_subnet.private[0]\naws_instance.web'}
               />
             )}
             {advancedMode === 'replace' && (
@@ -1857,7 +2033,7 @@ function ActionsTab({
                 className="tf-plan-address-input"
                 value={replaceText}
                 onChange={(event) => setReplaceText(event.target.value)}
-                placeholder={'module.app.aws_instance.web\naws_db_instance.main'}
+                placeholder={providerId === 'gcp' ? 'module.app.google_compute_instance.web\ngoogle_sql_database_instance.main' : 'module.app.aws_instance.web\naws_db_instance.main'}
               />
             )}
             <div className="tf-plan-controls-footer">
@@ -1869,7 +2045,7 @@ function ActionsTab({
               <button
                 type="button"
                 className="tf-toolbar-btn accent"
-                disabled={!cliOk || running || !canRunAdvancedPlan}
+                disabled={!cliOk || running || !canRunAdvancedPlan || !commandsEnabled}
                 onClick={() => onPlan(
                   advancedMode === 'refresh-only'
                     ? { mode: 'refresh-only' }
@@ -1889,6 +2065,7 @@ function ActionsTab({
         toolkit={governanceToolkit}
         report={governanceReport}
         running={governanceRunning}
+        commandsEnabled={commandsEnabled}
         onRunChecks={onRunGovernanceChecks}
         onDetectTools={onDetectGovernanceTools}
       />
@@ -2059,7 +2236,7 @@ function ActionsTab({
               <h3>Governance Focus</h3>
               <div className="tf-section-hint">Fix the exact findings below, then rerun checks and plan review.</div>
             </div>
-            <button type="button" className="tf-toolbar-btn" onClick={onRunGovernanceChecks} disabled={governanceRunning || !cliOk}>
+              <button type="button" className="tf-toolbar-btn" onClick={onRunGovernanceChecks} disabled={governanceRunning || !cliOk || !commandsEnabled}>
               {governanceRunning ? 'Running...' : 'Re-run checks'}
             </button>
           </div>
@@ -2085,7 +2262,7 @@ function ActionsTab({
         <div className="tf-section-head">
           <div>
             <h3>Related Follow-up</h3>
-            <div className="tf-section-hint">Open drift after mutating commands to verify realized state against AWS.</div>
+              <div className="tf-section-hint">Open drift after mutating commands to verify realized state against {providerId === 'gcp' ? 'Google Cloud' : 'AWS'}.</div>
           </div>
           <button type="button" className="tf-toolbar-btn" onClick={onOpenDriftTab}>Open Drift</button>
         </div>
@@ -2150,6 +2327,8 @@ function ActionsTab({
 function StateTab({
   project,
   running,
+  providerId,
+  commandsEnabled,
   lastLog,
   onImport,
   onMove,
@@ -2159,6 +2338,8 @@ function StateTab({
 }: {
   project: TerraformProject
   running: boolean
+  providerId: 'aws' | 'gcp'
+  commandsEnabled: boolean
   lastLog: TerraformCommandLog | null
   onImport: (address: string, importId: string) => void
   onMove: (fromAddress: string, toAddress: string) => void
@@ -2225,7 +2406,7 @@ function StateTab({
             </div>
             <label className="tf-state-field">
               <span>Terraform address</span>
-              <input value={importAddress} onChange={(e) => setImportAddress(e.target.value)} placeholder="aws_s3_bucket.logs" />
+              <input value={importAddress} onChange={(e) => setImportAddress(e.target.value)} placeholder={providerId === 'gcp' ? 'google_storage_bucket.logs' : 'aws_s3_bucket.logs'} />
             </label>
             <label className="tf-state-field">
               <span>Provider import ID</span>
@@ -2233,7 +2414,7 @@ function StateTab({
             </label>
             <button
               className="tf-toolbar-btn accent"
-              disabled={running || !importAddress.trim() || !importId.trim()}
+              disabled={running || !importAddress.trim() || !importId.trim() || !commandsEnabled}
               onClick={() => onImport(importAddress.trim(), importId.trim())}
             >
               Run Import
@@ -2247,15 +2428,15 @@ function StateTab({
             </div>
             <label className="tf-state-field">
               <span>From address</span>
-              <input value={moveFrom} onChange={(e) => setMoveFrom(e.target.value)} placeholder="aws_instance.old_name" list="tf-state-addresses" />
+              <input value={moveFrom} onChange={(e) => setMoveFrom(e.target.value)} placeholder={providerId === 'gcp' ? 'google_compute_instance.old_name' : 'aws_instance.old_name'} list="tf-state-addresses" />
             </label>
             <label className="tf-state-field">
               <span>To address</span>
-              <input value={moveTo} onChange={(e) => setMoveTo(e.target.value)} placeholder="module.app.aws_instance.new_name" />
+              <input value={moveTo} onChange={(e) => setMoveTo(e.target.value)} placeholder={providerId === 'gcp' ? 'module.app.google_compute_instance.new_name' : 'module.app.aws_instance.new_name'} />
             </label>
             <button
               className="tf-toolbar-btn danger"
-              disabled={running || !moveFrom.trim() || !moveTo.trim()}
+              disabled={running || !moveFrom.trim() || !moveTo.trim() || !commandsEnabled}
               onClick={() => onMove(moveFrom.trim(), moveTo.trim())}
             >
               Confirm Move
@@ -2269,11 +2450,11 @@ function StateTab({
             </div>
             <label className="tf-state-field">
               <span>State address</span>
-              <input value={removeAddress} onChange={(e) => setRemoveAddress(e.target.value)} placeholder="aws_security_group.legacy" list="tf-state-addresses" />
+              <input value={removeAddress} onChange={(e) => setRemoveAddress(e.target.value)} placeholder={providerId === 'gcp' ? 'google_compute_firewall.legacy' : 'aws_security_group.legacy'} list="tf-state-addresses" />
             </label>
             <button
               className="tf-toolbar-btn danger"
-              disabled={running || !removeAddress.trim()}
+              disabled={running || !removeAddress.trim() || !commandsEnabled}
               onClick={() => onRemove(removeAddress.trim())}
             >
               Remove Address
@@ -2312,7 +2493,7 @@ function StateTab({
             </label>
             <button
               className="tf-toolbar-btn danger"
-              disabled={running || !unlockId.trim()}
+              disabled={running || !unlockId.trim() || !commandsEnabled}
               onClick={() => onUnlock(unlockId.trim())}
             >
               Force Unlock
@@ -2355,12 +2536,14 @@ function StateTab({
 function WorkspaceControls({
   project,
   running,
+  commandsEnabled,
   onSelectWorkspace,
   onCreateWorkspace,
   onDeleteWorkspace
 }: {
   project: TerraformProject
   running: boolean
+  commandsEnabled: boolean
   onSelectWorkspace: (workspaceName: string) => void
   onCreateWorkspace: () => void
   onDeleteWorkspace: () => void
@@ -2380,15 +2563,15 @@ function WorkspaceControls({
           <select
             className="tf-workspace-select"
             value={project.currentWorkspace}
-            disabled={running || project.workspaces.length === 0}
+            disabled={running || project.workspaces.length === 0 || !commandsEnabled}
             onChange={(e) => onSelectWorkspace(e.target.value)}
           >
             {project.workspaces.map((workspace) => (
               <option key={workspace.name} value={workspace.name}>{workspace.name}</option>
             ))}
           </select>
-          <button type="button" className="tf-toolbar-btn accent" onClick={onCreateWorkspace} disabled={running}>New Workspace</button>
-          <button type="button" className="tf-toolbar-btn danger" onClick={onDeleteWorkspace} disabled={running || !canDeleteWorkspace}>Delete Workspace</button>
+          <button type="button" className="tf-toolbar-btn accent" onClick={onCreateWorkspace} disabled={running || !commandsEnabled}>New Workspace</button>
+          <button type="button" className="tf-toolbar-btn danger" onClick={onDeleteWorkspace} disabled={running || !canDeleteWorkspace || !commandsEnabled}>Delete Workspace</button>
         </div>
       </div>
     </div>
@@ -2397,8 +2580,16 @@ function WorkspaceControls({
 
 /* ── Resources Tab ────────────────────────────────────────── */
 
-function ResourcesTab({ project }: { project: TerraformProject }) {
+function ResourcesTab({
+  project,
+  providerId
+}: {
+  project: TerraformProject
+  providerId: TerraformProviderId
+}) {
   const rows = project.resourceRows
+  const resourceScopeLabel = providerId === 'gcp' ? 'location' : 'region'
+  const resourceIdentifierLabel = providerId === 'gcp' ? 'ID' : 'Arn'
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [query, setQuery] = useState('')
   const categories = useMemo(
@@ -2450,7 +2641,7 @@ function ResourcesTab({ project }: { project: TerraformProject }) {
                 type="text"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Address, type, ARN, region, tags"
+                placeholder={`Address, type, ${resourceIdentifierLabel}, ${resourceScopeLabel}, tags`}
               />
             </div>
           </div>
@@ -2478,8 +2669,8 @@ function ResourcesTab({ project }: { project: TerraformProject }) {
                   <th>Category</th>
                   <th>Address</th>
                   <th>Type</th>
-                  <th>Arn</th>
-                  <th>Region</th>
+                  <th>{resourceIdentifierLabel}</th>
+                  <th>{resourceScopeLabel === 'location' ? 'Location' : 'Region'}</th>
                   <th>ChangedBy</th>
                   <th>Tags</th>
                 </tr>
@@ -2562,6 +2753,13 @@ function driftResourceTypeToService(resourceType: string): ServiceId | null {
   if (resourceType.startsWith('aws_autoscaling')) return 'auto-scaling'
   if (resourceType.startsWith('aws_cloudformation')) return 'cloudformation'
   if (resourceType.startsWith('aws_ecr')) return 'ecr'
+  if (resourceType.startsWith('google_compute_')) return 'gcp-compute-engine'
+  if (resourceType.startsWith('google_container_')) return 'gcp-gke'
+  if (resourceType.startsWith('google_storage_')) return 'gcp-cloud-storage'
+  if (resourceType.startsWith('google_sql_')) return 'gcp-cloud-sql'
+  if (resourceType.startsWith('google_service_account') || resourceType.startsWith('google_project_iam_')) return 'gcp-iam'
+  if (resourceType.startsWith('google_project')) return 'gcp-projects'
+  if (resourceType.startsWith('google_billing_')) return 'gcp-billing'
   return null
 }
 
@@ -3127,8 +3325,23 @@ function HistoryTab({
   )
 }
 
-export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCommand, onNavigateService }: {
-  connection: AwsConnection
+export function TerraformConsole({
+  connection,
+  providerId = 'aws',
+  contextKeyOverride,
+  contextLabel,
+  contextDetail,
+  commandsEnabled = true,
+  refreshNonce = 0,
+  onRunTerminalCommand,
+  onNavigateService
+}: {
+  connection?: AwsConnection
+  providerId?: TerraformProviderId
+  contextKeyOverride?: string
+  contextLabel?: string
+  contextDetail?: string
+  commandsEnabled?: boolean
   refreshNonce?: number
   onRunTerminalCommand?: (command: string) => void
   onNavigateService?: (serviceId: ServiceId, resourceId?: string) => void
@@ -3194,8 +3407,16 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   } = useFreshnessState({ staleAfterMs: 2 * 60 * 1000 })
 
   const cliOk = cliInfo?.found === true
-  const contextKey = terraformContextKey(connection)
+  const providerName = providerLabel(providerId)
+  const contextKey = terraformContextKey(connection, contextKeyOverride)
   const projectConnection = connectionForProject(connection, detail)
+  const canLoadDrift = providerId === 'aws' && Boolean(projectConnection)
+  const canLoadLab = providerId === 'aws' && Boolean(connection)
+  const contextValue = contextLabel || detail?.environment.connectionLabel || connection?.profile || 'Local shell'
+  const contextDetailValue = contextDetail || detail?.environment.region || ''
+  const gcpAuthIssue = providerId === 'gcp'
+    ? detectGcpTerraformAuthIssue(`${msg}\n${lastLog?.output ?? ''}`)
+    : null
   const persistedSelectedId = uiState.selectedProjectByContext[contextKey] ?? ''
   const persistedDetailTab = uiState.detailTabByContext[contextKey] ?? 'actions'
   const persistedHistoryFilters = detail ? uiState.historyFiltersByProject[detail.id] : undefined
@@ -3334,7 +3555,7 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   }, [detail, driftStatusFilter, driftTypeFilter])
 
   const loadDrift = useCallback(async (options?: { forceRefresh?: boolean }) => {
-    if (!detail) return
+    if (!detail || !projectConnection) return
     const requestKey = `${contextKey}:${detail.id}:${projectConnection.region}:${options?.forceRefresh ? 'force' : 'normal'}`
     if (driftLoadKeyRef.current === requestKey) return
     driftLoadKeyRef.current = requestKey
@@ -3374,13 +3595,13 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   }, [reload])
 
   useEffect(() => {
-    if (detailTab !== 'drift' || !detail) return
+    if (detailTab !== 'drift' || !detail || !canLoadDrift || !projectConnection) return
     if (driftReport?.projectId === detail.id && driftReport.region === projectConnection.region) return
     void loadDrift()
-  }, [detail, detailTab, driftReport, loadDrift, projectConnection.region])
+  }, [canLoadDrift, detail, detailTab, driftReport, loadDrift, projectConnection])
 
   const loadLab = useCallback(async () => {
-    if (!detail) return
+    if (!detail || !connection) return
     setLabLoading(true)
     setLabError('')
     try {
@@ -3394,10 +3615,10 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   }, [connection, contextKey, detail])
 
   useEffect(() => {
-    if (detailTab !== 'lab' || !detail) return
+    if (detailTab !== 'lab' || !detail || !canLoadLab) return
     if (labReport?.scope.kind === 'terraform' && labReport.scope.projectId === detail.id) return
     void loadLab()
-  }, [detail, detailTab, labReport, loadLab])
+  }, [canLoadLab, detail, detailTab, labReport, loadLab])
 
   // Governance: detect tools once on CLI detect
   useEffect(() => {
@@ -3504,6 +3725,10 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
 
   // Handlers
   async function handleAddProject() {
+    if (!commandsEnabled) {
+      setMsg('Operator mode is required to add Terraform projects in this workspace.')
+      return
+    }
     const dir = await chooseProjectDirectory()
     if (!dir) return
     try {
@@ -3517,6 +3742,10 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   }
 
   async function handleRemoveProject() {
+    if (!commandsEnabled) {
+      setMsg('Operator mode is required to remove tracked Terraform projects.')
+      return
+    }
     if (!selectedId) return
     try {
       await removeProject(contextKey, selectedId)
@@ -3529,6 +3758,10 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   }
 
   async function handleRenameProject(name: string) {
+    if (!commandsEnabled) {
+      setMsg('Operator mode is required to rename tracked Terraform projects.')
+      return
+    }
     if (!detail) return
     try {
       const updated = await renameProject(contextKey, detail.id, name)
@@ -3563,6 +3796,10 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   }
 
   async function handleSelectWorkspace(workspaceName: string) {
+    if (!commandsEnabled) {
+      setMsg('Operator mode is required to change Terraform workspaces.')
+      return
+    }
     if (!detail || running || workspaceName === detail.currentWorkspace) return
     try {
       const updated = await selectWorkspace(contextKey, detail.id, workspaceName, connection)
@@ -3575,6 +3812,10 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   }
 
   async function handleCreateWorkspace(workspaceName: string) {
+    if (!commandsEnabled) {
+      setMsg('Operator mode is required to create Terraform workspaces.')
+      return
+    }
     if (!detail) return
     try {
       const updated = await createWorkspace(contextKey, detail.id, workspaceName, connection)
@@ -3588,6 +3829,10 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   }
 
   async function handleDeleteWorkspace(workspaceName: string) {
+    if (!commandsEnabled) {
+      setMsg('Operator mode is required to delete Terraform workspaces.')
+      return
+    }
     if (!detail) return
     try {
       const updated = await deleteWorkspace(contextKey, detail.id, workspaceName, connection)
@@ -3601,6 +3846,10 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   }
 
   function handleShowInputs() {
+    if (!commandsEnabled) {
+      setMsg('Operator mode is required to edit Terraform inputs.')
+      return
+    }
     if (!detail) return
     setPrefillMissing([])
     setResumeCommandAfterInputs(null)
@@ -3608,6 +3857,10 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   }
 
   async function handleSaveInputs(inputConfig: TerraformInputConfiguration) {
+    if (!commandsEnabled) {
+      setMsg('Operator mode is required to save Terraform inputs.')
+      return
+    }
     if (!detail) return
     try {
       const updated = await updateInputs(contextKey, detail.id, inputConfig, connection)
@@ -3641,6 +3894,10 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   }
 
   async function execCommand(command: 'init' | 'plan' | 'apply' | 'destroy', planOptions?: TerraformPlanOptions): Promise<TerraformCommandLog | null> {
+    if (!commandsEnabled) {
+      setMsg('Operator mode is required to run Terraform commands.')
+      return null
+    }
     if (!detail || running) return null
     setMsg('')
     try {
@@ -3762,7 +4019,11 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
         modulePath: 'root',
         provider: '',
         providerDisplayName: '',
-        service: type.startsWith('aws_') ? type.replace(/^aws_/, '').split('_')[0] : 'unknown',
+        service: type.startsWith('aws_')
+          ? type.replace(/^aws_/, '').split('_')[0]
+          : type.startsWith('google_')
+            ? type.replace(/^google_/, '').split('_')[0]
+            : 'unknown',
         actions: ['delete'],
         actionLabel: 'delete',
         mode: 'managed',
@@ -3804,6 +4065,10 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
     stateToAddress?: string
     lockId?: string
   }) {
+    if (!commandsEnabled) {
+      setMsg('Operator mode is required to run Terraform state operations.')
+      return
+    }
     if (!detail || running) return
     setMsg('')
     setDriftReport(null)
@@ -3910,7 +4175,7 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
     : null
 
   return (
-    <div className="tf-console">
+    <div className={`tf-console tf-console-${providerId}`}>
       <section className="tf-shell-hero">
         <div className="tf-shell-hero-copy">
           <div className="eyebrow">Terraform / OpenTofu service</div>
@@ -3935,7 +4200,7 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
             </div>
             <div className="tf-shell-meta-pill">
               <span>Context</span>
-              <strong>{detail?.environment.connectionLabel || connection?.profile || 'Local shell'}</strong>
+              <strong>{contextValue}</strong>
             </div>
           </div>
         </div>
@@ -3965,14 +4230,23 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
 
       <div className="tf-shell-toolbar">
         <div className="tf-toolbar">
-          <button className="tf-toolbar-btn accent" onClick={handleAddProject} disabled={!cliOk}>Add Project</button>
-          <button className="tf-toolbar-btn" onClick={() => setShowRenameDialog(true)} disabled={!detail}>Rename</button>
+          <button className="tf-toolbar-btn accent" onClick={handleAddProject} disabled={!cliOk || !commandsEnabled}>Add Project</button>
+          <button className="tf-toolbar-btn" onClick={() => setShowRenameDialog(true)} disabled={!detail || !commandsEnabled}>Rename</button>
           <button className="tf-toolbar-btn" onClick={() => void handleOpenInVsCode()} disabled={!detail}>Open in VS Code</button>
-          <button className="tf-toolbar-btn danger" onClick={handleRemoveProject} disabled={!selectedId}>Remove Project</button>
+          <button className="tf-toolbar-btn danger" onClick={handleRemoveProject} disabled={!selectedId || !commandsEnabled}>Remove Project</button>
           <button className="tf-toolbar-btn" onClick={handleReload} disabled={loading}>Reload</button>
-          <button className="tf-toolbar-btn" onClick={handleShowInputs} disabled={!detail}>Inputs</button>
+          <button className="tf-toolbar-btn" onClick={handleShowInputs} disabled={!detail || !commandsEnabled}>Inputs</button>
         </div>
         <div className="tf-shell-status">
+          {!commandsEnabled && (
+            <div className="tf-cli-banner">Read-only mode is active. Terraform mutations and saved input changes are disabled until you switch to Operator mode.</div>
+          )}
+          {providerId === 'gcp' && !contextLabel && (
+            <div className="tf-cli-banner">Google Cloud project and location context are not selected yet. Local Terraform review still works, but provider handoffs stay limited.</div>
+          )}
+          {providerId === 'gcp' && contextDetailValue && (
+            <div className="tf-cli-banner success">{contextValue}{contextDetailValue ? ` | ${contextDetailValue}` : ''}</div>
+          )}
           {cliInfo && !cliInfo.found && (
             <div className="tf-cli-banner">{cliInfo.error || 'OpenTofu or Terraform CLI not found. Please install one of them.'}</div>
           )}
@@ -3998,6 +4272,26 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
         </div>
       </div>
 
+      {gcpAuthIssue && (
+        <div className="tf-remediation-banner">
+          <div className="tf-remediation-banner-copy">
+            <strong>{gcpAuthIssue.title}</strong>
+            <span>{gcpAuthIssue.body}</span>
+          </div>
+          <div className="tf-remediation-banner-actions">
+            <button
+              type="button"
+              className="tf-toolbar-btn accent"
+              disabled={!commandsEnabled}
+              onClick={() => onRunTerminalCommand?.(gcpAuthIssue.command)}
+              title={commandsEnabled ? gcpAuthIssue.command : 'Switch to Operator mode to enable terminal actions'}
+            >
+              Run ADC login
+            </button>
+          </div>
+        </div>
+      )}
+
       <CollapsibleInfoPanel title="Quick Help" className="tf-info-panel">
         <div className="tf-section-hint">
           Track a project, confirm the active workspace and CLI, review inputs before plan/apply, then use drift, governance, state operations, and run history as follow-up surfaces instead of leaving the shell.
@@ -4022,6 +4316,9 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
               <div className="tf-project-list">
                 {projects.map((project) => {
                   const status = summarizeProjectStatus(project)
+                  const projectRegionLabel = providerId === 'gcp'
+                    ? (project.environment.region || contextDetail || 'global')
+                    : (project.environment.region || 'global')
                   return (
                     <button
                       key={project.id}
@@ -4039,7 +4336,7 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
                       <div className="tf-project-row-meta">
                         <span>{project.currentWorkspace}</span>
                         <span>{project.metadata.backendType}</span>
-                        <span>{project.environment.region || 'global'}</span>
+                        <span>{projectRegionLabel}</span>
                       </div>
                       <div className="tf-project-row-metrics">
                         <div>
@@ -4152,8 +4449,8 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
                   {'stateLocation' in detail.metadata.backend && (
                     <div className="tf-kv-row"><div className="tf-kv-label">State Path</div><div className="tf-kv-value">{detail.metadata.backend.stateLocation}</div></div>
                   )}
-                  <div className="tf-kv-row"><div className="tf-kv-label">Region</div><div className="tf-kv-value">{detail.environment.region || '-'}</div></div>
-                  <div className="tf-kv-row"><div className="tf-kv-label">Profile/Session</div><div className="tf-kv-value">{detail.environment.connectionLabel || '-'}</div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">{providerRegionFieldLabel(providerId)}</div><div className="tf-kv-value">{detail.environment.region || contextDetail || '-'}</div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">{providerContextFieldLabel(providerId)}</div><div className="tf-kv-value">{detail.environment.connectionLabel || contextValue || '-'}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Var Set</div><div className="tf-kv-value">{detail.environment.varSetLabel || '-'}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Input Status</div><div className="tf-kv-value">{detail.inputValidation.valid ? 'Ready' : `Needs attention (${detail.inputValidation.missing.length + detail.inputValidation.unresolvedSecrets.length})`}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Providers</div><div className="tf-kv-value">{detail.metadata.providerNames.join(', ') || '-'}</div></div>
@@ -4184,6 +4481,7 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
               <WorkspaceControls
                 project={detail}
                 running={running}
+                commandsEnabled={commandsEnabled}
                 onSelectWorkspace={handleSelectWorkspace}
                 onCreateWorkspace={() => setShowCreateWorkspaceDialog(true)}
                 onDeleteWorkspace={() => setShowDeleteWorkspaceDialog(true)}
@@ -4194,7 +4492,9 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
                   project={detail}
                   cliOk={cliOk}
                   cliLabel={cliDisplayName(cliInfo)}
+                  providerId={providerId}
                   running={running}
+                  commandsEnabled={commandsEnabled}
                   lastLog={lastLog}
                   onInit={handleInit}
                   onPlan={handlePlan}
@@ -4212,6 +4512,8 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
                 <StateTab
                   project={detail}
                   running={running}
+                  providerId={providerId}
+                  commandsEnabled={commandsEnabled}
                   lastLog={lastLog}
                   onImport={handleStateImport}
                   onMove={handleStateMove}
@@ -4220,34 +4522,52 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
                   onReload={() => void handleReload()}
                 />
               )}
-              {detailTab === 'resources' && <ResourcesTab project={detail} />}
+              {detailTab === 'resources' && <ResourcesTab project={detail} providerId={providerId} />}
               {detailTab === 'drift' && (
-                <DriftTab
-                  report={driftReport}
-                  loading={driftLoading}
-                  error={driftError}
-                  cliLabel={cliDisplayName(cliInfo)}
-                  statusFilter={driftStatusFilter}
-                  typeFilter={driftTypeFilter}
-                  selectedKey={selectedDriftKey}
-                  onStatusFilterChange={setDriftStatusFilter}
-                  onTypeFilterChange={setDriftTypeFilter}
-                  onSelectItem={setSelectedDriftKey}
-                  onRefresh={() => void loadDrift({ forceRefresh: true })}
-                  onOpenConsole={handleOpenDriftConsole}
-                  onRunStateShow={handleRunDriftStateShow}
-                  onNavigateService={onNavigateService}
-                />
+                canLoadDrift ? (
+                  <DriftTab
+                    report={driftReport}
+                    loading={driftLoading}
+                    error={driftError}
+                    cliLabel={cliDisplayName(cliInfo)}
+                    statusFilter={driftStatusFilter}
+                    typeFilter={driftTypeFilter}
+                    selectedKey={selectedDriftKey}
+                    onStatusFilterChange={setDriftStatusFilter}
+                    onTypeFilterChange={setDriftTypeFilter}
+                    onSelectItem={setSelectedDriftKey}
+                    onRefresh={() => void loadDrift({ forceRefresh: true })}
+                    onOpenConsole={handleOpenDriftConsole}
+                    onRunStateShow={handleRunDriftStateShow}
+                    onNavigateService={onNavigateService}
+                  />
+                ) : (
+                  <div className="tf-section">
+                    <SvcState
+                      variant="empty"
+                      message={`${providerName} drift reconciliation is not wired yet for Terraform. The tab stays in place so the AWS and GCP layouts remain identical.`}
+                    />
+                  </div>
+                )
               )}
               {detailTab === 'lab' && (
-                <ObservabilityResilienceLab
-                  report={labReport}
-                  loading={labLoading}
-                  error={labError}
-                  onRefresh={() => void loadLab()}
-                  onRunArtifact={handleLabArtifactRun}
-                  onNavigateSignal={handleLabSignalNavigate}
-                />
+                canLoadLab ? (
+                  <ObservabilityResilienceLab
+                    report={labReport}
+                    loading={labLoading}
+                    error={labError}
+                    onRefresh={() => void loadLab()}
+                    onRunArtifact={handleLabArtifactRun}
+                    onNavigateSignal={handleLabSignalNavigate}
+                  />
+                ) : (
+                  <div className="tf-section">
+                    <SvcState
+                      variant="empty"
+                      message={`${providerName} lab correlations are not available yet in Terraform. The tab remains anchored here to preserve the shared module layout.`}
+                    />
+                  </div>
+                )
               )}
               {detailTab === 'history' && (
                 <HistoryTab
@@ -4283,6 +4603,7 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
       {showInputs && detail && (
         <InputsDialog
           project={detail}
+          providerId={providerId}
           onSave={handleSaveInputs}
           onClose={() => { setShowInputs(false); setPrefillMissing([]) }}
           prefillMissing={prefillMissing.length > 0 ? prefillMissing : undefined}
