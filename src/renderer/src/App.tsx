@@ -20,11 +20,8 @@ import type {
   GcpCliContext,
   GcpBillingOverview,
   GcpIamOverview,
-  GcpComputeInstanceSummary,
-  GcpGkeClusterSummary,
   GcpLogQueryResult,
   GcpProjectOverview,
-  GcpSqlInstanceSummary,
   GcpStorageObjectContent,
   GcpStorageObjectSummary,
   GcpStorageBucketSummary,
@@ -56,10 +53,7 @@ import {
   getGcpBillingOverview,
   getGcpIamOverview,
   getGcpProjectOverview,
-  listGcpComputeInstances,
-  listGcpGkeClusters,
   listGcpLogEntries,
-  listGcpSqlInstances,
   deleteGcpStorageObject,
   downloadGcpStorageObjectToPath,
   getGcpStorageObjectContent,
@@ -98,6 +92,7 @@ import { DirectResourceConsole } from './DirectResourceConsole'
 import { GcpCompareWorkspace } from './GcpCompareWorkspace'
 import { GcpComplianceCenter } from './GcpComplianceCenter'
 import { GcpDirectAccessWorkspace } from './GcpDirectAccessWorkspace'
+import { GcpCloudSqlConsolePage, GcpComputeEngineConsolePage, GcpGkeConsolePage } from './GcpRuntimeConsoles'
 import { GcpSessionHub } from './GcpSessionHub'
 import { useAwsPageConnection } from './AwsPage'
 import { EcsConsole } from './EcsConsole'
@@ -776,342 +771,6 @@ function PlaceholderScreen({
           </div>
         </div>
       </section>
-    </>
-  )
-}
-
-function GcpComputeEngineConsole({
-  projectId,
-  location,
-  refreshNonce,
-  onRunTerminalCommand,
-  canRunTerminalCommand
-}: {
-  projectId: string
-  location: string
-  refreshNonce: number
-  onRunTerminalCommand: (command: string) => void
-  canRunTerminalCommand: boolean
-}) {
-  const [instances, setInstances] = useState<GcpComputeInstanceSummary[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [lastLoadedAt, setLastLoadedAt] = useState('')
-
-  useEffect(() => {
-    let cancelled = false
-
-    setLoading(true)
-    setError('')
-
-    void listGcpComputeInstances(projectId, location)
-      .then((nextInstances) => {
-        if (cancelled) {
-          return
-        }
-
-        setInstances(nextInstances)
-        setLastLoadedAt(new Date().toISOString())
-      })
-      .catch((err) => {
-        if (cancelled) {
-          return
-        }
-
-        setError(err instanceof Error ? err.message : String(err))
-        setInstances([])
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [location, projectId, refreshNonce])
-
-  const locationLabel = location.trim() || 'all locations'
-  const lastLoadedLabel = lastLoadedAt ? new Date(lastLoadedAt).toLocaleTimeString() : 'Pending'
-  const enableAction = error ? getGcpApiEnableAction(
-    error,
-    `gcloud services enable compute.googleapis.com --project ${projectId}`,
-    `Compute Engine API is disabled for project ${projectId}.`
-  ) : null
-
-  return (
-    <>
-      <section className="panel stack">
-        <div className="catalog-page-header">
-          <div>
-            <div className="eyebrow">Compute Engine</div>
-            <h3>{projectId}</h3>
-            <p>Read-only instance inventory scoped to the selected Google Cloud project and location.</p>
-          </div>
-          <div className="hero-connection">
-            <div className="connection-summary">
-              <span>Project</span>
-              <strong>{projectId}</strong>
-            </div>
-            <div className="connection-summary">
-              <span>Location</span>
-              <strong>{locationLabel}</strong>
-            </div>
-            <div className="connection-summary">
-              <span>Last sync</span>
-              <strong>{loading ? 'Syncing...' : lastLoadedLabel}</strong>
-            </div>
-          </div>
-        </div>
-      </section>
-      {error ? (
-        <section className="panel stack">
-          {enableAction ? (
-            <div className="error-banner gcp-enable-error-banner">
-              <div className="gcp-enable-error-copy">
-                <strong>{enableAction.summary}</strong>
-                <p>
-                  {canRunTerminalCommand
-                    ? 'Run the enable command in the terminal, wait for propagation, then refresh gcloud.'
-                    : 'Switch Settings > Access Mode to Operator to enable terminal actions for this command.'}
-                </p>
-              </div>
-              <div className="gcp-enable-error-actions">
-                <button
-                  type="button"
-                  className="accent"
-                  disabled={!canRunTerminalCommand}
-                  onClick={() => onRunTerminalCommand(enableAction.command)}
-                  title={canRunTerminalCommand ? enableAction.command : 'Switch to Operator mode to enable terminal actions'}
-                >
-                  Run enable command in terminal
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="error-banner">{error}</div>
-          )}
-          <div className="profile-catalog-empty">
-            <div className="eyebrow">Compute Engine Access</div>
-            <h3>Instance inventory could not be loaded</h3>
-            <p className="hero-path">Verify the selected project, enabled APIs, and active Google credentials, then retry the refresh.</p>
-          </div>
-        </section>
-      ) : loading ? (
-        <section className="panel stack">
-          <div className="profile-catalog-empty">
-            <div className="eyebrow">Loading</div>
-            <h3>Importing Compute Engine inventory</h3>
-            <p className="hero-path">Reading instances from the active Google credentials for {projectId} in {locationLabel}.</p>
-          </div>
-        </section>
-      ) : instances.length === 0 ? (
-        <section className="panel stack">
-          <div className="profile-catalog-empty">
-            <div className="eyebrow">No Instances</div>
-            <h3>No Compute Engine instances were found</h3>
-            <p className="hero-path">No instances matched {locationLabel} in project {projectId}. Refresh after changing project context or region filters.</p>
-          </div>
-        </section>
-      ) : (
-        <section className="panel stack">
-          <div className="catalog-page-header">
-            <div>
-              <div className="eyebrow">Instance Inventory</div>
-              <h3>{instances.length} instance{instances.length === 1 ? '' : 's'}</h3>
-          <p>{locationLabel} scope with live data from the active Google credentials.</p>
-            </div>
-          </div>
-          <div className="profile-catalog-grid">
-            {instances.map((instance) => (
-              <article key={`${instance.zone}:${instance.name}`} className="profile-catalog-card">
-                <div className="profile-catalog-status">
-                  <span>{instance.zone}</span>
-                  <strong>{instance.status || 'UNKNOWN'}</strong>
-                </div>
-                <div className="project-card-title">{instance.name}</div>
-                <div className="project-card-subtitle">{instance.machineType || 'Machine type unavailable'}</div>
-                <div className="hero-path" style={{ marginTop: 12 }}>
-                  Internal IP: {instance.internalIp || 'n/a'}
-                  <br />
-                  External IP: {instance.externalIp || 'n/a'}
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
-    </>
-  )
-}
-
-function GcpGkeConsole({
-  projectId,
-  location,
-  refreshNonce,
-  onRunTerminalCommand,
-  canRunTerminalCommand
-}: {
-  projectId: string
-  location: string
-  refreshNonce: number
-  onRunTerminalCommand: (command: string) => void
-  canRunTerminalCommand: boolean
-}) {
-  const [clusters, setClusters] = useState<GcpGkeClusterSummary[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [lastLoadedAt, setLastLoadedAt] = useState('')
-
-  useEffect(() => {
-    let cancelled = false
-
-    setLoading(true)
-    setError('')
-
-    void listGcpGkeClusters(projectId, location)
-      .then((nextClusters) => {
-        if (cancelled) {
-          return
-        }
-
-        setClusters(nextClusters)
-        setLastLoadedAt(new Date().toISOString())
-      })
-      .catch((err) => {
-        if (cancelled) {
-          return
-        }
-
-        setError(err instanceof Error ? err.message : String(err))
-        setClusters([])
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [location, projectId, refreshNonce])
-
-  const locationLabel = location.trim() || 'all locations'
-  const lastLoadedLabel = lastLoadedAt ? new Date(lastLoadedAt).toLocaleTimeString() : 'Pending'
-  const enableAction = error ? getGcpApiEnableAction(
-    error,
-    `gcloud services enable container.googleapis.com --project ${projectId}`,
-    `GKE API is disabled for project ${projectId}.`
-  ) : null
-
-  return (
-    <>
-      <section className="panel stack">
-        <div className="catalog-page-header">
-          <div>
-            <div className="eyebrow">GKE</div>
-            <h3>{projectId}</h3>
-            <p>Read-only cluster inventory scoped to the selected Google Cloud project and location.</p>
-          </div>
-          <div className="hero-connection">
-            <div className="connection-summary">
-              <span>Project</span>
-              <strong>{projectId}</strong>
-            </div>
-            <div className="connection-summary">
-              <span>Location</span>
-              <strong>{locationLabel}</strong>
-            </div>
-            <div className="connection-summary">
-              <span>Last sync</span>
-              <strong>{loading ? 'Syncing...' : lastLoadedLabel}</strong>
-            </div>
-          </div>
-        </div>
-      </section>
-      {error ? (
-        <section className="panel stack">
-          {enableAction ? (
-            <div className="error-banner gcp-enable-error-banner">
-              <div className="gcp-enable-error-copy">
-                <strong>{enableAction.summary}</strong>
-                <p>
-                  {canRunTerminalCommand
-                    ? 'Run the enable command in the terminal, wait for propagation, then refresh gcloud.'
-                    : 'Switch Settings > Access Mode to Operator to enable terminal actions for this command.'}
-                </p>
-              </div>
-              <div className="gcp-enable-error-actions">
-                <button
-                  type="button"
-                  className="accent"
-                  disabled={!canRunTerminalCommand}
-                  onClick={() => onRunTerminalCommand(enableAction.command)}
-                  title={canRunTerminalCommand ? enableAction.command : 'Switch to Operator mode to enable terminal actions'}
-                >
-                  Run enable command in terminal
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="error-banner">{error}</div>
-          )}
-          <div className="profile-catalog-empty">
-            <div className="eyebrow">GKE Access</div>
-            <h3>Cluster inventory could not be loaded</h3>
-            <p className="hero-path">Verify the selected project, enabled APIs, and active Google credentials, then retry the refresh.</p>
-          </div>
-        </section>
-      ) : loading ? (
-        <section className="panel stack">
-          <div className="profile-catalog-empty">
-            <div className="eyebrow">Loading</div>
-            <h3>Importing GKE clusters</h3>
-            <p className="hero-path">Reading clusters from the active Google credentials for {projectId} in {locationLabel}.</p>
-          </div>
-        </section>
-      ) : clusters.length === 0 ? (
-        <section className="panel stack">
-          <div className="profile-catalog-empty">
-            <div className="eyebrow">No Clusters</div>
-            <h3>No GKE clusters were found</h3>
-            <p className="hero-path">No clusters matched {locationLabel} in project {projectId}. Refresh after changing project context or location filters.</p>
-          </div>
-        </section>
-      ) : (
-        <section className="panel stack">
-          <div className="catalog-page-header">
-            <div>
-              <div className="eyebrow">Cluster Inventory</div>
-              <h3>{clusters.length} cluster{clusters.length === 1 ? '' : 's'}</h3>
-          <p>{locationLabel} scope with live data from the active Google credentials.</p>
-            </div>
-          </div>
-          <div className="profile-catalog-grid">
-            {clusters.map((cluster) => (
-              <article key={`${cluster.location}:${cluster.name}`} className="profile-catalog-card">
-                <div className="profile-catalog-status">
-                  <span>{cluster.location}</span>
-                  <strong>{cluster.status || 'UNKNOWN'}</strong>
-                </div>
-                <div className="project-card-title">{cluster.name}</div>
-                <div className="project-card-subtitle">
-                  {cluster.masterVersion ? `Master ${cluster.masterVersion}` : 'Master version unavailable'}
-                </div>
-                <div className="hero-path" style={{ marginTop: 12 }}>
-                  Nodes: {cluster.nodeCount || 'n/a'}
-                  <br />
-                  Channel: {cluster.releaseChannel || 'unspecified'}
-                  <br />
-                  Endpoint: {cluster.endpoint || 'n/a'}
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
     </>
   )
 }
@@ -1826,212 +1485,6 @@ function GcpCloudStorageConsole({
         </div>
       )}
     </div>
-  )
-}
-
-function GcpCloudSqlConsole({
-  projectId,
-  location,
-  refreshNonce,
-  onRunTerminalCommand,
-  canRunTerminalCommand
-}: {
-  projectId: string
-  location: string
-  refreshNonce: number
-  onRunTerminalCommand: (command: string) => void
-  canRunTerminalCommand: boolean
-}) {
-  const [instances, setInstances] = useState<GcpSqlInstanceSummary[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [lastLoadedAt, setLastLoadedAt] = useState('')
-
-  useEffect(() => {
-    let cancelled = false
-
-    setLoading(true)
-    setError('')
-
-    void listGcpSqlInstances(projectId, location)
-      .then((nextInstances) => {
-        if (cancelled) {
-          return
-        }
-
-        setInstances(nextInstances)
-        setLastLoadedAt(new Date().toISOString())
-      })
-      .catch((err) => {
-        if (cancelled) {
-          return
-        }
-
-        setError(err instanceof Error ? err.message : String(err))
-        setInstances([])
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [location, projectId, refreshNonce])
-
-  const normalizedLocation = location.trim().toLowerCase()
-  const locationLabel = location.trim() || 'all locations'
-  const lastLoadedLabel = lastLoadedAt ? new Date(lastLoadedAt).toLocaleTimeString() : 'Pending'
-  const inScopeInstances = normalizedLocation && normalizedLocation !== 'global'
-    ? instances.filter((instance) => {
-        const region = instance.region.trim().toLowerCase()
-        const zone = instance.zone.trim().toLowerCase()
-        return region === normalizedLocation || zone === normalizedLocation || zone.startsWith(`${normalizedLocation}-`)
-      }).length
-    : instances.length
-  const enableAction = error ? getGcpApiEnableAction(
-    error,
-    `gcloud services enable sqladmin.googleapis.com --project ${projectId}`,
-    `Cloud SQL Admin API is disabled for project ${projectId}.`
-  ) : null
-
-  return (
-    <>
-      <section className="panel stack">
-        <div className="catalog-page-header">
-          <div>
-            <div className="eyebrow">Cloud SQL</div>
-            <h3>{projectId}</h3>
-            <p>Instance posture is loaded live from gcloud with engine, HA, IP, and maintenance context for the selected project.</p>
-          </div>
-          <div className="hero-connection">
-            <div className="connection-summary">
-              <span>Project</span>
-              <strong>{projectId}</strong>
-            </div>
-            <div className="connection-summary">
-              <span>Location lens</span>
-              <strong>{locationLabel}</strong>
-            </div>
-            <div className="connection-summary">
-              <span>Last sync</span>
-              <strong>{loading ? 'Syncing...' : lastLoadedLabel}</strong>
-            </div>
-          </div>
-        </div>
-      </section>
-      {error ? (
-        <section className="panel stack">
-          {enableAction ? (
-            <div className="error-banner gcp-enable-error-banner">
-              <div className="gcp-enable-error-copy">
-                <strong>{enableAction.summary}</strong>
-                <p>
-                  {canRunTerminalCommand
-                    ? 'Run the enable command in the terminal, wait for propagation, then refresh gcloud.'
-                    : 'Switch Settings > Access Mode to Operator to enable terminal actions for this command.'}
-                </p>
-              </div>
-              <div className="gcp-enable-error-actions">
-                <button
-                  type="button"
-                  className="accent"
-                  disabled={!canRunTerminalCommand}
-                  onClick={() => onRunTerminalCommand(enableAction.command)}
-                  title={canRunTerminalCommand ? enableAction.command : 'Switch to Operator mode to enable terminal actions'}
-                >
-                  Run enable command in terminal
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="error-banner">{error}</div>
-          )}
-          <div className="profile-catalog-empty">
-            <div className="eyebrow">Cloud SQL Access</div>
-            <h3>Instance inventory could not be loaded</h3>
-            <p className="hero-path">Verify the selected project, enabled APIs, and active Google credentials, then retry the refresh.</p>
-          </div>
-        </section>
-      ) : loading ? (
-        <section className="panel stack">
-          <div className="profile-catalog-empty">
-            <div className="eyebrow">Loading</div>
-            <h3>Importing Cloud SQL instances</h3>
-            <p className="hero-path">Reading database posture from the active Google credentials for {projectId}.</p>
-          </div>
-        </section>
-      ) : instances.length === 0 ? (
-        <section className="panel stack">
-          <div className="profile-catalog-empty">
-            <div className="eyebrow">No Instances</div>
-            <h3>No Cloud SQL instances were found</h3>
-            <p className="hero-path">No instances were returned for project {projectId}. Refresh after changing project context or Cloud SQL permissions.</p>
-          </div>
-        </section>
-      ) : (
-        <section className="panel stack">
-          <div className="catalog-page-header">
-            <div>
-              <div className="eyebrow">Instance Inventory</div>
-              <h3>{instances.length} instance{instances.length === 1 ? '' : 's'}</h3>
-              <p>
-                {normalizedLocation && normalizedLocation !== 'global'
-                  ? `${inScopeInstances} instance${inScopeInstances === 1 ? '' : 's'} align with ${locationLabel}; out-of-scope regions stay visible for posture review.`
-            : 'Project-wide Cloud SQL posture from the active Google credentials.'}
-              </p>
-            </div>
-          </div>
-          <div className="profile-catalog-grid">
-            {instances.map((instance) => {
-              const region = instance.region.trim()
-              const zone = instance.zone.trim()
-              const describeCommand = `gcloud sql instances describe ${instance.name} --project ${projectId}`
-              const locationDetail = [region || 'Unknown region', zone || 'Zone unavailable'].join(' | ')
-
-              return (
-                <article key={instance.name} className="profile-catalog-card">
-                  <div className="profile-catalog-status">
-                    <span>{region || 'Unknown region'}</span>
-                    <strong>{instance.state || 'UNKNOWN'}</strong>
-                  </div>
-                  <div className="project-card-title">{instance.name}</div>
-                  <div className="project-card-subtitle">
-                    {instance.databaseVersion || 'Engine unavailable'}
-                    {instance.availabilityType ? ` | ${instance.availabilityType}` : ''}
-                  </div>
-                  <div className="hero-path" style={{ marginTop: 12 }}>
-                    {locationDetail}
-                    <br />
-                    Public IP: {instance.primaryAddress || 'n/a'}
-                    <br />
-                    Private IP: {instance.privateAddress || 'n/a'}
-                    <br />
-                    Disk: {instance.diskSizeGb ? `${instance.diskSizeGb} GB` : 'n/a'} | Auto resize: {instance.storageAutoResizeEnabled ? 'enabled' : 'disabled'}
-                    <br />
-                    Deletion protection: {instance.deletionProtectionEnabled ? 'enabled' : 'disabled'}
-                    <br />
-                    Maintenance: {instance.maintenanceWindow || 'not configured'}
-                  </div>
-                  <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
-                    <button
-                      type="button"
-                      disabled={!canRunTerminalCommand}
-                      onClick={() => onRunTerminalCommand(describeCommand)}
-                      title={canRunTerminalCommand ? describeCommand : 'Switch to Operator mode to enable terminal actions'}
-                    >
-                      Describe in terminal
-                    </button>
-                  </div>
-                </article>
-              )
-            })}
-          </div>
-        </section>
-      )}
-    </>
   )
 }
 
@@ -5610,7 +5063,7 @@ export function App() {
         && activeGcpConnectionDraft
     ) {
       return (
-        <GcpComputeEngineConsole
+        <GcpComputeEngineConsolePage
           projectId={activeGcpConnectionDraft.projectId.trim()}
           location={activeGcpConnectionDraft.location.trim()}
           refreshNonce={pageRefreshNonceByScreen['gcp-compute-engine'] ?? 0}
@@ -5646,7 +5099,7 @@ export function App() {
       && activeGcpConnectionDraft
     ) {
       return (
-        <GcpCloudSqlConsole
+        <GcpCloudSqlConsolePage
           projectId={activeGcpConnectionDraft.projectId.trim()}
           location={activeGcpConnectionDraft.location.trim()}
           refreshNonce={pageRefreshNonceByScreen['gcp-cloud-sql'] ?? 0}
@@ -5664,7 +5117,7 @@ export function App() {
       && activeGcpConnectionDraft
     ) {
       return (
-        <GcpGkeConsole
+        <GcpGkeConsolePage
           projectId={activeGcpConnectionDraft.projectId.trim()}
           location={activeGcpConnectionDraft.location.trim()}
           refreshNonce={pageRefreshNonceByScreen['gcp-gke'] ?? 0}

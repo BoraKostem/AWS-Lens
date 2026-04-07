@@ -131,6 +131,10 @@ export async function runCommand(request: TerraformCommandRequest): Promise<Terr
   return unwrap(await bridge().runCommand(request) as Wrapped<TerraformCommandLog>)
 }
 
+export async function cancelCommand(projectId: string): Promise<boolean> {
+  return unwrap(await bridge().cancelCommand(projectId) as Wrapped<boolean>)
+}
+
 export async function hasSavedPlan(projectId: string): Promise<boolean> {
   return unwrap(await bridge().hasSavedPlan(projectId) as Wrapped<boolean>)
 }

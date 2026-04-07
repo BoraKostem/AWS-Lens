@@ -465,6 +465,7 @@ declare global {
       validateProjectInputs: (profileName: string, projectId: string, connection?: AwsConnection) => Promise<TerraformInputValidationResult>
       listCommandLogs: (projectId: string) => Promise<unknown>
       runCommand: (request: TerraformCommandRequest) => Promise<unknown>
+      cancelCommand: (projectId: string) => Promise<unknown>
       subscribe: (listener: (event: unknown) => void) => void
       unsubscribe: (listener: (event: unknown) => void) => void
     }

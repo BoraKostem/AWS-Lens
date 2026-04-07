@@ -61,6 +61,7 @@ import {
   openProjectInVsCode,
   reloadProject,
   removeProject,
+  cancelCommand,
   renameProject,
   runCommand,
   runGovernanceChecks,
@@ -2369,7 +2370,7 @@ function StateTab({
           <div>
             <h3>State Operations Center</h3>
             <div className="tf-section-hint">
-              Guided state changes run in the main process. Destructive actions require confirmation and write a local backup first.
+            Guided state changes run in the main process. State moves and removals require confirmation and write a local backup first.
             </div>
           </div>
           <button className="tf-toolbar-btn" onClick={onReload} disabled={running}>Refresh State</button>
@@ -2718,6 +2719,22 @@ const DRIFT_STATUS_LABELS: Record<TerraformDriftStatus, string> = {
   unsupported: 'Unsupported'
 }
 
+function driftStatusLabel(status: TerraformDriftStatus, providerId: TerraformProviderId): string {
+  if (providerId === 'gcp') {
+    if (status === 'missing_in_aws') return 'Missing In GCP'
+    if (status === 'unmanaged_in_aws') return 'Unmanaged In GCP'
+  }
+  return DRIFT_STATUS_LABELS[status]
+}
+
+function driftCloudLabel(providerId: TerraformProviderId): string {
+  return providerId === 'gcp' ? 'GCP' : 'AWS'
+}
+
+function driftConsoleLabel(providerId: TerraformProviderId): string {
+  return providerId === 'gcp' ? 'Open In Google Cloud Console' : 'Open In AWS Console'
+}
+
 const DRIFT_TREND_LABELS: Record<TerraformDriftReport['history']['trend'], string> = {
   improving: 'Improving',
   worsening: 'Worsening',
@@ -2771,6 +2788,7 @@ function DriftTab({
   report,
   loading,
   error,
+  providerId,
   cliLabel,
   statusFilter,
   typeFilter,
@@ -2786,6 +2804,7 @@ function DriftTab({
   report: TerraformDriftReport | null
   loading: boolean
   error: string
+  providerId: TerraformProviderId
   cliLabel: string
   statusFilter: 'all' | TerraformDriftStatus
   typeFilter: string
@@ -2828,7 +2847,7 @@ function DriftTab({
           <div>
             <h3>Drift Summary</h3>
             <div className="tf-section-hint">
-              Terraform state vs live AWS inventory for region {report?.region ?? '-'} with persisted reconciliation snapshots.
+              Terraform state vs live {driftCloudLabel(providerId)} inventory for region {report?.region ?? '-'} with persisted reconciliation snapshots.
             </div>
           </div>
           <button type="button" className="tf-toolbar-btn" onClick={onRefresh} disabled={loading}>
@@ -2855,7 +2874,7 @@ function DriftTab({
             </div>
             <div className="tf-kv" style={{ marginTop: 12 }}>
               <div className="tf-kv-row"><div className="tf-kv-label">Last Drift Scan</div><div className="tf-kv-value">{formatIsoDate(report.history.latestScanAt || report.summary.scannedAt)}</div></div>
-              <div className="tf-kv-row"><div className="tf-kv-label">Scan Source</div><div className="tf-kv-value">{report.fromCache ? 'Loaded from local snapshot history' : 'Fresh live AWS scan'}</div></div>
+              <div className="tf-kv-row"><div className="tf-kv-label">Scan Source</div><div className="tf-kv-value">{report.fromCache ? 'Loaded from local snapshot history' : `Fresh live ${driftCloudLabel(providerId)} scan`}</div></div>
               <div className="tf-kv-row"><div className="tf-kv-label">Trend</div><div className="tf-kv-value">{DRIFT_TREND_LABELS[report.history.trend]}</div></div>
               <div className="tf-kv-row"><div className="tf-kv-label">Verified Findings</div><div className="tf-kv-value">{report.summary.verifiedCount}</div></div>
               <div className="tf-kv-row"><div className="tf-kv-label">Items With Inferred Signals</div><div className="tf-kv-value">{report.summary.inferredCount}</div></div>
@@ -2867,7 +2886,7 @@ function DriftTab({
             <button type="button" className={statusFilter === 'all' ? 'active' : ''} onClick={() => onStatusFilterChange('all')}>All</button>
             {(Object.keys(DRIFT_STATUS_LABELS) as TerraformDriftStatus[]).map((status) => (
               <button key={status} type="button" className={statusFilter === status ? 'active' : ''} onClick={() => onStatusFilterChange(status)}>
-                {DRIFT_STATUS_LABELS[status]}
+                {driftStatusLabel(status, providerId)}
               </button>
             ))}
           </div>
@@ -2916,7 +2935,7 @@ function DriftTab({
                     const key = driftItemKey(item)
                     return (
                       <tr key={key} className={selectedItem && driftItemKey(selectedItem) === key ? 'active' : ''} onClick={() => onSelectItem(key)}>
-                        <td><span className={`tf-drift-badge ${item.status}`}>{DRIFT_STATUS_LABELS[item.status]}</span></td>
+                        <td><span className={`tf-drift-badge ${item.status}`}>{driftStatusLabel(item.status, providerId)}</span></td>
                         <td title={item.resourceType}>
                           <code className="tf-table-code">{item.resourceType}</code>
                         </td>
@@ -2945,7 +2964,7 @@ function DriftTab({
               <div className="tf-section-head">
                 <h3>Selected Drift Item</h3>
                 <div className="tf-drift-actions">
-                  <button type="button" className="tf-toolbar-btn" onClick={() => onOpenConsole(selectedItem)} disabled={!selectedItem.consoleUrl}>Open In AWS Console</button>
+                  <button type="button" className="tf-toolbar-btn" onClick={() => onOpenConsole(selectedItem)} disabled={!selectedItem.consoleUrl}>{driftConsoleLabel(providerId)}</button>
                   {onNavigateService && driftResourceTypeToService(selectedItem.resourceType) && (
                     <button type="button" className="tf-toolbar-btn" onClick={() => {
                       const svc = driftResourceTypeToService(selectedItem.resourceType)
@@ -2958,7 +2977,7 @@ function DriftTab({
               <div className="tf-overview-card-grid">
                 <div className={`tf-overview-card ${selectedItem.status === 'in_sync' ? 'success' : selectedItem.status === 'unsupported' ? 'info' : 'warning'}`}>
                   <span>Status</span>
-                  <strong>{DRIFT_STATUS_LABELS[selectedItem.status]}</strong>
+                  <strong>{driftStatusLabel(selectedItem.status, providerId)}</strong>
                 </div>
                 <div className={`tf-overview-card ${selectedItem.assessment === 'verified' ? 'success' : selectedItem.assessment === 'inferred' ? 'warning' : 'info'}`}>
                   <span>Assessment</span>
@@ -2966,7 +2985,7 @@ function DriftTab({
                 </div>
               </div>
               <div className="tf-kv">
-                <div className="tf-kv-row"><div className="tf-kv-label">Status</div><div className="tf-kv-value">{DRIFT_STATUS_LABELS[selectedItem.status]}</div></div>
+                <div className="tf-kv-row"><div className="tf-kv-label">Status</div><div className="tf-kv-value">{driftStatusLabel(selectedItem.status, providerId)}</div></div>
                 <div className="tf-kv-row"><div className="tf-kv-label">Assessment</div><div className="tf-kv-value">{DRIFT_ASSESSMENT_LABELS[selectedItem.assessment]}</div></div>
                 <div className="tf-kv-row"><div className="tf-kv-label">Resource Type</div><div className="tf-kv-value">{selectedItem.resourceType}</div></div>
                 <div className="tf-kv-row"><div className="tf-kv-label">Logical Name</div><div className="tf-kv-value">{selectedItem.logicalName || '-'}</div></div>
@@ -2994,7 +3013,7 @@ function DriftTab({
             <div>
               <h3>Snapshot History</h3>
               <div className="tf-section-hint">
-                Manual re-scans store timestamped snapshots locally under the app user data directory.
+                Each drift scan is represented as a timestamped snapshot so the team can compare posture over time.
               </div>
             </div>
           </div>
@@ -3392,6 +3411,9 @@ export function TerraformConsole({
   const [progressLine, setProgressLine] = useState('')
   const [showProgress, setShowProgress] = useState(false)
   const [progressItems, setProgressItems] = useState<Map<string, { status: string; done: boolean }>>(new Map())
+  const [cancelingRun, setCancelingRun] = useState(false)
+  const [runningProjectId, setRunningProjectId] = useState('')
+  const [runningCommand, setRunningCommand] = useState<TerraformCommandName | ''>('')
   const driftLoadKeyRef = useRef('')
   const {
     freshness: workspaceFreshness,
@@ -3410,10 +3432,26 @@ export function TerraformConsole({
   const providerName = providerLabel(providerId)
   const contextKey = terraformContextKey(connection, contextKeyOverride)
   const projectConnection = connectionForProject(connection, detail)
-  const canLoadDrift = providerId === 'aws' && Boolean(projectConnection)
-  const canLoadLab = providerId === 'aws' && Boolean(connection)
   const contextValue = contextLabel || detail?.environment.connectionLabel || connection?.profile || 'Local shell'
   const contextDetailValue = contextDetail || detail?.environment.region || ''
+  const gcpAnalysisConnection = useMemo(() => {
+    if (providerId !== 'gcp') return undefined
+    const region = detail?.environment.region || contextDetailValue || 'global'
+    return {
+      providerId: 'gcp',
+      kind: 'profile',
+      sessionId: `gcp:${contextKey}`,
+      label: contextValue,
+      profileId: contextValue || 'gcp',
+      locationId: region,
+      profile: contextValue || 'gcp',
+      region
+    } as AwsConnection
+  }, [contextDetailValue, contextKey, contextValue, detail?.environment.region, providerId])
+  const driftConnection = providerId === 'gcp' ? gcpAnalysisConnection : projectConnection
+  const labConnection = providerId === 'gcp' ? gcpAnalysisConnection : connection
+  const canLoadDrift = Boolean(detail && driftConnection)
+  const canLoadLab = Boolean(detail && labConnection)
   const gcpAuthIssue = providerId === 'gcp'
     ? detectGcpTerraformAuthIssue(`${msg}\n${lastLog?.output ?? ''}`)
     : null
@@ -3555,15 +3593,15 @@ export function TerraformConsole({
   }, [detail, driftStatusFilter, driftTypeFilter])
 
   const loadDrift = useCallback(async (options?: { forceRefresh?: boolean }) => {
-    if (!detail || !projectConnection) return
-    const requestKey = `${contextKey}:${detail.id}:${projectConnection.region}:${options?.forceRefresh ? 'force' : 'normal'}`
+    if (!detail || !driftConnection) return
+    const requestKey = `${contextKey}:${detail.id}:${driftConnection.region}:${options?.forceRefresh ? 'force' : 'normal'}`
     if (driftLoadKeyRef.current === requestKey) return
     driftLoadKeyRef.current = requestKey
     beginDriftRefresh(options?.forceRefresh ? 'manual' : 'background')
     setDriftLoading(true)
     setDriftError('')
     try {
-      const report = await getDrift(contextKey, detail.id, projectConnection, options)
+      const report = await getDrift(contextKey, detail.id, driftConnection, options)
       setDriftReport(report)
       setSelectedDriftKey((current) => current || (report.items[0] ? driftItemKey(report.items[0]) : ''))
       completeDriftRefresh()
@@ -3576,7 +3614,7 @@ export function TerraformConsole({
       }
       setDriftLoading(false)
     }
-  }, [beginDriftRefresh, completeDriftRefresh, contextKey, detail, failDriftRefresh, projectConnection])
+  }, [beginDriftRefresh, completeDriftRefresh, contextKey, detail, driftConnection, failDriftRefresh])
 
   const detailTabRef = useRef(detailTab)
   const loadDriftRef = useRef(loadDrift)
@@ -3595,24 +3633,24 @@ export function TerraformConsole({
   }, [reload])
 
   useEffect(() => {
-    if (detailTab !== 'drift' || !detail || !canLoadDrift || !projectConnection) return
-    if (driftReport?.projectId === detail.id && driftReport.region === projectConnection.region) return
+    if (detailTab !== 'drift' || !detail || !canLoadDrift || !driftConnection) return
+    if (driftReport?.projectId === detail.id && driftReport.region === driftConnection.region) return
     void loadDrift()
-  }, [canLoadDrift, detail, detailTab, driftReport, loadDrift, projectConnection])
+  }, [canLoadDrift, detail, detailTab, driftConnection, driftReport, loadDrift])
 
   const loadLab = useCallback(async () => {
-    if (!detail || !connection) return
+    if (!detail || !labConnection) return
     setLabLoading(true)
     setLabError('')
     try {
-      const report = await getObservabilityReport(contextKey, detail.id, connection)
+      const report = await getObservabilityReport(contextKey, detail.id, labConnection)
       setLabReport(report)
     } catch (err) {
       setLabError(err instanceof Error ? err.message : String(err))
     } finally {
       setLabLoading(false)
     }
-  }, [connection, contextKey, detail])
+  }, [contextKey, detail, labConnection])
 
   useEffect(() => {
     if (detailTab !== 'lab' || !detail || !canLoadLab) return
@@ -3674,10 +3712,16 @@ export function TerraformConsole({
       const e = event as Record<string, unknown>
       if (e.type === 'completed') {
         setRunning(false)
+        setCancelingRun(false)
+        setRunningProjectId('')
+        setRunningCommand('')
         setShowProgress(false)
         setProgressItems(new Map())
         const log = e.log as TerraformCommandLog
         setLastLog(log)
+        if (/cancelled by operator\./i.test(log.output)) {
+          setMsg(`Terraform ${log.command} cancelled by operator.`)
+        }
         if (e.project) setDetail(e.project as TerraformProject)
         const refreshesDrift = log.success && ['apply', 'destroy', 'import', 'state-mv', 'state-rm'].includes(log.command)
         if (refreshesDrift) {
@@ -3693,11 +3737,15 @@ export function TerraformConsole({
         }
         void reloadRef.current()
       } else if (e.type === 'started') {
+        const log = e.log as TerraformCommandLog
         setRunning(true)
+        setCancelingRun(false)
+        setRunningProjectId(typeof e.projectId === 'string' ? e.projectId : '')
+        setRunningCommand(log.command)
         setShowProgress(true)
-        setProgressLine('Starting...')
+        setProgressLine(`Starting ${log.command}...`)
         setProgressItems(new Map())
-        setLastLog(e.log as TerraformCommandLog)
+        setLastLog(log)
       } else if (e.type === 'progress') {
         const raw = typeof e.raw === 'string' ? e.raw : ''
         if (raw) setProgressLine(raw)
@@ -3722,6 +3770,26 @@ export function TerraformConsole({
     subscribe(handleEvent)
     return () => unsubscribe(handleEvent)
   }, [])
+
+  const handleCancelRunningCommand = useCallback(async () => {
+    const targetProjectId = runningProjectId || detail?.id || ''
+    if (!running || cancelingRun || !targetProjectId) return
+
+    setCancelingRun(true)
+    setProgressLine(`Cancellation requested for ${runningCommand || 'Terraform command'}...`)
+    setMsg(`Cancellation requested for Terraform ${runningCommand || 'command'}.`)
+
+    try {
+      const cancelled = await cancelCommand(targetProjectId)
+      if (!cancelled) {
+        setCancelingRun(false)
+        setMsg('No active Terraform command was found to cancel.')
+      }
+    } catch (err) {
+      setCancelingRun(false)
+      setMsg(err instanceof Error ? err.message : String(err))
+    }
+  }, [cancelingRun, detail?.id, running, runningCommand, runningProjectId])
 
   // Handlers
   async function handleAddProject() {
@@ -4122,7 +4190,7 @@ export function TerraformConsole({
   function handleForceUnlock(lockId: string) {
     setConfirmDialog({
       title: 'Confirm Force Unlock',
-      description: `Force-unlock state lock ${lockId}. Only continue if no active apply, plan, or state operation still owns the lock. A local backup will be captured first.`,
+      description: `Force-unlock state lock ${lockId}. Only continue if no active apply, plan, or state operation still owns the lock.`,
       confirmWord: 'UNLOCK',
       onConfirm: () => {
         setConfirmDialog(null)
@@ -4529,6 +4597,7 @@ export function TerraformConsole({
                     report={driftReport}
                     loading={driftLoading}
                     error={driftError}
+                    providerId={providerId}
                     cliLabel={cliDisplayName(cliInfo)}
                     statusFilter={driftStatusFilter}
                     typeFilter={driftTypeFilter}
@@ -4559,6 +4628,8 @@ export function TerraformConsole({
                     onRefresh={() => void loadLab()}
                     onRunArtifact={handleLabArtifactRun}
                     onNavigateSignal={handleLabSignalNavigate}
+                    commandsEnabled={commandsEnabled}
+                    runDisabledReason={commandsEnabled ? '' : 'Terminal actions are disabled in read mode. Switch to operator mode to run lab commands.'}
                   />
                 ) : (
                   <div className="tf-section">
@@ -4659,7 +4730,7 @@ export function TerraformConsole({
       {/* Progress Overlay */}
       {showProgress && (
         <div className="tf-progress-overlay">
-          <h4><span className="tf-progress-spinner" /> Running Terraform...</h4>
+          <h4><span className="tf-progress-spinner" /> Running Terraform{runningCommand ? ` ${runningCommand}` : ''}...</h4>
           <div className="tf-progress-line">{progressLine}</div>
           {progressItems.size > 0 && (
             <div className="tf-progress-items">
@@ -4674,6 +4745,16 @@ export function TerraformConsole({
               ))}
             </div>
           )}
+          <div className="tf-progress-actions">
+            <button
+              type="button"
+              className="tf-toolbar-btn danger"
+              onClick={() => void handleCancelRunningCommand()}
+              disabled={cancelingRun}
+            >
+              {cancelingRun ? 'Cancelling...' : 'Kill Switch'}
+            </button>
+          </div>
         </div>
       )}
     </div>

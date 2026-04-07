@@ -19,7 +19,9 @@ export function ObservabilityResilienceLab({
   error,
   onRefresh,
   onRunArtifact,
-  onNavigateSignal
+  onNavigateSignal,
+  commandsEnabled = true,
+  runDisabledReason = ''
 }: {
   report: ObservabilityPostureReport | null
   loading: boolean
@@ -27,6 +29,8 @@ export function ObservabilityResilienceLab({
   onRefresh: () => void
   onRunArtifact?: (artifact: GeneratedArtifact) => void
   onNavigateSignal?: (signal: CorrelatedSignalReference) => void
+  commandsEnabled?: boolean
+  runDisabledReason?: string
 }) {
   const [copiedId, setCopiedId] = useState('')
   const scopeLabel = useMemo(() => {
@@ -143,7 +147,13 @@ export function ObservabilityResilienceLab({
                       {copiedId === artifact.id ? 'Copied' : artifact.copyLabel}
                     </button>
                     {artifact.isRunnable && onRunArtifact && (
-                      <button type="button" className="accent" onClick={() => onRunArtifact(artifact)}>
+                      <button
+                        type="button"
+                        className="accent"
+                        onClick={() => onRunArtifact(artifact)}
+                        disabled={!commandsEnabled}
+                        title={!commandsEnabled ? runDisabledReason : ''}
+                      >
                         {artifact.runLabel}
                       </button>
                     )}
@@ -167,7 +177,7 @@ export function ObservabilityResilienceLab({
             </div>
           </div>
 
-          {report.scope.kind !== 'terraform' && (
+          {report.correlatedSignals.length > 0 && (
             <div className="obs-lab-section">
               <div className="obs-lab-section-title">Correlated Signals</div>
               <div className="obs-lab-list">
