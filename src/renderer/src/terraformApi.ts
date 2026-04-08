@@ -15,174 +15,58 @@ import type {
   TerraformRunHistoryFilter,
   TerraformRunRecord
 } from '@shared/types'
+import { makeBridgeCall } from './bridgeUtils'
 
-type Wrapped<T> = { ok: true; data: T } | { ok: false; error: string }
-
-function bridge() {
+function getTerraformBridge() {
   if (!(window as unknown as Record<string, unknown>).terraformWorkspace) {
     throw new Error('Terraform preload bridge did not load.')
   }
   return (window as unknown as { terraformWorkspace: Record<string, (...args: unknown[]) => unknown> }).terraformWorkspace
 }
 
-function unwrap<T>(result: Wrapped<T>): T {
-  if (!result.ok) throw new Error(result.error)
-  return result.data
-}
+const call = makeBridgeCall(getTerraformBridge)
 
-export async function detectCli(): Promise<TerraformCliInfo> {
-  return unwrap(await bridge().detectCli() as Wrapped<TerraformCliInfo>)
-}
+export const detectCli = call<[], TerraformCliInfo>('detectCli')
+export const getCliInfo = call<[], TerraformCliInfo>('getCliInfo')
+export const setCliKind = call<[kind: 'terraform' | 'opentofu'], TerraformCliInfo>('setCliKind')
+export const listProjects = call<[profileName: string, connection?: AwsConnection], TerraformProjectListItem[]>('listProjects')
+export const getProject = call<[profileName: string, projectId: string, connection?: AwsConnection], TerraformProject>('getProject')
+export const getDrift = call<[profileName: string, projectId: string, connection: { profile: string; region: string }, options?: { forceRefresh?: boolean }], TerraformDriftReport>('getDrift')
+export const getObservabilityReport = call<[profileName: string, projectId: string, connection: { profile: string; region: string }], ObservabilityPostureReport>('getObservabilityReport')
+export const chooseProjectDirectory = call<[], string>('chooseProjectDirectory')
+export const chooseVarFile = call<[], string>('chooseVarFile')
+export const addProject = call<[profileName: string, rootPath: string, connection?: AwsConnection], TerraformProject>('addProject')
+export const renameProject = call<[profileName: string, projectId: string, name: string], TerraformProject>('renameProject')
+export const openProjectInVsCode = call<[projectPath: string], void>('openProjectInVsCode')
+export const removeProject = call<[profileName: string, projectId: string], void>('removeProject')
+export const reloadProject = call<[profileName: string, projectId: string, connection?: AwsConnection], TerraformProject>('reloadProject')
+export const selectWorkspace = call<[profileName: string, projectId: string, workspaceName: string, connection?: AwsConnection], TerraformProject>('selectWorkspace')
+export const createWorkspace = call<[profileName: string, projectId: string, workspaceName: string, connection?: AwsConnection], TerraformProject>('createWorkspace')
+export const deleteWorkspace = call<[profileName: string, projectId: string, workspaceName: string, connection?: AwsConnection], TerraformProject>('deleteWorkspace')
+export const getSelectedProjectId = call<[profileName: string], string>('getSelectedProjectId')
+export const setSelectedProjectId = call<[profileName: string, projectId: string], void>('setSelectedProjectId')
+export const updateInputs = call<[profileName: string, projectId: string, inputConfig: TerraformInputConfiguration, connection?: AwsConnection], TerraformProject>('updateInputs')
+export const getMissingRequiredInputs = call<[profileName: string, projectId: string], string[]>('getMissingRequiredInputs')
+export const validateProjectInputs = call<[profileName: string, projectId: string, connection?: AwsConnection], TerraformInputValidationResult>('validateProjectInputs')
+export const listCommandLogs = call<[projectId: string], TerraformCommandLog[]>('listCommandLogs')
+export const runCommand = call<[request: TerraformCommandRequest], TerraformCommandLog>('runCommand')
+export const cancelCommand = call<[projectId: string], boolean>('cancelCommand')
+export const hasSavedPlan = call<[projectId: string], boolean>('hasSavedPlan')
+export const clearSavedPlan = call<[projectId: string], void>('clearSavedPlan')
+export const detectMissingVars = call<[output: string], TerraformMissingVarsResult>('detectMissingVars')
+export const listRunHistory = call<[filter?: TerraformRunHistoryFilter], TerraformRunRecord[]>('listRunHistory')
+export const getRunOutput = call<[runId: string], string>('getRunOutput')
+export const deleteRunRecord = call<[runId: string], void>('deleteRunRecord')
+export const detectGovernanceTools = call<[tfCliPath?: string, cliLabel?: string, cliKind?: 'terraform' | 'opentofu' | ''], TerraformGovernanceToolkit>('detectGovernanceTools')
+export const getGovernanceToolkit = call<[], TerraformGovernanceToolkit>('getGovernanceToolkit')
+export const runGovernanceChecks = call<[profileName: string, projectId: string, connection?: AwsConnection], TerraformGovernanceReport>('runGovernanceChecks')
+export const getGovernanceReport = call<[projectId: string], TerraformGovernanceReport | null>('getGovernanceReport')
 
-export async function getCliInfo(): Promise<TerraformCliInfo> {
-  return unwrap(await bridge().getCliInfo() as Wrapped<TerraformCliInfo>)
-}
-
-export async function setCliKind(kind: 'terraform' | 'opentofu'): Promise<TerraformCliInfo> {
-  return unwrap(await bridge().setCliKind(kind) as Wrapped<TerraformCliInfo>)
-}
-
-export async function listProjects(profileName: string, connection?: AwsConnection): Promise<TerraformProjectListItem[]> {
-  return unwrap(await bridge().listProjects(profileName, connection) as Wrapped<TerraformProjectListItem[]>)
-}
-
-export async function getProject(profileName: string, projectId: string, connection?: AwsConnection): Promise<TerraformProject> {
-  return unwrap(await bridge().getProject(profileName, projectId, connection) as Wrapped<TerraformProject>)
-}
-
-export async function getDrift(
-  profileName: string,
-  projectId: string,
-  connection: { profile: string; region: string },
-  options?: { forceRefresh?: boolean }
-): Promise<TerraformDriftReport> {
-  return unwrap(await bridge().getDrift(profileName, projectId, connection, options) as Wrapped<TerraformDriftReport>)
-}
-
-export async function getObservabilityReport(profileName: string, projectId: string, connection: { profile: string; region: string }): Promise<ObservabilityPostureReport> {
-  return unwrap(await bridge().getObservabilityReport(profileName, projectId, connection) as Wrapped<ObservabilityPostureReport>)
-}
-
-export async function chooseProjectDirectory(): Promise<string> {
-  return unwrap(await bridge().chooseProjectDirectory() as Wrapped<string>)
-}
-
-export async function chooseVarFile(): Promise<string> {
-  return unwrap(await bridge().chooseVarFile() as Wrapped<string>)
-}
-
-export async function addProject(profileName: string, rootPath: string, connection?: AwsConnection): Promise<TerraformProject> {
-  return unwrap(await bridge().addProject(profileName, rootPath, connection) as Wrapped<TerraformProject>)
-}
-
-export async function renameProject(profileName: string, projectId: string, name: string): Promise<TerraformProject> {
-  return unwrap(await bridge().renameProject(profileName, projectId, name) as Wrapped<TerraformProject>)
-}
-
-export async function openProjectInVsCode(projectPath: string): Promise<void> {
-  return unwrap(await bridge().openProjectInVsCode(projectPath) as Wrapped<void>)
-}
-
-export async function removeProject(profileName: string, projectId: string): Promise<void> {
-  return unwrap(await bridge().removeProject(profileName, projectId) as Wrapped<void>)
-}
-
-export async function reloadProject(profileName: string, projectId: string, connection?: AwsConnection): Promise<TerraformProject> {
-  return unwrap(await bridge().reloadProject(profileName, projectId, connection) as Wrapped<TerraformProject>)
-}
-
-export async function selectWorkspace(profileName: string, projectId: string, workspaceName: string, connection?: AwsConnection): Promise<TerraformProject> {
-  return unwrap(await bridge().selectWorkspace(profileName, projectId, workspaceName, connection) as Wrapped<TerraformProject>)
-}
-
-export async function createWorkspace(profileName: string, projectId: string, workspaceName: string, connection?: AwsConnection): Promise<TerraformProject> {
-  return unwrap(await bridge().createWorkspace(profileName, projectId, workspaceName, connection) as Wrapped<TerraformProject>)
-}
-
-export async function deleteWorkspace(profileName: string, projectId: string, workspaceName: string, connection?: AwsConnection): Promise<TerraformProject> {
-  return unwrap(await bridge().deleteWorkspace(profileName, projectId, workspaceName, connection) as Wrapped<TerraformProject>)
-}
-
-export async function getSelectedProjectId(profileName: string): Promise<string> {
-  return unwrap(await bridge().getSelectedProjectId(profileName) as Wrapped<string>)
-}
-
-export async function setSelectedProjectId(profileName: string, projectId: string): Promise<void> {
-  return unwrap(await bridge().setSelectedProjectId(profileName, projectId) as Wrapped<void>)
-}
-
-export async function updateInputs(profileName: string, projectId: string, inputConfig: TerraformInputConfiguration, connection?: AwsConnection): Promise<TerraformProject> {
-  return unwrap(await bridge().updateInputs(profileName, projectId, inputConfig, connection) as Wrapped<TerraformProject>)
-}
-
-export async function getMissingRequiredInputs(profileName: string, projectId: string): Promise<string[]> {
-  return unwrap(await bridge().getMissingRequiredInputs(profileName, projectId) as Wrapped<string[]>)
-}
-
-export async function validateProjectInputs(profileName: string, projectId: string, connection?: AwsConnection): Promise<TerraformInputValidationResult> {
-  return unwrap(await bridge().validateProjectInputs(profileName, projectId, connection) as Wrapped<TerraformInputValidationResult>)
-}
-
-export async function listCommandLogs(projectId: string): Promise<TerraformCommandLog[]> {
-  return unwrap(await bridge().listCommandLogs(projectId) as Wrapped<TerraformCommandLog[]>)
-}
-
-export async function runCommand(request: TerraformCommandRequest): Promise<TerraformCommandLog> {
-  return unwrap(await bridge().runCommand(request) as Wrapped<TerraformCommandLog>)
-}
-
-export async function cancelCommand(projectId: string): Promise<boolean> {
-  return unwrap(await bridge().cancelCommand(projectId) as Wrapped<boolean>)
-}
-
-export async function hasSavedPlan(projectId: string): Promise<boolean> {
-  return unwrap(await bridge().hasSavedPlan(projectId) as Wrapped<boolean>)
-}
-
-export async function clearSavedPlan(projectId: string): Promise<void> {
-  return unwrap(await bridge().clearSavedPlan(projectId) as Wrapped<void>)
-}
-
-export async function detectMissingVars(output: string): Promise<TerraformMissingVarsResult> {
-  return unwrap(await bridge().detectMissingVars(output) as Wrapped<TerraformMissingVarsResult>)
-}
-
-export async function listRunHistory(filter?: TerraformRunHistoryFilter): Promise<TerraformRunRecord[]> {
-  return unwrap(await bridge().listRunHistory(filter) as Wrapped<TerraformRunRecord[]>)
-}
-
-export async function getRunOutput(runId: string): Promise<string> {
-  return unwrap(await bridge().getRunOutput(runId) as Wrapped<string>)
-}
-
-export async function deleteRunRecord(runId: string): Promise<void> {
-  return unwrap(await bridge().deleteRunRecord(runId) as Wrapped<void>)
-}
-
-export async function detectGovernanceTools(
-  tfCliPath?: string,
-  cliLabel?: string,
-  cliKind?: 'terraform' | 'opentofu' | ''
-): Promise<TerraformGovernanceToolkit> {
-  return unwrap(await bridge().detectGovernanceTools(tfCliPath, cliLabel, cliKind) as Wrapped<TerraformGovernanceToolkit>)
-}
-
-export async function getGovernanceToolkit(): Promise<TerraformGovernanceToolkit> {
-  return unwrap(await bridge().getGovernanceToolkit() as Wrapped<TerraformGovernanceToolkit>)
-}
-
-export async function runGovernanceChecks(profileName: string, projectId: string, connection?: AwsConnection): Promise<TerraformGovernanceReport> {
-  return unwrap(await bridge().runGovernanceChecks(profileName, projectId, connection) as Wrapped<TerraformGovernanceReport>)
-}
-
-export async function getGovernanceReport(projectId: string): Promise<TerraformGovernanceReport | null> {
-  return unwrap(await bridge().getGovernanceReport(projectId) as Wrapped<TerraformGovernanceReport | null>)
-}
-
+// Non-standard: synchronous event subscription, not async calls
 export function subscribe(listener: (event: unknown) => void): void {
-  bridge().subscribe(listener)
+  getTerraformBridge().subscribe(listener)
 }
 
 export function unsubscribe(listener: (event: unknown) => void): void {
-  bridge().unsubscribe(listener)
+  getTerraformBridge().unsubscribe(listener)
 }
