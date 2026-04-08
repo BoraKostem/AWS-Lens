@@ -124,6 +124,7 @@ import { VpcWorkspace } from './VpcWorkspace'
 import { WafConsole } from './WafConsole'
 import { WorkspaceApp } from './WorkspaceApp'
 import { buildProviderPermissionDiagnostics } from './providerPermissionDiagnostics'
+import { ErrorBoundary } from './ErrorBoundary'
 
 type Screen = 'profiles' | 'settings' | 'direct-access' | ServiceId
 type PendingTerminalCommand = { id: number; command: string } | null
@@ -526,7 +527,9 @@ function ConnectedServiceScreen({
     <>
       {state.error && <div className="error-banner">{state.error}</div>}
       {state.connection && state.connected ? (
-        children(state.connection)
+        <ErrorBoundary label={service.label}>
+          {children(state.connection)}
+        </ErrorBoundary>
       ) : (
         <section className={hideHero ? 'empty-hero empty-hero-compact' : 'empty-hero'}>
           <div>

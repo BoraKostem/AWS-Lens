@@ -18,6 +18,7 @@ import type {
 } from '@shared/types'
 import { getAwsClient } from './client'
 import { listLoadBalancerWorkspaces } from './loadBalancers'
+import { logWarn } from '../observability'
 
 function toIso(value: Date | undefined): string {
   return value ? value.toISOString() : ''
@@ -86,7 +87,8 @@ async function loadLoadBalancerAssociations(connection: AwsConnection): Promise<
   try {
     const workspaces = await listLoadBalancerWorkspaces(connection)
     return indexLoadBalancerAssociations(workspaces)
-  } catch {
+  } catch (error) {
+    logWarn('acm.load-lb-associations', 'Failed to load load balancer associations for ACM enrichment.', { region: connection.region }, error)
     return new Map()
   }
 }

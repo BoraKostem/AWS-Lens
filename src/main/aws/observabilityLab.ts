@@ -16,6 +16,7 @@ import { getTerraformDriftReport } from '../terraformDrift'
 import { getProject } from '../terraform'
 import { createTempEksKubeconfig, describeEksCluster, getEksMetricsSnapshot, listEksNodegroups, type EksMetricsSnapshot } from './eks'
 import { getServiceDiagnostics } from './ecs'
+import { logWarn } from '../observability'
 
 function connectionRef(connection: AwsConnection) {
   return {
@@ -1029,7 +1030,8 @@ export async function generateTerraformObservabilityReport(
   let drift: TerraformDriftReport | null = null
   try {
     drift = await getTerraformDriftReport(profileName, projectId, connection)
-  } catch {
+  } catch (error) {
+    logWarn('observability-lab.drift-fetch', 'Failed to fetch Terraform drift report for observability lab.', { projectId }, error)
     drift = null
   }
 
