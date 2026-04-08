@@ -4901,8 +4901,10 @@ export type AssumeRoleResult = {
   assumedRoleId: string
   accountId: string
   accessKeyId: string
-  secretAccessKey: string
-  sessionToken: string
+  /** Not returned over IPC. Retrieve via the dedicated `aws:sts:get-session-credentials` channel. */
+  secretAccessKey?: string
+  /** Not returned over IPC. Retrieve via the dedicated `aws:sts:get-session-credentials` channel. */
+  sessionToken?: string
   expiration: string
   packedPolicySize: number
   region: string

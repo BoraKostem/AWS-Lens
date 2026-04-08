@@ -223,16 +223,28 @@ export function getDefaultAppSettings(): AppSettings {
   return sanitizeAppSettings(DEFAULT_APP_SETTINGS)
 }
 
+let settingsCache: AppSettings | null = null
+
 export function getAppSettings(): AppSettings {
+  if (settingsCache) {
+    return settingsCache
+  }
+
   const parsed = readSecureJsonFile<Record<string, unknown>>(settingsPath(), {
     fallback: DEFAULT_APP_SETTINGS as unknown as Record<string, unknown>,
     fileLabel: 'App settings'
   })
 
-  return sanitizeAppSettings(parsed)
+  settingsCache = sanitizeAppSettings(parsed)
+  return settingsCache
+}
+
+export function invalidateAppSettingsCache(): void {
+  settingsCache = null
 }
 
 export function setAppSettings(settings: AppSettings): AppSettings {
+  settingsCache = null
   return write(sanitizeAppSettings(settings))
 }
 
@@ -256,9 +268,11 @@ export function updateAppSettings(update: Partial<AppSettings>): AppSettings {
     }
   })
 
+  settingsCache = null
   return write(next)
 }
 
 export function resetAppSettings(): AppSettings {
+  settingsCache = null
   return write(getDefaultAppSettings())
 }

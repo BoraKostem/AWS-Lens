@@ -21,11 +21,13 @@ interface PoolEntry {
 }
 
 const CLIENT_TTL_MS = 10 * 60 * 1000 // 10 minutes idle TTL
+const CLIENT_POOL_MAX_SIZE = 200      // evict LRU entries when exceeded
 const clientPool = new Map<string, PoolEntry>()
 
 function connectionKey(connection: AwsConnection): string {
   const id = connection.kind === 'assumed-role' ? connection.sessionId : connection.profile
-  return `${id}::${connection.region}`
+  // Use a separator that cannot appear in profile names or session IDs (UUIDs)
+  return `${encodeURIComponent(id)}\x00${connection.region}`
 }
 
 /**
@@ -33,13 +35,29 @@ function connectionKey(connection: AwsConnection): string {
  * Clients are reused across calls and evicted after CLIENT_TTL_MS of inactivity.
  */
 export function getAwsClient<T>(ClientClass: AnyConstructor<T>, connection: AwsConnection): T {
-  const key = `${ClientClass.name}::${connectionKey(connection)}`
+  // Use a fully-qualified key that cannot collide across class names or connection params
+  const key = `${encodeURIComponent(ClientClass.name)}\x00${connectionKey(connection)}`
   const now = Date.now()
 
   const existing = clientPool.get(key)
   if (existing) {
     existing.lastUsedAt = now
     return existing.client as T
+  }
+
+  // Enforce max pool size by evicting the least-recently-used entry
+  if (clientPool.size >= CLIENT_POOL_MAX_SIZE) {
+    let oldestKey = ''
+    let oldestTime = Infinity
+    for (const [k, entry] of clientPool.entries()) {
+      if (entry.lastUsedAt < oldestTime) {
+        oldestTime = entry.lastUsedAt
+        oldestKey = k
+      }
+    }
+    if (oldestKey) {
+      clientPool.delete(oldestKey)
+    }
   }
 
   const client = new ClientClass(awsClientConfig(connection))
@@ -56,9 +74,10 @@ export function evictClientPool(connection?: AwsConnection): void {
     clientPool.clear()
     return
   }
-  const prefix = connectionKey(connection)
+  const connKey = connectionKey(connection)
   for (const key of clientPool.keys()) {
-    if (key.endsWith(`::${prefix}`)) {
+    // key format: encodedClassName\x00connKey
+    if (key.endsWith(`\x00${connKey}`)) {
       clientPool.delete(key)
     }
   }
@@ -66,11 +85,15 @@ export function evictClientPool(connection?: AwsConnection): void {
 
 // Periodically evict idle clients to avoid holding stale credentials in memory.
 setInterval(() => {
-  const cutoff = Date.now() - CLIENT_TTL_MS
-  for (const [key, entry] of clientPool.entries()) {
-    if (entry.lastUsedAt < cutoff) {
-      clientPool.delete(key)
+  try {
+    const cutoff = Date.now() - CLIENT_TTL_MS
+    for (const [key, entry] of clientPool.entries()) {
+      if (entry.lastUsedAt < cutoff) {
+        clientPool.delete(key)
+      }
     }
+  } catch {
+    /* silently ignore cleanup errors so the interval keeps running */
   }
 }, CLIENT_TTL_MS).unref()
 

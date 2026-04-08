@@ -37,7 +37,7 @@ import type {
   TransitGatewaySummary,
   VpcSummary
 } from '@shared/types'
-import { awsClientConfig, readTags } from './aws/client'
+import { getAwsClient, readTags } from './aws/client'
 import { listEc2Instances } from './aws/ec2'
 import { listEcrRepositories } from './aws/ecr'
 import { listClusters as listEcsClusters } from './aws/ecs'
@@ -488,7 +488,7 @@ function canonicalCapacityProviderStrategy(values: unknown): string[] {
 }
 
 async function listEcsClusterCapacityProviders(connection: AwsConnection): Promise<EcsClusterCapacityProviderSummary[]> {
-  const client = new ECSClient(awsClientConfig(connection))
+  const client = getAwsClient(ECSClient, connection)
   const listOutput = await client.send(new ListClustersCommand({}))
   const clusterArns = listOutput.clusterArns ?? []
   if (clusterArns.length === 0) return []
@@ -505,7 +505,7 @@ async function listEcsClusterCapacityProviders(connection: AwsConnection): Promi
 }
 
 async function listElasticIps(connection: AwsConnection): Promise<ElasticIpSummary[]> {
-  const client = new EC2Client(awsClientConfig(connection))
+  const client = getAwsClient(EC2Client, connection)
   const output = await client.send(new DescribeAddressesCommand({}))
   return (output.Addresses ?? []).map((address) => ({
     allocationId: address.AllocationId ?? '-',
@@ -519,7 +519,7 @@ async function listElasticIps(connection: AwsConnection): Promise<ElasticIpSumma
 }
 
 async function listDbSubnetGroups(connection: AwsConnection): Promise<DbSubnetGroupSummary[]> {
-  const client = new RDSClient(awsClientConfig(connection))
+  const client = getAwsClient(RDSClient, connection)
   const output = await client.send(new DescribeDBSubnetGroupsCommand({}))
   return (output.DBSubnetGroups ?? []).map((group) => ({
     name: group.DBSubnetGroupName ?? '-',
@@ -530,7 +530,7 @@ async function listDbSubnetGroups(connection: AwsConnection): Promise<DbSubnetGr
 }
 
 async function listAuroraClusterInstances(connection: AwsConnection): Promise<AuroraClusterInstanceSummary[]> {
-  const client = new RDSClient(awsClientConfig(connection))
+  const client = getAwsClient(RDSClient, connection)
   const output = await client.send(new DescribeDBInstancesCommand({}))
   return (output.DBInstances ?? [])
     .filter((instance) => Boolean(instance.DBClusterIdentifier))
@@ -544,7 +544,7 @@ async function listAuroraClusterInstances(connection: AwsConnection): Promise<Au
 }
 
 async function listIamRolePolicyAttachments(connection: AwsConnection, roles: IamRoleSummary[]): Promise<IamRolePolicyAttachmentSummary[]> {
-  const client = new IAMClient(awsClientConfig(connection))
+  const client = getAwsClient(IAMClient, connection)
   const attachments = await Promise.all(roles.map(async (role) => {
     const output = await client.send(new ListAttachedRolePoliciesCommand({ RoleName: role.roleName }))
     return (output.AttachedPolicies ?? []).map((policy) => ({

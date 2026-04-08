@@ -285,6 +285,21 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
   }, [appliedFocusToken, focusEc2Instance])
 
   useEffect(() => {
+    if (focusEc2Instance || !ec2InstanceId) {
+      return
+    }
+
+    setAppliedFocusToken(0)
+    setTabs([{ type: 'overview' }])
+    setActiveTabIndex(0)
+    setEc2InstanceId(undefined)
+    setQueryServiceHint('')
+    setQuerySourceLabel('current context')
+    setSelectedQueryLogGroups([])
+    setQueryDraft(defaultQuery('', 'current context'))
+  }, [ec2InstanceId, focusEc2Instance])
+
+  useEffect(() => {
     setLoading(true)
     setError('')
     const metricLoader: Promise<{ metrics: CloudWatchMetricSummary[]; namespaces: CloudWatchNamespaceSummary[] }> = isEc2Mode

@@ -5,6 +5,8 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { BrowserWindow, dialog } from 'electron'
 import { GoogleAuth } from 'google-auth-library'
 
+import { logWarn } from './observability'
+
 import type {
   GcpCliConfiguration,
   GcpCliContext,
@@ -1005,7 +1007,8 @@ function safeParseList<T>(value: string, normalize: (entry: unknown) => T | null
   try {
     const parsed = parseJson<unknown[]>(value)
     return parsed.map(normalize).filter((entry): entry is T => entry !== null)
-  } catch {
+  } catch (error) {
+    logWarn('gcpCli.safeParseList', 'Failed to parse GCP CLI cache entry; treating as empty.', undefined, error)
     return []
   }
 }

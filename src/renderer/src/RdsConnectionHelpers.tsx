@@ -178,8 +178,6 @@ export function RdsConnectionHelpers({
     }
 
     setForm(toFormState(preset))
-    setManualPassword('')
-    setResolved(null)
   }, [presets, selectedPresetId])
 
   async function handleSavePreset(): Promise<void> {
@@ -362,7 +360,15 @@ export function RdsConnectionHelpers({
       <div className="rds-sidebar-section">
         <h3>Saved Presets</h3>
         <div className="rds-inline-form">
-          <select className="rds-select" value={selectedPresetId} onChange={(event) => setSelectedPresetId(event.target.value)}>
+          <select
+            className="rds-select"
+            value={selectedPresetId}
+            onChange={(event) => {
+              setSelectedPresetId(event.target.value)
+              setManualPassword('')
+              setResolved(null)
+            }}
+          >
             <option value="">Use resource defaults</option>
             {presets.map((preset) => (
               <option key={preset.id} value={preset.id}>

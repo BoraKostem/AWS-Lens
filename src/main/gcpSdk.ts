@@ -4,6 +4,8 @@ import { BrowserWindow, dialog } from 'electron'
 import { GoogleAuth } from 'google-auth-library'
 import { google } from 'googleapis'
 
+import { logWarn } from './observability'
+
 import type {
   GcpBillingCapabilityHint,
   GcpBillingLinkedProjectSummary,
@@ -3256,7 +3258,8 @@ async function resolveGkeNodePoolTargetSize(projectId: string, instanceGroupUrls
     try {
       const response = await requestGcp<Record<string, unknown>>(projectId, { url })
       return normalizeNumber(response.targetSize)
-    } catch {
+    } catch (error) {
+      logWarn('gcpSdk.resolveGkeNodePoolTargetSize', 'Failed to fetch instance group target size; reporting 0.', { url }, error)
       return 0
     }
   }))

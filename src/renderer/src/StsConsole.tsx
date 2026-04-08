@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import { assumeRole, decodeAuthorizationMessage, getCallerIdentity, lookupAccessKeyOwnership } from './api'
+import { assumeRole, decodeAuthorizationMessage, getAssumedSessionCredentials, getCallerIdentity, lookupAccessKeyOwnership } from './api'
 import type { AccessKeyOwnership, AssumeRoleResult, AwsConnection, CallerIdentity } from '@shared/types'
 import './sts.css'
 
@@ -60,6 +60,7 @@ export function StsConsole({ connection }: { connection: AwsConnection }) {
   const [sessionName, setSessionName] = useState('aws-lens-session')
   const [externalId, setExternalId] = useState('')
   const [assumed, setAssumed] = useState<AssumeRoleResult | null>(null)
+  const [assumedSecrets, setAssumedSecrets] = useState<{ secretAccessKey: string; sessionToken: string } | null>(null)
 
   async function loadIdentity() {
     setError('')
@@ -147,6 +148,13 @@ export function StsConsole({ connection }: { connection: AwsConnection }) {
       const result = await assumeRole(connection, roleArn, sessionName, externalId || undefined)
       setAssumed(result)
       setMsg('Role assumed successfully.')
+      // Fetch sensitive credentials separately to avoid caching them in the main result
+      try {
+        const secrets = await getAssumedSessionCredentials(result.sessionId)
+        setAssumedSecrets(secrets)
+      } catch {
+        setAssumedSecrets(null)
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -349,8 +357,8 @@ export function StsConsole({ connection }: { connection: AwsConnection }) {
                 <div className="svc-kv-row"><div className="svc-kv-label">Source Profile</div><div className="svc-kv-value">{assumed.sourceProfile}</div></div>
                 <div className="svc-kv-row"><div className="svc-kv-label">Expiration</div><div className="svc-kv-value">{formatDateTime(assumed.expiration)}</div></div>
                 <div className="svc-kv-row"><div className="svc-kv-label">Packed Policy Size</div><div className="svc-kv-value">{assumed.packedPolicySize}%</div></div>
-                <div className="svc-kv-row"><div className="svc-kv-label">Secret Access Key</div><div className="svc-kv-value">{maskSecret(assumed.secretAccessKey, 6)}</div></div>
-                <div className="svc-kv-row"><div className="svc-kv-label">Session Token</div><div className="svc-kv-value">{maskSecret(assumed.sessionToken, 8)}</div></div>
+                <div className="svc-kv-row"><div className="svc-kv-label">Secret Access Key</div><div className="svc-kv-value">{maskSecret(assumedSecrets?.secretAccessKey ?? '', 6)}</div></div>
+                <div className="svc-kv-row"><div className="svc-kv-label">Session Token</div><div className="svc-kv-value">{maskSecret(assumedSecrets?.sessionToken ?? '', 8)}</div></div>
               </div>
             </div>
           ) : (

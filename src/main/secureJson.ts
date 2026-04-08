@@ -3,6 +3,8 @@ import path from 'node:path'
 
 import { safeStorage } from 'electron'
 
+import { logWarn } from './observability'
+
 const SECURE_FILE_PREFIX = 'aws-lens-secure:v1:'
 
 type ReadOptions<T> = {
@@ -49,6 +51,11 @@ export function readSecureJsonFile<T>(filePath: string, options: ReadOptions<T>)
       return decryptJson<T>(raw, options.fileLabel)
     }
 
+    logWarn(
+      'secureJson.plaintext-fallback',
+      `${options.fileLabel} is stored as plaintext instead of encrypted. It may have been tampered with.`,
+      { filePath }
+    )
     return JSON.parse(raw) as T
   } catch {
     return options.fallback

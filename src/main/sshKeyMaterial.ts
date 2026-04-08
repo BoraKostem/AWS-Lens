@@ -178,7 +178,9 @@ export async function stageVaultSshPrivateKey(entryId: string): Promise<string> 
   const targetPath = path.join(targetDir, `${randomUUID()}${extension}`)
 
   await fs.mkdir(targetDir, { recursive: true })
-  await fs.writeFile(targetPath, secret, 'utf8')
+  // Write with restricted permissions from the start; on Windows the mode hint is not enforced
+  // by Node.js so lockDownPrivateKey (icacls) is still called below.
+  await fs.writeFile(targetPath, secret, { encoding: 'utf8', mode: 0o600 })
 
   const { publicKey } = await readEntryPublicKey(entry.id)
   if (publicKey) {

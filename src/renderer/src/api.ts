@@ -211,7 +211,13 @@ import type {
   SsoInstanceSummary,
   SsoPermissionSetSummary,
   SsoSimulationResult,
-  SsoUserSummary
+  SsoUserSummary,
+  EcsClusterSummary,
+  EcsServiceSummary,
+  EcsServiceDetail,
+  EcsServiceDiagnostics,
+  EcsTaskSummary,
+  EcsLogEvent
 } from '@shared/types'
 
 type Wrapped<T> = { ok: true; data: T } | { ok: false; error: string }
@@ -632,6 +638,14 @@ const MUTATING_METHODS = new Set<keyof AwsLensBridge>([
   'sendSsmCommand'
 ])
 
+const EXTRA_INVALIDATION_TAGS_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag[]>> = {
+  saveDbVaultCredential: ['phase2-foundations'],
+  deleteDbVaultCredential: ['phase2-foundations'],
+  saveVaultEntry: ['phase1-foundations'],
+  deleteVaultEntry: ['phase1-foundations'],
+  recordVaultEntryUse: ['phase1-foundations']
+}
+
 const BACKGROUND_METHODS = new Set<keyof AwsLensBridge>([
   'getEc2Recommendations'
 ])
@@ -820,6 +834,9 @@ function awsBridge(): AwsLensBridge {
         if (isMutatingMethod) {
           return invoke().then((result) => {
             invalidatePageCache(tag)
+            for (const extraTag of EXTRA_INVALIDATION_TAGS_BY_METHOD[method] ?? []) {
+              invalidatePageCache(extraTag)
+            }
             return result
           })
         }
@@ -1070,6 +1087,10 @@ export async function refreshAssumedSession(sessionId: string): Promise<AssumeRo
 
 export async function assumeSavedRoleTarget(targetId: string): Promise<AssumeRoleResult> {
   return unwrap((await awsBridge().assumeSavedRoleTarget(targetId)) as Wrapped<AssumeRoleResult>)
+}
+
+export async function getAssumedSessionCredentials(sessionId: string): Promise<{ secretAccessKey: string; sessionToken: string }> {
+  return unwrap((await rawAwsBridge().getAssumedSessionCredentials(sessionId)) as Wrapped<{ secretAccessKey: string; sessionToken: string }>)
 }
 
 export async function listProviders(): Promise<ProviderDescriptor[]> {
@@ -1615,28 +1636,28 @@ export async function getEksObservabilityReport(connection: AwsConnection, clust
   return unwrap((await awsBridge().getEksObservabilityReport(connection, clusterName)) as Wrapped<ObservabilityPostureReport>)
 }
 
-export async function listEcsClusters(connection: AwsConnection) {
-  return unwrap((await awsBridge().listEcsClusters(connection)) as Wrapped<import('@shared/types').EcsClusterSummary[]>)
+export async function listEcsClusters(connection: AwsConnection): Promise<EcsClusterSummary[]> {
+  return unwrap((await awsBridge().listEcsClusters(connection)) as Wrapped<EcsClusterSummary[]>)
 }
 
-export async function listEcsServices(connection: AwsConnection, clusterArn: string) {
-  return unwrap((await awsBridge().listEcsServices(connection, clusterArn)) as Wrapped<import('@shared/types').EcsServiceSummary[]>)
+export async function listEcsServices(connection: AwsConnection, clusterArn: string): Promise<EcsServiceSummary[]> {
+  return unwrap((await awsBridge().listEcsServices(connection, clusterArn)) as Wrapped<EcsServiceSummary[]>)
 }
 
-export async function describeEcsService(connection: AwsConnection, clusterArn: string, serviceName: string) {
-  return unwrap((await awsBridge().describeEcsService(connection, clusterArn, serviceName)) as Wrapped<import('@shared/types').EcsServiceDetail>)
+export async function describeEcsService(connection: AwsConnection, clusterArn: string, serviceName: string): Promise<EcsServiceDetail> {
+  return unwrap((await awsBridge().describeEcsService(connection, clusterArn, serviceName)) as Wrapped<EcsServiceDetail>)
 }
 
-export async function getEcsDiagnostics(connection: AwsConnection, clusterArn: string, serviceName: string) {
-  return unwrap((await awsBridge().getEcsDiagnostics(connection, clusterArn, serviceName)) as Wrapped<import('@shared/types').EcsServiceDiagnostics>)
+export async function getEcsDiagnostics(connection: AwsConnection, clusterArn: string, serviceName: string): Promise<EcsServiceDiagnostics> {
+  return unwrap((await awsBridge().getEcsDiagnostics(connection, clusterArn, serviceName)) as Wrapped<EcsServiceDiagnostics>)
 }
 
 export async function getEcsObservabilityReport(connection: AwsConnection, clusterArn: string, serviceName: string): Promise<ObservabilityPostureReport> {
   return unwrap((await awsBridge().getEcsObservabilityReport(connection, clusterArn, serviceName)) as Wrapped<ObservabilityPostureReport>)
 }
 
-export async function listEcsTasks(connection: AwsConnection, clusterArn: string, serviceName?: string) {
-  return unwrap((await awsBridge().listEcsTasks(connection, clusterArn, serviceName)) as Wrapped<import('@shared/types').EcsTaskSummary[]>)
+export async function listEcsTasks(connection: AwsConnection, clusterArn: string, serviceName?: string): Promise<EcsTaskSummary[]> {
+  return unwrap((await awsBridge().listEcsTasks(connection, clusterArn, serviceName)) as Wrapped<EcsTaskSummary[]>)
 }
 
 export async function updateEcsDesiredCount(connection: AwsConnection, clusterArn: string, serviceName: string, desiredCount: number): Promise<void> {
@@ -1651,8 +1672,8 @@ export async function stopEcsTask(connection: AwsConnection, clusterArn: string,
   return unwrap((await awsBridge().stopEcsTask(connection, clusterArn, taskArn, reason)) as Wrapped<void>)
 }
 
-export async function getEcsContainerLogs(connection: AwsConnection, logGroup: string, logStream: string, startTime?: number) {
-  return unwrap((await awsBridge().getEcsContainerLogs(connection, logGroup, logStream, startTime)) as Wrapped<import('@shared/types').EcsLogEvent[]>)
+export async function getEcsContainerLogs(connection: AwsConnection, logGroup: string, logStream: string, startTime?: number): Promise<EcsLogEvent[]> {
+  return unwrap((await awsBridge().getEcsContainerLogs(connection, logGroup, logStream, startTime)) as Wrapped<EcsLogEvent[]>)
 }
 
 export async function listVpcs(connection: AwsConnection): Promise<VpcSummary[]> {

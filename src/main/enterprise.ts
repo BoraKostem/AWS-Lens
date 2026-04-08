@@ -271,7 +271,12 @@ async function resolveAccountId(connection?: AwsConnection | null): Promise<stri
   }
 
   try {
-    const identity = await getCallerIdentity(connection)
+    const identity = await Promise.race([
+      getCallerIdentity(connection),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('getCallerIdentity timed out after 10s')), 10_000)
+      )
+    ])
     const accountId = identity.account ?? ''
     if (accountId) {
       accountIdCache.set(cacheKey, accountId)
@@ -427,10 +432,17 @@ function inferActionLabel(channel: string, args: unknown[]): string {
   return toActionLabel(channel)
 }
 
-function appendAuditEvent(event: EnterpriseAuditEvent): void {
-  const current = readAuditLog()
-  const next = [event, ...current].slice(0, 500)
-  writeAuditLog(next)
+// Serialise all audit writes to prevent TOCTOU races under concurrent IPC traffic.
+let auditWriteChain: Promise<void> = Promise.resolve()
+
+function appendAuditEvent(event: EnterpriseAuditEvent): Promise<void> {
+  return (auditWriteChain = auditWriteChain
+    .then(() => {
+      const current = readAuditLog()
+      const next = [event, ...current].slice(0, 500)
+      writeAuditLog(next)
+    })
+    .catch(() => { /* never let a write failure break the chain */ }))
 }
 
 export function getEnterpriseSettings(): EnterpriseSettings {
@@ -474,7 +486,7 @@ export async function recordEnterpriseAuditEvent(
     details.push(`error:${errorMessage}`)
   }
 
-  appendAuditEvent({
+  await appendAuditEvent({
     id: randomUUID(),
     happenedAt: new Date().toISOString(),
     accessMode: settings.accessMode,

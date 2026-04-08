@@ -2366,7 +2366,13 @@ function GcpBillingConsole({
     setError('')
 
     void listGcpProjects()
-      .catch(() => [])
+      .catch((err) => {
+        // Surface the project-list failure — billing overview will load with no cross-project data
+        if (!cancelled) {
+          setError(`Could not load GCP projects: ${err instanceof Error ? err.message : String(err)}`)
+        }
+        return []
+      })
       .then((projects) => getGcpBillingOverview(projectId, projects.map((entry) => entry.projectId)))
       .then((nextOverview) => {
         if (cancelled) {

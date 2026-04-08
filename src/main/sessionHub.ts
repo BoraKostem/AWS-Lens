@@ -409,6 +409,11 @@ export async function assumeRoleSession(request: AssumeRoleRequest): Promise<Ass
     throw new Error('Role ARN, source profile, and session name are required.')
   }
 
+  // Validate ARN format before sending to STS to surface clear errors early
+  if (!/^arn:[a-zA-Z0-9-]+:iam::[0-9]{12}:role\/[\w+=,.@/-]{1,512}$/.test(roleArn)) {
+    throw new Error(`Invalid role ARN format: "${roleArn}". Expected format: arn:aws:iam::123456789012:role/RoleName`)
+  }
+
   const client = new STSClient({
     region,
     credentials: createBaseCredentials(sourceProfile)
@@ -475,12 +480,26 @@ export async function assumeRoleSession(request: AssumeRoleRequest): Promise<Ass
     assumedRoleId: assumedSession.assumedRoleId,
     accountId: assumedSession.accountId,
     accessKeyId,
-    secretAccessKey,
-    sessionToken,
     expiration,
     packedPolicySize: assumeOutput.PackedPolicySize ?? 0,
     region,
     externalId: assumedSession.externalId
+  }
+}
+
+/**
+ * Returns the sensitive credential pair for a session — only call this from a
+ * dedicated display channel.  Raw secrets should not flow through the generic
+ * IPC layer.
+ */
+export function getAssumedSessionCredentials(sessionId: string): { secretAccessKey: string; sessionToken: string } {
+  const session = sessionStore.get(sessionId)
+  if (!session) {
+    throw new Error('Assumed session was not found.')
+  }
+  return {
+    secretAccessKey: session.credentials.secretAccessKey,
+    sessionToken: session.credentials.sessionToken
   }
 }
 

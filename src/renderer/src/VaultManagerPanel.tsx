@@ -11,6 +11,7 @@ import type {
 } from '@shared/types'
 import {
   deleteVaultEntry,
+  invalidatePageCache,
   listVaultEntries,
   revealVaultEntrySecret,
   saveVaultEntry
@@ -247,6 +248,7 @@ export function VaultManagerPanel({
     setErrorMessage('')
 
     try {
+      invalidatePageCache('phase2-foundations')
       const entries = await listVaultEntries()
       setAllEntries(entries)
 

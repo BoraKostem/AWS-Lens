@@ -141,13 +141,13 @@ export function registerTerraformIpcHandlers(getWindow: () => BrowserWindow | nu
     })
   )
   ipcMain.handle('terraform:projects:add', async (_event, profileName: string, rootPath: string, connection?: AwsConnection) =>
-    wrap(() => addProject(profileName, rootPath, connection))
+    wrap(() => addProject(profileName, path.resolve(rootPath), connection))
   )
   ipcMain.handle('terraform:projects:rename', async (_event, profileName: string, projectId: string, name: string) =>
     wrap(() => renameProject(profileName, projectId, name))
   )
   ipcMain.handle('terraform:projects:open-vscode', async (_event, projectPath: string) =>
-    wrap(() => openInVisualStudioCode(projectPath))
+    wrap(() => openInVisualStudioCode(path.resolve(projectPath)))
   )
   ipcMain.handle('terraform:projects:remove', async (_event, profileName: string, projectId: string) =>
     wrap(() => removeProject(profileName, projectId))
@@ -219,7 +219,7 @@ export function registerTerraformIpcHandlers(getWindow: () => BrowserWindow | nu
     wrap(() => getCommandLogs(projectId))
   )
   ipcMain.handle('terraform:command:run', async (_event, request: TerraformCommandRequest) =>
-    wrap(() => runProjectCommand(request, getWindow()), 'terraform:command:run', { timeoutMs: 0 })
+    wrap(() => runProjectCommand(request, getWindow()), 'terraform:command:run', { timeoutMs: 4 * 60 * 60 * 1000 })
   )
   ipcMain.handle('terraform:command:cancel', async (_event, projectId: string) =>
     wrap(() => cancelProjectCommand(projectId))

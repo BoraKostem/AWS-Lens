@@ -65,8 +65,9 @@ function asHandlerFailure(error: unknown): HandlerFailure {
 }
 
 const originalHandle = ipcMain.handle.bind(ipcMain)
-ipcMain.handle = (channel: string, listener: (...args: any[]) => any) => {
-  originalHandle(channel, async (...args: any[]) => {
+type IpcHandleListener = Parameters<typeof originalHandle>[1]
+ipcMain.handle = (channel: string, listener: IpcHandleListener) => {
+  originalHandle(channel, async (...args: Parameters<IpcHandleListener>) => {
     const enterpriseArgs = args.slice(1)
     let settings
 
@@ -95,34 +96,38 @@ ipcMain.handle = (channel: string, listener: (...args: any[]) => any) => {
           const settled = await result
           pendingRequests.delete(result)
           logInfo('ipc.async-success', `IPC call ${channel} completed.`, { channel })
-          await recordEnterpriseAuditEvent(channel, enterpriseArgs, 'success', settings)
+          try { await recordEnterpriseAuditEvent(channel, enterpriseArgs, 'success', settings) } catch { /* audit failure must not fail the IPC call */ }
           return settled
         } catch (error) {
           pendingRequests.delete(result)
           logError('ipc.async-failure', `IPC call ${channel} failed.`, { channel }, error)
-          await recordEnterpriseAuditEvent(
-            channel,
-            enterpriseArgs,
-            error instanceof Error && error.message.includes('read-only mode') ? 'blocked' : 'failed',
-            settings,
-            error instanceof Error ? error.message : String(error)
-          )
+          try {
+            await recordEnterpriseAuditEvent(
+              channel,
+              enterpriseArgs,
+              error instanceof Error && error.message.includes('read-only mode') ? 'blocked' : 'failed',
+              settings,
+              error instanceof Error ? error.message : String(error)
+            )
+          } catch { /* audit failure must not fail the IPC call */ }
           return asHandlerFailure(error)
         }
       }
 
       logInfo('ipc.sync-success', `IPC call ${channel} completed synchronously.`, { channel })
-      await recordEnterpriseAuditEvent(channel, enterpriseArgs, 'success', settings)
+      try { await recordEnterpriseAuditEvent(channel, enterpriseArgs, 'success', settings) } catch { /* audit failure must not fail the IPC call */ }
       return result
     } catch (error) {
       logError('ipc.sync-failure', `IPC call ${channel} failed synchronously.`, { channel }, error)
-      await recordEnterpriseAuditEvent(
-        channel,
-        enterpriseArgs,
-        'failed',
-        settings,
-        error instanceof Error ? error.message : String(error)
-      )
+      try {
+        await recordEnterpriseAuditEvent(
+          channel,
+          enterpriseArgs,
+          'failed',
+          settings,
+          error instanceof Error ? error.message : String(error)
+        )
+      } catch { /* audit failure must not fail the IPC call */ }
       return asHandlerFailure(error)
     }
   })
@@ -256,8 +261,9 @@ app.on('before-quit', (e) => {
   }
 
   if (isQuitting || (pendingRequests.size === 0 && !hasPendingAwsCredentialActivity())) return
-  isQuitting = true
   e.preventDefault()
+  if (isQuitting) return
+  isQuitting = true
   const timeout = new Promise<void>(resolve => setTimeout(resolve, 5000))
   Promise.race([
     Promise.all([

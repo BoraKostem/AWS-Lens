@@ -3,6 +3,7 @@ import path from 'node:path'
 
 import { app } from 'electron'
 import type { TerraformRunRecord, TerraformRunHistoryFilter } from '@shared/types'
+import { logWarn } from './observability'
 
 const MAX_RECORDS = 500
 
@@ -31,7 +32,8 @@ function readIndex(): TerraformRunRecord[] {
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
     return parsed as TerraformRunRecord[]
-  } catch {
+  } catch (error) {
+    logWarn('terraformHistoryStore.readIndex', 'Failed to read or parse run history index.', { indexPath: indexPath() }, error)
     return []
   }
 }

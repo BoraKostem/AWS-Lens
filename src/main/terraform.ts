@@ -86,6 +86,7 @@ const PLAN_FILE = '.terraform-workspace.tfplan'
 const PLAN_METADATA_FILE = '.terraform-workspace.tfplan.meta.json'
 const STATE_CACHE_FILE = '.terraform-workspace.state.json'
 const STATE_BACKUP_LIMIT = 20
+const COMMAND_LOG_CAP_PER_PROJECT = 100
 
 const commandLogs = new Map<string, TerraformCommandLog[]>()
 const savedPlanPaths = new Map<string, string>()
@@ -123,19 +124,19 @@ function listTerraformFiles(rootPath: string): string[] {
 }
 
 function managedInputsPath(rootPath: string): string {
-  return path.join(rootPath, INPUTS_FILE)
+  return path.join(path.resolve(rootPath), INPUTS_FILE)
 }
 
 function temporaryStateVarFilePath(rootPath: string): string {
-  return path.join(rootPath, 'terraform.tfvars.json')
+  return path.join(path.resolve(rootPath), 'terraform.tfvars.json')
 }
 
 function stateCachePath(rootPath: string): string {
-  return path.join(rootPath, STATE_CACHE_FILE)
+  return path.join(path.resolve(rootPath), STATE_CACHE_FILE)
 }
 
 function planPath(rootPath: string): string {
-  return path.join(rootPath, PLAN_FILE)
+  return path.join(path.resolve(rootPath), PLAN_FILE)
 }
 
 function planJsonPath(rootPath: string): string {
@@ -174,12 +175,12 @@ function terminateChildProcess(child: ChildProcessWithoutNullStreams | null): vo
 
   if (process.platform === 'win32' && child.pid) {
     try {
-      const killer = spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
+      // Wait for the kill command to exit so we know the process tree is gone before we proceed.
+      execFileSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
         windowsHide: true,
         stdio: 'ignore',
         shell: false
       })
-      killer.unref()
       return
     } catch {
       /* fall back to direct kill */
@@ -2860,7 +2861,7 @@ export { cloudTrailServiceForType }
 function pushLog(projectId: string, log: TerraformCommandLog): void {
   const logs = commandLogs.get(projectId) ?? []
   logs.unshift(log)
-  commandLogs.set(projectId, logs.slice(0, 24))
+  commandLogs.set(projectId, logs.slice(0, COMMAND_LOG_CAP_PER_PROJECT))
 }
 
 async function runTerraformShowJson(rootPath: string, planPath: string, env: Record<string, string>): Promise<void> {
@@ -3072,6 +3073,12 @@ export async function runProjectCommand(
 
   pushLog(request.projectId, log)
   emit(window, { type: 'started', projectId: request.projectId, log })
+
+  if (activeTerraformRuns.has(request.projectId)) {
+    throw new Error(
+      `A Terraform ${activeTerraformRuns.get(request.projectId)!.command} is already running for this project. Wait for it to finish before starting a new one.`
+    )
+  }
 
   // Persist run record to history store
   const currentWorkspace = readText(path.join(project.rootPath, '.terraform', 'environment')).trim() || 'default'
