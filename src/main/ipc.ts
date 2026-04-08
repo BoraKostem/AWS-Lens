@@ -1,5 +1,4 @@
 import { execFile } from 'node:child_process'
-import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -17,9 +16,10 @@ import {
   getGcpCliContext,
   listGcpProjects
 } from './gcpCli'
-import { getVaultEntryCounts, listVaultEntries, revealVaultEntrySecret, saveVaultEntry } from './localVault'
+import { getVaultEntryCounts } from './localVault'
 import { createHandlerWrapper, type OperationOptions } from './operations'
 import { checkForAppUpdates, downloadAppUpdate, getReleaseInfo, installAppUpdate } from './releaseCheck'
+import { importSshPrivateKeyToVault, stageVaultSshPrivateKey } from './sshKeyMaterial'
 import { getSelectedProjectId, setSelectedProjectId } from './store'
 import {
   addProject,
@@ -85,105 +85,6 @@ function loadGcpSdk(): Promise<GcpSdkModule> {
   }
 
   return gcpSdkPromise
-}
-
-async function lockDownPrivateKey(filePath: string): Promise<void> {
-  if (process.platform === 'win32') {
-    const username = process.env.USERNAME
-    if (!username) {
-      throw new Error('Unable to determine the current Windows user for SSH key permissions.')
-    }
-
-    await execFileAsync('icacls', [filePath, '/inheritance:r'])
-    await execFileAsync('icacls', [filePath, '/grant:r', `${username}:R`])
-    return
-  }
-
-  await fs.chmod(filePath, 0o600)
-}
-
-async function stageSshPrivateKey(sourcePath: string): Promise<string> {
-  const extension = path.extname(sourcePath) || '.pem'
-  const targetDir = path.join(app.getPath('temp'), 'aws-lens', 'ssh-keys')
-  const targetPath = path.join(targetDir, `${randomUUID()}${extension}`)
-
-  await fs.mkdir(targetDir, { recursive: true })
-  await fs.copyFile(sourcePath, targetPath)
-  await fs.copyFile(`${sourcePath}.pub`, `${targetPath}.pub`).catch(() => undefined)
-  await lockDownPrivateKey(targetPath)
-
-  return targetPath
-}
-
-async function stageVaultSshPrivateKey(entryId: string): Promise<string> {
-  const entry = listVaultEntries().find((candidate) => candidate.id === entryId)
-  if (!entry) {
-    throw new Error('Selected vault key could not be found.')
-  }
-  if (entry.kind !== 'pem' && entry.kind !== 'ssh-key') {
-    throw new Error('Selected vault entry is not an SSH private key.')
-  }
-
-  const secret = revealVaultEntrySecret(entry.id)
-  const extension = path.extname(entry.metadata.fileName || entry.name) || (entry.kind === 'pem' ? '.pem' : '.key')
-  const targetDir = path.join(app.getPath('temp'), 'aws-lens', 'ssh-keys')
-  const targetPath = path.join(targetDir, `${randomUUID()}${extension}`)
-
-  await fs.mkdir(targetDir, { recursive: true })
-  await fs.writeFile(targetPath, secret, 'utf8')
-
-  const publicKeyCandidates = [entry.metadata.sourcePath, entry.metadata.stagedPath]
-    .map((candidate) => candidate?.trim())
-    .filter((candidate): candidate is string => Boolean(candidate))
-    .map((candidate) => `${candidate}.pub`)
-
-  let publicKey = entry.metadata.publicKey?.trim() ?? ''
-  if (!publicKey) {
-    for (const candidatePath of publicKeyCandidates) {
-      publicKey = await fs.readFile(candidatePath, 'utf8').then((value) => value.trim()).catch(() => '')
-      if (publicKey) {
-        break
-      }
-    }
-  }
-
-  if (publicKey) {
-    await fs.writeFile(`${targetPath}.pub`, `${publicKey}\n`, 'utf8')
-  }
-
-  await lockDownPrivateKey(targetPath)
-  return targetPath
-}
-
-function inferSshVaultKind(filePath: string): 'pem' | 'ssh-key' {
-  return path.extname(filePath).toLowerCase() === '.pem' ? 'pem' : 'ssh-key'
-}
-
-async function importSshPrivateKeyToVault(sourcePath: string): Promise<Ec2ChosenSshKey> {
-  const stagedPath = await stageSshPrivateKey(sourcePath)
-  const content = await fs.readFile(sourcePath, 'utf8')
-  const baseName = path.basename(sourcePath)
-  const publicKey = await fs.readFile(`${sourcePath}.pub`, 'utf8').then((value) => value.trim()).catch(() => '')
-  const saved = saveVaultEntry({
-    kind: inferSshVaultKind(sourcePath),
-    name: baseName,
-    secret: content,
-    metadata: {
-      sourcePath,
-      stagedPath,
-      fileName: baseName,
-      publicKey
-    },
-    origin: 'imported-file',
-    rotationState: 'not-applicable'
-  })
-
-  return {
-    stagedPath,
-    originalPath: sourcePath,
-    vaultEntryId: saved.id,
-    vaultEntryName: saved.name
-  }
 }
 
 function normalizeKeyName(value: string): string {

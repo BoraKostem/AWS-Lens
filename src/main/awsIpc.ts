@@ -8,10 +8,11 @@ import { getCallerIdentity } from './aws/sts'
 import { createHandlerWrapper } from './operations'
 import {
   assumeRoleSession,
+  assumeSavedRoleTarget,
   deleteAssumeRoleTarget,
   deleteSession,
-  getAssumeRoleTarget,
   listSessionHubState,
+  refreshAssumedSession,
   saveAssumeRoleTarget
 } from './sessionHub'
 
@@ -36,22 +37,11 @@ export function registerAwsIpcHandlers(): void {
   ipcMain.handle('session-hub:assume', async (_event, request: AssumeRoleRequest) =>
     wrap(() => assumeRoleSession(request))
   )
+  ipcMain.handle('session-hub:session:refresh', async (_event, sessionId: string) =>
+    wrap(() => refreshAssumedSession(sessionId))
+  )
   ipcMain.handle('session-hub:assume-target', async (_event, targetId: string) =>
-    wrap(async () => {
-      const target = getAssumeRoleTarget(targetId)
-      if (!target) {
-        throw new Error('Saved assume-role target was not found.')
-      }
-
-      return assumeRoleSession({
-        label: target.label,
-        roleArn: target.roleArn,
-        sessionName: target.defaultSessionName,
-        externalId: target.externalId || undefined,
-        sourceProfile: target.sourceProfile || undefined,
-        region: target.defaultRegion || undefined
-      })
-    })
+    wrap(() => assumeSavedRoleTarget(targetId))
   )
   ipcMain.handle('sts:get-caller-identity', async (_event, connection: AwsConnection) =>
     wrap(() => getCallerIdentity(connection))
