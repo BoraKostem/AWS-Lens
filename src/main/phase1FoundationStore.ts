@@ -4,6 +4,8 @@ import { randomUUID } from 'node:crypto'
 import { app } from 'electron'
 
 import type {
+  CloudWatchInvestigationHistoryEntry,
+  CloudWatchInvestigationHistoryInput,
   CloudWatchQueryFilter,
   CloudWatchQueryHistoryEntry,
   CloudWatchQueryHistoryInput,
@@ -23,6 +25,7 @@ import { readSecureJsonFile, writeSecureJsonFile } from './secureJson'
 type Phase1FoundationState = {
   governanceTagDefaults: GovernanceTagDefaults
   cloudWatchSavedQueries: CloudWatchSavedQuery[]
+  cloudWatchInvestigationHistory: CloudWatchInvestigationHistoryEntry[]
   cloudWatchQueryHistory: CloudWatchQueryHistoryEntry[]
   dbConnectionPresets: DbConnectionPreset[]
 }
@@ -87,6 +90,7 @@ const DEFAULT_GOVERNANCE_TAG_DEFAULTS: GovernanceTagDefaults = {
 const DEFAULT_STATE: Phase1FoundationState = {
   governanceTagDefaults: DEFAULT_GOVERNANCE_TAG_DEFAULTS,
   cloudWatchSavedQueries: [],
+  cloudWatchInvestigationHistory: [],
   cloudWatchQueryHistory: [],
   dbConnectionPresets: []
 }
@@ -184,6 +188,49 @@ function sanitizeCloudWatchSavedQuery(value: unknown): CloudWatchSavedQuery | nu
   }
 }
 
+function sanitizeCloudWatchInvestigationHistoryEntry(value: unknown): CloudWatchInvestigationHistoryEntry | null {
+  const raw = isRecord(value) ? value : null
+  if (!raw) {
+    return null
+  }
+
+  const id = sanitizeString(raw.id)
+  const profile = sanitizeString(raw.profile)
+  const region = sanitizeString(raw.region)
+  const title = sanitizeString(raw.title)
+  const detail = sanitizeString(raw.detail)
+  const kind = raw.kind === 'focus' ||
+    raw.kind === 'open-log-group' ||
+    raw.kind === 'investigate-log-group' ||
+    raw.kind === 'run-query' ||
+    raw.kind === 'save-query'
+    ? raw.kind
+    : ''
+  const severity = raw.severity === 'info' ||
+    raw.severity === 'success' ||
+    raw.severity === 'warning' ||
+    raw.severity === 'error'
+    ? raw.severity
+    : ''
+
+  if (!id || !profile || !region || !title || !detail || !kind || !severity) {
+    return null
+  }
+
+  return {
+    id,
+    profile,
+    region,
+    serviceHint: sanitizeServiceHint(raw.serviceHint),
+    logGroupNames: sanitizeStringArray(raw.logGroupNames),
+    kind,
+    title,
+    detail,
+    severity,
+    occurredAt: sanitizeString(raw.occurredAt)
+  }
+}
+
 function sanitizeCloudWatchQueryHistoryEntry(value: unknown): CloudWatchQueryHistoryEntry | null {
   const raw = isRecord(value) ? value : null
   if (!raw) {
@@ -274,6 +321,11 @@ function sanitizeState(value: unknown): Phase1FoundationState {
         .map((entry) => sanitizeCloudWatchSavedQuery(entry))
         .filter((entry): entry is CloudWatchSavedQuery => Boolean(entry))
       : [],
+    cloudWatchInvestigationHistory: Array.isArray(raw.cloudWatchInvestigationHistory)
+      ? raw.cloudWatchInvestigationHistory
+        .map((entry) => sanitizeCloudWatchInvestigationHistoryEntry(entry))
+        .filter((entry): entry is CloudWatchInvestigationHistoryEntry => Boolean(entry))
+      : [],
     cloudWatchQueryHistory: Array.isArray(raw.cloudWatchQueryHistory)
       ? raw.cloudWatchQueryHistory
         .map((entry) => sanitizeCloudWatchQueryHistoryEntry(entry))
@@ -304,6 +356,10 @@ function sortSavedQueries(queries: CloudWatchSavedQuery[]): CloudWatchSavedQuery
   return [...queries].sort((left, right) =>
     right.updatedAt.localeCompare(left.updatedAt) || left.name.localeCompare(right.name)
   )
+}
+
+function sortInvestigationHistory(entries: CloudWatchInvestigationHistoryEntry[]): CloudWatchInvestigationHistoryEntry[] {
+  return [...entries].sort((left, right) => right.occurredAt.localeCompare(left.occurredAt))
 }
 
 function sortQueryHistory(entries: CloudWatchQueryHistoryEntry[]): CloudWatchQueryHistoryEntry[] {
@@ -437,6 +493,53 @@ export function deleteCloudWatchSavedQuery(id: string): void {
   })
 }
 
+export function listCloudWatchInvestigationHistory(filter?: CloudWatchQueryFilter): CloudWatchInvestigationHistoryEntry[] {
+  const state = readState()
+  const filtered = state.cloudWatchInvestigationHistory.filter((entry) => matchesCloudWatchFilter(entry, filter))
+  const sorted = sortInvestigationHistory(filtered)
+  const limit = typeof filter?.limit === 'number' && Number.isFinite(filter.limit) && filter.limit > 0
+    ? Math.round(filter.limit)
+    : 0
+  return limit > 0 ? sorted.slice(0, limit) : sorted
+}
+
+export function recordCloudWatchInvestigationHistory(
+  input: CloudWatchInvestigationHistoryInput
+): CloudWatchInvestigationHistoryEntry {
+  const profile = input.profile.trim()
+  const region = input.region.trim()
+  const title = input.title.trim()
+  const detail = input.detail.trim()
+
+  if (!profile || !region) {
+    throw new Error('CloudWatch investigation history entries must be scoped to a profile and region.')
+  }
+  if (!title || !detail) {
+    throw new Error('CloudWatch investigation history entries require a title and detail.')
+  }
+
+  const state = readState()
+  const entry: CloudWatchInvestigationHistoryEntry = {
+    id: randomUUID(),
+    profile,
+    region,
+    serviceHint: sanitizeServiceHint(input.serviceHint),
+    logGroupNames: sanitizeStringArray(input.logGroupNames),
+    kind: input.kind,
+    title,
+    detail,
+    severity: input.severity,
+    occurredAt: new Date().toISOString()
+  }
+
+  writeState({
+    ...state,
+    cloudWatchInvestigationHistory: sortInvestigationHistory([entry, ...state.cloudWatchInvestigationHistory]).slice(0, MAX_QUERY_HISTORY)
+  })
+
+  return entry
+}
+
 export function listCloudWatchQueryHistory(filter?: CloudWatchQueryFilter): CloudWatchQueryHistoryEntry[] {
   const state = readState()
   const filtered = state.cloudWatchQueryHistory.filter((entry) => matchesCloudWatchFilter(entry, filter))
@@ -499,6 +602,21 @@ export function clearCloudWatchQueryHistory(filter?: CloudWatchQueryFilter): num
     writeState({
       ...state,
       cloudWatchQueryHistory: remaining
+    })
+  }
+
+  return removedCount
+}
+
+export function clearCloudWatchInvestigationHistory(filter?: CloudWatchQueryFilter): number {
+  const state = readState()
+  const remaining = state.cloudWatchInvestigationHistory.filter((entry) => !matchesCloudWatchFilter(entry, filter))
+  const removedCount = state.cloudWatchInvestigationHistory.length - remaining.length
+
+  if (removedCount > 0) {
+    writeState({
+      ...state,
+      cloudWatchInvestigationHistory: remaining
     })
   }
 

@@ -1732,6 +1732,30 @@ export type CloudWatchQueryFilter = {
   limit?: number
 }
 
+export type CloudWatchInvestigationEventKind =
+  | 'focus'
+  | 'open-log-group'
+  | 'investigate-log-group'
+  | 'run-query'
+  | 'save-query'
+
+export type CloudWatchInvestigationEventSeverity = 'info' | 'success' | 'warning' | 'error'
+
+export type CloudWatchInvestigationHistoryEntry = {
+  id: string
+  profile: string
+  region: string
+  serviceHint: ServiceId | ''
+  logGroupNames: string[]
+  kind: CloudWatchInvestigationEventKind
+  title: string
+  detail: string
+  severity: CloudWatchInvestigationEventSeverity
+  occurredAt: string
+}
+
+export type CloudWatchInvestigationHistoryInput = Omit<CloudWatchInvestigationHistoryEntry, 'id' | 'occurredAt'>
+
 export type CloudWatchSavedQuery = {
   id: string
   name: string
@@ -2572,11 +2596,40 @@ export type OverviewAccountContext = {
   caller: CallerIdentity
   billingHomeRegion: string
   payerVisibility: 'payer-or-management' | 'member-or-standalone' | 'unavailable'
+  payerAccountId: string
+  payerAccountLabel: string
   linkedAccounts: BillingLinkedAccountSummary[]
   ownershipHints: BillingTagOwnershipHint[]
+  organization: OverviewOrganizationContext | null
   capabilitySnapshot: AwsCapabilitySnapshot
   notes: string[]
   generatedAt: string
+}
+
+export type OverviewOrganizationNodeType = 'root' | 'organizational-unit' | 'account'
+
+export type OverviewOrganizationNode = {
+  id: string
+  parentId: string
+  type: OverviewOrganizationNodeType
+  name: string
+  arn: string
+  accountId: string
+  email: string
+}
+
+export type OverviewOrganizationContext = {
+  status: 'available' | 'limited' | 'unavailable'
+  organizationId: string
+  organizationArn: string
+  managementAccountId: string
+  managementAccountName: string
+  rootId: string
+  rootName: string
+  currentAccountId: string
+  currentAccountPath: string[]
+  nodes: OverviewOrganizationNode[]
+  warning: string
 }
 
 export type ServiceRelationship = {

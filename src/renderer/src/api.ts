@@ -49,6 +49,8 @@ import type {
   AppReleaseInfo,
   AppSecuritySummary,
   CloudProviderId,
+  CloudWatchInvestigationHistoryEntry,
+  CloudWatchInvestigationHistoryInput,
   CloudWatchQueryFilter,
   CloudWatchQueryExecutionInput,
   CloudWatchQueryExecutionResult,
@@ -313,6 +315,9 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   listCloudWatchSavedQueries: 'phase1-foundations',
   saveCloudWatchSavedQuery: 'phase1-foundations',
   deleteCloudWatchSavedQuery: 'phase1-foundations',
+  listCloudWatchInvestigationHistory: 'phase1-foundations',
+  recordCloudWatchInvestigationHistory: 'phase1-foundations',
+  clearCloudWatchInvestigationHistory: 'phase1-foundations',
   listCloudWatchQueryHistory: 'phase1-foundations',
   recordCloudWatchQueryHistory: 'phase1-foundations',
   clearCloudWatchQueryHistory: 'phase1-foundations',
@@ -1044,6 +1049,22 @@ export async function saveCloudWatchSavedQuery(input: CloudWatchSavedQueryInput)
 
 export async function deleteCloudWatchSavedQuery(id: string): Promise<void> {
   return unwrap((await awsBridge().deleteCloudWatchSavedQuery(id)) as Wrapped<void>)
+}
+
+export async function listCloudWatchInvestigationHistory(
+  filter?: CloudWatchQueryFilter
+): Promise<CloudWatchInvestigationHistoryEntry[]> {
+  return unwrap((await awsBridge().listCloudWatchInvestigationHistory(filter)) as Wrapped<CloudWatchInvestigationHistoryEntry[]>)
+}
+
+export async function recordCloudWatchInvestigationHistory(
+  input: CloudWatchInvestigationHistoryInput
+): Promise<CloudWatchInvestigationHistoryEntry> {
+  return unwrap((await awsBridge().recordCloudWatchInvestigationHistory(input)) as Wrapped<CloudWatchInvestigationHistoryEntry>)
+}
+
+export async function clearCloudWatchInvestigationHistory(filter?: CloudWatchQueryFilter): Promise<number> {
+  return unwrap((await awsBridge().clearCloudWatchInvestigationHistory(filter)) as Wrapped<number>)
 }
 
 export async function listCloudWatchQueryHistory(filter?: CloudWatchQueryFilter): Promise<CloudWatchQueryHistoryEntry[]> {

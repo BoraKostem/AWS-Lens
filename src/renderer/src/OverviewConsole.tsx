@@ -3,9 +3,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AwsCapabilityHint, AwsConnection, CostBreakdown, InsightItem, OverviewAccountContext, OverviewMetrics, OverviewStatistics, RegionMetric, RegionalSignal, RelationshipMap, ServiceId, ServiceRelationship, TagSearchResult } from '@shared/types'
 import { useAwsPageConnection } from './AwsPage'
 import { getCostBreakdown, getOverviewAccountContext, getOverviewMetrics, getOverviewStatistics, getRelationshipMap, searchByTag } from './api'
+import { IncidentTimelineTab } from './IncidentTimelineTab'
 import { SvcState, variantForError } from './SvcState'
 
-type OverviewTab = 'overview' | 'relationships' | 'statistics' | 'tags'
+type OverviewTab = 'overview' | 'incidents' | 'relationships' | 'statistics' | 'tags'
 type RelFilterType = 'all' | string
 type InsightFilter = 'all' | 'info' | 'warning' | 'error'
 type SignalFilter = 'all' | 'cost' | 'security' | 'operations' | 'cleanup'
@@ -62,6 +63,50 @@ function describePayerVisibility(value: OverviewAccountContext['payerVisibility'
   }
 }
 
+function flattenOrganizationNodes(accountContext: OverviewAccountContext): Array<{ id: string; depth: number; label: string; type: string; isCurrent: boolean }> {
+  const organization = accountContext.organization
+  if (!organization?.nodes.length) {
+    return []
+  }
+
+  const byParent = new Map<string, typeof organization.nodes>()
+  for (const node of organization.nodes) {
+    const bucket = byParent.get(node.parentId) ?? []
+    bucket.push(node)
+    byParent.set(node.parentId, bucket)
+  }
+
+  for (const bucket of byParent.values()) {
+    bucket.sort((left, right) => {
+      if (left.type === right.type) {
+        return left.name.localeCompare(right.name)
+      }
+      if (left.type === 'account') return 1
+      if (right.type === 'account') return -1
+      return left.name.localeCompare(right.name)
+    })
+  }
+
+  const rows: Array<{ id: string; depth: number; label: string; type: string; isCurrent: boolean }> = []
+
+  function visit(parentId: string, depth: number): void {
+    const children = byParent.get(parentId) ?? []
+    for (const node of children) {
+      rows.push({
+        id: node.id,
+        depth,
+        label: node.name,
+        type: node.type,
+        isCurrent: node.type === 'account' && node.accountId === accountContext.caller.account
+      })
+      visit(node.id, depth + 1)
+    }
+  }
+
+  visit('', 0)
+  return rows
+}
+
 function sumMetricField(regions: RegionMetric[], key: keyof RegionMetric): number {
   return regions.reduce((s, r) => {
     const v = r[key]
@@ -79,12 +124,25 @@ function getTopServiceTiles(metrics: OverviewMetrics, limit = 8): Array<{ tile: 
 export function OverviewConsole({
   onBack,
   onNavigate,
+  onNavigateCloudWatch,
+  onNavigateCloudTrail,
+  onNavigateTerraform,
+  onRunTerminalCommand,
   state,
   embedded = false,
   refreshNonce = 0
 }: {
   onBack?: () => void
-  onNavigate?: (serviceId: ServiceId) => void
+  onNavigate?: (serviceId: ServiceId, resourceId?: string) => void
+  onNavigateCloudWatch?: (focus: { logGroupNames?: string[]; queryString?: string; sourceLabel?: string; serviceHint?: ServiceId | '' }) => void
+  onNavigateCloudTrail?: (focus: { resourceName?: string; startTime?: string; endTime?: string; filter?: string }) => void
+  onNavigateTerraform?: (focus?: {
+    projectId?: string
+    detailTab?: 'operations' | 'actions' | 'state' | 'resources' | 'drift' | 'lab' | 'history'
+    runId?: string
+    driftItemKey?: string
+  }) => void
+  onRunTerminalCommand?: (command: string) => void
   state?: ReturnType<typeof useAwsPageConnection>
   embedded?: boolean
   refreshNonce?: number
@@ -209,6 +267,7 @@ export function OverviewConsole({
 
   const tabLabels: Record<OverviewTab, string> = {
     overview: 'Overview (Region)',
+    incidents: 'Incident Timeline',
     relationships: 'Resource Relationship View',
     statistics: 'Statistics',
     tags: 'Search By Tag'
@@ -233,6 +292,10 @@ export function OverviewConsole({
     if (tagResourceTypeFilter === 'all') return tagResults.resources
     return tagResults.resources.filter((resource) => resource.resourceType === tagResourceTypeFilter)
   }, [tagResults, tagResourceTypeFilter])
+  const organizationRows = useMemo(
+    () => accountContext ? flattenOrganizationNodes(accountContext) : [],
+    [accountContext]
+  )
 
   const displayedMonthlyCost = costBreakdown?.total ?? metrics?.globalTotals.totalCost ?? globalMetrics?.globalTotals.totalCost ?? 0
   const displayedCostDetail = costBreakdown
@@ -429,8 +492,8 @@ export function OverviewConsole({
                                 <strong>{describePayerVisibility(accountContext.payerVisibility)}</strong>
                               </div>
                               <div>
-                                <span>Linked accounts</span>
-                                <strong>{accountContext.linkedAccounts.length}</strong>
+                                <span>Payer / management</span>
+                                <strong>{accountContext.payerAccountLabel}</strong>
                               </div>
                             </div>
                             <div className="overview-note-list">
@@ -461,6 +524,65 @@ export function OverviewConsole({
                               <SvcState
                                 variant="empty"
                                 message="Linked-account rollups are not visible with the current billing context."
+                                compact
+                              />
+                            )}
+                          </article>
+
+                          <article className="overview-account-card">
+                            <div className="panel-header minor">
+                              <h3>Organization Context</h3>
+                              <span className="hero-path" style={{ margin: 0 }}>
+                                {accountContext.organization?.status === 'available'
+                                  ? 'Live tree'
+                                  : accountContext.organization?.status === 'limited'
+                                    ? 'Partial visibility'
+                                    : 'Unavailable'}
+                              </span>
+                            </div>
+                            <div className="overview-account-kv">
+                              <div>
+                                <span>Org ID</span>
+                                <strong>{accountContext.organization?.organizationId || '-'}</strong>
+                              </div>
+                              <div>
+                                <span>Current OU path</span>
+                                <strong>{accountContext.organization?.currentAccountPath.join(' / ') || 'Not available'}</strong>
+                              </div>
+                              <div>
+                                <span>Root</span>
+                                <strong>{accountContext.organization?.rootName || '-'}</strong>
+                              </div>
+                              <div>
+                                <span>Tree nodes</span>
+                                <strong>{organizationRows.length}</strong>
+                              </div>
+                            </div>
+                            {accountContext.organization?.warning && (
+                              <div className="overview-note-item">{accountContext.organization.warning}</div>
+                            )}
+                            {organizationRows.length ? (
+                              <div className="overview-org-tree">
+                                {organizationRows.slice(0, 40).map((node) => (
+                                  <div
+                                    key={node.id}
+                                    className={`overview-org-row ${node.isCurrent ? 'active' : ''}`}
+                                    style={{ paddingLeft: `${node.depth * 16 + 10}px` }}
+                                  >
+                                    <span className={`overview-org-type overview-org-type-${node.type}`}>
+                                      {node.type === 'organizational-unit' ? 'OU' : node.type === 'root' ? 'Root' : 'Acct'}
+                                    </span>
+                                    <strong>{node.label}</strong>
+                                  </div>
+                                ))}
+                                {organizationRows.length > 40 && (
+                                  <div className="overview-note-item">Showing first 40 nodes to keep the overview compact.</div>
+                                )}
+                              </div>
+                            ) : (
+                              <SvcState
+                                variant="empty"
+                                message="Organization tree is not visible with the current credentials."
                                 compact
                               />
                             )}
@@ -639,6 +761,20 @@ export function OverviewConsole({
                 <SvcState variant="empty" message="No regional data loaded yet." compact />
               )}
             </>
+          )}
+
+          {tab === 'incidents' && connectionState.connection && (
+            <section className="overview-surface">
+              <IncidentTimelineTab
+                scope="overview"
+                connection={connectionState.connection}
+                onNavigateService={(serviceId, resourceId) => onNavigate?.(serviceId, resourceId)}
+                onNavigateCloudWatch={onNavigateCloudWatch}
+                onNavigateCloudTrail={onNavigateCloudTrail}
+                onNavigateTerraform={onNavigateTerraform}
+                onRunTerminalCommand={onRunTerminalCommand}
+              />
+            </section>
           )}
 
           {/* ── Relationships tab ─────────────────────────────── */}

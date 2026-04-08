@@ -12,6 +12,7 @@ import type {
   AwsAssumeRoleTarget,
   AwsConnection,
   CloudProviderId,
+  CloudWatchInvestigationHistoryInput,
   BastionLaunchConfig,
   CloudWatchQueryFilter,
   CloudWatchQueryExecutionInput,
@@ -63,6 +64,9 @@ declare global {
       listCloudWatchSavedQueries: (filter?: CloudWatchQueryFilter) => Promise<unknown>
       saveCloudWatchSavedQuery: (input: CloudWatchSavedQueryInput) => Promise<unknown>
       deleteCloudWatchSavedQuery: (id: string) => Promise<unknown>
+      listCloudWatchInvestigationHistory: (filter?: CloudWatchQueryFilter) => Promise<unknown>
+      recordCloudWatchInvestigationHistory: (input: CloudWatchInvestigationHistoryInput) => Promise<unknown>
+      clearCloudWatchInvestigationHistory: (filter?: CloudWatchQueryFilter) => Promise<unknown>
       listCloudWatchQueryHistory: (filter?: CloudWatchQueryFilter) => Promise<unknown>
       recordCloudWatchQueryHistory: (input: CloudWatchQueryHistoryInput) => Promise<unknown>
       clearCloudWatchQueryHistory: (filter?: CloudWatchQueryFilter) => Promise<unknown>

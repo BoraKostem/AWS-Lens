@@ -4,6 +4,7 @@ import type {
   AwsCapabilitySubject,
   ComparisonBaselineInput,
   ComparisonPresetInput,
+  CloudWatchInvestigationHistoryInput,
   CloudWatchQueryFilter,
   CloudWatchQueryHistoryInput,
   CloudWatchSavedQueryInput,
@@ -47,14 +48,17 @@ import {
 } from './localVault'
 import { createHandlerWrapper } from './operations'
 import {
+  clearCloudWatchInvestigationHistory,
   clearCloudWatchQueryHistory,
   deleteCloudWatchSavedQuery,
   deleteDbConnectionPreset,
   getGovernanceTagDefaults,
+  listCloudWatchInvestigationHistory,
   listCloudWatchQueryHistory,
   listCloudWatchSavedQueries,
   listDbConnectionPresets,
   markDbConnectionPresetUsed,
+  recordCloudWatchInvestigationHistory,
   recordCloudWatchQueryHistory,
   saveCloudWatchSavedQuery,
   saveDbConnectionPreset,
@@ -84,11 +88,20 @@ export function registerFoundationIpcHandlers(): void {
   ipcMain.handle('phase1:list-cloudwatch-query-history', async (_event, filter?: CloudWatchQueryFilter) =>
     wrap(() => listCloudWatchQueryHistory(filter))
   )
+  ipcMain.handle('phase1:list-cloudwatch-investigation-history', async (_event, filter?: CloudWatchQueryFilter) =>
+    wrap(() => listCloudWatchInvestigationHistory(filter))
+  )
   ipcMain.handle('phase1:record-cloudwatch-query-history', async (_event, input: CloudWatchQueryHistoryInput) =>
     wrap(() => recordCloudWatchQueryHistory(input))
   )
+  ipcMain.handle('phase1:record-cloudwatch-investigation-history', async (_event, input: CloudWatchInvestigationHistoryInput) =>
+    wrap(() => recordCloudWatchInvestigationHistory(input))
+  )
   ipcMain.handle('phase1:clear-cloudwatch-query-history', async (_event, filter?: CloudWatchQueryFilter) =>
     wrap(() => clearCloudWatchQueryHistory(filter))
+  )
+  ipcMain.handle('phase1:clear-cloudwatch-investigation-history', async (_event, filter?: CloudWatchQueryFilter) =>
+    wrap(() => clearCloudWatchInvestigationHistory(filter))
   )
   ipcMain.handle('phase1:list-db-connection-presets', async (_event, filter?: DbConnectionPresetFilter) =>
     wrap(() => listDbConnectionPresets(filter))

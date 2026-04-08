@@ -643,6 +643,56 @@ textarea {
   min-width: 0;
 }
 
+.overview-org-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+}
+
+.overview-org-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 34px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.overview-org-row.active {
+  border-color: rgba(80, 180, 255, 0.35);
+  background: rgba(80, 180, 255, 0.08);
+}
+
+.overview-org-type {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.overview-org-type-root {
+  background: rgba(80, 180, 255, 0.16);
+  color: #9dd8ff;
+}
+
+.overview-org-type-organizational-unit {
+  background: rgba(255, 204, 102, 0.16);
+  color: #ffd789;
+}
+
+.overview-org-type-account {
+  background: rgba(110, 231, 183, 0.14);
+  color: #8af0c5;
+}
+
 .overview-hint-card {
   display: flex;
   flex-direction: column;

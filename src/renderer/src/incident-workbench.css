@@ -1,0 +1,247 @@
+.tf-incident-toolbar,
+.tf-incident-window-buttons,
+.tf-incident-view-buttons,
+.tf-incident-actions,
+.tf-correlation-sources,
+.tf-correlation-meta,
+.tf-incident-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.tf-incident-toolbar {
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.tf-incident-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.tf-incident-filter-span {
+  grid-column: span 1;
+}
+
+.tf-incident-custom-range,
+.tf-incident-warning-list,
+.tf-incident-list,
+.tf-correlation-list,
+.tf-guardrail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tf-incident-custom-range {
+  margin-top: 12px;
+  flex-wrap: wrap;
+  flex-direction: row;
+}
+
+.tf-incident-window-buttons button,
+.tf-incident-view-buttons button {
+  border: 1px solid rgba(120, 138, 160, 0.28);
+  background: rgba(14, 24, 38, 0.72);
+  color: #d9e2ef;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tf-incident-window-buttons button.active,
+.tf-incident-view-buttons button.active {
+  background: linear-gradient(135deg, rgba(74, 143, 231, 0.24), rgba(16, 185, 129, 0.18));
+  border-color: rgba(74, 143, 231, 0.55);
+}
+
+.tf-incident-card,
+.tf-correlation-card,
+.tf-guardrail-card {
+  border: 1px solid rgba(120, 138, 160, 0.18);
+  border-radius: 16px;
+  background: rgba(9, 16, 28, 0.72);
+}
+
+.tf-incident-card {
+  border-left-width: 4px;
+  padding: 12px 14px;
+}
+
+.tf-correlation-card,
+.tf-guardrail-card {
+  padding: 14px;
+}
+
+.tf-incident-card.info,
+.tf-correlation-card.info,
+.tf-guardrail-card.success {
+  border-color: rgba(74, 143, 231, 0.35);
+}
+
+.tf-incident-card.success,
+.tf-correlation-card.success {
+  border-color: rgba(34, 197, 94, 0.35);
+}
+
+.tf-incident-card.warning,
+.tf-correlation-card.warning,
+.tf-guardrail-card.warning {
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.tf-incident-card.danger,
+.tf-correlation-card.danger,
+.tf-guardrail-card.danger {
+  border-color: rgba(239, 68, 68, 0.45);
+}
+
+.tf-incident-card-head,
+.tf-correlation-card-head,
+.tf-guardrail-head,
+.tf-section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.tf-section-hint,
+.tf-incident-detail,
+.tf-guardrail-copy,
+.tf-correlation-item span,
+.tf-guardrail-row span {
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.tf-incident-source,
+.tf-incident-time,
+.tf-correlation-confidence {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.tf-incident-source {
+  background: rgba(56, 189, 248, 0.12);
+  color: #91d5ff;
+}
+
+.tf-incident-source.terraform {
+  background: rgba(124, 58, 237, 0.16);
+  color: #c4b5fd;
+}
+
+.tf-incident-source.cloudtrail {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fcd34d;
+}
+
+.tf-incident-source.cloudwatch {
+  background: rgba(34, 197, 94, 0.16);
+  color: #86efac;
+}
+
+.tf-incident-source.drift {
+  background: rgba(239, 68, 68, 0.14);
+  color: #fca5a5;
+}
+
+.tf-incident-time {
+  background: rgba(148, 163, 184, 0.14);
+  color: #cbd5e1;
+}
+
+.tf-correlation-confidence.high {
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+}
+
+.tf-correlation-confidence.medium {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fcd34d;
+}
+
+.tf-correlation-confidence.low {
+  background: rgba(74, 143, 231, 0.12);
+  color: #93c5fd;
+}
+
+.tf-correlation-grid,
+.tf-guardrail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.tf-correlation-item,
+.tf-guardrail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tf-guardrail-row.stacked,
+.tf-correlation-item {
+  flex-direction: column;
+}
+
+.tf-guardrail-empty {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.tf-guardrail-kicker {
+  display: inline-block;
+  margin-bottom: 4px;
+  color: #91d5ff;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.tf-guardrail-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.tf-guardrail-metrics div {
+  border: 1px solid rgba(120, 138, 160, 0.18);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(14, 24, 38, 0.56);
+}
+
+.tf-guardrail-metrics span {
+  display: block;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.tf-guardrail-metrics strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 18px;
+}
+
+@media (max-width: 1100px) {
+  .tf-incident-filters,
+  .tf-correlation-grid,
+  .tf-guardrail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tf-incident-filter-span {
+    grid-column: span 1;
+  }
+}
