@@ -4,7 +4,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { dialog, ipcMain, shell, app, type BrowserWindow, type OpenDialogOptions } from 'electron'
 
-import type { AppDiagnosticsFailureInput, AppDiagnosticsSnapshot, AppSecuritySummary, AppSettings, AwsConnection, CloudProviderId, Ec2ChosenSshKey, GcpComputeInstanceAction, TerraformCommandRequest, TerraformInputConfiguration, TerraformRunHistoryFilter } from '@shared/types'
+import type { AppDiagnosticsFailureInput, AppDiagnosticsSnapshot, AppSecuritySummary, AppSettings, AwsConnection, CloudProviderId, Ec2ChosenSshKey, GcpComputeInstanceAction, TerraformAdoptionTarget, TerraformCommandRequest, TerraformInputConfiguration, TerraformRunHistoryFilter } from '@shared/types'
 import { getAppSettings, resetAppSettings, updateAppSettings } from './appSettings'
 import { importAwsConfigFile } from './aws/profiles'
 import { getVisibleServiceCatalog, getVisibleWorkspaceCatalog } from './catalog'
@@ -44,6 +44,14 @@ import {
   validateProjectInputs,
   getProjectContext
 } from './terraform'
+import { detectTerraformAdoption } from './terraformAdoption'
+import { generateTerraformAdoptionCode } from './terraformAdoptionCodegen'
+import {
+  applyTerraformAdoptionCode,
+  buildTerraformAdoptionImportExecutionResult
+} from './terraformAdoptionExecution'
+import { mapTerraformAdoption } from './terraformAdoptionMapping'
+import { validateTerraformAdoptionImport } from './terraformAdoptionValidation'
 import { getTerraformDriftReport as getAwsTerraformDriftReport } from './terraformDrift'
 import { listRunRecords, getRunOutput, deleteRunRecord } from './terraformHistoryStore'
 import { detectGovernanceTools, getCachedGovernanceToolkit, runGovernanceChecks, getGovernanceReport } from './terraformGovernance'
@@ -292,6 +300,32 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       }
       return generateAwsTerraformObservabilityReport(profileName, projectId, connection)
     })
+  )
+  ipcMain.handle('terraform:adoption:detect', async (_event, profileName: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget) =>
+    wrap(() => detectTerraformAdoption(profileName, connection, target))
+  )
+  ipcMain.handle('terraform:adoption:map', async (_event, profileName: string, projectId: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget) =>
+    wrap(() => mapTerraformAdoption(profileName, projectId, connection, target))
+  )
+  ipcMain.handle('terraform:adoption:codegen', async (_event, profileName: string, projectId: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget) =>
+    wrap(() => generateTerraformAdoptionCode(profileName, projectId, connection, target))
+  )
+  ipcMain.handle('terraform:adoption:execute-import', async (_event, profileName: string, projectId: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget) =>
+    wrap(async () => {
+      const applyResult = applyTerraformAdoptionCode(profileName, projectId, connection, target)
+      const log = await runProjectCommand({
+        profileName,
+        connection,
+        projectId,
+        command: 'import',
+        importAddress: applyResult.codegen.mapping.suggestedAddress,
+        importId: applyResult.codegen.mapping.importId
+      }, getWindow())
+      return buildTerraformAdoptionImportExecutionResult(applyResult, log)
+    })
+  )
+  ipcMain.handle('terraform:adoption:validate', async (_event, profileName: string, projectId: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget) =>
+    wrap(() => validateTerraformAdoptionImport(profileName, projectId, connection, target, getWindow()))
   )
   ipcMain.handle('terraform:inputs:update', async (_event, profileName: string, projectId: string, inputConfig: TerraformInputConfiguration, connection?: AwsConnection) =>
     wrap(() => updateProjectInputs(profileName, projectId, inputConfig, connection))

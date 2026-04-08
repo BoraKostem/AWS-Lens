@@ -33,6 +33,7 @@ import type {
   SsmPortForwardPreset,
   SsmSessionSummary,
   SubnetSummary,
+  TerraformAdoptionTarget,
   VaultEntrySummary
 } from '@shared/types'
 import { getGovernanceTagDefaults, listKeyPairs, listSecurityGroupsForVpc, listSubnets, listVaultEntries, lookupCloudTrailEventsByResource, recordVaultEntryUse } from './api'
@@ -82,6 +83,7 @@ import {
   terminateEc2Instance
 } from './ec2Api'
 import { ConfirmButton } from './ConfirmButton'
+import { TerraformAdoptionDialog } from './TerraformAdoptionDialog'
 
 type MainTab = 'instances' | 'volumes' | 'snapshots'
 type SideTab = 'overview' | 'ssm' | 'timeline'
@@ -260,6 +262,29 @@ function findSshVaultEntry(entries: VaultEntrySummary[], value: string, preferre
   return entries.find((entry) => entry.name.trim().toLowerCase() === normalizedValue) ?? null
 }
 
+function buildEc2AdoptionTarget(connection: AwsConnection, instance: Ec2InstanceDetail): TerraformAdoptionTarget {
+  const displayName = instance.name && instance.name !== '-' ? instance.name : instance.instanceId
+  return {
+    serviceId: 'ec2',
+    resourceType: 'aws_instance',
+    region: connection.region,
+    displayName,
+    identifier: instance.instanceId,
+    arn: '',
+    name: displayName,
+    tags: instance.tags,
+    resourceContext: {
+      vpcId: instance.vpcId,
+      subnetId: instance.subnetId,
+      securityGroupIds: instance.securityGroups.map((group) => group.id),
+      iamInstanceProfile: instance.iamProfile,
+      availabilityZone: instance.availabilityZone,
+      instanceType: instance.type,
+      imageId: instance.imageId
+    }
+  }
+}
+
 function KV({ items }: { items: Array<[string, string]> }) {
   return (
     <div className="ec2-kv">
@@ -420,6 +445,7 @@ export function Ec2Console({
   const [loading, setLoading] = useState(false)
   const { guard: staleGuard, nextGeneration } = useStaleGuard()
   const [msg, setMsg] = useState('')
+  const [showTerraformAdoptionDialog, setShowTerraformAdoptionDialog] = useState(false)
 
   /* ── Filter state ──────────────────────────────────────── */
   const [stateFilter, setStateFilter] = useState('all')
@@ -1983,6 +2009,15 @@ export function Ec2Console({
                         if (detail?.volumes[0]) setSnapVolume(detail.volumes[0].volumeId)
                         setMainTab('snapshots')
                       }}>Create Snapshot</button>}
+                      {!isTerminatedInstance && (
+                        <button
+                          className="ec2-action-btn"
+                          type="button"
+                          disabled={!detail}
+                          onClick={() => setShowTerraformAdoptionDialog(true)}>
+                          Terraform Adoption
+                        </button>
+                      )}
                       {!isTerminatedInstance && <button className="ec2-action-btn" type="button" onClick={() => {
                         openBastionPanel()
                       }}>Create Bastion</button>}
@@ -3044,6 +3079,13 @@ export function Ec2Console({
           </div>
         </div>
       )}
+
+      <TerraformAdoptionDialog
+        open={showTerraformAdoptionDialog}
+        onClose={() => setShowTerraformAdoptionDialog(false)}
+        connection={connection}
+        target={detail ? buildEc2AdoptionTarget(connection, detail) : null}
+      />
     </div>
   )
 }

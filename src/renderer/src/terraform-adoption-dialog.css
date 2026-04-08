@@ -1,0 +1,247 @@
+.tf-adoption-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(3, 8, 18, 0.72);
+  backdrop-filter: blur(8px);
+}
+
+.tf-adoption-dialog {
+  width: min(1080px, 100%);
+  max-height: min(88vh, 920px);
+  overflow: auto;
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border-radius: 20px;
+  border: 1px solid rgba(126, 151, 182, 0.22);
+  background: linear-gradient(180deg, rgba(12, 18, 31, 0.98), rgba(9, 14, 24, 0.98));
+  box-shadow: 0 28px 72px rgba(0, 0, 0, 0.46);
+  color: #e6edf6;
+}
+
+.tf-adoption-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.tf-adoption-head h3 {
+  margin: 4px 0 6px;
+  font-size: 24px;
+}
+
+.tf-adoption-head p {
+  margin: 0;
+  color: #98a6bb;
+  max-width: 720px;
+}
+
+.tf-adoption-kicker {
+  color: #8dd2ff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.tf-adoption-banner {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(126, 151, 182, 0.18);
+  background: rgba(18, 27, 40, 0.9);
+  color: #cfd8e6;
+}
+
+.tf-adoption-banner.success {
+  border-color: rgba(72, 187, 120, 0.3);
+  background: rgba(14, 44, 27, 0.84);
+}
+
+.tf-adoption-banner.error {
+  border-color: rgba(248, 113, 113, 0.32);
+  background: rgba(60, 19, 22, 0.84);
+}
+
+.tf-adoption-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.tf-adoption-grid-compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tf-adoption-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(126, 151, 182, 0.16);
+  background: rgba(15, 23, 36, 0.86);
+  min-width: 0;
+}
+
+.tf-adoption-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tf-adoption-card-head h4 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.tf-adoption-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.tf-adoption-pill.managed {
+  background: rgba(52, 211, 153, 0.16);
+  color: #8ee7c0;
+}
+
+.tf-adoption-pill.config {
+  background: rgba(251, 191, 36, 0.16);
+  color: #f7d48a;
+}
+
+.tf-adoption-pill.manual {
+  background: rgba(125, 211, 252, 0.15);
+  color: #95dfff;
+}
+
+.tf-adoption-meta {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(9, 14, 22, 0.9);
+  border: 1px solid rgba(126, 151, 182, 0.12);
+}
+
+.tf-adoption-meta span,
+.tf-adoption-preview-block span {
+  color: #8fa2bc;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tf-adoption-meta strong {
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.tf-adoption-note,
+.tf-adoption-empty {
+  color: #9fb0c7;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.tf-adoption-list,
+.tf-adoption-projects {
+  display: grid;
+  gap: 10px;
+}
+
+.tf-adoption-list-item,
+.tf-adoption-project {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(126, 151, 182, 0.14);
+  background: rgba(8, 12, 20, 0.9);
+}
+
+.tf-adoption-list-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tf-adoption-list-item small,
+.tf-adoption-project small {
+  color: #8fa0b8;
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.tf-adoption-project {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: flex-start;
+  cursor: pointer;
+}
+
+.tf-adoption-project input {
+  margin-top: 2px;
+}
+
+.tf-adoption-project.active {
+  border-color: rgba(125, 211, 252, 0.34);
+  box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.18);
+}
+
+.tf-adoption-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tf-adoption-preview-block {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.tf-adoption-preview-block pre {
+  margin: 0;
+  min-width: 0;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(126, 151, 182, 0.12);
+  background: rgba(6, 10, 18, 0.94);
+  color: #dbe7f5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  .tf-adoption-dialog {
+    padding: 16px;
+  }
+
+  .tf-adoption-grid,
+  .tf-adoption-grid-compact {
+    grid-template-columns: 1fr;
+  }
+
+  .tf-adoption-head {
+    display: grid;
+  }
+}

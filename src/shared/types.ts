@@ -4399,6 +4399,184 @@ export type TerraformProjectListItem = Pick<
   'id' | 'name' | 'rootPath' | 'status' | 'stateSource' | 'metadata' | 'lastPlanSummary' | 'lastCommandAt' | 'inventory' | 'environment' | 'currentWorkspace'
 >
 
+export type TerraformAdoptionResourceType =
+  | 'aws_instance'
+  | 'aws_db_instance'
+  | 'aws_rds_cluster'
+  | 'aws_s3_bucket'
+  | 'aws_iam_user'
+  | 'aws_iam_group'
+  | 'aws_iam_role'
+  | 'aws_iam_policy'
+  | 'aws_security_group'
+  | 'aws_eks_cluster'
+  | 'aws_ecs_service'
+  | 'aws_lambda_function'
+  | 'aws_route53_zone'
+  | 'aws_secretsmanager_secret'
+  | 'aws_kms_key'
+  | 'aws_sqs_queue'
+  | 'aws_sns_topic'
+
+export type TerraformAdoptionTarget = {
+  serviceId: ServiceId
+  resourceType: TerraformAdoptionResourceType
+  region: string
+  displayName: string
+  identifier: string
+  arn: string
+  name: string
+  tags?: Record<string, string>
+  resourceContext?: {
+    vpcId?: string
+    subnetId?: string
+    securityGroupIds?: string[]
+    iamInstanceProfile?: string
+    availabilityZone?: string
+    instanceType?: string
+    imageId?: string
+  }
+}
+
+export type TerraformAdoptionStateMatch = {
+  address: string
+  resourceType: string
+  matchedOn: 'identifier' | 'arn' | 'name' | 'eks-nodegroup'
+  matchedValue: string
+}
+
+export type TerraformAdoptionConfigMatch = {
+  relativePath: string
+  lineNumber: number
+  matchedOn: 'identifier' | 'arn' | 'name'
+  matchedValue: string
+  excerpt: string
+}
+
+export type TerraformAdoptionProjectSignal = {
+  projectId: string
+  projectName: string
+  rootPath: string
+  currentWorkspace: string
+  region: string
+  backendType: string
+  status: 'managed' | 'config-hint'
+  stateMatches: TerraformAdoptionStateMatch[]
+  configMatches: TerraformAdoptionConfigMatch[]
+}
+
+export type TerraformAdoptionDetectionResult = {
+  target: TerraformAdoptionTarget
+  supported: boolean
+  checkedAt: string
+  scannedProjectCount: number
+  matchingProjectCount: number
+  managedProjectCount: number
+  configHintProjectCount: number
+  projects: TerraformAdoptionProjectSignal[]
+}
+
+export type TerraformAdoptionMappingSource = 'related-resource' | 'existing-resource-type' | 'default'
+
+export type TerraformAdoptionMappingConfidence = 'high' | 'medium' | 'low'
+
+export type TerraformAdoptionRelatedResourceMatch = {
+  address: string
+  resourceType: string
+  modulePath: string
+  mode: 'managed' | 'data'
+  matchedOn: 'subnet-id' | 'vpc-id' | 'security-group' | 'iam-instance-profile' | 'eks-nodegroup'
+  matchedValue: string
+}
+
+export type TerraformAdoptionModuleSuggestion = {
+  modulePath: string
+  displayPath: string
+  source: TerraformAdoptionMappingSource
+}
+
+export type TerraformAdoptionProviderSuggestion = {
+  providerAddress: string
+  alias: string
+  displayName: string
+  source: TerraformAdoptionMappingSource
+}
+
+export type TerraformAdoptionMappingResult = {
+  supported: boolean
+  checkedAt: string
+  projectId: string
+  projectName: string
+  target: TerraformAdoptionTarget
+  recommendedResourceType: string
+  importId: string
+  suggestedResourceName: string
+  suggestedAddress: string
+  module: TerraformAdoptionModuleSuggestion
+  provider: TerraformAdoptionProviderSuggestion
+  confidence: TerraformAdoptionMappingConfidence
+  reasons: string[]
+  warnings: string[]
+  relatedResources: TerraformAdoptionRelatedResourceMatch[]
+}
+
+export type TerraformAdoptionCodegenFilePlan = {
+  moduleDirectory: string
+  moduleDisplayPath: string
+  suggestedFilePath: string
+  suggestedFileName: string
+  action: 'append' | 'create'
+  reason: string
+  existingFiles: string[]
+}
+
+export type TerraformAdoptionCodegenResult = {
+  supported: boolean
+  checkedAt: string
+  projectId: string
+  projectName: string
+  target: TerraformAdoptionTarget
+  mapping: TerraformAdoptionMappingResult
+  filePlan: TerraformAdoptionCodegenFilePlan
+  resourceBlock: string
+  importCommand: string
+  workingDirectory: string
+  notes: string[]
+  warnings: string[]
+}
+
+export type TerraformAdoptionCodeApplyResult = {
+  checkedAt: string
+  projectId: string
+  projectName: string
+  filePath: string
+  action: 'created' | 'appended' | 'skipped'
+  bytesWritten: number
+  codegen: TerraformAdoptionCodegenResult
+}
+
+export type TerraformAdoptionImportExecutionResult = {
+  checkedAt: string
+  projectId: string
+  projectName: string
+  applyResult: TerraformAdoptionCodeApplyResult
+  log: TerraformCommandLog
+}
+
+export type TerraformAdoptionValidationStatus = 'passed' | 'needs-review' | 'failed'
+
+export type TerraformAdoptionValidationResult = {
+  checkedAt: string
+  projectId: string
+  projectName: string
+  address: string
+  status: TerraformAdoptionValidationStatus
+  summary: string
+  log: TerraformCommandLog
+  planSummary: TerraformPlanSummary
+  matchingChanges: TerraformPlanChange[]
+}
+
 export type TerraformProgressEvent = {
   address: string
   status: string

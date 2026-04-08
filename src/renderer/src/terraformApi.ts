@@ -1,6 +1,12 @@
 import type {
   AwsConnection,
   ObservabilityPostureReport,
+  TerraformAdoptionCodegenResult,
+  TerraformAdoptionDetectionResult,
+  TerraformAdoptionImportExecutionResult,
+  TerraformAdoptionMappingResult,
+  TerraformAdoptionTarget,
+  TerraformAdoptionValidationResult,
   TerraformCliInfo,
   TerraformCommandLog,
   TerraformCommandRequest,
@@ -33,6 +39,11 @@ export const listProjects = call<[profileName: string, connection?: AwsConnectio
 export const getProject = call<[profileName: string, projectId: string, connection?: AwsConnection], TerraformProject>('getProject')
 export const getDrift = call<[profileName: string, projectId: string, connection: { profile: string; region: string }, options?: { forceRefresh?: boolean }], TerraformDriftReport>('getDrift')
 export const getObservabilityReport = call<[profileName: string, projectId: string, connection: { profile: string; region: string }], ObservabilityPostureReport>('getObservabilityReport')
+export const detectAdoption = call<[profileName: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget], TerraformAdoptionDetectionResult>('detectAdoption')
+export const mapAdoption = call<[profileName: string, projectId: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget], TerraformAdoptionMappingResult>('mapAdoption')
+export const generateAdoptionCode = call<[profileName: string, projectId: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget], TerraformAdoptionCodegenResult>('generateAdoptionCode')
+export const executeAdoptionImport = call<[profileName: string, projectId: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget], TerraformAdoptionImportExecutionResult>('executeAdoptionImport')
+export const validateAdoptionImport = call<[profileName: string, projectId: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget], TerraformAdoptionValidationResult>('validateAdoptionImport')
 export const chooseProjectDirectory = call<[], string>('chooseProjectDirectory')
 export const chooseVarFile = call<[], string>('chooseVarFile')
 export const addProject = call<[profileName: string, rootPath: string, connection?: AwsConnection], TerraformProject>('addProject')
