@@ -2067,14 +2067,6 @@ export function Ec2Console({
                         if (detail?.volumes[0]) setSnapVolume(detail.volumes[0].volumeId)
                         setMainTab('snapshots')
                       }}>Create Snapshot</button>}
-                      {adoptionLoading && (
-                        <button className="ec2-action-btn" type="button" disabled>Checking Terraform...</button>
-                      )}
-                      {!adoptionLoading && adoptionDetection?.managedProjectCount === 0 && (
-                        <button className="ec2-action-btn terraform" type="button" onClick={handleManageInTerraform}>
-                          Manage in Terraform
-                        </button>
-                      )}
                       {!isTerminatedInstance && <button className="ec2-action-btn" type="button" onClick={() => {
                         openBastionPanel()
                       }}>Create Bastion</button>}
@@ -2099,13 +2091,21 @@ export function Ec2Console({
                           if (detail?.securityGroups?.[0]?.id && onNavigateSecurityGroup) onNavigateSecurityGroup(detail.securityGroups[0].id)
                         }}>Go to Security Group</button>
                       )}
+                      {adoptionLoading && (
+                        <button className="ec2-action-btn" type="button" disabled>Checking Terraform...</button>
+                      )}
+                      {!adoptionLoading && adoptionDetection?.managedProjectCount === 0 && (
+                        <button className="ec2-action-btn terraform" type="button" onClick={handleManageInTerraform}>
+                          Manage in Terraform
+                        </button>
+                      )}
                     </div>
                   </div>
 
                   <div className="ec2-sidebar-section" ref={adoptionSectionRef}>
-                    <div className="ec2-btn-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div className="ec2-section-header">
                       <div>
-                        <h3 style={{ margin: 0 }}>Terraform Adoption Detection</h3>
+                        <h3>Terraform Adoption Detection</h3>
                         <div className="ec2-sidebar-hint">
                           Check whether this instance already appears in tracked Terraform state or project config before starting adoption.
                         </div>

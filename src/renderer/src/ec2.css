@@ -2013,6 +2013,14 @@
   background: linear-gradient(180deg, rgba(17, 24, 34, 0.94), rgba(10, 16, 25, 0.94));
 }
 
+.ec2-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
 .ec2-adoption-summary {
   display: flex;
   align-items: center;
@@ -2020,6 +2028,7 @@
   flex-wrap: wrap;
   margin-bottom: 12px;
   color: #c8d5e6;
+  font-size: 12px;
 }
 
 .ec2-adoption-pill {
@@ -2029,8 +2038,7 @@
   padding: 4px 10px;
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
 .ec2-adoption-pill.managed {
