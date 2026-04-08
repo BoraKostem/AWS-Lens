@@ -280,7 +280,7 @@ async function inspectBucketGovernance(
   bucket: S3BucketSummary
 ): Promise<S3BucketGovernanceDetail> {
   const bucketConnection = toBucketConnection(connection, bucket.region || connection.region)
-  const client = createClient(bucketConnection)
+  const client = getAwsClient(S3Client, bucketConnection)
 
   const [
     publicAccessBlockResult,
@@ -651,7 +651,7 @@ export async function getBucketGovernanceDetail(
 
 export async function enableBucketVersioning(connection: AwsConnection, bucketName: string): Promise<void> {
   const region = await resolveBucketRegion(connection, bucketName)
-  const client = createClient(toBucketConnection(connection, region))
+  const client = getAwsClient(S3Client, toBucketConnection(connection, region))
   await client.send(new PutBucketVersioningCommand({
     Bucket: bucketName,
     VersioningConfiguration: {
@@ -662,7 +662,7 @@ export async function enableBucketVersioning(connection: AwsConnection, bucketNa
 
 export async function enableBucketEncryption(connection: AwsConnection, bucketName: string): Promise<void> {
   const region = await resolveBucketRegion(connection, bucketName)
-  const client = createClient(toBucketConnection(connection, region))
+  const client = getAwsClient(S3Client, toBucketConnection(connection, region))
   await client.send(new PutBucketEncryptionCommand({
     Bucket: bucketName,
     ServerSideEncryptionConfiguration: {
@@ -678,7 +678,7 @@ export async function enableBucketEncryption(connection: AwsConnection, bucketNa
 
 export async function putBucketPolicy(connection: AwsConnection, bucketName: string, policyJson: string): Promise<void> {
   const region = await resolveBucketRegion(connection, bucketName)
-  const client = createClient(toBucketConnection(connection, region))
+  const client = getAwsClient(S3Client, toBucketConnection(connection, region))
   const normalizedPolicy = sanitizeJson(JSON.parse(policyJson))
   await client.send(new PutBucketPolicyCommand({
     Bucket: bucketName,
