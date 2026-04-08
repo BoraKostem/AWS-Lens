@@ -1075,3 +1075,50 @@
 .acm-watch-danger {
   color: #fca5a5;
 }
+
+/* ── Error Boundary fallback ─────────────────────────────── */
+
+.error-boundary-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 24px;
+  color: #9ca7b7;
+  text-align: center;
+}
+
+.error-boundary-icon {
+  font-size: 28px;
+  color: #c0392b;
+}
+
+.error-boundary-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.error-boundary-message {
+  font-size: 12px;
+  color: #9ca7b7;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  max-width: 480px;
+  word-break: break-word;
+}
+
+.error-boundary-retry {
+  margin-top: 6px;
+  padding: 6px 18px;
+  background: #2d333d;
+  border: 1px solid #3d4a5a;
+  border-radius: 4px;
+  color: #e2e8f0;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.error-boundary-retry:hover {
+  background: #3a4250;
+}

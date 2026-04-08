@@ -38,6 +38,7 @@ import { listLambdaFunctions, getLambdaFunctionDetails } from './lambda'
 import { listEksClusters, createTempEksKubeconfig } from './eks'
 import { spawn } from 'node:child_process'
 import { getConnectionEnv } from '../sessionHub'
+import { logWarn } from '../observability'
 
 
 
@@ -331,7 +332,8 @@ export async function getSecretDependencyReport(
           }
         })
       }
-    } catch {
+    } catch (error) {
+      logWarn('secrets-manager.dependency-probe.lambda', 'Failed to probe Lambda function for secret dependency.', { region: connection.region }, error)
       continue
     }
   }
@@ -420,7 +422,8 @@ export async function getSecretDependencyReport(
             region: connection.region
           }
         })
-      } catch {
+      } catch (error) {
+        logWarn('secrets-manager.dependency-probe.ecs', 'Failed to probe ECS service for secret dependency.', { region: connection.region }, error)
         continue
       }
     }
@@ -560,12 +563,13 @@ export async function getSecretDependencyReport(
             }
           })
         }
-      } catch {
+      } catch (error) {
+        logWarn('secrets-manager.dependency-probe.eks-cluster', 'Failed to probe EKS cluster for secret dependency.', { clusterName: cluster.name, region: connection.region }, error)
         continue
       }
     }
-  } catch {
-    // Ignore EKS probing failures and return the signals already collected.
+  } catch (error) {
+    logWarn('secrets-manager.dependency-probe.eks', 'EKS probing failed; returning partial dependency signals.', { region: connection.region }, error)
   }
 
   const dependencies = Array.from(dependencyMap.values())
