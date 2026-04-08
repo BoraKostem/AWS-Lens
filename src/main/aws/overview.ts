@@ -46,29 +46,9 @@ import type {
   TaggedResource
 } from '@shared/types'
 
-/* ── cost heuristics (monthly USD estimates per resource) ── */
-const COST_EC2_INSTANCE = 43.8
-const COST_LAMBDA_FUNCTION = 5.0
-const COST_EKS_CLUSTER = 73.0
-const COST_ASG_INSTANCE = 43.8
-const COST_S3_BUCKET = 2.3
-const COST_RDS_INSTANCE = 48.5
-const COST_CFN_STACK = 0
-const COST_ECR_REPO = 1.0
-const COST_ECS_CLUSTER = 36.0
-const COST_VPC = 4.5
-const COST_LOAD_BALANCER = 16.2
-const COST_ROUTE53_ZONE = 0.5
-const COST_SECURITY_GROUP = 0
-const COST_SNS_TOPIC = 0.5
-const COST_SQS_QUEUE = 0.4
-const COST_ACM_CERT = 0
-const COST_KMS_KEY = 1.0
-const COST_WAF_ACL = 5.0
-const COST_SECRET = 0.4
-const COST_KEY_PAIR = 0
-const COST_CW_ALARM = 0.1
+/* ── Cost Explorer (monthly current-month spend) ──────────── */
 const COST_EXPLORER_METRIC = 'UnblendedCost' as const
+const COST_EXPLORER_METRIC_LABEL = 'Unblended cost'
 const BILLING_HOME_REGION = 'us-east-1'
 const OWNERSHIP_TAG_KEYS: GovernanceTagKey[] = ['Owner', 'Environment', 'Project', 'CostCenter']
 
@@ -1164,7 +1144,7 @@ function addMatchedTaggedResource(
 function getCurrentMonthTimePeriod(): { start: Date; end: Date; label: string } {
   const now = new Date()
   const start = new Date(now.getFullYear(), now.getMonth(), 1)
-  const end = new Date(now.getTime() + 24 * 60 * 60 * 1000)
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 1)
   const label = `${start.toLocaleString('en', { month: 'short' })} ${start.getFullYear()}`
 
   return { start, end, label }
@@ -1211,6 +1191,41 @@ function getCurrentMonthCostExplorerWindow(): {
       Start: formatCostExplorerDate(start),
       End: formatCostExplorerDate(end)
     }
+  }
+}
+
+function createEmptyCurrentMonthCost(): { total: number; period: string } {
+  return {
+    total: 0,
+    period: getCurrentMonthCostExplorerWindow().label
+  }
+}
+
+function createRegionCostRow(region: string, totalCost = 0): RegionCostRow {
+  return {
+    region,
+    ec2Cost: 0,
+    lambdaCost: 0,
+    eksCost: 0,
+    asgCost: 0,
+    s3Cost: 0,
+    rdsCost: 0,
+    cfnCost: 0,
+    ecrCost: 0,
+    ecsCost: 0,
+    vpcCost: 0,
+    elbCost: 0,
+    r53Cost: 0,
+    sgCost: 0,
+    snsCost: 0,
+    sqsCost: 0,
+    acmCost: 0,
+    kmsCost: 0,
+    wafCost: 0,
+    smCost: 0,
+    kpCost: 0,
+    cwCost: 0,
+    totalCost: roundCurrency(totalCost)
   }
 }
 
@@ -1494,9 +1509,10 @@ export async function getOverviewMetrics(
   connection: AwsConnection,
   regions: string[]
 ): Promise<OverviewMetrics> {
-  const monthlyCostPromise = fetchCurrentMonthCostBreakdown(connection)
-    .then((breakdown) => breakdown.total)
-    .catch(() => null)
+  const monthlyCostPromise = safeCount(
+    () => fetchCurrentMonthTotalCost(connection),
+    createEmptyCurrentMonthCost()
+  )
 
   // Global services (not region-scoped) — query once using the first region
   const globalConn = { ...connection, region: regions[0] ?? connection.region }
@@ -1570,37 +1586,7 @@ export async function getOverviewMetrics(
         totalResources
       }
 
-      const ec2Cost = ec2.count * COST_EC2_INSTANCE
-      const lambdaCost = lambda.count * COST_LAMBDA_FUNCTION
-      const eksCost = eks.count * COST_EKS_CLUSTER
-      const asgCost = asg.groups.reduce((sum, g) => sum + g.instances * COST_ASG_INSTANCE, 0)
-      const s3Cost = s3 * COST_S3_BUCKET
-      const rdsCost = rds * COST_RDS_INSTANCE
-      const cfnCost = cfn * COST_CFN_STACK
-      const ecrCost = ecr * COST_ECR_REPO
-      const ecsCost = ecs * COST_ECS_CLUSTER
-      const vpcCost = vpc * COST_VPC
-      const elbCost = elb * COST_LOAD_BALANCER
-      const r53Cost = r53 * COST_ROUTE53_ZONE
-      const sgCost = sg * COST_SECURITY_GROUP
-      const snsCost = sns * COST_SNS_TOPIC
-      const sqsCost = sqs * COST_SQS_QUEUE
-      const acmCost = acm * COST_ACM_CERT
-      const kmsCost = kms * COST_KMS_KEY
-      const wafCost = waf * COST_WAF_ACL
-      const smCost = sm * COST_SECRET
-      const kpCost = kp * COST_KEY_PAIR
-      const cwCost = cw * COST_CW_ALARM
-
-      const totalCost = ec2Cost + lambdaCost + eksCost + asgCost + s3Cost + rdsCost +
-        cfnCost + ecrCost + ecsCost + vpcCost + elbCost + r53Cost + sgCost +
-        snsCost + sqsCost + acmCost + kmsCost + wafCost + smCost + kpCost + cwCost
-
-      const cost: RegionCostRow = {
-        region, ec2Cost, lambdaCost, eksCost, asgCost, s3Cost, rdsCost, cfnCost,
-        ecrCost, ecsCost, vpcCost, elbCost, r53Cost, sgCost, snsCost, sqsCost,
-        acmCost, kmsCost, wafCost, smCost, kpCost, cwCost, totalCost
-      }
+      const cost = createRegionCostRow(region)
 
       return { metric, cost, isActive: totalResources > 0 || allVpc > 0 }
     }
@@ -1610,7 +1596,6 @@ export async function getOverviewMetrics(
   const regionCosts = regionResults.map((result) => result.cost)
 
   const totalResources = regionMetrics.reduce((s, r) => s + r.totalResources, 0)
-  const estimatedTotalCost = regionCosts.reduce((s, r) => s + r.totalCost, 0)
   const activeRegionCount = regionResults.filter((result) => result.isActive).length
   const monthlyCost = await monthlyCostPromise
 
@@ -1619,7 +1604,7 @@ export async function getOverviewMetrics(
     costs: regionCosts,
     globalTotals: {
       totalResources,
-      totalCost: monthlyCost ?? estimatedTotalCost,
+      totalCost: monthlyCost.total,
       regionCount: activeRegionCount
     }
   }
@@ -1858,7 +1843,7 @@ export async function getRelationshipMap(connection: AwsConnection): Promise<Rel
 }
 
 export async function getOverviewStatistics(connection: AwsConnection): Promise<OverviewStatistics> {
-  const [ec2, lambda, eks, asg, s3, rds, cfn, ecr, ecs, vpc, elb, r53, sg, sns, sqs, acm, kms, waf, sm, kp, cw, ct, iam] = await Promise.all([
+  const [ec2, lambda, eks, asg, s3, rds, cfn, ecr, ecs, vpc, elb, r53, sg, sns, sqs, acm, kms, waf, sm, kp, cw, ct, iam, monthlyCost] = await Promise.all([
     safeCount(() => countEc2(connection), { count: 0, instances: [] }),
     safeCount(() => countLambda(connection), { count: 0, functions: [] }),
     safeCount(() => countEks(connection), { count: 0, clusters: [] }),
@@ -1881,7 +1866,8 @@ export async function getOverviewStatistics(connection: AwsConnection): Promise<
     safeCount(() => countKeyPairs(connection), 0),
     safeCount(() => countCloudWatch(connection), 0),
     safeCount(() => countCloudTrail(connection), 0),
-    safeCount(() => countIam(connection), 0)
+    safeCount(() => countIam(connection), 0),
+    safeCount(() => fetchCurrentMonthTotalCost(connection), createEmptyCurrentMonthCost())
   ])
 
   const runningEc2 = ec2.instances.filter((i) => i.state === 'running').length
@@ -1894,12 +1880,6 @@ export async function getOverviewStatistics(connection: AwsConnection): Promise<
   const allResourceTotal = ec2.count + lambda.count + eks.count + asg.count +
     s3 + rds + cfn + ecr + ecs + vpc + elb + r53 + sg + sns + sqs +
     acm + kms + waf + sm + kp + cw + ct + iam
-
-  const totalCost =
-    ec2.count * COST_EC2_INSTANCE +
-    lambda.count * COST_LAMBDA_FUNCTION +
-    eks.count * COST_EKS_CLUSTER +
-    totalAsgInstances * COST_ASG_INSTANCE
 
   const stats: OverviewStat[] = [
     { label: 'EC2 Instances', value: String(ec2.count), detail: `${runningEc2} running, ${stoppedEc2} stopped`, trend: runningEc2 > 0 ? 'up' : 'neutral' },
@@ -1926,7 +1906,12 @@ export async function getOverviewStatistics(connection: AwsConnection): Promise<
     { label: 'CloudTrail Trails', value: String(ct), detail: 'Audit logging trails', trend: ct > 0 ? 'up' : 'neutral' },
     { label: 'IAM Users & Roles', value: String(iam), detail: 'Global identity count', trend: 'neutral' },
     { label: 'Total Resources', value: String(allResourceTotal), detail: 'Across all discovered services', trend: 'neutral' },
-    { label: 'Est. Monthly Cost', value: `$${totalCost.toFixed(0)}`, detail: 'Based on compute resource heuristics', trend: 'neutral' }
+    {
+      label: 'Monthly Cost',
+      value: `$${monthlyCost.total.toFixed(2)}`,
+      detail: `Current month (${monthlyCost.period}) from Cost Explorer using ${COST_EXPLORER_METRIC_LABEL}`,
+      trend: 'neutral'
+    }
   ]
 
   // ── Insights ──────────────────────────────────────────────
@@ -2087,10 +2072,24 @@ export async function getOverviewStatistics(connection: AwsConnection): Promise<
   }
 
   // Cost signals
-  if (totalCost > 500) {
-    signals.push({ severity: 'high', region, title: 'Elevated regional spend detected', description: `Estimated monthly cost in ${region} is $${totalCost.toFixed(0)}, driven primarily by ${ec2.count > 0 ? 'EC2' : eks.count > 0 ? 'EKS' : 'compute'} resources.`, nextStep: 'Review resource utilization and consider right-sizing or reserved instances for cost optimization.', category: 'cost' })
-  } else if (totalCost > 200) {
-    signals.push({ severity: 'medium', region, title: 'Moderate regional spend', description: `Estimated monthly cost in ${region} is $${totalCost.toFixed(0)} across ${allResourceTotal} resources.`, nextStep: 'Monitor spend trends and review resource allocation periodically.', category: 'cost' })
+  if (monthlyCost.total > 500) {
+    signals.push({
+      severity: 'high',
+      region,
+      title: 'Elevated monthly spend detected',
+      description: `Current month spend visible to these credentials is $${monthlyCost.total.toFixed(0)} from Cost Explorer (${COST_EXPLORER_METRIC_LABEL}).`,
+      nextStep: 'Review top services in the cost breakdown and right-size the highest-cost workloads.',
+      category: 'cost'
+    })
+  } else if (monthlyCost.total > 200) {
+    signals.push({
+      severity: 'medium',
+      region,
+      title: 'Moderate monthly spend',
+      description: `Current month spend visible to these credentials is $${monthlyCost.total.toFixed(0)} from Cost Explorer across ${allResourceTotal} discovered resources.`,
+      nextStep: 'Monitor cost trends and review the highest-spend services for optimization opportunities.',
+      category: 'cost'
+    })
   }
 
   // Large Lambda fleet signal

@@ -212,7 +212,7 @@ export function OverviewConsole({
   const displayedMonthlyCost = costBreakdown?.total ?? metrics?.globalTotals.totalCost ?? globalMetrics?.globalTotals.totalCost ?? 0
   const displayedCostDetail = costBreakdown
     ? `${costBreakdown.period} · Cost Explorer · Unblended cost`
-    : 'Estimated from resource heuristics'
+    : 'Cost Explorer total from overview snapshot'
 
   const content = (
     <>
