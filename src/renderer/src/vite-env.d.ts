@@ -55,6 +55,7 @@ declare global {
       deleteAssumeRoleTarget: (targetId: string) => Promise<unknown>
       deleteAssumedSession: (sessionId: string) => Promise<unknown>
       assumeRoleSession: (request: AssumeRoleRequest) => Promise<unknown>
+      refreshAssumedSession: (sessionId: string) => Promise<unknown>
       assumeSavedRoleTarget: (targetId: string) => Promise<unknown>
       listProviders: () => Promise<unknown>
       getWorkspaceCatalog: (providerId?: CloudProviderId) => Promise<unknown>

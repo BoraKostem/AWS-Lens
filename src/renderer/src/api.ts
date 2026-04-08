@@ -1015,6 +1015,10 @@ export async function assumeRoleSession(request: AssumeRoleRequest): Promise<Ass
   return unwrap((await awsBridge().assumeRoleSession(request)) as Wrapped<AssumeRoleResult>)
 }
 
+export async function refreshAssumedSession(sessionId: string): Promise<AssumeRoleResult> {
+  return unwrap((await awsBridge().refreshAssumedSession(sessionId)) as Wrapped<AssumeRoleResult>)
+}
+
 export async function assumeSavedRoleTarget(targetId: string): Promise<AssumeRoleResult> {
   return unwrap((await awsBridge().assumeSavedRoleTarget(targetId)) as Wrapped<AssumeRoleResult>)
 }

@@ -42,13 +42,17 @@ const KIND_LABELS: Record<VaultEntryKind, string> = {
   'access-key': 'Access key',
   generic: 'Generic secret',
   'db-credential': 'DB credential',
+  'kubeconfig-fragment': 'Kubeconfig fragment',
+  'api-token': 'API token',
   'connection-secret': 'Connection secret'
 }
 
 const ORIGIN_LABELS: Record<VaultOrigin, string> = {
   manual: 'Manual',
+  imported: 'Imported',
   'imported-file': 'Imported',
   'aws-secrets-manager': 'Secrets Manager',
+  'aws-ssm': 'SSM',
   'aws-iam': 'IAM',
   generated: 'Generated',
   unknown: 'Unknown'
@@ -69,6 +73,8 @@ const KIND_OPTIONS: Array<{ value: VaultKindFilter; label: string }> = [
   { value: 'pem', label: 'PEM' },
   { value: 'access-key', label: 'Access keys' },
   { value: 'db-credential', label: 'DB credentials' },
+  { value: 'kubeconfig-fragment', label: 'Kubeconfig fragments' },
+  { value: 'api-token', label: 'API tokens' },
   { value: 'connection-secret', label: 'Connection secrets' },
   { value: 'generic', label: 'Generic secrets' }
 ]
@@ -92,6 +98,9 @@ function inferImportKind(fileName: string): VaultEntryKind {
   }
   if (normalized.endsWith('.json')) {
     return 'connection-secret'
+  }
+  if (normalized.includes('kube')) {
+    return 'kubeconfig-fragment'
   }
 
   return 'generic'
@@ -195,6 +204,8 @@ export function VaultManagerPanel({
       pem: 0,
       'access-key': 0,
       'db-credential': 0,
+      'kubeconfig-fragment': 0,
+      'api-token': 0,
       'connection-secret': 0,
       generic: 0
     }

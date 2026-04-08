@@ -80,6 +80,10 @@ export type AwsAssumeRoleTarget = {
   externalId: string
   sourceProfile: string
   defaultRegion: string
+  environment: string
+  criticalAccessLevel: 'low' | 'medium' | 'high' | 'critical'
+  tags: string[]
+  lastUsedAt: string
   createdAt: string
   updatedAt: string
 }
@@ -167,13 +171,17 @@ export type ProviderConnectionDescriptor = {
 
 export type AwsSessionStatus = 'active' | 'expired'
 
+export type AwsSessionExpiryState = 'healthy' | 'expiring' | 'expired'
+
 export type AwsSessionSummary = {
   id: string
   kind: AwsConnection['kind']
   label: string
+  sessionName: string
   profile: string
   region: string
   status: AwsSessionStatus
+  expiryState: AwsSessionExpiryState
   sourceProfile: string
   roleArn: string
   assumedRoleArn: string
@@ -1227,10 +1235,9 @@ export type Ec2SshKeySuggestion = {
 }
 
 export type Ec2ChosenSshKey = {
-  stagedPath: string
-  originalPath: string
   vaultEntryId: string
   vaultEntryName: string
+  sourceLabel: string
 }
 
 export type Ec2SnapshotSummary = {
@@ -1846,12 +1853,16 @@ export type VaultEntryKind =
   | 'access-key'
   | 'generic'
   | 'db-credential'
+  | 'kubeconfig-fragment'
+  | 'api-token'
   | 'connection-secret'
 
 export type VaultOrigin =
   | 'manual'
+  | 'imported'
   | 'imported-file'
   | 'aws-secrets-manager'
+  | 'aws-ssm'
   | 'aws-iam'
   | 'generated'
   | 'unknown'
@@ -1877,6 +1888,8 @@ export type VaultEntrySummary = {
   origin: VaultOrigin
   rotationState: VaultRotationState
   rotationUpdatedAt: string
+  reminderAt: string
+  expiryAt: string
   lastUsedAt: string
   lastUsedContext: VaultEntryUsage | null
 }
@@ -1895,6 +1908,8 @@ export type VaultEntryInput = {
   origin?: VaultOrigin
   rotationState?: VaultRotationState
   rotationUpdatedAt?: string
+  reminderAt?: string
+  expiryAt?: string
 }
 
 export type VaultEntryUsageInput = {
@@ -1912,6 +1927,25 @@ export type VaultImportSelection = {
   fileName: string
   content: string
   suggestedKind: VaultEntryKind
+}
+
+export type VaultSshKeyInspectionSource =
+  | 'metadata-inline'
+  | 'metadata-path'
+  | 'source-path'
+  | 'legacy-staged-path'
+  | 'derived-from-private-key'
+  | 'unavailable'
+
+export type VaultSshKeyInspection = {
+  entryId: string
+  entryName: string
+  kind: Extract<VaultEntryKind, 'pem' | 'ssh-key'>
+  keyNameHints: string[]
+  fingerprintSha256: string
+  fingerprintMd5: string
+  publicKeySource: VaultSshKeyInspectionSource
+  publicKeyAvailable: boolean
 }
 
 export type DbVaultCredentialSummary = {

@@ -7,6 +7,7 @@ import {
   deleteAssumedSession,
   deleteAssumeRoleTarget,
   listIamRoles,
+  refreshAssumedSession,
   saveAssumeRoleTarget
 } from './api'
 import { CollapsibleInfoPanel } from './CollapsibleInfoPanel'
@@ -85,12 +86,52 @@ function emptyDraft(profile: string, region: string): Omit<AwsAssumeRoleTarget, 
     defaultSessionName: 'aws-lens',
     externalId: '',
     sourceProfile: profile,
-    defaultRegion: region
+    defaultRegion: region,
+    environment: '',
+    criticalAccessLevel: 'low',
+    tags: [],
+    lastUsedAt: ''
   }
 }
 
 function formatDateTime(value: string): string {
   return value ? new Date(value).toLocaleString() : '-'
+}
+
+function formatRelativeTime(value: string): string {
+  if (!value) {
+    return 'Never used'
+  }
+
+  const time = new Date(value).getTime()
+  if (!Number.isFinite(time)) {
+    return 'Never used'
+  }
+
+  const elapsedMs = Date.now() - time
+  if (elapsedMs < 60_000) {
+    return 'Used just now'
+  }
+  if (elapsedMs < 3_600_000) {
+    return `Used ${Math.floor(elapsedMs / 60_000)}m ago`
+  }
+  if (elapsedMs < 86_400_000) {
+    return `Used ${Math.floor(elapsedMs / 3_600_000)}h ago`
+  }
+
+  return `Used ${Math.floor(elapsedMs / 86_400_000)}d ago`
+}
+
+function formatTagInput(value: string): string[] {
+  return [...new Set(value.split(',').map((tag) => tag.trim()).filter(Boolean))].slice(0, 8)
+}
+
+function getCriticalityClassName(level: AwsAssumeRoleTarget['criticalAccessLevel']): string {
+  return `session-hub-target-pill critical-${level}`
+}
+
+function getEnvironmentLabel(value: string): string {
+  return value.trim() || 'Unspecified env'
 }
 
 function formatCountdown(expiration: string): string {
@@ -107,6 +148,30 @@ function formatCountdown(expiration: string): string {
   const minutes = Math.floor((totalSeconds % 3600) / 60)
   const seconds = totalSeconds % 60
   return `${hours}h ${minutes}m ${seconds}s`
+}
+
+function getExpiryLabel(session: AwsSessionSummary): string {
+  if (session.expiryState === 'expired') {
+    return 'expired'
+  }
+
+  if (session.expiryState === 'expiring') {
+    return 'expiring soon'
+  }
+
+  return session.status
+}
+
+function getSessionStatusClassName(session: AwsSessionSummary): string {
+  if (session.expiryState === 'expired') {
+    return 'inactive-chip'
+  }
+
+  if (session.expiryState === 'expiring') {
+    return 'warning-chip'
+  }
+
+  return 'active-chip'
 }
 
 function buildSessionConnection(session: AwsSessionSummary): AwsConnection {
@@ -257,7 +322,10 @@ export function SessionHub({
     setRolesLoading(true)
     void listIamRoles(connection)
       .then((roles) => setAvailableRoles(roles))
-      .catch(() => setAvailableRoles([]))
+      .catch((err) => {
+        setAvailableRoles([])
+        setError(err instanceof Error ? err.message : String(err))
+      })
       .finally(() => setRolesLoading(false))
   }, [connectionState.region, draft.defaultRegion, draft.sourceProfile])
 
@@ -409,6 +477,68 @@ export function SessionHub({
     }
   }
 
+  async function handleRefreshSession(sessionId: string, options?: { activateOnSuccess?: boolean }): Promise<void> {
+    setError('')
+    setMessage('')
+    setBusyId(sessionId)
+
+    try {
+      const result = await refreshAssumedSession(sessionId)
+      await refreshSessionHub()
+      if (options?.activateOnSuccess) {
+        connectionState.activateSession(result.sessionId)
+      }
+      setMessage(`Refreshed ${result.label}. A new temporary session is now available.`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusyId('')
+    }
+  }
+
+  async function handleRefreshExpiringSessions(): Promise<void> {
+    const expiringSessions = connectionState.sessions.filter((session) => session.expiryState === 'expiring')
+    if (expiringSessions.length === 0) {
+      return
+    }
+
+    setError('')
+    setMessage('')
+    setBusyId('refresh-expiring')
+
+    const activeExpiringSession = connectionState.activeSession
+      ? expiringSessions.find((session) => session.id === connectionState.activeSession?.id) ?? null
+      : null
+
+    try {
+      let refreshedCount = 0
+      let activatedSessionId = ''
+
+      for (const session of expiringSessions) {
+        const result = await refreshAssumedSession(session.id)
+        refreshedCount += 1
+        if (activeExpiringSession?.id === session.id) {
+          activatedSessionId = result.sessionId
+        }
+      }
+
+      await refreshSessionHub()
+      if (activatedSessionId) {
+        connectionState.activateSession(activatedSessionId)
+      }
+
+      setMessage(
+        refreshedCount === 1
+          ? 'Refreshed 1 expiring session.'
+          : `Refreshed ${refreshedCount} expiring sessions.`
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusyId('')
+    }
+  }
+
   function handleCompareLaunch(): void {
     const left = compareOptions.find((entry) => entry.id === compareLeft)
     const right = compareOptions.find((entry) => entry.id === compareRight)
@@ -431,12 +561,20 @@ export function SessionHub({
       defaultSessionName: target.defaultSessionName,
       externalId: target.externalId,
       sourceProfile: target.sourceProfile,
-      defaultRegion: target.defaultRegion
+      defaultRegion: target.defaultRegion,
+      environment: target.environment,
+      criticalAccessLevel: target.criticalAccessLevel,
+      tags: target.tags,
+      lastUsedAt: target.lastUsedAt
     })
   }
 
   const activeSessionCount = connectionState.sessions.filter((session) => session.status === 'active').length
   const expiredSessionCount = connectionState.sessions.filter((session) => session.status === 'expired').length
+  const expiringSessions = connectionState.sessions.filter((session) => session.expiryState === 'expiring')
+  const activeExpiringSession = connectionState.activeSession
+    ? expiringSessions.find((session) => session.id === connectionState.activeSession?.id) ?? null
+    : null
   const currentContextMeta = connectionState.activeSession
     ? connectionState.activeSession.assumedRoleArn || connectionState.activeSession.roleArn
     : connectionState.selectedProfile?.name || connectionState.profile || 'No profile selected'
@@ -529,6 +667,14 @@ export function SessionHub({
           <button type="button" className="session-hub-toolbar-btn" onClick={() => void refreshSessionHub()}>
             Refresh Sessions
           </button>
+          <button
+            type="button"
+            className="session-hub-toolbar-btn"
+            disabled={expiringSessions.length === 0 || busyId === 'refresh-expiring'}
+            onClick={() => void handleRefreshExpiringSessions()}
+          >
+            Refresh Expiring
+          </button>
         </div>
         <div className="session-hub-shell-status">
           <div className="session-hub-context-chip">
@@ -538,6 +684,41 @@ export function SessionHub({
           <FreshnessIndicator freshness={freshness} label="Sessions last refreshed" staleLabel="Session list may be stale" />
         </div>
       </div>
+
+      {expiringSessions.length > 0 && (
+        <section className="panel session-hub-compare-panel">
+          <div className="empty-state compact">
+            <strong>
+              {expiringSessions.length === 1
+                ? '1 session is expiring soon.'
+                : `${expiringSessions.length} sessions are expiring soon.`}
+            </strong>
+            <p>
+              Refresh temporary credentials before terminal, compare, or console actions start failing.
+              {activeExpiringSession ? ` Current active context: ${activeExpiringSession.label}.` : ''}
+            </p>
+          </div>
+          <div className="button-row session-hub-toolbar">
+            <button
+              type="button"
+              className="accent"
+              disabled={busyId === 'refresh-expiring'}
+              onClick={() => void handleRefreshExpiringSessions()}
+            >
+              Refresh All Expiring
+            </button>
+            {activeExpiringSession && (
+              <button
+                type="button"
+                disabled={busyId === activeExpiringSession.id}
+                onClick={() => void handleRefreshSession(activeExpiringSession.id, { activateOnSuccess: true })}
+              >
+                Refresh Active Context
+              </button>
+            )}
+          </div>
+        </section>
+      )}
 
       <div className="session-hub-main-layout">
         <div className="column stack session-hub-editor-column">
@@ -581,6 +762,36 @@ export function SessionHub({
                 }}
               />
               <label className="field"><span>Default Region</span><input value={draft.defaultRegion} onChange={(event) => updateDraft('defaultRegion', event.target.value)} /></label>
+              <label className="field">
+                <span>Environment</span>
+                <input
+                  value={draft.environment}
+                  onChange={(event) => updateDraft('environment', event.target.value)}
+                  placeholder="prod, staging, shared"
+                />
+              </label>
+              <label className="field">
+                <span>Critical Access</span>
+                <select
+                  value={draft.criticalAccessLevel}
+                  onChange={(event) =>
+                    updateDraft('criticalAccessLevel', event.target.value as AwsAssumeRoleTarget['criticalAccessLevel'])
+                  }
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="critical">Critical</option>
+                </select>
+              </label>
+              <label className="field session-hub-target-form-span">
+                <span>Tags</span>
+                <input
+                  value={draft.tags.join(', ')}
+                  onChange={(event) => updateDraft('tags', formatTagInput(event.target.value))}
+                  placeholder="team:platform, ecr, prod"
+                />
+              </label>
             </div>
             <div className="button-row session-hub-toolbar">
               <button type="button" className="accent" disabled={busyId === 'save-target'} onClick={() => void handleSaveTarget()}>
@@ -634,9 +845,27 @@ export function SessionHub({
                       <div>
                         <strong>{target.label}</strong>
                         <div className="hero-path">{target.roleArn}</div>
+                        <div className="session-hub-target-meta">
+                          <span className="session-hub-target-pill">{getEnvironmentLabel(target.environment)}</span>
+                          <span className={getCriticalityClassName(target.criticalAccessLevel)}>{target.criticalAccessLevel}</span>
+                          <span className="session-hub-target-pill">{target.sourceProfile || '-'}</span>
+                          <span className="session-hub-target-pill">{target.defaultRegion || '-'}</span>
+                        </div>
+                        {target.tags.length > 0 && (
+                          <div className="session-hub-target-tags">
+                            {target.tags.map((tag) => (
+                              <span key={tag} className="session-hub-target-tag">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div className="session-hub-target-summary">
+                          <span>Session: {target.defaultSessionName}</span>
+                          <span>{formatRelativeTime(target.lastUsedAt)}</span>
+                        </div>
                       </div>
                     </div>
-                    <div className="hero-path">Profile: {target.sourceProfile || '-'} · Region: {target.defaultRegion || '-'}</div>
                     <div className="button-row session-hub-toolbar">
                       <button type="button" className="accent" disabled={busyId === target.id} onClick={() => void handleAssumeTarget(target)}>Assume</button>
                       <button type="button" onClick={() => loadTargetIntoForm(target)}>Edit</button>
@@ -672,7 +901,7 @@ export function SessionHub({
                   <div className="hero-path">Source: {session.sourceProfile || '-'} · {session.region}</div>
                 </div>
                 <div>
-                  <span className={session.status === 'active' ? 'active-chip' : 'inactive-chip'}>{session.status}</span>
+                  <span className={getSessionStatusClassName(session)}>{getExpiryLabel(session)}</span>
                 </div>
                 <div>{session.accountId || '-'}</div>
                 <div className="mono">{session.accessKeyId || '-'}</div>
@@ -685,17 +914,10 @@ export function SessionHub({
                   <button type="button" disabled={session.status !== 'active'} onClick={() => onOpenTerminal(buildSessionConnection(session))}>Terminal</button>
                   <button
                     type="button"
-                    disabled={busyId === session.id}
-                    onClick={() => void handleAssume({
-                      label: session.label,
-                      roleArn: session.roleArn,
-                      sessionName: session.label.replace(/\s+/g, '-').toLowerCase(),
-                      externalId: session.externalId || undefined,
-                      sourceProfile: session.sourceProfile || undefined,
-                      region: session.region
-                    })}
+                    disabled={busyId === session.id || session.status !== 'active'}
+                    onClick={() => void handleRefreshSession(session.id, { activateOnSuccess: connectionState.activeSession?.id === session.id })}
                   >
-                    Re-Assume
+                    {session.expiryState === 'expiring' ? 'Refresh Now' : 'Re-Assume'}
                   </button>
                   <button type="button" className="danger" disabled={busyId === session.id} onClick={() => void handleDeleteSession(session.id)}>Forget</button>
                 </div>

@@ -65,6 +65,7 @@ const awsLensApi = {
   deleteAssumeRoleTarget: (targetId: string) => ipcRenderer.invoke('session-hub:target:delete', targetId),
   deleteAssumedSession: (sessionId: string) => ipcRenderer.invoke('session-hub:session:delete', sessionId),
   assumeRoleSession: (request: AssumeRoleRequest) => ipcRenderer.invoke('session-hub:assume', request),
+  refreshAssumedSession: (sessionId: string) => ipcRenderer.invoke('session-hub:session:refresh', sessionId),
   assumeSavedRoleTarget: (targetId: string) => ipcRenderer.invoke('session-hub:assume-target', targetId),
   listProviders: () => ipcRenderer.invoke('providers:list'),
   getWorkspaceCatalog: (providerId?: CloudProviderId) => ipcRenderer.invoke('workspace-catalog:get', providerId),

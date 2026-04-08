@@ -1466,7 +1466,7 @@ export function Ec2Console({
       setSshVaultEntryId(selectedKey.vaultEntryId)
       setSshVaultEntryName(selectedKey.vaultEntryName)
       await loadSshVaultEntries()
-      setMsg(`Selected SSH key: ${selectedKey.originalPath} | Vault: ${selectedKey.vaultEntryName}`)
+      setMsg(`Selected SSH key: ${selectedKey.sourceLabel} | Vault: ${selectedKey.vaultEntryName}`)
     } catch (err) {
       setMsg(err instanceof Error ? err.message : 'Failed to choose SSH key')
     }
