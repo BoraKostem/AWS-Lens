@@ -31,7 +31,28 @@ function serviceLabel(service: ServiceId): string {
 }
 
 function issue(id: string, title: string, severity: ComplianceSeverity, category: ComplianceCategory, service: ServiceId, region: string, resourceId: string, description: string, recommendedAction: string, remediation?: ComplianceFinding['remediation']): ComplianceFinding {
-  return { id, title, severity, category, service, region, resourceId, description, recommendedAction, remediation }
+  return {
+    id,
+    title,
+    severity,
+    category,
+    service,
+    region,
+    resourceId,
+    description,
+    recommendedAction,
+    policyPackIds: [],
+    workflow: {
+      owner: '',
+      status: 'open',
+      acceptedRisk: '',
+      snoozeUntil: '',
+      lastReviewedAt: '',
+      updatedAt: ''
+    },
+    remediationTemplates: [],
+    remediation
+  }
 }
 
 function summarize(findings: ComplianceFinding[]) {
@@ -110,7 +131,13 @@ async function buildReport(projectId: string, location: string, catalogProjectId
     if (billingResult.value.linkedProjectLabelCoveragePercent < 60) findings.push(issue('billing:labels', 'Billing ownership labels have low coverage', 'medium', 'cost', 'gcp-billing', 'global', projectId, `Only ${Math.round(billingResult.value.linkedProjectLabelCoveragePercent)}% of linked projects have ownership labels visible in the current billing slice.`, 'Improve project labeling so cost ownership and review queues are easier to reason about.', { kind: 'navigate', label: 'Open Billing', serviceId: 'gcp-billing', resourceId: projectId }))
   }
 
-  return { generatedAt: new Date().toISOString(), findings, summary: summarize(findings), warnings }
+  return {
+    generatedAt: new Date().toISOString(),
+    findings,
+    policyPacks: [],
+    summary: summarize(findings),
+    warnings
+  }
 }
 
 export function GcpComplianceCenter({ projectId, location, catalogProjects, refreshNonce = 0, onNavigate, onRunTerminalCommand, canRunTerminalCommand }: { projectId: string, location: string, catalogProjects: GcpCliProject[], refreshNonce?: number, onNavigate: (serviceId: ServiceId, resourceId?: string) => void, onRunTerminalCommand: (command: string) => void, canRunTerminalCommand: boolean }) {

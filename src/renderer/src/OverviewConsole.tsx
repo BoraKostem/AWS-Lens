@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { AwsCapabilityHint, AwsConnection, CostBreakdown, InsightItem, OverviewAccountContext, OverviewMetrics, OverviewStatistics, RegionMetric, RegionalSignal, RelationshipMap, ServiceId, ServiceRelationship, TagSearchResult } from '@shared/types'
 import { useAwsPageConnection } from './AwsPage'
-import { getCostBreakdown, getOverviewAccountContext, getOverviewMetrics, getOverviewStatistics, getRelationshipMap, searchByTag } from './api'
+import { getCachedQuerySnapshot, getCostBreakdown, getOverviewAccountContext, getOverviewMetrics, getOverviewStatistics, getRelationshipMap, searchByTag } from './api'
+import { FreshnessIndicator, useFreshnessState } from './freshness'
 import { IncidentTimelineTab } from './IncidentTimelineTab'
 import { SvcState, variantForError } from './SvcState'
 
@@ -158,6 +159,7 @@ export function OverviewConsole({
   const [tagResults, setTagResults] = useState<TagSearchResult | null>(null)
   const [tab, setTab] = useState<OverviewTab>('overview')
   const [loading, setLoading] = useState(false)
+  const [supplementalLoading, setSupplementalLoading] = useState(false)
   const [globalLoading, setGlobalLoading] = useState(false)
   const [pageError, setPageError] = useState('')
   const [tagKey, setTagKey] = useState('')
@@ -171,6 +173,11 @@ export function OverviewConsole({
   const [insightFilter, setInsightFilter] = useState<InsightFilter>('all')
   const [signalFilter, setSignalFilter] = useState<SignalFilter>('all')
   const regionalLoadTokenRef = useRef(0)
+  const lastRegionalLoadScopeRef = useRef<string | null>(null)
+  const lastRegionalRefreshNonceRef = useRef(refreshNonce)
+  const { freshness, beginRefresh, completeRefresh, failRefresh, replaceFetchedAt } = useFreshnessState({
+    staleAfterMs: 5 * 60 * 1000
+  })
 
   const availableRegions = useMemo(
     () => connectionState.regions.map((item) => item.id),
@@ -180,26 +187,63 @@ export function OverviewConsole({
   // Auto-load regional overview when connection is ready or refresh is triggered
   useEffect(() => {
     if (connectionState.connection && connectionState.connected) {
-      void loadRegionalOverview(connectionState.connection)
+      const scopeKey = `${connectionState.connection.sessionId}:${connectionState.region}`
+      let reason: 'initial' | 'manual' | 'selection' = 'initial'
+
+      if (lastRegionalLoadScopeRef.current === null) {
+        reason = 'initial'
+      } else if (lastRegionalLoadScopeRef.current !== scopeKey) {
+        reason = 'selection'
+      } else if (lastRegionalRefreshNonceRef.current !== refreshNonce) {
+        reason = 'manual'
+      } else {
+        reason = 'manual'
+      }
+
+      lastRegionalLoadScopeRef.current = scopeKey
+      lastRegionalRefreshNonceRef.current = refreshNonce
+      void loadRegionalOverview(connectionState.connection, reason)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionState.connection, connectionState.connected, connectionState.region, refreshNonce])
 
-  async function loadRegionalOverview(connection: AwsConnection) {
+  async function loadRegionalOverview(connection: AwsConnection, reason: 'initial' | 'manual' | 'selection' = 'manual') {
     const loadToken = regionalLoadTokenRef.current + 1
     regionalLoadTokenRef.current = loadToken
-
-    setLoading(true)
     setPageError('')
+
+    const metricsArgs = [connection, [connection.region]]
+    const sharedArgs = [connection]
+    const metricsSnapshot = getCachedQuerySnapshot<OverviewMetrics>('overview', 'getOverviewMetrics', metricsArgs)
+    const statisticsSnapshot = getCachedQuerySnapshot<OverviewStatistics>('overview', 'getOverviewStatistics', sharedArgs)
+    const accountContextSnapshot = getCachedQuerySnapshot<OverviewAccountContext>('overview', 'getOverviewAccountContext', sharedArgs)
+    const relationshipsSnapshot = getCachedQuerySnapshot<RelationshipMap>('overview', 'getRelationshipMap', sharedArgs)
+    const costSnapshot = getCachedQuerySnapshot<CostBreakdown>('overview', 'getCostBreakdown', sharedArgs)
+    const retainedMetrics = metricsSnapshot.value ?? metrics
+    const retainedStatistics = statisticsSnapshot.value ?? statistics
+    const retainedAccountContext = accountContextSnapshot.value ?? accountContext
+    const retainedRelationships = relationshipsSnapshot.value ?? relationships
+    const retainedCostBreakdown = costSnapshot.value ?? costBreakdown
+
+    beginRefresh(reason)
+    replaceFetchedAt(metricsSnapshot.fetchedAt, metricsSnapshot.source)
+    setLoading(!retainedMetrics)
+    setSupplementalLoading(true)
+    setMetrics(retainedMetrics)
+    setStatistics(retainedStatistics)
+    setAccountContext(retainedAccountContext)
+    setRelationships(retainedRelationships)
+    setCostBreakdown(retainedCostBreakdown)
     try {
       const nextMetrics = await getOverviewMetrics(connection, [connection.region])
-
       if (regionalLoadTokenRef.current !== loadToken) {
         return
       }
 
+      const resolvedMetricsSnapshot = getCachedQuerySnapshot<OverviewMetrics>('overview', 'getOverviewMetrics', metricsArgs)
       setMetrics(nextMetrics)
       setLoading(false)
+      completeRefresh(resolvedMetricsSnapshot.fetchedAt ?? Date.now(), resolvedMetricsSnapshot.source ?? 'live')
 
       void Promise.allSettled([
         getOverviewStatistics(connection),
@@ -211,25 +255,25 @@ export function OverviewConsole({
           return
         }
 
-        if (statisticsResult.status === 'fulfilled') {
-          setStatistics(statisticsResult.value)
-        }
-        if (accountContextResult.status === 'fulfilled') {
-          setAccountContext(accountContextResult.value)
-        }
-        if (relationshipsResult.status === 'fulfilled') {
-          setRelationships(relationshipsResult.value)
-        }
-        if (costResult.status === 'fulfilled') {
-          setCostBreakdown(costResult.value)
-        }
+        setStatistics(statisticsResult.status === 'fulfilled' ? statisticsResult.value : retainedStatistics)
+        setAccountContext(accountContextResult.status === 'fulfilled' ? accountContextResult.value : retainedAccountContext)
+        setRelationships(relationshipsResult.status === 'fulfilled' ? relationshipsResult.value : retainedRelationships)
+        setCostBreakdown(costResult.status === 'fulfilled' ? costResult.value : retainedCostBreakdown)
+        setSupplementalLoading(false)
       })
     } catch (error) {
       if (regionalLoadTokenRef.current !== loadToken) {
         return
       }
+      failRefresh()
       setPageError(error instanceof Error ? error.message : String(error))
       setLoading(false)
+      setSupplementalLoading(false)
+      setMetrics(retainedMetrics)
+      setStatistics(retainedStatistics)
+      setAccountContext(retainedAccountContext)
+      setRelationships(retainedRelationships)
+      setCostBreakdown(retainedCostBreakdown)
     }
   }
 
@@ -237,13 +281,25 @@ export function OverviewConsole({
     if (!connectionState.connection || !connectionState.connected) return
     setGlobalLoading(true)
     setPageError('')
-    try {
-      const nextMetrics = await getOverviewMetrics(connectionState.connection, availableRegions)
-      setGlobalMetrics(nextMetrics)
 
-      void getCostBreakdown(connectionState.connection)
-        .then((nextCost) => setCostBreakdown(nextCost))
-        .catch(() => {})
+    const metricsArgs = [connectionState.connection, availableRegions]
+    const costArgs = [connectionState.connection]
+    const metricsSnapshot = getCachedQuerySnapshot<OverviewMetrics>('overview', 'getOverviewMetrics', metricsArgs)
+    const costSnapshot = getCachedQuerySnapshot<CostBreakdown>('overview', 'getCostBreakdown', costArgs)
+
+    if (metricsSnapshot.value) {
+      setGlobalMetrics(metricsSnapshot.value)
+    }
+    if (costSnapshot.value) {
+      setCostBreakdown(costSnapshot.value)
+    }
+    try {
+      const [nextMetrics, nextCost] = await Promise.all([
+        getOverviewMetrics(connectionState.connection, availableRegions),
+        getCostBreakdown(connectionState.connection).catch(() => null)
+      ])
+      setGlobalMetrics(nextMetrics)
+      setCostBreakdown(nextCost)
     } catch (error) {
       setPageError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -292,15 +348,11 @@ export function OverviewConsole({
     if (tagResourceTypeFilter === 'all') return tagResults.resources
     return tagResults.resources.filter((resource) => resource.resourceType === tagResourceTypeFilter)
   }, [tagResults, tagResourceTypeFilter])
-  const organizationRows = useMemo(
-    () => accountContext ? flattenOrganizationNodes(accountContext) : [],
-    [accountContext]
-  )
-
-  const displayedMonthlyCost = costBreakdown?.total ?? metrics?.globalTotals.totalCost ?? globalMetrics?.globalTotals.totalCost ?? 0
+  const displayedMonthlyCost = costBreakdown?.total ?? null
+  const displayedMonthlyCostLabel = displayedMonthlyCost == null ? '-' : fmtCurrency(displayedMonthlyCost)
   const displayedCostDetail = costBreakdown
-    ? `${costBreakdown.period} · Cost Explorer · Unblended cost`
-    : 'Cost Explorer total from overview snapshot'
+    ? `${costBreakdown.period} · Cost Explorer · ${costBreakdown.metric}`
+    : 'Cost Explorer unavailable'
 
   const content = (
     <>
@@ -322,16 +374,21 @@ export function OverviewConsole({
         <>
           {/* ── Tab bar ──────────────────────────────────────── */}
           <nav className="overview-tab-bar">
-            {(Object.keys(tabLabels) as OverviewTab[]).map((value) => (
-              <button
-                key={value}
-                type="button"
-                className={tab === value ? 'overview-tab active' : 'overview-tab'}
-                onClick={() => setTab(value)}
-              >
-                {tabLabels[value]}
-              </button>
-            ))}
+            <div className="overview-tab-bar__tabs">
+              {(Object.keys(tabLabels) as OverviewTab[]).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={tab === value ? 'overview-tab active' : 'overview-tab'}
+                  onClick={() => setTab(value)}
+                >
+                  {tabLabels[value]}
+                </button>
+              ))}
+            </div>
+            <div className="overview-tab-bar__status">
+              <FreshnessIndicator freshness={freshness} label="Regional snapshot" staleLabel="Refresh regional view" />
+            </div>
           </nav>
 
           {/* ── Global Overview (all tabs) ────────────────────── */}
@@ -360,12 +417,12 @@ export function OverviewConsole({
                 <div className="overview-chip-row">
                   <button
                     type="button"
-                    className="overview-service-chip"
-                    style={{ cursor: 'default', borderColor: 'rgba(223, 105, 42, 0.2)' }}
-                  >
-                    <span style={{ color: 'var(--accent)' }}>{fmtCurrency(displayedMonthlyCost)}</span>
-                    <strong>Cost</strong>
-                  </button>
+                  className="overview-service-chip"
+                  style={{ cursor: 'default', borderColor: 'rgba(223, 105, 42, 0.2)' }}
+                >
+                  <span style={{ color: 'var(--accent)' }}>{displayedMonthlyCostLabel}</span>
+                  <strong>Cost</strong>
+                </button>
                   {SERVICE_TILES.map((tile) => {
                     const total = sumMetricField(globalMetrics.regions, tile.key)
                     return (
@@ -423,6 +480,13 @@ export function OverviewConsole({
               {loading && <SvcState variant="loading" resourceName="overview data" compact />}
               {metrics && (
                 <>
+                  {supplementalLoading && (
+                    <SvcState
+                      variant="loading"
+                      message="Loading account context, relationship mapping, and insight panels in the background..."
+                      compact
+                    />
+                  )}
                   <section className="overview-surface">
                     <div className="overview-hero-card">
                       <div className="overview-hero-copy">
@@ -434,7 +498,7 @@ export function OverviewConsole({
                         <div className="overview-meta-strip">
                           <div className="overview-meta-pill">
                             <span>Monthly cost</span>
-                            <strong>{fmtCurrency(displayedMonthlyCost)}</strong>
+                            <strong>{displayedMonthlyCostLabel}</strong>
                           </div>
                           <div className="overview-meta-pill">
                             <span>Active regions</span>
@@ -449,7 +513,7 @@ export function OverviewConsole({
                       <div className="overview-hero-stats">
                         <div className="overview-glance-card overview-glance-card-accent">
                           <span>Cost posture</span>
-                          <strong>{fmtCurrency(displayedMonthlyCost)}</strong>
+                          <strong>{displayedMonthlyCostLabel}</strong>
                           <small>{displayedCostDetail}</small>
                         </div>
                         <div className="overview-glance-card">
@@ -469,6 +533,14 @@ export function OverviewConsole({
                         </div>
                       </div>
                     </div>
+
+                    {supplementalLoading && !accountContext && (
+                      <SvcState
+                        variant="loading"
+                        message="Loading account and billing posture..."
+                        compact
+                      />
+                    )}
 
                     {accountContext && (
                       <>
@@ -529,7 +601,7 @@ export function OverviewConsole({
                             )}
                           </article>
 
-                          <article className="overview-account-card">
+                          <article className="overview-account-card overview-org-card">
                             <div className="panel-header minor">
                               <h3>Organization Context</h3>
                               <span className="hero-path" style={{ margin: 0 }}>
@@ -549,21 +621,13 @@ export function OverviewConsole({
                                 <span>Current OU path</span>
                                 <strong>{accountContext.organization?.currentAccountPath.join(' / ') || 'Not available'}</strong>
                               </div>
-                              <div>
-                                <span>Root</span>
-                                <strong>{accountContext.organization?.rootName || '-'}</strong>
-                              </div>
-                              <div>
-                                <span>Tree nodes</span>
-                                <strong>{organizationRows.length}</strong>
-                              </div>
                             </div>
                             {accountContext.organization?.warning && (
                               <div className="overview-note-item">{accountContext.organization.warning}</div>
                             )}
-                            {organizationRows.length ? (
+                            {flattenOrganizationNodes(accountContext).length ? (
                               <div className="overview-org-tree">
-                                {organizationRows.slice(0, 40).map((node) => (
+                                {flattenOrganizationNodes(accountContext).slice(0, 40).map((node) => (
                                   <div
                                     key={node.id}
                                     className={`overview-org-row ${node.isCurrent ? 'active' : ''}`}
@@ -575,7 +639,7 @@ export function OverviewConsole({
                                     <strong>{node.label}</strong>
                                   </div>
                                 ))}
-                                {organizationRows.length > 40 && (
+                                {flattenOrganizationNodes(accountContext).length > 40 && (
                                   <div className="overview-note-item">Showing first 40 nodes to keep the overview compact.</div>
                                 )}
                               </div>
@@ -658,7 +722,7 @@ export function OverviewConsole({
                     <section className="overview-tiles overview-tiles-summary">
                       <div className="overview-tile highlight">
                         <span className="overview-tile-kicker">Spend</span>
-                        <strong>{fmtCurrency(displayedMonthlyCost)}</strong>
+                        <strong>{displayedMonthlyCostLabel}</strong>
                         <span>Total Monthly Cost</span>
                       </div>
                       <div className="overview-tile">
@@ -691,7 +755,7 @@ export function OverviewConsole({
 
                   <div className="overview-bottom-row">
                     <span>Current month total</span>
-                    <strong>{fmtCurrency(displayedMonthlyCost)} USD</strong>
+                    <strong>{displayedMonthlyCost == null ? '-' : `${displayedMonthlyCostLabel} USD`}</strong>
                     <span className="overview-bottom-row-detail">{displayedCostDetail}</span>
                   </div>
 
@@ -715,6 +779,16 @@ export function OverviewConsole({
                           ))}
                         </div>
                       </div>
+
+                      {supplementalLoading && !costBreakdown && (
+                        <div className="panel overview-data-panel">
+                          <SvcState
+                            variant="loading"
+                            message="Loading current-month service cost breakdown..."
+                            compact
+                          />
+                        </div>
+                      )}
 
                       {costBreakdown && costBreakdown.entries.length > 0 && (
                         <div className="panel overview-data-panel">
@@ -740,6 +814,9 @@ export function OverviewConsole({
                     <div className="column stack">
                       <div className="panel overview-insights-panel">
                         <div className="panel-header"><h3>Insights</h3></div>
+                        {supplementalLoading && !statistics && (
+                          <SvcState variant="loading" resourceName="insights" compact />
+                        )}
                         {(statistics?.insights ?? []).map((item: InsightItem, index) => (
                           <div key={`${item.service}-${index}`} className="insight-card">
                             <div className="insight-card-badge">
@@ -751,7 +828,9 @@ export function OverviewConsole({
                             <div className="insight-card-message">{item.message}</div>
                           </div>
                         ))}
-                        {!statistics?.insights.length && <SvcState variant="empty" resourceName="insights" message="No insights generated." compact />}
+                        {!supplementalLoading && !statistics?.insights.length && (
+                          <SvcState variant="empty" resourceName="insights" message="No insights generated." compact />
+                        )}
                       </div>
                     </div>
                   </section>
@@ -779,6 +858,10 @@ export function OverviewConsole({
 
           {/* ── Relationships tab ─────────────────────────────── */}
           {tab === 'relationships' && (() => {
+            if (supplementalLoading && !relationships) {
+              return <SvcState variant="loading" resourceName="relationship map" compact />
+            }
+
             const allEdges = relationships?.edges ?? []
             const allNodes = relationships?.nodes ?? []
 
@@ -973,6 +1056,10 @@ export function OverviewConsole({
 
           {/* ── Statistics tab ────────────────────────────────── */}
           {tab === 'statistics' && (() => {
+            if (supplementalLoading && !statistics) {
+              return <SvcState variant="loading" resourceName="statistics" compact />
+            }
+
             const allInsights = statistics?.insights ?? []
             const allSignals = statistics?.signals ?? []
             const allStats = (statistics?.stats ?? []).map((stat) => {
@@ -982,13 +1069,15 @@ export function OverviewConsole({
                   ...stat,
                   label: 'Monthly Cost',
                   value: fmtCurrency(costBreakdown.total),
-                  detail: `Current month (${costBreakdown.period}) from Cost Explorer using Unblended cost`
+                  detail: `Current month (${costBreakdown.period}) from Cost Explorer using ${costBreakdown.metric}`
                 }
               }
 
               return {
                 ...stat,
-                detail: 'Estimated from resource heuristics'
+                label: 'Monthly Cost',
+                value: '-',
+                detail: 'Cost Explorer unavailable'
               }
             })
 
@@ -1277,7 +1366,7 @@ export function OverviewConsole({
         <div>
           <div className="eyebrow">Account Summary</div>
           <h2>Overview</h2>
-          <p className="hero-path">Regional summary landing page across active provider services.</p>
+          <p className="hero-path">Regional summary landing page across AWS services.</p>
         </div>
         {onBack && <button type="button" onClick={onBack}>Back</button>}
       </section>

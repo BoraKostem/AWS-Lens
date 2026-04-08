@@ -1731,6 +1731,22 @@ export type GovernanceTagDefaultsUpdate = {
   values?: Partial<Record<GovernanceTagKey, string>>
 }
 
+export type CompliancePolicyPackFocus =
+  | 'tagging-defaults'
+  | 'encryption'
+  | 'public-exposure'
+  | 'backup'
+
+export type CompliancePolicyPackDefinition = {
+  id: string
+  title: string
+  focus: CompliancePolicyPackFocus
+  description: string
+  resourceTypes: string[]
+  expectations: string[]
+  updatedAt: string
+}
+
 export type CloudWatchQueryFilter = {
   profile?: string
   region?: string
@@ -2604,6 +2620,7 @@ export type CostBreakdown = {
   entries: CostBreakdownEntry[]
   total: number
   period: string
+  metric: string
 }
 
 export type BillingLinkedAccountSummary = {
@@ -2712,6 +2729,37 @@ export type ComplianceSeverity = 'high' | 'medium' | 'low'
 
 export type ComplianceCategory = 'security' | 'cost' | 'operations' | 'compliance'
 
+export type ComplianceFindingStatus = 'open' | 'in-progress' | 'accepted-risk' | 'resolved'
+
+export type ComplianceFindingWorkflow = {
+  owner: string
+  status: ComplianceFindingStatus
+  acceptedRisk: string
+  snoozeUntil: string
+  lastReviewedAt: string
+  updatedAt: string
+}
+
+export type ComplianceFindingWorkflowUpdate = {
+  owner?: string
+  status?: ComplianceFindingStatus
+  acceptedRisk?: string
+  snoozeUntil?: string
+  lastReviewedAt?: string
+}
+
+export type ComplianceRemediationTemplateCommand = {
+  label: string
+  command: string
+}
+
+export type ComplianceRemediationTemplate = {
+  id: string
+  title: string
+  summary: string
+  commands: ComplianceRemediationTemplateCommand[]
+}
+
 export type ComplianceRemediationAction =
   | {
       kind: 'navigate'
@@ -2740,7 +2788,14 @@ export type ComplianceFinding = {
   resourceId: string
   description: string
   recommendedAction: string
+  policyPackIds?: string[]
+  workflow: ComplianceFindingWorkflow
+  remediationTemplates?: ComplianceRemediationTemplate[]
   remediation?: ComplianceRemediationAction
+}
+
+export type CompliancePolicyPack = CompliancePolicyPackDefinition & {
+  findingCount: number
 }
 
 export type ComplianceSummary = {
@@ -2752,6 +2807,7 @@ export type ComplianceSummary = {
 export type ComplianceReport = {
   generatedAt: string
   findings: ComplianceFinding[]
+  policyPacks: CompliancePolicyPack[]
   summary: ComplianceSummary
   warnings: string[]
 }

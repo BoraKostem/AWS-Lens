@@ -85,6 +85,8 @@ import type {
   SsmSessionLaunchSpec,
   SsmSessionSummary,
   SsmStartSessionRequest,
+  ComplianceFindingWorkflow,
+  ComplianceFindingWorkflowUpdate,
   ComplianceReport,
   EnterpriseAccessMode,
   EnterpriseAuditEvent,
@@ -290,6 +292,14 @@ export type CacheTag =
 type CacheEntry = {
   status: 'pending' | 'resolved'
   value: Promise<unknown> | unknown
+  fetchedAt: number | null
+  source: 'live' | 'local' | null
+}
+
+type CachedQuerySnapshot<T> = {
+  value: T | null
+  fetchedAt: number | null
+  source: 'live' | 'local' | null
 }
 
 const awsActivityListeners = new Set<(state: AwsActivityState) => void>()
@@ -356,6 +366,7 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   getOverviewStatistics: 'overview',
   getOverviewAccountContext: 'overview',
   getComplianceReport: 'compliance-center',
+  updateComplianceFindingWorkflow: 'compliance-center',
   getRelationshipMap: 'overview',
   getCostBreakdown: 'overview',
   searchByTag: 'overview',
@@ -671,6 +682,34 @@ function cacheKey(tag: CacheTag, method: string, args: unknown[]): string {
   return `${tag}:${method}:${JSON.stringify(args)}`
 }
 
+function extractSnapshotValue<T>(value: unknown): T | null {
+  return value == null ? null : value as T
+}
+
+export function getCachedQuerySnapshot<T>(tag: CacheTag, method: string, args: unknown[]): CachedQuerySnapshot<T> {
+  const key = cacheKey(tag, method, args)
+  const cached = pageCache.get(key)
+
+  if (cached?.status === 'resolved') {
+    const snapshotValue = extractSnapshotValue<T>(cached.value)
+    if (snapshotValue === null) {
+      return { value: null, fetchedAt: null, source: null }
+    }
+
+    return {
+      value: snapshotValue,
+      fetchedAt: cached.fetchedAt,
+      source: cached.source
+    }
+  }
+
+  return {
+    value: null,
+    fetchedAt: null,
+    source: null
+  }
+}
+
 function readCached<T>(tag: CacheTag, method: string, args: unknown[], loader: () => Promise<T>): Promise<T> {
   const key = cacheKey(tag, method, args)
   const cached = pageCache.get(key)
@@ -683,7 +722,12 @@ function readCached<T>(tag: CacheTag, method: string, args: unknown[], loader: (
   const pending = loader()
     .then((result) => {
       if (pageCacheVersion === cacheVersionAtLoad) {
-        pageCache.set(key, { status: 'resolved', value: result })
+        pageCache.set(key, {
+          status: 'resolved',
+          value: result,
+          fetchedAt: Date.now(),
+          source: 'live'
+        })
       }
       return result
     })
@@ -694,7 +738,12 @@ function readCached<T>(tag: CacheTag, method: string, args: unknown[], loader: (
       throw error
     })
 
-  pageCache.set(key, { status: 'pending', value: pending })
+  pageCache.set(key, {
+    status: 'pending',
+    value: pending,
+    fetchedAt: null,
+    source: null
+  })
   return pending
 }
 
@@ -1988,6 +2037,14 @@ export async function getOverviewStatistics(connection: AwsConnection): Promise<
 
 export async function getComplianceReport(connection: AwsConnection): Promise<ComplianceReport> {
   return unwrap((await awsBridge().getComplianceReport(connection)) as Wrapped<ComplianceReport>)
+}
+
+export async function updateComplianceFindingWorkflow(
+  connection: AwsConnection,
+  findingId: string,
+  update: ComplianceFindingWorkflowUpdate
+): Promise<ComplianceFindingWorkflow> {
+  return unwrap((await awsBridge().updateComplianceFindingWorkflow(connection, findingId, update)) as Wrapped<ComplianceFindingWorkflow>)
 }
 
 export async function getRelationshipMap(connection: AwsConnection): Promise<RelationshipMap> {

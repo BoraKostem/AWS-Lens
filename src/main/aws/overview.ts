@@ -1371,7 +1371,12 @@ async function fetchCurrentMonthCostBreakdown(connection: AwsConnection): Promis
 
   entries.sort((a, b) => b.amount - a.amount)
 
-  return { entries, total: roundCurrency(exactTotal), period: label }
+  return {
+    entries,
+    total: roundCurrency(exactTotal),
+    period: label,
+    metric: COST_EXPLORER_METRIC_LABEL
+  }
 }
 
 async function getMonthlyCostForTag(

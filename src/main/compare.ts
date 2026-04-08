@@ -474,7 +474,7 @@ async function loadDataset(input: ComparisonContextInput): Promise<ContextDatase
     getOverviewMetrics(connection, [connection.region]),
     getOverviewStatistics(connection),
     getComplianceReport(connection),
-    getCostBreakdown(connection).catch(() => ({ entries: [], total: 0, period: '' })),
+    getCostBreakdown(connection).catch(() => ({ entries: [], total: 0, period: '', metric: '' })),
     listEc2Instances(connection).catch(() => []),
     listVpcs(connection).catch(() => []),
     listSubnets(connection).catch(() => []),

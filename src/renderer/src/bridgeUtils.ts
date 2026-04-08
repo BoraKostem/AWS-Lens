@@ -14,7 +14,7 @@
 
 type Wrapped<T> = { ok: true; data: T } | { ok: false; error: string }
 
-type AnyBridge = Record<string, (...args: unknown[]) => unknown>
+type AnyBridge = Record<string, (...args: any[]) => unknown>
 
 function unwrap<T>(result: Wrapped<T>): T {
   if (!result.ok) throw new Error(result.error)

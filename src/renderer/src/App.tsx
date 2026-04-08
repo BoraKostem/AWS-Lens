@@ -195,6 +195,12 @@ type ProviderTerminalPreviewModel = {
 const NAV_PRIORITY_SERVICE_IDS: ServiceId[] = ['overview', 'session-hub']
 const NAV_SECTION_EXCLUDED_SERVICE_IDS = new Set<ServiceId>(NAV_PRIORITY_SERVICE_IDS)
 const ENVIRONMENT_ONBOARDING_STEPS: EnvironmentOnboardingStep[] = ['profile', 'region', 'tooling', 'access']
+const ENVIRONMENT_ONBOARDING_STEP_LABELS: Record<EnvironmentOnboardingStep, string> = {
+  profile: 'Profile',
+  region: 'Region',
+  tooling: 'Tooling',
+  access: 'Access mode'
+}
 const SERVICE_CATEGORY_ORDER = [
   'Infrastructure',
   'Compute',
@@ -3650,6 +3656,11 @@ export function App() {
   const onboardingStepIndex = ENVIRONMENT_ONBOARDING_STEPS.indexOf(environmentOnboardingStep)
   const onboardingBackEnabled = onboardingStepIndex > 0
   const onboardingNextLabel = onboardingStepIndex === ENVIRONMENT_ONBOARDING_STEPS.length - 1 ? 'Finish onboarding' : 'Next step'
+  const onboardingProgress = ENVIRONMENT_ONBOARDING_STEPS.map((step, index) => ({
+    step,
+    label: ENVIRONMENT_ONBOARDING_STEP_LABELS[step],
+    status: index < onboardingStepIndex ? 'done' : index === onboardingStepIndex ? 'active' : 'pending'
+  }))
 
   useEffect(() => {
     if (activeProviderId !== 'gcp' || !gcpCliContext?.detected) {
@@ -4586,6 +4597,12 @@ export function App() {
     setEnvironmentOnboardingStepSafe(previousStep)
   }
 
+  function openManualCredentialsFlowFromOnboarding(): void {
+    setCredError('')
+    setFabMode('credentials')
+    dismissEnvironmentOnboarding('profiles')
+  }
+
   let onboardingTitle = `Connect a ${providerProfileLabel} before you explore workspace flows.`
   let onboardingDescription = `The shell keeps one active ${providerProfileLabel} and ${providerLocationLabel} context across service workspaces and the embedded terminal.`
   let onboardingSummary = `Detected ${connectionState.profiles.length} local ${providerProfileLabel}${connectionState.profiles.length === 1 ? '' : 's'}. ${connectionState.selectedProfile?.name ? `Current selection: ${connectionState.selectedProfile.name}.` : `No ${providerProfileLabel} is selected yet.`}`
@@ -4594,6 +4611,7 @@ export function App() {
   let onboardingSecondaryActionLabel = 'Continue here'
   let onboardingSecondaryAction: (() => void) | null = null
   let onboardingDetailContent: React.ReactNode = null
+  let onboardingGuidance: string[] = []
 
   if (environmentOnboardingStep === 'region') {
     onboardingTitle = `Confirm the ${providerLocationLabel} and launch defaults for this workspace.`
@@ -4722,40 +4740,105 @@ export function App() {
       </div>
     )
   } else {
-    onboardingDetailContent = (
-      <div className="environment-onboarding-grid">
-        <section className="environment-onboarding-section">
-          <div className="eyebrow">Profile Catalog</div>
-          <div className="settings-environment-row">
-            <div>
-              <strong>Import or select a base profile</strong>
-              <p>Profiles are loaded from local config files or created inside the app. The selected profile becomes the source context for overview, service consoles, Session Hub, and terminal flows.</p>
+    if (isAwsProviderActive) {
+      onboardingTitle = 'Connect a profile before you explore AWS workflows.'
+      onboardingDescription = 'AWS Lens keeps one active account and region context across the shell, service consoles, and embedded terminal.'
+      onboardingSummary = `Detected ${connectionState.profiles.length} local AWS profile${connectionState.profiles.length === 1 ? '' : 's'}. ${connectionState.selectedProfile?.name ? `Current selection: ${connectionState.selectedProfile.name}.` : 'No profile is selected yet.'}`
+
+      if (connectionState.profiles.length === 0) {
+        onboardingTitle = 'Load or create a profile before you explore AWS workflows.'
+        onboardingDescription = 'AWS Lens needs one local AWS profile or vault credential before overview, service consoles, Session Hub, and direct access can share a common context.'
+        onboardingSummary = 'No local AWS profiles were detected yet. Import your AWS config or save credentials into the encrypted local vault to create the first operator context.'
+        onboardingPrimaryActionLabel = 'Import AWS config'
+        onboardingPrimaryAction = () => {
+          dismissEnvironmentOnboarding('profiles')
+          void handleLoadAwsConfig()
+        }
+        onboardingSecondaryActionLabel = 'Add credentials'
+        onboardingSecondaryAction = () => openManualCredentialsFlowFromOnboarding()
+        onboardingGuidance = [
+          'Import existing ~/.aws config when you already have named workstation profiles.',
+          'Use vault-backed credentials when you want the app to store them locally and encrypted.',
+          'After the first profile is loaded, pin frequent accounts so switching is faster.'
+        ]
+      } else {
+        onboardingGuidance = [
+          'Open the profile catalog to switch AWS accounts without losing your current workspace.',
+          'Pin the accounts you use most so they stay visible in the rail.',
+          'Overview, Session Hub, Compare, and the terminal all reuse the same active AWS context.'
+        ]
+      }
+
+      onboardingDetailContent = (
+        <div className="environment-onboarding-grid">
+          <section className="environment-onboarding-section">
+            <div className="eyebrow">Profile Catalog</div>
+            <div className="settings-environment-row">
+              <div>
+                <strong>Import or select a base profile</strong>
+                <p>Profiles are loaded from local config files or created inside the app. The selected profile becomes the source context for overview, service consoles, Session Hub, and terminal flows.</p>
+              </div>
+              <div className="settings-environment-meta">
+                <code>{connectionState.profiles.length} discovered</code>
+              </div>
             </div>
-            <div className="settings-environment-meta">
-              <code>{connectionState.profiles.length} discovered</code>
+            <div className="settings-environment-row">
+              <div>
+                <strong>First-run paths</strong>
+                <p>{connectionState.profiles.length > 0 ? 'Your catalog already has profiles to choose from. If you need more, import the AWS config file or add a vault-backed credential from the catalog.' : 'No profile inventory is available yet. Start by importing the local AWS config file or by creating a vault-backed credential inside the catalog.'}</p>
+              </div>
+              <div className="settings-environment-meta">
+                <span className={`settings-status-pill settings-status-pill-${connectionState.profiles.length > 0 ? 'stable' : 'unknown'}`}>{connectionState.profiles.length > 0 ? 'ready' : 'pending'}</span>
+              </div>
             </div>
-          </div>
-          <div className="settings-environment-row">
-            <div>
-              <strong>Pinned profile rail</strong>
-              <p>Once you pin frequently used profiles they stay in the left rail, so switching account context does not require reopening the full catalog.</p>
+            <div className="settings-environment-row">
+              <div>
+                <strong>Current selection</strong>
+                <p>{connectionState.selectedProfile?.name ? `The shell is currently scoped to ${connectionState.selectedProfile.name}.` : 'No AWS profile is selected yet. Open the catalog and choose a base profile before loading service data.'}</p>
+              </div>
+              <div className="settings-environment-meta">
+                <code>{selectedProfileCount} pinned</code>
+              </div>
             </div>
-            <div className="settings-environment-meta">
-              <code>{selectedProfileCount} pinned</code>
+          </section>
+        </div>
+      )
+    } else {
+      onboardingDetailContent = (
+        <div className="environment-onboarding-grid">
+          <section className="environment-onboarding-section">
+            <div className="eyebrow">Profile Catalog</div>
+            <div className="settings-environment-row">
+              <div>
+                <strong>Import or select a base profile</strong>
+                <p>Profiles are loaded from local config files or created inside the app. The selected profile becomes the source context for overview, service consoles, Session Hub, and terminal flows.</p>
+              </div>
+              <div className="settings-environment-meta">
+                <code>{connectionState.profiles.length} discovered</code>
+              </div>
             </div>
-          </div>
-          <div className="settings-environment-row">
-            <div>
-              <strong>Current selection</strong>
-              <p>{connectionState.selectedProfile?.name ? `The shell is currently scoped to ${connectionState.selectedProfile.name}.` : `No ${providerProfileLabel} is selected yet. Open the catalog and choose a base profile before loading service data.`}</p>
+            <div className="settings-environment-row">
+              <div>
+                <strong>Pinned profile rail</strong>
+                <p>Once you pin frequently used profiles they stay in the left rail, so switching account context does not require reopening the full catalog.</p>
+              </div>
+              <div className="settings-environment-meta">
+                <code>{selectedProfileCount} pinned</code>
+              </div>
             </div>
-            <div className="settings-environment-meta">
-              <span className={`settings-status-pill settings-status-pill-${connectionState.selectedProfile ? 'stable' : 'unknown'}`}>{connectionState.selectedProfile ? 'selected' : 'pending'}</span>
+            <div className="settings-environment-row">
+              <div>
+                <strong>Current selection</strong>
+                <p>{connectionState.selectedProfile?.name ? `The shell is currently scoped to ${connectionState.selectedProfile.name}.` : `No ${providerProfileLabel} is selected yet. Open the catalog and choose a base profile before loading service data.`}</p>
+              </div>
+              <div className="settings-environment-meta">
+                <span className={`settings-status-pill settings-status-pill-${connectionState.selectedProfile ? 'stable' : 'unknown'}`}>{connectionState.selectedProfile ? 'selected' : 'pending'}</span>
+              </div>
             </div>
-          </div>
-        </section>
-      </div>
-    )
+          </section>
+        </div>
+      )
+    }
   }
 
   const showOnboardingPrimaryAction =
@@ -4946,6 +5029,20 @@ export function App() {
                       </div>
                     </div>
                   ))
+                ) : connectionState.profiles.length === 0 && !profileSearch.trim() ? (
+                  <div className="profile-catalog-empty profile-catalog-empty-guided">
+                    <div className="eyebrow">First profile</div>
+                    <h3>No AWS profiles are loaded yet</h3>
+                    <p className="hero-path">Import an existing AWS config file or save credentials into the encrypted local vault to create the first operator context.</p>
+                    <div className="profile-catalog-empty__actions">
+                      <button type="button" className="accent" onClick={() => void handleLoadAwsConfig()}>
+                        Import AWS config
+                      </button>
+                      <button type="button" onClick={() => { setCredError(''); setFabMode('credentials') }}>
+                        Add credentials manually
+                      </button>
+                    </div>
+                  </div>
                 ) : (
                   <div className="profile-catalog-empty">
                     <div className="eyebrow">No Matches</div>
@@ -6012,6 +6109,26 @@ export function App() {
                 <span>Environment: {environmentHealth?.overallSeverity ?? (environmentBusy ? 'checking' : 'idle')}</span>
                 <span>Checked: {environmentHealth?.checkedAt ? new Date(environmentHealth.checkedAt).toLocaleString() : environmentBusy ? 'Running now' : 'Not checked yet'}</span>
               </div>
+
+              <div className="environment-onboarding-progress" aria-label="First-run progress">
+                {onboardingProgress.map((item) => (
+                  <div key={item.step} className={`environment-onboarding-progress__item ${item.status}`}>
+                    <span>{item.label}</span>
+                    <strong>{item.status === 'done' ? 'Done' : item.status === 'active' ? 'Current' : 'Pending'}</strong>
+                  </div>
+                ))}
+              </div>
+
+              {onboardingGuidance.length > 0 ? (
+                <div className="environment-onboarding-guidance">
+                  <div className="eyebrow">Recommended next moves</div>
+                  <div className="environment-onboarding-guidance__list">
+                    {onboardingGuidance.map((item) => (
+                      <span key={item}>{item}</span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               {onboardingDetailContent}
 

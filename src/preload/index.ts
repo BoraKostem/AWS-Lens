@@ -284,6 +284,11 @@ const awsLensApi = {
     ipcRenderer.invoke('overview:account-context', connection),
   getComplianceReport: (connection: AwsConnection) =>
     ipcRenderer.invoke('compliance:report', connection),
+  updateComplianceFindingWorkflow: (
+    connection: AwsConnection,
+    findingId: string,
+    update: unknown
+  ) => ipcRenderer.invoke('compliance:update-finding-workflow', connection, findingId, update),
   getRelationshipMap: (connection: AwsConnection) =>
     ipcRenderer.invoke('overview:relationships', connection),
   searchByTag: (connection: AwsConnection, tagKey: string, tagValue?: string) =>

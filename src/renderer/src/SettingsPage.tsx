@@ -238,7 +238,12 @@ export function SettingsPage({
     setGovernanceDraft(governanceDefaults)
   }, [governanceDefaults])
 
-  const releaseNotesPreview = releaseInfo?.latestRelease.notes?.trim() ?? ''
+  const releaseNotesPreview = releaseInfo?.latestRelease.notes?.trim() || 'No release notes are available yet.'
+  const releasePackagingLabel = !releaseInfo?.supportsAutoUpdate
+    ? 'Dev shell or unpackaged build'
+    : releaseInfo.updateMechanism === 'electron-updater'
+      ? 'Packaged auto-update flow'
+      : 'Release check only'
   const selectedTabLabel = TAB_ITEMS.find((item) => item.id === activeTab)?.label ?? 'App'
 
   const toolchainSummary = useMemo(() => {
@@ -703,41 +708,73 @@ export function SettingsPage({
           </SettingRow>
         </SettingSection>
 
-        <SettingSection title="Release State">
-          <SettingRow label="Current version">
-            <div className="settings-static-value">{releaseInfo?.currentVersion ? `v${releaseInfo.currentVersion}` : 'Unknown'}</div>
-          </SettingRow>
-          <SettingRow label="Selected channel">
-            <div className="settings-static-value">{releaseInfo?.selectedChannel ?? 'unknown'}</div>
-          </SettingRow>
-          <SettingRow label="Latest release">
-            <div className="settings-static-value">{releaseInfo?.latestVersion ? `v${releaseInfo.latestVersion}` : 'Unavailable'}</div>
-          </SettingRow>
-          <SettingRow label="Last checked">
-            <div className="settings-static-value">
-              {releaseInfo?.checkedAt
-                ? new Date(releaseInfo.checkedAt).toLocaleString()
-                : releaseInfo?.supportsAutoUpdate
-                  ? 'Not checked yet'
-                  : 'Disabled in dev build'}
+        <SettingSection title="Release Center">
+          <div className="settings-update-overview">
+            <div>
+              <div className="eyebrow">Release Center</div>
+              <h3>Updater, packaging, and release notes</h3>
+              <p>Keep all release visibility here: update state, build channel, package behavior, and the latest published notes.</p>
             </div>
-          </SettingRow>
-          <SettingRow label="Release actions" description={releaseInfo?.error ?? (releaseNotesPreview || 'No release notes are available yet.')}>
-            <div className="settings-inline-actions">
-              <button type="button" className="accent" disabled={!releaseInfo?.canCheckForUpdates} onClick={onCheckForUpdates}>
-                {releaseInfo?.checkStatus === 'checking' ? 'Checking...' : 'Check'}
-              </button>
-              <button type="button" disabled={!releaseInfo?.canDownloadUpdate} onClick={onDownloadUpdate}>
-                {releaseInfo?.updateStatus === 'downloading' ? 'Downloading...' : 'Download'}
-              </button>
-              <button type="button" disabled={!releaseInfo?.canInstallUpdate} onClick={onInstallUpdate}>
-                Install
-              </button>
-              <button type="button" onClick={onOpenReleasePage}>
-                Release page
-              </button>
+            <div className="settings-update-overview__badges">
+              <span className={`settings-status-pill settings-status-pill-${releaseInfo?.currentBuild.channel ?? 'unknown'}`}>
+                {releaseInfo?.currentBuild.channel ?? 'unknown'}
+              </span>
+              <span className={`settings-status-pill ${releaseStateTone}`}>{releaseStateLabel}</span>
             </div>
-          </SettingRow>
+          </div>
+
+          <div className="settings-update-stats">
+            <div className="settings-update-stat">
+              <span>Current</span>
+              <strong>{releaseInfo?.currentVersion ? `v${releaseInfo.currentVersion}` : 'Unknown'}</strong>
+            </div>
+            <div className="settings-update-stat">
+              <span>Selected channel</span>
+              <strong>{releaseInfo?.selectedChannel ?? 'unknown'}</strong>
+            </div>
+            <div className="settings-update-stat">
+              <span>Latest</span>
+              <strong>{releaseInfo?.latestVersion ? `v${releaseInfo.latestVersion}` : 'Unavailable'}</strong>
+            </div>
+            <div className="settings-update-stat">
+              <span>Packaging</span>
+              <strong>{releasePackagingLabel}</strong>
+            </div>
+            <div className="settings-update-stat">
+              <span>Published</span>
+              <strong>{releaseInfo?.latestRelease.publishedAt ? new Date(releaseInfo.latestRelease.publishedAt).toLocaleDateString() : 'Unknown'}</strong>
+            </div>
+            <div className="settings-update-stat">
+              <span>Last checked</span>
+              <strong>
+                {releaseInfo?.checkedAt
+                  ? new Date(releaseInfo.checkedAt).toLocaleString()
+                  : releaseInfo?.supportsAutoUpdate
+                    ? 'Not checked yet'
+                    : 'Disabled in dev build'}
+              </strong>
+            </div>
+          </div>
+
+          <div className="settings-release-notes">
+            <div className="eyebrow">Release Notes</div>
+            <pre>{releaseInfo?.error ?? releaseNotesPreview}</pre>
+          </div>
+
+          <div className="settings-action-row">
+            <button type="button" className="accent" disabled={!releaseInfo?.canCheckForUpdates} onClick={onCheckForUpdates}>
+              {releaseInfo?.checkStatus === 'checking' ? 'Checking...' : 'Check'}
+            </button>
+            <button type="button" disabled={!releaseInfo?.canDownloadUpdate} onClick={onDownloadUpdate}>
+              {releaseInfo?.updateStatus === 'downloading' ? 'Downloading...' : 'Download'}
+            </button>
+            <button type="button" disabled={!releaseInfo?.canInstallUpdate} onClick={onInstallUpdate}>
+              Install
+            </button>
+            <button type="button" onClick={onOpenReleasePage}>
+              Full notes
+            </button>
+          </div>
         </SettingSection>
 
         <div className="settings-tab-actions">

@@ -5,9 +5,12 @@ import type {
   AwsConnection,
   ComplianceCategory,
   ComplianceFinding,
+  CompliancePolicyPack,
   ComplianceReport,
+  ComplianceRemediationTemplate,
   ComplianceSeverity,
   ComplianceSummary,
+  GovernanceTagKey,
   LoadBalancerWorkspace,
   SecretsManagerSecretSummary,
   ServiceId,
@@ -21,6 +24,7 @@ import { listSecrets } from './secretsManager'
 import { listSecurityGroups } from './securityGroups'
 import { listVpcs } from './vpc'
 import { describeWebAcl, listWebAcls } from './waf'
+import { getComplianceFindingWorkflow, getCompliancePolicyPacks, getGovernanceTagDefaults } from '../phase1FoundationStore'
 
 type Ec2InventoryItem = {
   instanceId: string
@@ -40,6 +44,8 @@ type TaggableInventoryItem = {
   name: string
   tags: Record<string, string>
 }
+
+type ComplianceFindingRecord = Omit<ComplianceFinding, 'workflow'>
 
 const STOPPED_INSTANCE_WARNING_THRESHOLD = 3
 const UNUSED_KEY_PAIR_WARNING_THRESHOLD = 5
@@ -230,8 +236,8 @@ function buildTaggingSample(
 }
 
 function addFinding(
-  findings: ComplianceFinding[],
-  finding: Omit<ComplianceFinding, 'id'> & { idParts: Array<string | number | undefined> }
+  findings: ComplianceFindingRecord[],
+  finding: Omit<ComplianceFindingRecord, 'id'> & { idParts: Array<string | number | undefined> }
 ): void {
   findings.push({
     id: findingId(finding.idParts),
@@ -247,10 +253,143 @@ function addFinding(
   })
 }
 
+function severityRank(value: ComplianceSeverity): number {
+  return value === 'high' ? 3 : value === 'medium' ? 2 : 1
+}
+
+function maxSeverity(left: ComplianceSeverity, right: ComplianceSeverity): ComplianceSeverity {
+  return severityRank(left) >= severityRank(right) ? left : right
+}
+
+function complianceScopeKey(connection: AwsConnection): string {
+  return connection.kind === 'assumed-role'
+    ? [connection.sourceProfile, connection.roleArn, connection.accountId, connection.region].join('::')
+    : [connection.profile, connection.region].join('::')
+}
+
+function buildRemediationTemplates(finding: ComplianceFindingRecord): ComplianceRemediationTemplate[] {
+  const resourceId = finding.resourceId || '<resource-id>'
+  const region = finding.region
+
+  switch (finding.service) {
+    case 'security-groups':
+      return [{
+        id: `${finding.id}:security-group`,
+        title: 'Restrict public ingress',
+        summary: 'Inspect the security group and remove or narrow internet-facing ingress rules before closing the finding.',
+        commands: [
+          {
+            label: 'Inspect group',
+            command: `aws ec2 describe-security-groups --group-ids ${resourceId} --region ${region}`
+          },
+          {
+            label: 'Review attached ENIs',
+            command: `aws ec2 describe-network-interfaces --filters Name=group-id,Values=${resourceId} --region ${region}`
+          },
+          {
+            label: 'Template revoke command',
+            command: `aws ec2 revoke-security-group-ingress --group-id ${resourceId} --protocol tcp --port 22 --cidr 0.0.0.0/0 --region ${region}`
+          }
+        ]
+      }]
+    case 'secrets-manager':
+      return [{
+        id: `${finding.id}:secret`,
+        title: 'Rotate or verify secret',
+        summary: 'Review rotation state and dependency context before rotating the secret or attaching an automated rotation workflow.',
+        commands: [
+          {
+            label: 'Inspect secret',
+            command: `aws secretsmanager describe-secret --secret-id ${resourceId} --region ${region}`
+          },
+          {
+            label: 'List current version ids',
+            command: `aws secretsmanager list-secret-version-ids --secret-id ${resourceId} --region ${region}`
+          },
+          {
+            label: 'Template rotate secret',
+            command: `aws secretsmanager rotate-secret --secret-id ${resourceId} --region ${region}`
+          }
+        ]
+      }]
+    case 'cloudtrail':
+      return [{
+        id: `${finding.id}:cloudtrail`,
+        title: 'Restore audit logging',
+        summary: 'Confirm trail coverage, then enable or create a centralized trail with logging turned on.',
+        commands: [
+          {
+            label: 'List trails',
+            command: `aws cloudtrail describe-trails --include-shadow-trails --region ${region}`
+          },
+          {
+            label: 'Check trail status',
+            command: `aws cloudtrail get-trail-status --name <trail-name> --region ${region}`
+          },
+          {
+            label: 'Template start logging',
+            command: `aws cloudtrail start-logging --name <trail-name> --region ${region}`
+          }
+        ]
+      }]
+    case 'waf':
+      return [{
+        id: `${finding.id}:waf`,
+        title: 'Attach a WAF web ACL',
+        summary: 'Inspect current WAF association state, then attach the expected regional web ACL for the exposed load balancer.',
+        commands: [
+          {
+            label: 'Check current association',
+            command: `aws wafv2 get-web-acl-for-resource --resource-arn ${resourceId} --region ${region}`
+          },
+          {
+            label: 'List available ACLs',
+            command: `aws wafv2 list-web-acls --scope REGIONAL --region ${region}`
+          },
+          {
+            label: 'Template associate ACL',
+            command: `aws wafv2 associate-web-acl --web-acl-arn <web-acl-arn> --resource-arn ${resourceId} --region ${region}`
+          }
+        ]
+      }]
+    case 'key-pairs':
+      return [{
+        id: `${finding.id}:key-pairs`,
+        title: 'Audit key pair ownership',
+        summary: 'Inspect key pair inventory and remove only entries that are confirmed unused by active access workflows.',
+        commands: [
+          {
+            label: 'List key pairs',
+            command: `aws ec2 describe-key-pairs --region ${region}`
+          },
+          {
+            label: 'List active instances',
+            command: `aws ec2 describe-instances --query "Reservations[].Instances[].{Id:InstanceId,Key:KeyName,State:State.Name}" --region ${region}`
+          }
+        ]
+      }]
+    default:
+      return [{
+        id: `${finding.id}:generic`,
+        title: 'Investigate and remediate',
+        summary: 'Inspect the affected service resource in the active region, then execute the matching remediation in the terminal with the current AWS context.',
+        commands: [
+          {
+            label: 'Context check',
+            command: `aws sts get-caller-identity --region ${region}`
+          }
+        ]
+      }]
+  }
+}
+
 export async function getComplianceReport(connection: AwsConnection): Promise<ComplianceReport> {
   const warnings: string[] = []
   const region = connection.region
-  const findings: ComplianceFinding[] = []
+  const findings: ComplianceFindingRecord[] = []
+  const scopeKey = complianceScopeKey(connection)
+  const governanceDefaults = getGovernanceTagDefaults()
+  const policyPackDefinitions = getCompliancePolicyPacks()
 
   const [
     trails,
@@ -292,6 +431,7 @@ export async function getComplianceReport(connection: AwsConnection): Promise<Co
         ? `No CloudTrail trails were discovered in ${region}.`
         : `CloudTrail trails exist in ${region}, but none are actively logging.`,
       recommendedAction: 'Enable a logging CloudTrail trail with centralized S3 storage and log file validation.',
+      policyPackIds: ['backup-resilience'],
       remediation: {
         kind: 'navigate',
         label: 'Open CloudTrail',
@@ -331,6 +471,7 @@ export async function getComplianceReport(connection: AwsConnection): Promise<Co
         resourceId: loadBalancer.summary.name || loadBalancer.summary.arn,
         description: `${formatResourceLabel(loadBalancer.summary.arn, loadBalancer.summary.name)} is not associated with a regional WAF web ACL.`,
         recommendedAction: 'Review the load balancer exposure and attach an appropriate WAF web ACL before enabling additional public traffic.',
+        policyPackIds: ['public-exposure-guardrails'],
         remediation: {
           kind: 'navigate',
           label: 'Open WAF',
@@ -358,6 +499,7 @@ export async function getComplianceReport(connection: AwsConnection): Promise<Co
       resourceId: group.groupId,
       description: `${formatResourceLabel(group.groupId, group.groupName)} allows ${exposedPorts} from 0.0.0.0/0 or ::/0.`,
       recommendedAction: 'Restrict the rule scope to trusted CIDR ranges or private security group references.',
+      policyPackIds: ['public-exposure-guardrails'],
       remediation: {
         kind: 'navigate',
         label: 'Open Security Groups',
@@ -382,6 +524,7 @@ export async function getComplianceReport(connection: AwsConnection): Promise<Co
       resourceId: secret.name || secret.arn,
       description: `${secret.name} does not have automatic rotation enabled.`,
       recommendedAction: 'Enable rotation for credentials and API secrets that can be rotated safely.',
+      policyPackIds: ['encryption-baseline'],
       remediation: {
         kind: 'secret-rotate',
         label: 'Rotate Secret',
@@ -486,8 +629,9 @@ export async function getComplianceReport(connection: AwsConnection): Promise<Co
       service: primaryService,
       region,
       resourceId: `${weakTaggedResources.length}/${taggingSample.length}`,
-      description: `${weakTaggedResources.length} of ${taggingSample.length} sampled resources are missing governance-oriented tags such as ${GOVERNANCE_TAG_KEYS.join(', ')}.`,
+      description: `${weakTaggedResources.length} of ${taggingSample.length} sampled resources are missing governance-oriented tags such as ${GOVERNANCE_TAG_KEYS.join(', ')}. Current defaults: ${GOVERNANCE_TAG_KEYS.map((key) => `${key}=${governanceDefaults.values[key as GovernanceTagKey] || '<unset>'}`).join(', ')}.`,
       recommendedAction: 'Review tagging standards for ownership, environment, and cost attribution before enforcing stricter automation.',
+      policyPackIds: ['tagging-defaults'],
       remediation: {
         kind: 'terminal',
         label: 'Open Tag Audit Command',
@@ -515,10 +659,30 @@ export async function getComplianceReport(connection: AwsConnection): Promise<Co
     return left.title.localeCompare(right.title)
   })
 
+  const policyPacks: CompliancePolicyPack[] = policyPackDefinitions.map((definition) => ({
+    ...definition,
+    findingCount: findings.filter((finding) => finding.policyPackIds?.includes(definition.id)).length
+  })).sort((left, right) => {
+    const rightSeverity = findings
+      .filter((finding) => finding.policyPackIds?.includes(right.id))
+      .reduce<ComplianceSeverity>((severity, finding) => maxSeverity(severity, finding.severity), 'low')
+    const leftSeverity = findings
+      .filter((finding) => finding.policyPackIds?.includes(left.id))
+      .reduce<ComplianceSeverity>((severity, finding) => maxSeverity(severity, finding.severity), 'low')
+    return severityRank(rightSeverity) - severityRank(leftSeverity) || right.findingCount - left.findingCount
+  })
+
+  const findingsWithWorkflow = findings.map((finding) => ({
+    ...finding,
+    workflow: getComplianceFindingWorkflow(scopeKey, finding.id),
+    remediationTemplates: buildRemediationTemplates(finding)
+  }))
+
   return {
     generatedAt: new Date().toISOString(),
-    findings,
-    summary: createSummary(findings),
+    findings: findingsWithWorkflow,
+    policyPacks,
+    summary: createSummary(findingsWithWorkflow),
     warnings
   }
 }
