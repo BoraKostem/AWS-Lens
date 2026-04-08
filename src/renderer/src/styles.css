@@ -6379,6 +6379,64 @@ button.overview-tile.clickable.active strong {
   border-radius: 10px;
 }
 
+.settings-update-overview {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.95rem 1rem;
+  border-radius: 16px;
+  border: 1px solid rgba(136, 156, 181, 0.12);
+  background: linear-gradient(180deg, rgba(14, 22, 34, 0.92), rgba(8, 14, 22, 0.82));
+}
+
+.settings-update-overview h3 {
+  margin: 0.18rem 0 0.45rem;
+  color: #f3f7fc;
+}
+
+.settings-update-overview p {
+  margin: 0;
+  max-width: 720px;
+  color: #9fb1c4;
+}
+
+.settings-update-overview__badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+.settings-update-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.65rem;
+}
+
+.settings-update-stat {
+  padding: 0.8rem 0.9rem;
+  border-radius: 14px;
+  border: 1px solid rgba(136, 156, 181, 0.12);
+  background: rgba(8, 14, 22, 0.72);
+}
+
+.settings-update-stat span {
+  display: block;
+  color: #8fa1b3;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.settings-update-stat strong {
+  display: block;
+  margin-top: 0.24rem;
+  color: #f3f7fc;
+  line-height: 1.4;
+}
+
 .settings-release-notes {
   min-height: 140px;
   border-radius: 16px;
@@ -7929,6 +7987,14 @@ button.overview-tile.clickable.active strong {
 }
 
 @media (max-width: 720px) {
+  .settings-update-overview {
+    flex-direction: column;
+  }
+
+  .settings-update-overview__badges {
+    justify-content: flex-start;
+  }
+
   .compliance-summary-grid {
     grid-template-columns: minmax(0, 1fr);
   }
