@@ -2013,6 +2013,130 @@
   background: linear-gradient(180deg, rgba(17, 24, 34, 0.94), rgba(10, 16, 25, 0.94));
 }
 
+.ec2-adoption-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  color: #c8d5e6;
+}
+
+.ec2-adoption-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ec2-adoption-pill.managed {
+  background: rgba(39, 174, 96, 0.16);
+  color: #8ce0ac;
+}
+
+.ec2-adoption-pill.config {
+  background: rgba(237, 143, 52, 0.16);
+  color: #ffd29b;
+}
+
+.ec2-adoption-pill.unmanaged {
+  background: rgba(90, 105, 130, 0.3);
+  color: #d5dfed;
+}
+
+.ec2-adoption-projects {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ec2-adoption-project {
+  border: 1px solid rgba(145, 176, 207, 0.14);
+  border-radius: 12px;
+  background: rgba(18, 27, 40, 0.65);
+  padding: 12px;
+}
+
+.ec2-adoption-project-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.ec2-adoption-meta,
+.ec2-adoption-path,
+.ec2-adoption-empty,
+.ec2-adoption-error {
+  color: #9ca7b7;
+  font-size: 11px;
+}
+
+.ec2-adoption-path {
+  margin-top: 4px;
+  word-break: break-all;
+}
+
+.ec2-adoption-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.ec2-adoption-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(9, 14, 22, 0.76);
+}
+
+.ec2-adoption-row code {
+  font-size: 11px;
+  color: #edf1f6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.ec2-adoption-row small {
+  color: #9ca7b7;
+  line-height: 1.4;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.ec2-adoption-label {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: rgba(91, 141, 239, 0.16);
+  color: #b7ccff;
+}
+
+.ec2-adoption-label.config {
+  background: rgba(237, 143, 52, 0.16);
+  color: #ffd29b;
+}
+
+.ec2-action-btn.terraform {
+  background: #5b8def;
+}
+
 .ec2-rec-summary {
   margin-bottom: 0;
   border-radius: 14px;
@@ -2069,5 +2193,9 @@
 
   .ec2-table-shell-header {
     flex-direction: column;
+  }
+
+  .ec2-adoption-project-head {
+    display: grid;
   }
 }

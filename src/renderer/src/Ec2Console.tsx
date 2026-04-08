@@ -33,6 +33,7 @@ import type {
   SsmPortForwardPreset,
   SsmSessionSummary,
   SubnetSummary,
+  TerraformAdoptionDetectionResult,
   TerraformAdoptionTarget,
   VaultEntrySummary
 } from '@shared/types'
@@ -84,6 +85,7 @@ import {
 } from './ec2Api'
 import { ConfirmButton } from './ConfirmButton'
 import { TerraformAdoptionDialog } from './TerraformAdoptionDialog'
+import { detectAdoption } from './terraformApi'
 
 type MainTab = 'instances' | 'volumes' | 'snapshots'
 type SideTab = 'overview' | 'ssm' | 'timeline'
@@ -285,6 +287,12 @@ function buildEc2AdoptionTarget(connection: AwsConnection, instance: Ec2Instance
   }
 }
 
+function terraformContextKey(connection: AwsConnection): string {
+  return connection.kind === 'profile'
+    ? `profile:${connection.profile}`
+    : `assumed-role:${connection.sessionId}`
+}
+
 function KV({ items }: { items: Array<[string, string]> }) {
   return (
     <div className="ec2-kv">
@@ -446,6 +454,11 @@ export function Ec2Console({
   const { guard: staleGuard, nextGeneration } = useStaleGuard()
   const [msg, setMsg] = useState('')
   const [showTerraformAdoptionDialog, setShowTerraformAdoptionDialog] = useState(false)
+  const [adoptionDetection, setAdoptionDetection] = useState<TerraformAdoptionDetectionResult | null>(null)
+  const [adoptionLoading, setAdoptionLoading] = useState(false)
+  const [adoptionError, setAdoptionError] = useState('')
+  const adoptionSectionRef = useRef<HTMLDivElement | null>(null)
+  const adoptionRequestRef = useRef(0)
 
   /* ── Filter state ──────────────────────────────────────── */
   const [stateFilter, setStateFilter] = useState('all')
@@ -584,9 +597,54 @@ export function Ec2Console({
     }
   }
 
+  async function loadAdoptionDetection(nextDetail: Ec2InstanceDetail | null): Promise<void> {
+    const requestId = adoptionRequestRef.current + 1
+    adoptionRequestRef.current = requestId
+
+    if (!nextDetail) {
+      if (requestId === adoptionRequestRef.current) {
+        setAdoptionDetection(null)
+        setAdoptionError('')
+        setAdoptionLoading(false)
+      }
+      return
+    }
+
+    setAdoptionLoading(true)
+    setAdoptionError('')
+    try {
+      const result = await detectAdoption(
+        terraformContextKey(connection),
+        connection,
+        buildEc2AdoptionTarget(connection, nextDetail)
+      )
+      if (requestId === adoptionRequestRef.current) {
+        setAdoptionDetection(result)
+      }
+    } catch (error) {
+      if (requestId === adoptionRequestRef.current) {
+        setAdoptionDetection(null)
+        setAdoptionError(error instanceof Error ? error.message : 'Terraform adoption detection failed.')
+      }
+    } finally {
+      if (requestId === adoptionRequestRef.current) {
+        setAdoptionLoading(false)
+      }
+    }
+  }
+
+  function handleManageInTerraform(): void {
+    adoptionSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setShowTerraformAdoptionDialog(true)
+  }
+
   useEffect(() => {
     if (sideTab === 'timeline' && selectedId) void loadTimeline(selectedId)
   }, [sideTab, selectedId, timelineStart, timelineEnd])
+
+  useEffect(() => {
+    void loadAdoptionDetection(detail)
+  }, [connection.region, connection.sessionId, detail?.instanceId, detail?.name])
 
   /* ── Recommendations state ──────────────────────────────── */
   const [recommendations, setRecommendations] = useState<Ec2Recommendation[]>([])
@@ -1999,7 +2057,7 @@ export function Ec2Console({
                     {selectedInstanceIds.length > 1 && (
                       <div className="ec2-sidebar-hint">Bulk actions target {selectedInstanceIds.length} selected instances. Sidebar actions still apply to the primary selection only.</div>
                     )}
-                    <div className="ec2-actions-grid">
+                  <div className="ec2-actions-grid">
                       <button className="ec2-action-btn" type="button" onClick={() => void doDescribe()}>Describe</button>
                       {!isTerminatedInstance && <button className="ec2-action-btn start" type="button" onClick={() => void doAction('start')}>Start</button>}
                       {!isTerminatedInstance && <ConfirmButton className="ec2-action-btn stop" type="button" onConfirm={() => void doAction('stop')}>Stop</ConfirmButton>}
@@ -2009,13 +2067,12 @@ export function Ec2Console({
                         if (detail?.volumes[0]) setSnapVolume(detail.volumes[0].volumeId)
                         setMainTab('snapshots')
                       }}>Create Snapshot</button>}
-                      {!isTerminatedInstance && (
-                        <button
-                          className="ec2-action-btn"
-                          type="button"
-                          disabled={!detail}
-                          onClick={() => setShowTerraformAdoptionDialog(true)}>
-                          Terraform Adoption
+                      {adoptionLoading && (
+                        <button className="ec2-action-btn" type="button" disabled>Checking Terraform...</button>
+                      )}
+                      {!adoptionLoading && adoptionDetection?.managedProjectCount === 0 && (
+                        <button className="ec2-action-btn terraform" type="button" onClick={handleManageInTerraform}>
+                          Manage in Terraform
                         </button>
                       )}
                       {!isTerminatedInstance && <button className="ec2-action-btn" type="button" onClick={() => {
@@ -2043,6 +2100,81 @@ export function Ec2Console({
                         }}>Go to Security Group</button>
                       )}
                     </div>
+                  </div>
+
+                  <div className="ec2-sidebar-section" ref={adoptionSectionRef}>
+                    <div className="ec2-btn-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <h3 style={{ margin: 0 }}>Terraform Adoption Detection</h3>
+                        <div className="ec2-sidebar-hint">
+                          Check whether this instance already appears in tracked Terraform state or project config before starting adoption.
+                        </div>
+                      </div>
+                      <button className="ec2-action-btn" type="button" onClick={() => void loadAdoptionDetection(detail)} disabled={adoptionLoading}>
+                        {adoptionLoading ? 'Checking...' : 'Refresh'}
+                      </button>
+                    </div>
+                    {adoptionError && <div className="ec2-sidebar-hint ec2-adoption-error">{adoptionError}</div>}
+                    {adoptionDetection && (
+                      <>
+                        <div className="ec2-adoption-summary">
+                          <div className={`ec2-adoption-pill ${adoptionDetection.managedProjectCount > 0 ? 'managed' : adoptionDetection.configHintProjectCount > 0 ? 'config' : 'unmanaged'}`}>
+                            {adoptionDetection.managedProjectCount > 0
+                              ? 'Managed'
+                              : adoptionDetection.configHintProjectCount > 0
+                                ? 'Config hints'
+                                : 'Unmanaged'}
+                          </div>
+                          <span>
+                            {adoptionDetection.scannedProjectCount} tracked project{adoptionDetection.scannedProjectCount === 1 ? '' : 's'} scanned in {connection.region}.
+                          </span>
+                        </div>
+                        {adoptionDetection.projects.length === 0 ? (
+                          <div className="ec2-adoption-empty">
+                            No tracked Terraform project currently claims this instance in state or config.
+                          </div>
+                        ) : (
+                          <div className="ec2-adoption-projects">
+                            {adoptionDetection.projects.map((project) => (
+                              <article key={project.projectId} className="ec2-adoption-project">
+                                <div className="ec2-adoption-project-head">
+                                  <strong>{project.projectName}</strong>
+                                  <span className={`ec2-adoption-pill ${project.status === 'managed' ? 'managed' : 'config'}`}>
+                                    {project.status === 'managed' ? 'State match' : 'Config hint'}
+                                  </span>
+                                </div>
+                                <div className="ec2-adoption-meta">
+                                  Workspace {project.currentWorkspace || 'default'} | Region {project.region || '-'} | Backend {project.backendType || '-'}
+                                </div>
+                                <div className="ec2-adoption-path">{project.rootPath}</div>
+                                {project.stateMatches.length > 0 && (
+                                  <div className="ec2-adoption-list">
+                                    {project.stateMatches.map((match) => (
+                                      <div key={`${project.projectId}:${match.address}:${match.matchedOn}`} className="ec2-adoption-row">
+                                        <span className="ec2-adoption-label">State</span>
+                                        <code>{match.address}</code>
+                                        <small>matched on {match.matchedOn}</small>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                {project.configMatches.length > 0 && (
+                                  <div className="ec2-adoption-list">
+                                    {project.configMatches.map((match) => (
+                                      <div key={`${project.projectId}:${match.relativePath}:${match.lineNumber}:${match.matchedValue}`} className="ec2-adoption-row">
+                                        <span className="ec2-adoption-label config">Config</span>
+                                        <code>{match.relativePath}:{match.lineNumber}</code>
+                                        <small>{match.excerpt}</small>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </article>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
 
                   {showDescribe && detail && (
