@@ -76,7 +76,17 @@ setInterval(() => {
 
 // ── Credential Providers ───────────────────────────────────────────────────────
 
-const credentialProviders = new Map<string, AwsCredentialsProvider>()
+// How far before expiry to proactively evict the cached provider and its clients.
+const CREDENTIAL_REFRESH_BUFFER_MS = 5 * 60 * 1000 // 5 minutes before expiry
+
+interface CredentialProviderEntry {
+  provider: AwsCredentialsProvider
+  // Earliest known expiration across all credentials returned by this provider.
+  // null = no expiration info yet (e.g. long-term IAM keys).
+  expiresAt: number | null
+}
+
+const credentialProviders = new Map<string, CredentialProviderEntry>()
 const pendingCredentialLoads = new Set<Promise<unknown>>()
 
 function trackCredentialLoad<T>(promise: Promise<T>): Promise<T> {
@@ -89,17 +99,54 @@ function trackCredentialLoad<T>(promise: Promise<T>): Promise<T> {
 }
 
 export function getProfileCredentialsProvider(profile: string): AwsCredentialsProvider {
-  const cached = credentialProviders.get(profile)
-  if (cached) {
-    return cached
+  const entry = credentialProviders.get(profile)
+
+  // Evict if we know the credentials are about to expire
+  if (entry) {
+    const isExpiringSoon = entry.expiresAt !== null && Date.now() >= entry.expiresAt - CREDENTIAL_REFRESH_BUFFER_MS
+    if (!isExpiringSoon) {
+      return entry.provider
+    }
+    // Proactively evict stale provider and its pooled clients
+    credentialProviders.delete(profile)
+    for (const key of clientPool.keys()) {
+      if (key.includes(`::${profile}::`)) {
+        clientPool.delete(key)
+      }
+    }
   }
 
   const baseProvider = createProfileCredentialsProvider(profile)
-  const trackedProvider: AwsCredentialsProvider = async () =>
-    trackCredentialLoad(baseProvider())
+  const providerEntry: CredentialProviderEntry = { provider: null as unknown as AwsCredentialsProvider, expiresAt: null }
 
-  credentialProviders.set(profile, trackedProvider)
+  const trackedProvider: AwsCredentialsProvider = async () => {
+    const creds = await trackCredentialLoad(baseProvider())
+    // Track the earliest expiration we've seen for this provider
+    if (creds.expiration) {
+      const expiresAt = creds.expiration.getTime()
+      if (providerEntry.expiresAt === null || expiresAt < providerEntry.expiresAt) {
+        providerEntry.expiresAt = expiresAt
+      }
+    }
+    return creds
+  }
+
+  providerEntry.provider = trackedProvider
+  credentialProviders.set(profile, providerEntry)
   return trackedProvider
+}
+
+/**
+ * Force-invalidates the credential provider and all pooled clients for a profile.
+ * Call this when the user explicitly refreshes credentials or switches sessions.
+ */
+export function refreshCredentialsForProfile(profile: string): void {
+  credentialProviders.delete(profile)
+  for (const key of clientPool.keys()) {
+    if (key.includes(`::${profile}::`)) {
+      clientPool.delete(key)
+    }
+  }
 }
 
 export function clearCredentialsProviderCache(profile?: string): void {
@@ -117,7 +164,6 @@ export function clearCredentialsProviderCache(profile?: string): void {
   credentialProviders.clear()
   clientPool.clear()
 }
-
 export function awsClientConfig(connection: AwsConnection) {
   const credentials = connection.kind === 'assumed-role'
     ? (() => {
