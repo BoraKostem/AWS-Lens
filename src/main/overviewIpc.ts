@@ -11,13 +11,15 @@ import {
 } from './aws/overview'
 import { createHandlerWrapper } from './operations'
 
-type HandlerResult<T> = { ok: true; data: T } | { ok: false; error: string }
-const wrap: <T>(fn: () => Promise<T> | T, label?: string) => Promise<HandlerResult<T>> =
-  createHandlerWrapper('overview-ipc', { timeoutMs: 60000 })
+const wrap = createHandlerWrapper('overview-ipc', { timeoutMs: 60000 })
+
+// The global metrics scan queries 20+ AWS APIs per region. Allow up to 10 minutes
+// so large accounts with many regions don't hit the default 60-second timeout.
+const METRICS_TIMEOUT_MS = 600_000
 
 export function registerOverviewIpcHandlers(): void {
   ipcMain.handle('overview:metrics', async (_event, connection: AwsConnection, regions: string[]) =>
-    wrap(() => getOverviewMetrics(connection, regions))
+    wrap(() => getOverviewMetrics(connection, regions), 'handler', { timeoutMs: METRICS_TIMEOUT_MS })
   )
   ipcMain.handle('overview:statistics', async (_event, connection: AwsConnection) =>
     wrap(() => getOverviewStatistics(connection))

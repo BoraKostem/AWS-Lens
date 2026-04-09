@@ -1761,7 +1761,7 @@ export async function getOverviewMetrics(
     safeCount(() => countCloudTrail(globalConn), 0)
   ])
 
-  const regionResults = await mapWithConcurrency(regions, 3, async (region, index) => {
+  const regionResults = await mapWithConcurrency(regions, 5, async (region, index) => {
       const regionConn = { ...connection, region }
       const [ec2, lambda, eks, asg, rds, cfn, ecr, ecs, vpc, allVpc, elb, sg, sns, sqs, acm, kms, waf, sm, kp, cw] = await Promise.all([
         safeCount(() => countEc2(regionConn), { count: 0, instances: [] }),
