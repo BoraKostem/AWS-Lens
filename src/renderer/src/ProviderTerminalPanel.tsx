@@ -62,53 +62,94 @@ function escapeShellArg(value: string): string {
 }
 
 function buildQuickCommands(target: ProviderTerminalTarget): TerminalQuickCommand[] {
-  if (target.providerId !== 'gcp') {
-    return []
-  }
-
-  const projectId = target.env.CLOUD_LENS_GCP_PROJECT?.trim() || ''
-  const location = target.env.CLOUD_LENS_GCP_LOCATION?.trim() || ''
-  if (!projectId) {
-    return []
-  }
-
-  const quotedProject = `"${escapeShellArg(projectId)}"`
-  const quotedLocation = location ? `"${escapeShellArg(location)}"` : '""'
-
-  return [
-    {
-      id: 'auth',
-      label: 'Auth',
-      command: 'gcloud auth list'
-    },
-    {
-      id: 'config',
-      label: 'Config',
-      command: 'gcloud config list'
-    },
-    {
-      id: 'project',
-      label: 'Project',
-      command: `gcloud projects describe ${quotedProject}`
-    },
-    {
-      id: 'services',
-      label: 'Services',
-      command: `gcloud services list --enabled --project ${quotedProject}`
-    },
-    {
-      id: 'artifacts',
-      label: 'Storage',
-      command: `gcloud storage ls --project ${quotedProject}`
-    },
-    {
-      id: 'location',
-      label: 'Location',
-      command: location
-        ? `gcloud compute regions describe ${quotedLocation} --project ${quotedProject}`
-        : `echo No location configured for ${quotedProject}`
+  if (target.providerId === 'gcp') {
+    const projectId = target.env.CLOUD_LENS_GCP_PROJECT?.trim() || ''
+    const location = target.env.CLOUD_LENS_GCP_LOCATION?.trim() || ''
+    if (!projectId) {
+      return []
     }
-  ]
+
+    const quotedProject = `"${escapeShellArg(projectId)}"`
+    const quotedLocation = location ? `"${escapeShellArg(location)}"` : '""'
+
+    return [
+      {
+        id: 'auth',
+        label: 'Auth',
+        command: 'gcloud auth list'
+      },
+      {
+        id: 'config',
+        label: 'Config',
+        command: 'gcloud config list'
+      },
+      {
+        id: 'project',
+        label: 'Project',
+        command: `gcloud projects describe ${quotedProject}`
+      },
+      {
+        id: 'services',
+        label: 'Services',
+        command: `gcloud services list --enabled --project ${quotedProject}`
+      },
+      {
+        id: 'artifacts',
+        label: 'Storage',
+        command: `gcloud storage ls --project ${quotedProject}`
+      },
+      {
+        id: 'location',
+        label: 'Location',
+        command: location
+          ? `gcloud compute regions describe ${quotedLocation} --project ${quotedProject}`
+          : `echo No location configured for ${quotedProject}`
+      }
+    ]
+  }
+
+  if (target.providerId === 'azure') {
+    const subscriptionId = target.env.CLOUD_LENS_AZURE_SUBSCRIPTION?.trim() || ''
+    const location = target.env.CLOUD_LENS_AZURE_LOCATION?.trim() || ''
+    const quotedSubscription = subscriptionId ? `"${escapeShellArg(subscriptionId)}"` : '""'
+    const quotedLocation = location ? `"${escapeShellArg(location)}"` : '""'
+
+    return [
+      {
+        id: 'account',
+        label: 'Account',
+        command: 'az account show --output table'
+      },
+      {
+        id: 'subscriptions',
+        label: 'Subscriptions',
+        command: 'az account list --output table'
+      },
+      {
+        id: 'groups',
+        label: 'Groups',
+        command: subscriptionId
+          ? `az group list --subscription ${quotedSubscription} --output table`
+          : 'az group list --output table'
+      },
+      {
+        id: 'providers',
+        label: 'Providers',
+        command: subscriptionId
+          ? `az provider list --subscription ${quotedSubscription} --query "[?registrationState!='Registered'].{namespace:namespace,state:registrationState}" --output table`
+          : 'az provider list --query "[?registrationState!=\'Registered\'].{namespace:namespace,state:registrationState}" --output table'
+      },
+      {
+        id: 'location',
+        label: 'Location',
+        command: location
+          ? `az account list-locations --query "[?name=='${escapeShellArg(location)}']" --output table`
+          : 'az account list-locations --output table'
+      }
+    ]
+  }
+
+  return []
 }
 
 function TerminalTabSurface({
