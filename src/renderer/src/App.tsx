@@ -253,7 +253,15 @@ const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   'gcp-cloud-storage': 'Project-aware Cloud Storage inventory with bucket posture, object browser workflows, preview/edit paths, and shell handoff.',
   'gcp-cloud-sql': 'Project-aware Cloud SQL entry point staged for database posture, instance inventory, and connection helpers.',
   'gcp-logging': 'Project-aware Logging entry point staged for log exploration, query posture, and shell handoff.',
-  'gcp-billing': 'Project-aware Billing posture with project linkage, ownership signals, and billing account visibility.'
+  'gcp-billing': 'Project-aware Billing posture with project linkage, ownership signals, and billing account visibility.',
+  'azure-subscriptions': 'Tenant-aware subscription inventory with management-group hints, location coverage, and cost-facing context.',
+  'azure-rbac': 'Scope-aware RBAC posture with inherited assignments, risky roles, and principal filters.',
+  'azure-virtual-machines': 'Subscription-aware VM inventory with power state, identity posture, diagnostics links, and operator actions.',
+  'azure-aks': 'AKS inventory with cluster posture, node pool visibility, version context, and kubeconfig handoff.',
+  'azure-storage-accounts': 'Storage account posture plus container and blob workflows with preview, edit, upload, download, and delete flows.',
+  'azure-sql': 'Azure SQL server and database posture with network visibility, maintenance metadata, and connection helper handoff.',
+  'azure-monitor': 'Azure Monitor query workflows, saved investigations, and diagnostics entry points across Azure services.',
+  'azure-cost': 'Subscription cost posture with spend visibility, service mix, and budget-facing ownership hints.'
 }
 
 const SERVICE_MATURITY_LABELS: Record<ServiceMaturity, string> = {
@@ -378,32 +386,7 @@ const PROVIDER_CONNECTION_MODES: Record<CloudProviderId, ProviderConnectionMode[
 
 const PROVIDER_PREVIEW_NAV_SECTIONS: Record<Exclude<CloudProviderId, 'aws'>, ProviderPreviewNavSection[]> = {
   gcp: [],
-  azure: [
-    {
-      id: 'azure-core',
-      label: 'Core',
-      items: [
-        { id: 'azure-resource-groups', label: 'Resource Groups', detail: 'Subscription inventory and grouping' },
-        { id: 'azure-vm', label: 'Virtual Machines', detail: 'VM operations and access context' }
-      ]
-    },
-    {
-      id: 'azure-platform',
-      label: 'Platform',
-      items: [
-        { id: 'azure-aks', label: 'AKS', detail: 'Cluster lifecycle and kubectl handoff' },
-        { id: 'azure-storage', label: 'Storage Accounts', detail: 'Storage posture and object workflows' }
-      ]
-    },
-    {
-      id: 'azure-ops',
-      label: 'Operations',
-      items: [
-        { id: 'azure-sql', label: 'Azure SQL', detail: 'Database inventory and connection helpers' },
-        { id: 'azure-monitor', label: 'Monitor', detail: 'Telemetry, alerts, and diagnostics posture' }
-      ]
-    }
-  ]
+  azure: []
 }
 
 const PROVIDER_AFFORDANCE_LABELS: Record<CloudProviderId, string> = {
@@ -2974,6 +2957,14 @@ function screenCacheTag(screen: Screen): CacheTag | null {
     case 'gcp-cloud-sql':
     case 'gcp-logging':
     case 'gcp-billing':
+    case 'azure-subscriptions':
+    case 'azure-rbac':
+    case 'azure-virtual-machines':
+    case 'azure-aks':
+    case 'azure-storage-accounts':
+    case 'azure-sql':
+    case 'azure-monitor':
+    case 'azure-cost':
       return 'shell'
     case 'session-hub':
       return null
