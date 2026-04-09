@@ -1,6 +1,15 @@
 import { dialog, ipcMain, shell, type BrowserWindow } from 'electron'
 
-import type { AppDiagnosticsFailureInput, AppDiagnosticsSnapshot, AppSecuritySummary, AppSettings, AwsConnection, CloudProviderId, GcpComputeInstanceAction } from '@shared/types'
+import type {
+  AppDiagnosticsFailureInput,
+  AppDiagnosticsSnapshot,
+  AppSecuritySummary,
+  AppSettings,
+  AwsConnection,
+  AzureProviderContextSnapshot,
+  CloudProviderId,
+  GcpComputeInstanceAction
+} from '@shared/types'
 import { getAppSettings, resetAppSettings, updateAppSettings } from './appSettings'
 import { importAwsConfigFile } from './aws/profiles'
 import { getVisibleServiceCatalog, getVisibleWorkspaceCatalog } from './catalog'
@@ -41,8 +50,10 @@ const wrap: <T>(
 ) => Promise<HandlerResult<T>> = createHandlerWrapper('ipc', { timeoutMs: 60000 })
 
 type GcpSdkModule = typeof import('./gcpSdk')
+type AzureFoundationModule = typeof import('./azureFoundation')
 
 let gcpSdkPromise: Promise<GcpSdkModule> | null = null
+let azureFoundationPromise: Promise<AzureFoundationModule> | null = null
 
 function loadGcpSdk(): Promise<GcpSdkModule> {
   if (!gcpSdkPromise) {
@@ -50,6 +61,14 @@ function loadGcpSdk(): Promise<GcpSdkModule> {
   }
 
   return gcpSdkPromise
+}
+
+function loadAzureFoundation(): Promise<AzureFoundationModule> {
+  if (!azureFoundationPromise) {
+    azureFoundationPromise = import('./azureFoundation')
+  }
+
+  return azureFoundationPromise
 }
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
@@ -70,6 +89,24 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     vaultEntryCounts: getVaultEntryCounts()
   })))
   ipcMain.handle('app:environment-health', async () => wrap(() => getEnvironmentHealthReport()))
+  ipcMain.handle('azure:context:get', async () =>
+    wrap<AzureProviderContextSnapshot>(async () => (await loadAzureFoundation()).getAzureProviderContext())
+  )
+  ipcMain.handle('azure:context:start-device-code-sign-in', async () =>
+    wrap<AzureProviderContextSnapshot>(async () => (await loadAzureFoundation()).startAzureDeviceCodeSignIn())
+  )
+  ipcMain.handle('azure:context:sign-out', async () =>
+    wrap<AzureProviderContextSnapshot>(async () => (await loadAzureFoundation()).signOutAzureProvider())
+  )
+  ipcMain.handle('azure:context:set-tenant', async (_event, tenantId: string) =>
+    wrap<AzureProviderContextSnapshot>(async () => (await loadAzureFoundation()).setAzureActiveTenant(tenantId))
+  )
+  ipcMain.handle('azure:context:set-subscription', async (_event, subscriptionId: string) =>
+    wrap<AzureProviderContextSnapshot>(async () => (await loadAzureFoundation()).setAzureActiveSubscription(subscriptionId))
+  )
+  ipcMain.handle('azure:context:set-location', async (_event, location: string) =>
+    wrap<AzureProviderContextSnapshot>(async () => (await loadAzureFoundation()).setAzureActiveLocation(location))
+  )
   ipcMain.handle('gcp:cli-context', async () => wrap(() => getGcpCliContext()))
   ipcMain.handle('gcp:projects', async () => wrap(() => listGcpProjects()))
   ipcMain.handle('gcp:projects:get-overview', async (_event, projectId: string) =>

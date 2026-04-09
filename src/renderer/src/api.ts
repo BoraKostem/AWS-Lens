@@ -20,6 +20,7 @@ import type {
   AcmCertificateSummary,
   AcmRequestCertificateInput,
   AppDiagnosticsExportResult,
+  AzureProviderContextSnapshot,
   EnvironmentHealthReport,
   GcpCliContext,
   GcpBillingOverview,
@@ -1330,6 +1331,30 @@ export async function resetAppSettings(): Promise<AppSettings> {
 
 export async function getEnvironmentHealth(): Promise<EnvironmentHealthReport> {
   return unwrap((await rawAwsBridge().getEnvironmentHealth()) as Wrapped<EnvironmentHealthReport>)
+}
+
+export async function getAzureProviderContext(): Promise<AzureProviderContextSnapshot> {
+  return unwrap((await rawAwsBridge().getAzureProviderContext()) as unknown as Wrapped<AzureProviderContextSnapshot>)
+}
+
+export async function startAzureDeviceCodeSignIn(): Promise<AzureProviderContextSnapshot> {
+  return unwrap((await rawAwsBridge().startAzureDeviceCodeSignIn()) as unknown as Wrapped<AzureProviderContextSnapshot>)
+}
+
+export async function signOutAzureProvider(): Promise<AzureProviderContextSnapshot> {
+  return unwrap((await rawAwsBridge().signOutAzureProvider()) as unknown as Wrapped<AzureProviderContextSnapshot>)
+}
+
+export async function setAzureActiveTenant(tenantId: string): Promise<AzureProviderContextSnapshot> {
+  return unwrap((await rawAwsBridge().setAzureActiveTenant(tenantId)) as unknown as Wrapped<AzureProviderContextSnapshot>)
+}
+
+export async function setAzureActiveSubscription(subscriptionId: string): Promise<AzureProviderContextSnapshot> {
+  return unwrap((await rawAwsBridge().setAzureActiveSubscription(subscriptionId)) as unknown as Wrapped<AzureProviderContextSnapshot>)
+}
+
+export async function setAzureActiveLocation(location: string): Promise<AzureProviderContextSnapshot> {
+  return unwrap((await rawAwsBridge().setAzureActiveLocation(location)) as unknown as Wrapped<AzureProviderContextSnapshot>)
 }
 
 export async function getGcpCliContext(): Promise<GcpCliContext> {

@@ -603,6 +603,95 @@ export type GcpCliContext = {
   locations: string[]
 }
 
+export type AzureAuthStatus =
+  | 'signed-out'
+  | 'starting'
+  | 'waiting-for-device-code'
+  | 'authenticating'
+  | 'authenticated'
+  | 'error'
+
+export type AzureContextDiagnosticSeverity = 'info' | 'warning' | 'error'
+
+export type AzureContextDiagnosticCode =
+  | 'missing-auth'
+  | 'expired-auth'
+  | 'missing-subscription'
+  | 'insufficient-access'
+  | 'provider-registration'
+  | 'cli-guidance'
+  | 'read-only-mode'
+
+export type AzureTenantSummary = {
+  tenantId: string
+  displayName: string
+  defaultDomain: string
+  countryCode: string
+  tenantCategory: string
+}
+
+export type AzureSubscriptionSummary = {
+  id: string
+  subscriptionId: string
+  displayName: string
+  state: string
+  tenantId: string
+  authorizationSource: string
+  managedByTenants: string[]
+}
+
+export type AzureLocationSummary = {
+  id: string
+  name: string
+  regionalDisplayName: string
+  pairedRegionIds: string[]
+}
+
+export type AzureProviderRegistrationSummary = {
+  namespace: string
+  registrationState: string
+}
+
+export type AzureContextDiagnostic = {
+  code: AzureContextDiagnosticCode
+  severity: AzureContextDiagnosticSeverity
+  title: string
+  detail: string
+  remediation: string
+}
+
+export type AzureDeviceCodePrompt = {
+  message: string
+  userCode: string
+  verificationUri: string
+}
+
+export type AzureAuthSessionState = {
+  status: AzureAuthStatus
+  message: string
+  prompt: AzureDeviceCodePrompt | null
+  signedInAt: string
+  lastError: string
+}
+
+export type AzureProviderContextSnapshot = {
+  loadedAt: string
+  auth: AzureAuthSessionState
+  cloudName: string
+  cliPath: string
+  activeTenantId: string
+  activeSubscriptionId: string
+  activeLocation: string
+  activeAccountLabel: string
+  tenants: AzureTenantSummary[]
+  subscriptions: AzureSubscriptionSummary[]
+  locations: AzureLocationSummary[]
+  recentSubscriptionIds: string[]
+  recentSubscriptions: AzureSubscriptionSummary[]
+  providerRegistrations: AzureProviderRegistrationSummary[]
+  diagnostics: AzureContextDiagnostic[]
+}
+
 export type GcpProjectLabelSummary = {
   key: string
   value: string
