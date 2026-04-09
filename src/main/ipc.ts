@@ -89,8 +89,24 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('services:list', async (_event, providerId?: CloudProviderId) =>
     wrap(() => getVisibleServiceCatalog(providerId ?? 'aws', getAppSettings().features))
   )
-  ipcMain.handle('shell:open-external', async (_event, url: string) => wrap(() => shell.openExternal(url)))
-  ipcMain.handle('shell:open-path', async (_event, targetPath: string) => wrap(() => shell.openPath(targetPath)))
+  ipcMain.handle('shell:open-external', async (_event, url: string) =>
+    wrap(() => {
+      const parsed = new URL(url)
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        throw new Error(`Blocked shell.openExternal with disallowed protocol: ${parsed.protocol}`)
+      }
+      return shell.openExternal(url)
+    })
+  )
+  ipcMain.handle('shell:open-path', async (_event, targetPath: string) =>
+    wrap(() => {
+      const resolved = require('path').resolve(targetPath)
+      if (resolved.includes('..')) {
+        throw new Error('Blocked shell.openPath: path traversal detected')
+      }
+      return shell.openPath(resolved)
+    })
+  )
   ipcMain.handle('app:release-info', async () => wrap(() => getReleaseInfo()))
   ipcMain.handle('app:settings:get', async () => wrap(() => getAppSettings()))
   ipcMain.handle('app:settings:update', async (_event, update: Partial<AppSettings>) => wrap(() => updateAppSettings(update)))

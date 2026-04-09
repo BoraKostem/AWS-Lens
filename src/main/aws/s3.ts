@@ -32,7 +32,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { app, BrowserWindow, dialog, shell } from 'electron'
 import { createWriteStream, watchFile, unwatchFile } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
-import { join } from 'path'
+import { basename, join } from 'path'
 import { pipeline } from 'stream/promises'
 import { Readable } from 'stream'
 
@@ -774,7 +774,7 @@ export async function downloadObject(
   const client = getAwsClient(S3Client, connection)
   const output = await client.send(new GetObjectCommand({ Bucket: bucketName, Key: key }))
 
-  const fileName = key.split('/').pop() || 'download'
+  const fileName = basename(key.split('/').pop() || 'download').replace(/\.\./g, '_')
   const tempDir = app.getPath('temp')
   const filePath = join(tempDir, `s3-${Date.now()}-${fileName}`)
 
@@ -794,7 +794,7 @@ export async function downloadObjectToPath(
   bucketName: string,
   key: string
 ): Promise<string> {
-  const fileName = key.split('/').pop() || 'download'
+  const fileName = basename(key.split('/').pop() || 'download').replace(/\.\./g, '_')
   const win = BrowserWindow.getFocusedWindow()
   const result = await dialog.showSaveDialog(win ?? BrowserWindow.getAllWindows()[0], {
     defaultPath: fileName,
@@ -835,7 +835,7 @@ export async function openInVSCode(
   key: string
 ): Promise<string> {
   const filePath = await downloadObject(connection, bucketName, key)
-  void shell.openExternal(`vscode://file/${filePath}`)
+  void shell.openExternal(`vscode://file/${encodeURI(filePath)}`)
 
   if (watchedFiles.has(filePath)) {
     unwatchFile(filePath)
