@@ -11,6 +11,7 @@ import type {
   AssumeRoleRequest,
   AwsAssumeRoleTarget,
   AwsConnection,
+  AzureProviderContextSnapshot,
   CloudProviderId,
   CloudWatchInvestigationHistoryInput,
   BastionLaunchConfig,
@@ -103,6 +104,12 @@ declare global {
       resetAppSettings: () => Promise<unknown>
       getAppSecuritySummary: () => Promise<unknown>
       getEnvironmentHealth: () => Promise<unknown>
+      getAzureProviderContext: () => Promise<AzureProviderContextSnapshot>
+      startAzureDeviceCodeSignIn: () => Promise<AzureProviderContextSnapshot>
+      signOutAzureProvider: () => Promise<AzureProviderContextSnapshot>
+      setAzureActiveTenant: (tenantId: string) => Promise<AzureProviderContextSnapshot>
+      setAzureActiveSubscription: (subscriptionId: string) => Promise<AzureProviderContextSnapshot>
+      setAzureActiveLocation: (location: string) => Promise<AzureProviderContextSnapshot>
       getGcpCliContext: () => Promise<unknown>
       listGcpProjects: () => Promise<unknown>
       getGcpProjectOverview: (projectId: string) => Promise<unknown>

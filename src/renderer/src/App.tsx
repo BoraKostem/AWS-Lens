@@ -12,6 +12,7 @@ import type {
   AppReleaseInfo,
   AppSecuritySummary,
   AppSettings,
+  AzureProviderContextSnapshot,
   CloudProviderId,
   ComparisonRequest,
   EnvironmentHealthReport,
@@ -48,6 +49,7 @@ import {
   getAppReleaseInfo,
   getAppSecuritySummary,
   getAppSettings,
+  getAzureProviderContext,
   getEnvironmentHealth,
   getGcpCliContext,
   getGcpBillingOverview,
@@ -71,8 +73,13 @@ import {
   openExternalUrl,
   putGcpStorageObjectContent,
   saveCredentials,
+  setAzureActiveLocation,
+  setAzureActiveSubscription,
+  setAzureActiveTenant,
   setTerraformCliKind,
   setEnterpriseAccessMode,
+  signOutAzureProvider,
+  startAzureDeviceCodeSignIn,
   uploadGcpStorageObject,
   updateAppSettings,
   updateGovernanceTagDefaults,
@@ -83,6 +90,7 @@ import {
 import { AcmConsole } from './AcmConsole'
 import { AutoScalingConsole } from './AutoScalingConsole'
 import { AwsTerminalPanel } from './AwsTerminalPanel'
+import { AzureFoundationPanel } from './AzureFoundationPanel'
 import { CloudFormationConsole } from './CloudFormationConsole'
 import { CompareWorkspace } from './CompareWorkspace'
 import { ComplianceCenter } from './ComplianceCenter'
@@ -487,6 +495,7 @@ function buildPreviewProviderTerminalEnv(
   options?: {
     gcpContext?: GcpConnectionDraft | null
     gcpCliPath?: string
+    azureContext?: AzureProviderContextSnapshot | null
     azureCliPath?: string
   }
 ): Record<string, string> {
@@ -514,6 +523,10 @@ function buildPreviewProviderTerminalEnv(
     ...baseEnv,
     CLOUD_LENS_AZURE_MODE: mode.label,
     CLOUD_LENS_AZURE_MODE_ID: mode.id,
+    CLOUD_LENS_AZURE_TENANT: options?.azureContext?.activeTenantId.trim() || '',
+    CLOUD_LENS_AZURE_SUBSCRIPTION: options?.azureContext?.activeSubscriptionId.trim() || '',
+    CLOUD_LENS_AZURE_LOCATION: options?.azureContext?.activeLocation.trim() || '',
+    CLOUD_LENS_AZURE_ACCOUNT_LABEL: options?.azureContext?.activeAccountLabel.trim() || '',
     CLOUD_LENS_AZURE_CLI_PATH: options?.azureCliPath?.trim() || ''
   }
 }
@@ -2910,6 +2923,18 @@ function isGcpContextReady(mode: ProviderConnectionMode | null, draft: GcpConnec
   return Boolean(mode && draft?.projectId.trim() && draft.location.trim())
 }
 
+function isAzureContextReady(mode: ProviderConnectionMode | null, context: AzureProviderContextSnapshot | null): boolean {
+  if (!mode || !context || context.auth.status !== 'authenticated') {
+    return false
+  }
+
+  if (mode.id === 'azure-tenant') {
+    return Boolean(context.activeTenantId.trim())
+  }
+
+  return Boolean(context.activeSubscriptionId.trim())
+}
+
 function inferGcpModeIdFromContext(context: GcpCliContext): string {
   if (context.activeAccount.endsWith('.iam.gserviceaccount.com')) {
     return 'gcp-service-account'
@@ -3043,6 +3068,9 @@ export function App() {
   const [gcpCliBusy, setGcpCliBusy] = useState(false)
   const [gcpProjectCatalogBusy, setGcpProjectCatalogBusy] = useState(false)
   const [gcpCliError, setGcpCliError] = useState('')
+  const [azureProviderContext, setAzureProviderContext] = useState<AzureProviderContextSnapshot | null>(null)
+  const [azureContextBusy, setAzureContextBusy] = useState(false)
+  const [azureContextError, setAzureContextError] = useState('')
   const [workspaceCatalog, setWorkspaceCatalog] = useState<WorkspaceCatalog | null>(null)
   const [services, setServices] = useState<ServiceDescriptor[]>([])
   const [pinnedServiceIds, setPinnedServiceIds] = useState<ServiceId[]>([])
@@ -3200,6 +3228,18 @@ export function App() {
     }
   }
 
+  async function loadAzureContext(): Promise<void> {
+    setAzureContextBusy(true)
+    setAzureContextError('')
+    try {
+      setAzureProviderContext(await getAzureProviderContext())
+    } catch (error) {
+      setAzureContextError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setAzureContextBusy(false)
+    }
+  }
+
   useEffect(() => {
     if (!appSettings || launchScreenInitializedRef.current) {
       return
@@ -3243,6 +3283,34 @@ export function App() {
 
     void loadGcpCliContext()
   }, [activeProviderId])
+
+  useEffect(() => {
+    if (activeProviderId !== 'azure') {
+      return
+    }
+
+    void loadAzureContext()
+  }, [activeProviderId])
+
+  useEffect(() => {
+    if (activeProviderId !== 'azure') {
+      return
+    }
+
+    const status = azureProviderContext?.auth.status
+    if (
+      status !== 'starting'
+      && status !== 'waiting-for-device-code'
+    ) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void loadAzureContext()
+    }, 1500)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [activeProviderId, azureProviderContext?.auth.status])
 
   useEffect(() => {
     if (screen !== 'settings') {
@@ -3366,12 +3434,16 @@ export function App() {
     ? connectionState.profiles.length
     : activeProviderId === 'gcp'
       ? gcpCliContext?.projects.length ?? 0
-      : activeProviderModes.length
+      : activeProviderId === 'azure'
+        ? azureProviderContext?.subscriptions.length ?? 0
+        : activeProviderModes.length
   const totalPinnedProfiles = isAwsProviderActive
     ? connectionState.pinnedProfileNames.length
     : activeProviderId === 'gcp'
       ? gcpCliContext?.configurations.length ?? 0
-      : providerWorkspaceCount
+      : activeProviderId === 'azure'
+        ? azureProviderContext?.recentSubscriptionIds.length ?? 0
+        : providerWorkspaceCount
   const totalVisibleServices = services.length
   const selectedPreviewModeId = activePreviewProviderId ? selectedPreviewModeIds[activePreviewProviderId] ?? '' : ''
   const selectedPreviewMode = activePreviewProviderId
@@ -3384,6 +3456,13 @@ export function App() {
     ? getGcpCredentialFieldCopy(selectedPreviewMode?.id)
     : null
   const gcpContextReady = activeProviderId === 'gcp' && isGcpContextReady(selectedPreviewMode, activeGcpConnectionDraft)
+  const azureContextReady = activeProviderId === 'azure' && isAzureContextReady(selectedPreviewMode, azureProviderContext)
+  const activeAzureTenant = activeProviderId === 'azure'
+    ? azureProviderContext?.tenants.find((entry) => entry.tenantId === azureProviderContext.activeTenantId) ?? null
+    : null
+  const activeAzureSubscription = activeProviderId === 'azure'
+    ? azureProviderContext?.subscriptions.find((entry) => entry.subscriptionId === azureProviderContext.activeSubscriptionId) ?? null
+    : null
   const activeGcpConfiguration = activeProviderId === 'gcp'
     ? gcpCliContext?.configurations.find((entry) => entry.isActive) ?? gcpCliContext?.configurations[0] ?? null
     : null
@@ -3412,7 +3491,9 @@ export function App() {
     ? activeProvider.availability === 'available' && connectionState.connected
     : activeProviderId === 'gcp'
       ? gcpContextReady
-      : selectedPreviewMode !== null
+      : activeProviderId === 'azure'
+        ? azureContextReady
+        : selectedPreviewMode !== null
   const selectorPrimaryStatLabel = isAwsProviderActive
     ? 'Profiles'
     : activeProviderId === 'gcp'
@@ -3522,7 +3603,10 @@ export function App() {
     ? connectionState.activeSession?.sourceProfile || connectionState.selectedProfile?.name || connectionState.profile || 'No profile selected'
     : activeProviderId === 'gcp'
       ? activeGcpConnectionDraft?.projectId.trim() || selectedPreviewMode?.label || 'No project selected'
-      : selectedPreviewMode?.label || 'No profile selected'
+      : activeAzureSubscription?.displayName
+        || activeAzureTenant?.displayName
+        || selectedPreviewMode?.label
+        || 'No profile selected'
   const assumedRoleLabel = isAwsProviderActive && connectionState.activeSession
     ? `Assumed role: ${getRoleDisplayName(connectionState.activeSession.roleArn) || connectionState.activeSession.label}`
     : ''
@@ -3533,9 +3617,11 @@ export function App() {
           ? `${selectedPreviewMode.label} | ${activeGcpConnectionDraft?.location.trim()} ready`
           : `${selectedPreviewMode.label} | complete project context`
         : 'Select a connection mode'
-      : selectedPreviewMode
-        ? `${selectedPreviewMode.status} | terminal env ready`
-        : 'Select a connection mode'
+      : azureContextReady
+        ? `${selectedPreviewMode?.label || 'Azure context'} | ${azureProviderContext?.activeLocation || 'global'} ready`
+        : selectedPreviewMode
+          ? `${selectedPreviewMode.status} | finish Azure context`
+          : 'Select a connection mode'
     : connectionState.activeSession
       ? assumedRoleLabel
       : connectionState.selectedProfile
@@ -3549,9 +3635,11 @@ export function App() {
         : selectedPreviewMode
           ? `Mode: ${selectedPreviewMode.label}`
           : activeProvider.connectionLabel
-      : selectedPreviewMode
-        ? `Mode: ${selectedPreviewMode.label}`
-        : activeProvider.connectionLabel
+      : azureContextReady
+        ? `Subscription: ${activeAzureSubscription?.displayName || azureProviderContext?.activeSubscriptionId} | ${activeProvider.locationLabel}: ${azureProviderContext?.activeLocation || 'global'}`
+        : selectedPreviewMode
+          ? `Mode: ${selectedPreviewMode.label}`
+          : activeProvider.connectionLabel
   const navSharedServices = NAV_PRIORITY_SERVICE_IDS
     .map((serviceId) => services.find((service) => service.id === serviceId) ?? null)
     .filter((service): service is ServiceDescriptor => service !== null)
@@ -3559,17 +3647,23 @@ export function App() {
   const providerTerminalPreview = activeProviderId === 'aws' ? null : PROVIDER_TERMINAL_PREVIEWS[activeProviderId]
   const providerTerminalTarget = activeProviderId === 'aws'
     ? null
-    : selectedPreviewMode && (activeProviderId !== 'gcp' || gcpContextReady)
+    : selectedPreviewMode && (
+        (activeProviderId === 'gcp' && gcpContextReady)
+        || (activeProviderId === 'azure' && azureContextReady)
+      )
       ? {
           providerId: activeProviderId,
           label: activeProviderId === 'gcp' && activeGcpConnectionDraft
             ? `${activeProvider.label} | ${activeGcpConnectionDraft.projectId.trim() || selectedPreviewMode.label}`
-            : `${activeProvider.label} | ${selectedPreviewMode.label}`,
+            : activeProviderId === 'azure'
+              ? `${activeProvider.label} | ${activeAzureSubscription?.displayName || activeAzureTenant?.displayName || selectedPreviewMode.label}`
+              : `${activeProvider.label} | ${selectedPreviewMode.label}`,
           modeId: selectedPreviewMode.id,
           modeLabel: selectedPreviewMode.label,
           env: buildPreviewProviderTerminalEnv(activeProviderId, activeProvider.label, selectedPreviewMode, {
             gcpContext: activeProviderId === 'gcp' ? activeGcpConnectionDraft : null,
             gcpCliPath: activeProviderId === 'gcp' ? detectedGcloudCliPath : '',
+            azureContext: activeProviderId === 'azure' ? azureProviderContext : null,
             azureCliPath: activeProviderId === 'azure' ? detectedAzureCliPath : ''
           })
         }
@@ -3589,9 +3683,11 @@ export function App() {
         ? 'Idle'
         : activeProviderId === 'gcp' && gcpContextReady
           ? `${activeGcpConnectionDraft?.projectId.trim()} | ${activeGcpConnectionDraft?.location.trim()}`
+          : activeProviderId === 'azure' && azureContextReady
+            ? `${activeAzureSubscription?.displayName || azureProviderContext?.activeSubscriptionId} | ${azureProviderContext?.activeLocation || 'global'}`
           : selectedPreviewMode
             ? `${selectedPreviewMode.label} selected`
-          : `${activeProvider.shortLabel} preview`
+            : `${activeProvider.shortLabel} preview`
 
   const selectedService = (services.find((service) => service.id === screen) ?? null) as ServiceDescriptor | null
   const activeAwsScreenMemoryKey = getAwsScreenMemoryKey(
@@ -3611,12 +3707,16 @@ export function App() {
       ? activeShellConnected
       : activeProviderId === 'gcp'
         ? gcpContextReady
-        : selectedPreviewMode !== null
+        : activeProviderId === 'azure'
+          ? azureContextReady
+          : selectedPreviewMode !== null
   )
   const connectionScopeKey = activeShellConnection
     ? `${activeProviderId}:${activeShellConnection.sessionId}:${activeShellConnection.region}`
       : activeProviderId === 'gcp' && selectedPreviewMode && activeGcpConnectionDraft
         ? `provider:${activeProviderId}:${selectedPreviewMode.id}:${activeGcpConnectionDraft.projectId.trim()}:${activeGcpConnectionDraft.location.trim()}`
+      : activeProviderId === 'azure' && selectedPreviewMode && azureProviderContext
+        ? `provider:${activeProviderId}:${selectedPreviewMode.id}:${azureProviderContext.activeTenantId}:${azureProviderContext.activeSubscriptionId}:${azureProviderContext.activeLocation}`
       : selectedPreviewMode
         ? `provider:${activeProviderId}:${selectedPreviewMode.id}`
       : `provider:${activeProviderId}:disconnected`
@@ -3626,11 +3726,13 @@ export function App() {
     activeShellConnection,
     activeShellConnected,
     gcpContextReady,
-    selectedPreviewMode,
+    activeProviderId === 'azure' ? (azureContextReady ? selectedPreviewMode : null) : selectedPreviewMode,
     selectedService
   )
   const isProviderPageRefreshing = activeProviderId === 'gcp'
     ? gcpCliBusy || gcpProjectCatalogBusy
+    : activeProviderId === 'azure'
+      ? azureContextBusy
     : isCurrentScreenRefreshing
   const versionLabel = releaseInfo?.currentVersion ?? ''
   const releaseStateLabel = !releaseInfo?.supportsAutoUpdate
@@ -3683,6 +3785,21 @@ export function App() {
       [targetModeId]: buildGcpDraftFromContext(gcpCliContext, targetModeId, current[targetModeId] ?? null)
     }))
   }, [activeProviderId, gcpCliContext, selectedPreviewModeId])
+
+  useEffect(() => {
+    if (activeProviderId !== 'azure' || selectedPreviewMode) {
+      return
+    }
+
+    if (azureProviderContext?.activeSubscriptionId) {
+      setSelectedPreviewModeIds((current) => ({ ...current, azure: 'azure-subscription' }))
+      return
+    }
+
+    if (azureProviderContext?.activeTenantId) {
+      setSelectedPreviewModeIds((current) => ({ ...current, azure: 'azure-tenant' }))
+    }
+  }, [activeProviderId, azureProviderContext?.activeSubscriptionId, azureProviderContext?.activeTenantId, selectedPreviewMode])
 
   useEffect(() => {
     if (activeProviderId !== 'aws' || !activeAwsScreenMemoryKey || !isRestorableAwsScreen(screen)) {
@@ -3830,6 +3947,7 @@ export function App() {
       connectionState.clearActiveSession()
       connectionState.setProfile('')
       connectionState.setError('')
+      setAzureContextError('')
       setSelectedPreviewModeIds({})
     }
 
@@ -3914,6 +4032,85 @@ export function App() {
         location
       }
     }))
+  }
+
+  async function handleAzureDeviceCodeSignIn(): Promise<void> {
+    if (activeProviderId !== 'azure') {
+      return
+    }
+
+    setAzureContextBusy(true)
+    setAzureContextError('')
+    try {
+      const snapshot = await startAzureDeviceCodeSignIn()
+      setAzureProviderContext(snapshot)
+      if (!selectedPreviewMode) {
+        setSelectedPreviewModeIds((current) => ({ ...current, azure: 'azure-subscription' }))
+      }
+    } catch (error) {
+      setAzureContextError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setAzureContextBusy(false)
+    }
+  }
+
+  async function handleAzureSignOut(): Promise<void> {
+    if (activeProviderId !== 'azure') {
+      return
+    }
+
+    setAzureContextBusy(true)
+    setAzureContextError('')
+    try {
+      setAzureProviderContext(await signOutAzureProvider())
+    } catch (error) {
+      setAzureContextError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setAzureContextBusy(false)
+    }
+  }
+
+  async function handleApplyAzureTenant(tenantId: string): Promise<void> {
+    setPendingTerminalCommand(null)
+    setTerminalOpen(false)
+    setSelectedPreviewModeIds((current) => ({ ...current, azure: 'azure-tenant' }))
+    setAzureContextBusy(true)
+    setAzureContextError('')
+    try {
+      setAzureProviderContext(await setAzureActiveTenant(tenantId))
+    } catch (error) {
+      setAzureContextError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setAzureContextBusy(false)
+    }
+  }
+
+  async function handleApplyAzureSubscription(subscriptionId: string): Promise<void> {
+    setPendingTerminalCommand(null)
+    setTerminalOpen(false)
+    setSelectedPreviewModeIds((current) => ({ ...current, azure: 'azure-subscription' }))
+    setAzureContextBusy(true)
+    setAzureContextError('')
+    try {
+      setAzureProviderContext(await setAzureActiveSubscription(subscriptionId))
+      setNavOpen(true)
+    } catch (error) {
+      setAzureContextError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setAzureContextBusy(false)
+    }
+  }
+
+  async function handleApplyAzureLocation(location: string): Promise<void> {
+    setAzureContextBusy(true)
+    setAzureContextError('')
+    try {
+      setAzureProviderContext(await setAzureActiveLocation(location))
+    } catch (error) {
+      setAzureContextError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setAzureContextBusy(false)
+    }
   }
 
   function renderGcpProjectCard(project: NonNullable<GcpCliContext['projects'][number]>, compact = false) {
@@ -4241,6 +4438,15 @@ export function App() {
         [screen]: (current[screen] ?? 0) + 1
       }))
       void loadGcpCliContext()
+      return
+    }
+
+    if (activeProviderId === 'azure') {
+      setPageRefreshNonceByScreen((current) => ({
+        ...current,
+        [screen]: (current[screen] ?? 0) + 1
+      }))
+      void loadAzureContext()
       return
     }
 
@@ -5102,6 +5308,22 @@ export function App() {
                     </p>
                   </div>
                 )
+              ) : activeProviderId === 'azure' ? (
+                <AzureFoundationPanel
+                  snapshot={azureProviderContext}
+                  busy={azureContextBusy}
+                  error={azureContextError}
+                  modes={activeProviderModes}
+                  selectedModeId={selectedPreviewModeId}
+                  onSelectMode={handleSelectPreviewMode}
+                  onRefresh={() => void loadAzureContext()}
+                  onSignIn={() => void handleAzureDeviceCodeSignIn()}
+                  onSignOut={() => void handleAzureSignOut()}
+                  onSelectTenant={(tenantId) => void handleApplyAzureTenant(tenantId)}
+                  onSelectSubscription={(subscriptionId) => void handleApplyAzureSubscription(subscriptionId)}
+                  onSelectLocation={(location) => void handleApplyAzureLocation(location)}
+                  onOpenVerification={(url) => void openExternalUrl(url)}
+                />
               ) : (
                 activeProviderModes.map((mode) => (
                   <article
@@ -5404,13 +5626,13 @@ export function App() {
             description={previewDescription}
             contextLabel={activeProviderId === 'gcp' && gcpContextReady
               ? activeGcpConnectionDraft?.projectId.trim()
-              : activeProviderId === 'azure' && selectedPreviewMode
-                ? selectedPreviewMode.label
+              : activeProviderId === 'azure' && azureContextReady
+                ? activeAzureSubscription?.displayName || activeAzureTenant?.displayName || selectedPreviewMode?.label
                 : undefined}
             contextDetail={activeProviderId === 'gcp' && gcpContextReady
               ? `${activeGcpConnectionDraft?.location.trim()} | ${selectedPreviewMode?.label || 'Google Cloud context'}`
-              : activeProviderId === 'azure' && selectedPreviewMode
-                ? 'Shared shell context selected'
+              : activeProviderId === 'azure' && azureContextReady
+                ? `${azureProviderContext?.activeLocation || 'global'} | ${selectedPreviewMode?.label || 'Azure context'}`
                 : undefined}
           />
         )
@@ -5743,6 +5965,23 @@ export function App() {
                     : 'Select a Google Cloud connection mode to start binding project context.'}
                 </small>
               </label>
+            ) : activeProviderId === 'azure' ? (
+              <div className={`enterprise-sidebar-note provider-sidebar-note provider-sidebar-note-secondary provider-sidebar-note-${activeProviderId}`}>
+                <span>{activeProvider.locationLabel}</span>
+                <strong>
+                  {azureProviderContext?.activeLocation
+                    || activeAzureSubscription?.displayName
+                    || activeAzureTenant?.displayName
+                    || 'Azure context pending'}
+                </strong>
+                <small>
+                  {azureContextReady
+                    ? `Tenant ${azureProviderContext?.activeTenantId || '-'} | Subscription ${activeAzureSubscription?.displayName || azureProviderContext?.activeSubscriptionId || '-'}`
+                    : selectedPreviewMode
+                      ? 'Complete Azure sign-in and subscription selection to bind shell context.'
+                      : 'Open the Azure foundation panel to start SDK-backed sign-in and context selection.'}
+                </small>
+              </div>
             ) : (
               <div className={`enterprise-sidebar-note provider-sidebar-note provider-sidebar-note-secondary provider-sidebar-note-${activeProviderId}`}>
                 <span>{activeProvider.locationLabel}</span>
@@ -6179,6 +6418,14 @@ export function App() {
                       ? `gcloud env values are ready for project ${activeGcpConnectionDraft?.projectId.trim()} in ${activeGcpConnectionDraft?.location.trim()}. Open the terminal to use the selected Google Cloud context.`
                       : `Select a project and ${providerLocationLabel} for ${selectedPreviewMode.label} before opening the terminal.`
                     : `Select a ${activeProvider.label} connection mode before opening the terminal.`
+                  : activeProviderId === 'azure'
+                    ? selectedPreviewMode
+                      ? azureContextReady
+                        ? `Azure env values are ready for subscription ${activeAzureSubscription?.displayName || azureProviderContext?.activeSubscriptionId} in ${azureProviderContext?.activeLocation || 'global'}. Open the terminal to use the selected Azure context.`
+                        : selectedPreviewMode.id === 'azure-tenant'
+                          ? `Complete Azure sign-in and tenant selection for ${selectedPreviewMode.label} before opening the terminal.`
+                          : `Complete Azure sign-in and select a subscription before opening the terminal.`
+                      : `Select an ${activeProvider.label} connection mode before opening the terminal.`
                   : selectedPreviewMode
                     ? `${providerTerminalPreview?.cliLabel} env values are ready for ${selectedPreviewMode.label}. Open the terminal to use the selected ${activeProvider.label} context.`
                     : `Select a ${activeProvider.label} connection mode before opening the terminal.`}
