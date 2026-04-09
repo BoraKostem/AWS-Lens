@@ -687,6 +687,7 @@ export type AzureProviderContextSnapshot = {
   subscriptions: AzureSubscriptionSummary[]
   locations: AzureLocationSummary[]
   recentSubscriptionIds: string[]
+  recentSubscriptions: AzureSubscriptionSummary[]
   providerRegistrations: AzureProviderRegistrationSummary[]
   diagnostics: AzureContextDiagnostic[]
 }

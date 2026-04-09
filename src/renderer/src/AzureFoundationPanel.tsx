@@ -44,6 +44,7 @@ export function AzureFoundationPanel({
   const isAuthenticated = auth?.status === 'authenticated'
   const currentPrompt = auth?.prompt
   const subscriptions = snapshot?.subscriptions ?? []
+  const recentSubscriptions = snapshot?.recentSubscriptions ?? []
   const tenants = snapshot?.tenants ?? []
   const locations = snapshot?.locations ?? []
   const diagnostics = snapshot?.diagnostics ?? []
@@ -132,6 +133,31 @@ export function AzureFoundationPanel({
             </div>
           </article>
         ))}
+      </div>
+
+      <div className="provider-discovery-grid">
+        <section className="provider-discovery-column">
+          <div className="provider-discovery-column__label">Recent subscriptions</div>
+          <div className="provider-discovery-list">
+            {recentSubscriptions.length > 0 ? (
+              recentSubscriptions.map((subscription) => (
+                <button
+                  key={`recent-${subscription.subscriptionId}`}
+                  type="button"
+                  className={`provider-discovery-item ${snapshot?.activeSubscriptionId === subscription.subscriptionId ? 'active' : ''}`}
+                  onClick={() => onSelectSubscription(subscription.subscriptionId)}
+                >
+                  <strong>{subscription.displayName}</strong>
+                  <small>{subscription.subscriptionId}</small>
+                </button>
+              ))
+            ) : (
+              <div className="provider-discovery-empty">
+                Recent Azure subscriptions will be remembered here after the first successful selection.
+              </div>
+            )}
+          </div>
+        </section>
       </div>
 
       <div className="provider-discovery-grid">
