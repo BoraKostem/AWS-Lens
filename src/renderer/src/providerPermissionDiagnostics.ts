@@ -1,4 +1,4 @@
-import type { CloudProviderId, EnterpriseAccessMode } from '@shared/types'
+import type { AzureProviderContextSnapshot, CloudProviderId, EnterpriseAccessMode } from '@shared/types'
 
 export type ProviderPermissionDiagnosticStatus = 'ok' | 'warning' | 'error'
 
@@ -171,8 +171,43 @@ function buildGcpDiagnostics(
 function buildAzureDiagnostics(
   providerLabel: string,
   accessMode: EnterpriseAccessMode,
-  selectedModeLabel: string | null
+  selectedModeLabel: string | null,
+  azureContext: AzureProviderContextSnapshot | null
 ): ProviderPermissionDiagnosticsReport {
+  if (azureContext) {
+    const contextReady = azureContext.auth.status === 'authenticated' && Boolean(azureContext.activeSubscriptionId || azureContext.activeTenantId)
+    const baseItems: ProviderPermissionDiagnosticItem[] = [
+      {
+        id: 'azure-live-context',
+        label: 'Live provider context',
+        status: contextReady ? 'ok' : azureContext.auth.status === 'error' || azureContext.auth.status === 'signed-out' ? 'error' : 'warning',
+        detail: contextReady
+          ? `${azureContext.activeAccountLabel} is the active Azure provider context consumed by the shell and shared workspaces.`
+          : azureContext.auth.message || 'Azure foundation is present, but the provider context is not fully ready yet.',
+        remediation: contextReady
+          ? ''
+          : 'Use the Azure foundation panel to complete sign-in, tenant selection, and subscription selection before relying on Azure service surfaces.'
+      }
+    ]
+
+    const diagnosticItems = azureContext.diagnostics.map<ProviderPermissionDiagnosticItem>((diagnostic) => ({
+      id: `azure-${diagnostic.code}`,
+      label: diagnostic.title,
+      status: diagnostic.severity === 'error' ? 'error' : diagnostic.severity === 'warning' ? 'warning' : 'ok',
+      detail: diagnostic.detail,
+      remediation: diagnostic.remediation
+    }))
+
+    return {
+      providerId: 'azure',
+      providerLabel,
+      summary: contextReady
+        ? `Azure diagnostics are reading from the live provider snapshot for ${azureContext.activeAccountLabel}. Auth, scope, provider registration, and workspace mode are now differentiated explicitly.`
+        : 'Azure diagnostics are reading from the live provider foundation snapshot, but auth or scope still needs remediation before service data can be trusted.',
+      items: [...baseItems, ...diagnosticItems]
+    }
+  }
+
   if (!selectedModeLabel) {
     return {
       providerId: 'azure',
@@ -250,14 +285,15 @@ export function buildProviderPermissionDiagnostics(params: {
   accessMode: EnterpriseAccessMode
   awsSelectedContextLabel?: string | null
   selectedPreviewModeLabel?: string | null
+  azureContext?: AzureProviderContextSnapshot | null
 }): ProviderPermissionDiagnosticsReport {
-  const { providerId, providerLabel, accessMode, awsSelectedContextLabel, selectedPreviewModeLabel } = params
+  const { providerId, providerLabel, accessMode, awsSelectedContextLabel, selectedPreviewModeLabel, azureContext } = params
 
   switch (providerId) {
     case 'gcp':
       return buildGcpDiagnostics(providerLabel, accessMode, selectedPreviewModeLabel ?? null)
     case 'azure':
-      return buildAzureDiagnostics(providerLabel, accessMode, selectedPreviewModeLabel ?? null)
+      return buildAzureDiagnostics(providerLabel, accessMode, selectedPreviewModeLabel ?? null, azureContext ?? null)
     case 'aws':
     default:
       return buildAwsDiagnostics(providerLabel, accessMode, awsSelectedContextLabel ?? null)
