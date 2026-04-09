@@ -595,21 +595,24 @@ export async function startAzureDeviceCodeSignIn(): Promise<AzureProviderContext
   const credential = new DeviceCodeCredential({
     tenantId: store.activeTenantId.trim() || undefined,
     additionallyAllowedTenants: ['*'],
-    userPromptCallback: async (info) => {
+    userPromptCallback: async (info: {
+      message?: string
+      userCode?: string
+      verificationUri?: string
+      verificationUriComplete?: string
+    }) => {
       if (runtimeState.authRunId !== authRunId) {
         return
       }
-
-      const promptInfo = info as unknown as Record<string, unknown>
 
       writeAuthState({
         status: 'waiting-for-device-code',
         message: 'Open the verification link and enter the Azure device code to finish sign-in.',
         prompt: {
-          message: trimToEmpty(promptInfo.message),
-          userCode: trimToEmpty(promptInfo.userCode),
-          verificationUri: trimToEmpty(promptInfo.verificationUri)
-            || trimToEmpty(promptInfo.verificationUriComplete)
+          message: trimToEmpty(info.message),
+          userCode: trimToEmpty(info.userCode),
+          verificationUri: trimToEmpty(info.verificationUri)
+            || trimToEmpty(info.verificationUriComplete)
         },
         lastError: ''
       })
