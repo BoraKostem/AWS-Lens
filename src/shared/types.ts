@@ -2191,7 +2191,14 @@ export type AppDiagnosticsSnapshot = {
     locationCount: number
   }
   azure?: {
+    modeId: string
     modeLabel: string
+    cliDetected: boolean
+    cliPath: string
+    activeContextLabel: string
+    activeContextDetail: string
+    sharedWorkspaceCount: number
+    providerWorkspaceCount: number
   }
 }
 

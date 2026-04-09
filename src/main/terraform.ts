@@ -202,8 +202,24 @@ function terraformCliLabel(): string {
   return cachedCli?.label || 'Terraform'
 }
 
+function parseScopedTerraformProfileName(
+  profileName: string
+): { providerId: 'gcp' | 'azure'; scopeId: string; location: string } | null {
+  const match = profileName.match(/^provider:(gcp|azure):terraform:([^:]+):(.+)$/)
+  if (!match) return null
+  return {
+    providerId: match[1] as 'gcp' | 'azure',
+    scopeId: match[2] === 'unscoped' ? '' : match[2],
+    location: match[3] === 'global' ? '' : match[3]
+  }
+}
+
 function displayConnectionLabel(profileName: string, connection?: AwsConnection): string {
   if (connection?.label) return connection.label
+  const scopedProfile = parseScopedTerraformProfileName(profileName)
+  if (scopedProfile) {
+    return [scopedProfile.scopeId, scopedProfile.location].filter(Boolean).join(' | ')
+  }
   if (profileName.startsWith('profile:')) return profileName.slice('profile:'.length)
   return ''
 }
@@ -1687,7 +1703,11 @@ function resourceCategory(type: string): string {
 }
 
 function extractArn(values: Record<string, unknown>): string {
-  return typeof values.arn === 'string' ? values.arn : ''
+  if (typeof values.arn === 'string' && values.arn) return values.arn
+  if (typeof values.id === 'string' && values.id) return values.id
+  if (typeof values.self_link === 'string' && values.self_link) return values.self_link
+  if (typeof values.resource_id === 'string' && values.resource_id) return values.resource_id
+  return ''
 }
 
 function extractRegion(values: Record<string, unknown>): string {
@@ -1697,6 +1717,8 @@ function extractRegion(values: Record<string, unknown>): string {
     if (parts.length >= 4 && parts[3]) return parts[3]
   }
   if (typeof values.region === 'string' && values.region) return values.region
+  if (typeof values.location === 'string' && values.location) return values.location
+  if (typeof values.primary_location === 'string' && values.primary_location) return values.primary_location
   if (typeof values.availability_zone === 'string' && values.availability_zone) {
     return values.availability_zone.replace(/[a-z]$/, '')
   }
