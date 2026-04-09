@@ -23,7 +23,7 @@ export const PROVIDER_REGISTRY: ProviderDescriptor[] = [
     id: 'azure',
     label: 'Azure',
     shortLabel: 'AZ',
-    availability: 'planned',
+    availability: 'available',
     profileLabel: 'Subscription',
     locationLabel: 'Location',
     connectionLabel: 'Subscription or tenant'

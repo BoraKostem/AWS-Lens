@@ -161,6 +161,7 @@ const awsLensApi = {
   listGcpSqlDatabases: (projectId: string, instanceName: string) => ipcRenderer.invoke('gcp:cloud-sql:databases:list', projectId, instanceName),
   listGcpSqlOperations: (projectId: string, instanceName: string) => ipcRenderer.invoke('gcp:cloud-sql:operations:list', projectId, instanceName),
   getGcpBillingOverview: (projectId: string, catalogProjectIds: string[]) => ipcRenderer.invoke('gcp:billing:get-overview', projectId, catalogProjectIds),
+  listAzureSubscriptions: () => ipcRenderer.invoke('azure:subscriptions:list'),
   checkForAppUpdates: () => ipcRenderer.invoke('app:update:check'),
   downloadAppUpdate: () => ipcRenderer.invoke('app:update:download'),
   installAppUpdate: () => ipcRenderer.invoke('app:update:install'),

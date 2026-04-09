@@ -134,6 +134,7 @@ declare global {
       listGcpSqlDatabases: (projectId: string, instanceName: string) => Promise<unknown>
       listGcpSqlOperations: (projectId: string, instanceName: string) => Promise<unknown>
       getGcpBillingOverview: (projectId: string, catalogProjectIds: string[]) => Promise<unknown>
+      listAzureSubscriptions: () => Promise<unknown>
       checkForAppUpdates: () => Promise<unknown>
       downloadAppUpdate: () => Promise<unknown>
       installAppUpdate: () => Promise<unknown>

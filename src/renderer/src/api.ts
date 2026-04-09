@@ -48,6 +48,7 @@ import type {
   GcpCliProject,
   AppReleaseInfo,
   AppSecuritySummary,
+  AzureSubscriptionSummary,
   CloudProviderId,
   CloudWatchInvestigationHistoryEntry,
   CloudWatchInvestigationHistoryInput,
@@ -1462,6 +1463,10 @@ export async function listGcpSqlOperations(projectId: string, instanceName: stri
 
 export async function getGcpBillingOverview(projectId: string, catalogProjectIds: string[]): Promise<GcpBillingOverview> {
   return unwrap((await rawAwsBridge().getGcpBillingOverview(projectId, catalogProjectIds)) as Wrapped<GcpBillingOverview>)
+}
+
+export async function listAzureSubscriptions(): Promise<AzureSubscriptionSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureSubscriptions()) as Wrapped<AzureSubscriptionSummary[]>)
 }
 
 export async function checkForAppUpdates(): Promise<AppReleaseInfo> {

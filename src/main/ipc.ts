@@ -41,8 +41,10 @@ const wrap: <T>(
 ) => Promise<HandlerResult<T>> = createHandlerWrapper('ipc', { timeoutMs: 60000 })
 
 type GcpSdkModule = typeof import('./gcpSdk')
+type AzureSdkModule = typeof import('./azureSdk')
 
 let gcpSdkPromise: Promise<GcpSdkModule> | null = null
+let azureSdkPromise: Promise<AzureSdkModule> | null = null
 
 function loadGcpSdk(): Promise<GcpSdkModule> {
   if (!gcpSdkPromise) {
@@ -50,6 +52,14 @@ function loadGcpSdk(): Promise<GcpSdkModule> {
   }
 
   return gcpSdkPromise
+}
+
+function loadAzureSdk(): Promise<AzureSdkModule> {
+  if (!azureSdkPromise) {
+    azureSdkPromise = import('./azureSdk')
+  }
+
+  return azureSdkPromise
 }
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
@@ -158,6 +168,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   )
   ipcMain.handle('gcp:billing:get-overview', async (_event, projectId: string, catalogProjectIds: string[]) =>
     wrap(async () => (await loadGcpSdk()).getGcpBillingOverview(projectId, catalogProjectIds))
+  )
+  ipcMain.handle('azure:subscriptions:list', async () =>
+    wrap(async () => (await loadAzureSdk()).listAzureSubscriptions())
   )
   ipcMain.handle('app:update:check', async () => wrap(() => checkForAppUpdates()))
   ipcMain.handle('app:update:download', async () => wrap(() => downloadAppUpdate()))

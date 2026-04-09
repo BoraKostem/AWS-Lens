@@ -12,6 +12,7 @@ import type {
   AppReleaseInfo,
   AppSecuritySummary,
   AppSettings,
+  AzureSubscriptionSummary,
   CloudProviderId,
   ComparisonRequest,
   EnvironmentHealthReport,
@@ -60,6 +61,7 @@ import {
   listGcpStorageBuckets,
   listGcpStorageObjects,
   listGcpProjects,
+  listAzureSubscriptions,
   getEnterpriseSettings,
   getGovernanceTagDefaults,
   getWorkspaceCatalog,
@@ -143,6 +145,7 @@ const ENVIRONMENT_ONBOARDING_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:environm
 const GCP_CONNECTION_CONTEXT_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:gcp-connection-context-v1`
 const GCP_CLI_CONTEXT_CACHE_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:gcp-cli-context-cache-v1`
 const GCP_RECENT_PROJECTS_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:gcp-recent-projects-v1`
+const AZURE_CONNECTION_CONTEXT_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:azure-connection-context-v1`
 type EnvironmentOnboardingStep = 'profile' | 'region' | 'tooling' | 'access'
 type EnvironmentOnboardingState = {
   dismissed: boolean
@@ -163,6 +166,15 @@ type GcpConnectionDraft = {
   credentialHint: string
 }
 type GcpConnectionDraftByMode = Partial<Record<string, GcpConnectionDraft>>
+type AzureConnectionDraft = {
+  subscriptionId: string
+  subscriptionLabel: string
+  tenantId: string
+  location: string
+  availableLocations: string[]
+  credentialHint: string
+}
+type AzureConnectionDraftByMode = Partial<Record<string, AzureConnectionDraft>>
 
 type ProviderPreviewNavItem = {
   id: string
@@ -366,20 +378,20 @@ const PROVIDER_CONNECTION_MODES: Record<CloudProviderId, ProviderConnectionMode[
     {
       id: 'azure-subscription',
       label: 'Subscription selector',
-      detail: 'Stage subscription-focused onboarding without breaking the shared workspaces that already exist.',
-      status: 'Phase 4 preview'
+      detail: 'Bind the shared shell to a real Azure subscription and keep service pages aligned to that selection.',
+      status: 'Live now'
     },
     {
       id: 'azure-tenant',
       label: 'Tenant-aware access flow',
-      detail: 'Prepare room for tenant selection and identity validation before the first Azure provider slices ship.',
-      status: 'Phase 4 preview'
+      detail: 'Keep tenant identity visible so RBAC posture and downstream service pages explain scope correctly.',
+      status: 'Live now'
     },
     {
       id: 'azure-cli-assist',
       label: 'CLI-assisted verification',
-      detail: 'Reserve shell messaging for future device login, `az` validation, and scoped diagnostics.',
-      status: 'Phase 4 preview'
+      detail: 'Expose Azure-aware terminal env hints without making core page loading depend on CLI parsing.',
+      status: 'Live now'
     }
   ]
 }
@@ -469,6 +481,7 @@ function buildPreviewProviderTerminalEnv(
   mode: ProviderConnectionMode,
   options?: {
     gcpContext?: GcpConnectionDraft | null
+    azureContext?: AzureConnectionDraft | null
     gcpCliPath?: string
     azureCliPath?: string
   }
@@ -497,6 +510,11 @@ function buildPreviewProviderTerminalEnv(
     ...baseEnv,
     CLOUD_LENS_AZURE_MODE: mode.label,
     CLOUD_LENS_AZURE_MODE_ID: mode.id,
+    CLOUD_LENS_AZURE_SUBSCRIPTION: options?.azureContext?.subscriptionId.trim() || '',
+    CLOUD_LENS_AZURE_SUBSCRIPTION_LABEL: options?.azureContext?.subscriptionLabel.trim() || '',
+    CLOUD_LENS_AZURE_TENANT: options?.azureContext?.tenantId.trim() || '',
+    CLOUD_LENS_AZURE_LOCATION: options?.azureContext?.location.trim() || '',
+    CLOUD_LENS_AZURE_CREDENTIAL_HINT: options?.azureContext?.credentialHint.trim() || '',
     CLOUD_LENS_AZURE_CLI_PATH: options?.azureCliPath?.trim() || ''
   }
 }
@@ -2771,6 +2789,25 @@ function mergeGcpLocations(...lists: Array<string[]>): string[] {
   })
 }
 
+function createDefaultAzureConnectionDraft(): AzureConnectionDraft {
+  return {
+    subscriptionId: '',
+    subscriptionLabel: '',
+    tenantId: '',
+    location: '',
+    availableLocations: [],
+    credentialHint: ''
+  }
+}
+
+function normalizeAzureLocations(locations: string[]): string[] {
+  return [...new Set(
+    locations
+      .map((value) => value.trim())
+      .filter(Boolean)
+  )].sort((left, right) => left.localeCompare(right))
+}
+
 function readGcpConnectionDrafts(): GcpConnectionDraftByMode {
   try {
     const raw = window.localStorage.getItem(GCP_CONNECTION_CONTEXT_STORAGE_KEY)
@@ -2801,6 +2838,42 @@ function writeGcpConnectionDrafts(drafts: GcpConnectionDraftByMode): void {
     window.localStorage.setItem(GCP_CONNECTION_CONTEXT_STORAGE_KEY, JSON.stringify(drafts))
   } catch {
     // Ignore preview context persistence failures and keep the current in-memory state.
+  }
+}
+
+function readAzureConnectionDrafts(): AzureConnectionDraftByMode {
+  try {
+    const raw = window.localStorage.getItem(AZURE_CONNECTION_CONTEXT_STORAGE_KEY)
+    if (!raw) {
+      return {}
+    }
+
+    const parsed = JSON.parse(raw) as Record<string, Partial<AzureConnectionDraft>>
+    const entries = Object.entries(parsed).map(([modeId, draft]) => [
+      modeId,
+      {
+        subscriptionId: typeof draft.subscriptionId === 'string' ? draft.subscriptionId : '',
+        subscriptionLabel: typeof draft.subscriptionLabel === 'string' ? draft.subscriptionLabel : '',
+        tenantId: typeof draft.tenantId === 'string' ? draft.tenantId : '',
+        location: typeof draft.location === 'string' ? draft.location : '',
+        availableLocations: Array.isArray(draft.availableLocations)
+          ? normalizeAzureLocations(draft.availableLocations.filter((value): value is string => typeof value === 'string'))
+          : [],
+        credentialHint: typeof draft.credentialHint === 'string' ? draft.credentialHint : ''
+      } satisfies AzureConnectionDraft
+    ] as const)
+
+    return Object.fromEntries(entries)
+  } catch {
+    return {}
+  }
+}
+
+function writeAzureConnectionDrafts(drafts: AzureConnectionDraftByMode): void {
+  try {
+    window.localStorage.setItem(AZURE_CONNECTION_CONTEXT_STORAGE_KEY, JSON.stringify(drafts))
+  } catch {
+    // Ignore Azure preview context persistence failures and keep the current in-memory state.
   }
 }
 
@@ -2893,6 +2966,10 @@ function isGcpContextReady(mode: ProviderConnectionMode | null, draft: GcpConnec
   return Boolean(mode && draft?.projectId.trim() && draft.location.trim())
 }
 
+function isAzureContextReady(mode: ProviderConnectionMode | null, draft: AzureConnectionDraft | null): boolean {
+  return Boolean(mode && draft?.subscriptionId.trim() && draft.location.trim())
+}
+
 function inferGcpModeIdFromContext(context: GcpCliContext): string {
   if (context.activeAccount.endsWith('.iam.gserviceaccount.com')) {
     return 'gcp-service-account'
@@ -2915,6 +2992,27 @@ function buildGcpDraftFromContext(context: GcpCliContext, modeId: string, curren
     projectId: current?.projectId.trim() || context.activeProjectId || current?.projectId || '',
     location: current?.location.trim() || inferredLocation,
     credentialHint: current?.credentialHint.trim() || inferredCredentialHint || ''
+  }
+}
+
+function buildAzureDraftFromSubscription(
+  subscription: AzureSubscriptionSummary,
+  modeId: string,
+  current?: AzureConnectionDraft | null
+): AzureConnectionDraft {
+  const defaultDraft = createDefaultAzureConnectionDraft()
+  const availableLocations = normalizeAzureLocations(subscription.locations)
+  const keepCurrentLocation = current?.subscriptionId.trim() === subscription.subscriptionId && current?.location.trim()
+
+  return {
+    subscriptionId: subscription.subscriptionId,
+    subscriptionLabel: subscription.displayName || subscription.subscriptionId,
+    tenantId: subscription.tenantId || current?.tenantId || '',
+    location: keepCurrentLocation ? current?.location.trim() || '' : availableLocations[0] ?? defaultDraft.location,
+    availableLocations,
+    credentialHint: modeId === 'azure-tenant'
+      ? (subscription.tenantId || current?.credentialHint || '')
+      : (subscription.displayName || subscription.subscriptionId)
   }
 }
 
@@ -2982,7 +3080,7 @@ function isProviderRefreshReady(
   activeCacheTag: CacheTag | null,
   activeShellConnection: AwsConnection | null,
   activeShellConnected: boolean,
-  gcpContextReady: boolean,
+  previewContextReady: boolean,
   selectedPreviewMode: ProviderConnectionMode | null,
   selectedService: ServiceDescriptor | null
 ): boolean {
@@ -2998,7 +3096,7 @@ function isProviderRefreshReady(
     return false
   }
 
-  return providerId === 'gcp' ? gcpContextReady : selectedPreviewMode !== null
+  return previewContextReady && selectedPreviewMode !== null
 }
 
 function refreshTagsForScreen(screen: Screen): CacheTag[] {
@@ -3029,11 +3127,15 @@ export function App() {
   const [activeProviderId, setActiveProviderId] = useState<CloudProviderId>(DEFAULT_PROVIDER_ID)
   const [selectedPreviewModeIds, setSelectedPreviewModeIds] = useState<Partial<Record<PreviewProviderId, string>>>({})
   const [gcpConnectionDrafts, setGcpConnectionDrafts] = useState<GcpConnectionDraftByMode>(() => readGcpConnectionDrafts())
+  const [azureConnectionDrafts, setAzureConnectionDrafts] = useState<AzureConnectionDraftByMode>(() => readAzureConnectionDrafts())
   const [gcpCliContext, setGcpCliContext] = useState<GcpCliContext | null>(() => readGcpCliContextCache())
   const [recentGcpProjectIds, setRecentGcpProjectIds] = useState<string[]>(() => readGcpRecentProjectIds())
+  const [azureSubscriptions, setAzureSubscriptions] = useState<AzureSubscriptionSummary[]>([])
   const [gcpCliBusy, setGcpCliBusy] = useState(false)
   const [gcpProjectCatalogBusy, setGcpProjectCatalogBusy] = useState(false)
   const [gcpCliError, setGcpCliError] = useState('')
+  const [azureCatalogBusy, setAzureCatalogBusy] = useState(false)
+  const [azureCatalogError, setAzureCatalogError] = useState('')
   const [workspaceCatalog, setWorkspaceCatalog] = useState<WorkspaceCatalog | null>(null)
   const [services, setServices] = useState<ServiceDescriptor[]>([])
   const [pinnedServiceIds, setPinnedServiceIds] = useState<ServiceId[]>([])
@@ -3191,6 +3293,38 @@ export function App() {
     }
   }
 
+  async function loadAzureSubscriptionCatalog(): Promise<void> {
+    setAzureCatalogBusy(true)
+    setAzureCatalogError('')
+    try {
+      const subscriptions = await listAzureSubscriptions()
+      setAzureSubscriptions(subscriptions)
+      setAzureConnectionDrafts((current) => {
+        if (Object.keys(current).length === 0) {
+          return current
+        }
+
+        const next = { ...current }
+        for (const [modeId, draft] of Object.entries(current)) {
+          if (!draft) {
+            continue
+          }
+          const matched = subscriptions.find((entry) => entry.subscriptionId === draft.subscriptionId)
+          if (!matched) {
+            continue
+          }
+
+          next[modeId] = buildAzureDraftFromSubscription(matched, modeId, draft)
+        }
+        return next
+      })
+    } catch (error) {
+      setAzureCatalogError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setAzureCatalogBusy(false)
+    }
+  }
+
   useEffect(() => {
     if (!appSettings || launchScreenInitializedRef.current) {
       return
@@ -3234,6 +3368,14 @@ export function App() {
 
     void loadGcpCliContext()
   }, [activeProviderId])
+
+  useEffect(() => {
+    if (activeProviderId !== 'azure' || azureCatalogBusy || azureSubscriptions.length > 0) {
+      return
+    }
+
+    void loadAzureSubscriptionCatalog()
+  }, [activeProviderId, azureCatalogBusy, azureSubscriptions.length])
 
   useEffect(() => {
     if (screen !== 'settings') {
@@ -3319,6 +3461,10 @@ export function App() {
   }, [gcpConnectionDrafts])
 
   useEffect(() => {
+    writeAzureConnectionDrafts(azureConnectionDrafts)
+  }, [azureConnectionDrafts])
+
+  useEffect(() => {
     writeGcpRecentProjectIds(recentGcpProjectIds)
   }, [recentGcpProjectIds])
 
@@ -3362,7 +3508,11 @@ export function App() {
     ? connectionState.pinnedProfileNames.length
     : activeProviderId === 'gcp'
       ? gcpCliContext?.configurations.length ?? 0
-      : providerWorkspaceCount
+      : activeProviderId === 'azure'
+        ? activePreviewProviderId
+          ? azureConnectionDrafts[selectedPreviewModeIds[activePreviewProviderId] ?? '']?.availableLocations.length ?? 0
+          : 0
+        : providerWorkspaceCount
   const totalVisibleServices = services.length
   const selectedPreviewModeId = activePreviewProviderId ? selectedPreviewModeIds[activePreviewProviderId] ?? '' : ''
   const selectedPreviewMode = activePreviewProviderId
@@ -3371,10 +3521,14 @@ export function App() {
   const activeGcpConnectionDraft = activeProviderId === 'gcp'
     ? gcpConnectionDrafts[selectedPreviewModeId] ?? (selectedPreviewMode ? createDefaultGcpConnectionDraft(selectedPreviewMode.id) : null)
     : null
+  const activeAzureConnectionDraft = activeProviderId === 'azure'
+    ? azureConnectionDrafts[selectedPreviewModeId] ?? (selectedPreviewMode ? createDefaultAzureConnectionDraft() : null)
+    : null
   const gcpCredentialFieldCopy = activeProviderId === 'gcp'
     ? getGcpCredentialFieldCopy(selectedPreviewMode?.id)
     : null
   const gcpContextReady = activeProviderId === 'gcp' && isGcpContextReady(selectedPreviewMode, activeGcpConnectionDraft)
+  const azureContextReady = activeProviderId === 'azure' && isAzureContextReady(selectedPreviewMode, activeAzureConnectionDraft)
   const activeGcpConfiguration = activeProviderId === 'gcp'
     ? gcpCliContext?.configurations.find((entry) => entry.isActive) ?? gcpCliContext?.configurations[0] ?? null
     : null
@@ -3399,21 +3553,31 @@ export function App() {
   const gcpCatalogLocation = activeProviderId === 'gcp'
     ? activeGcpConnectionDraft?.location.trim() || activeGcpConfiguration?.region || activeGcpConfiguration?.zone || 'us-central1'
     : ''
+  const azureLocationOptions = activeProviderId === 'azure'
+    ? normalizeAzureLocations(activeAzureConnectionDraft?.availableLocations ?? [])
+    : []
+  const previewContextReady = activeProviderId === 'gcp'
+    ? gcpContextReady
+    : activeProviderId === 'azure'
+      ? azureContextReady
+      : selectedPreviewMode !== null
   const serviceNavEnabled = isAwsProviderActive
     ? activeProvider.availability === 'available' && connectionState.connected
-    : activeProviderId === 'gcp'
-      ? gcpContextReady
-      : selectedPreviewMode !== null
+    : previewContextReady
   const selectorPrimaryStatLabel = isAwsProviderActive
     ? 'Profiles'
     : activeProviderId === 'gcp'
       ? 'Projects'
-      : 'Connection modes'
+      : activeProviderId === 'azure'
+        ? 'Subscriptions'
+        : 'Connection modes'
   const selectorSecondaryStatLabel = isAwsProviderActive
     ? 'Pinned'
     : activeProviderId === 'gcp'
       ? 'Configs'
-      : 'Provider workspaces'
+      : activeProviderId === 'azure'
+        ? 'Locations'
+        : 'Provider workspaces'
   const providerProfileLabel = activeProvider.profileLabel.toLowerCase()
   const providerLocationLabel = activeProvider.locationLabel.toLowerCase()
   const auditSummary = useMemo<AuditSummary>(() => ({
@@ -3513,7 +3677,9 @@ export function App() {
     ? connectionState.activeSession?.sourceProfile || connectionState.selectedProfile?.name || connectionState.profile || 'No profile selected'
     : activeProviderId === 'gcp'
       ? activeGcpConnectionDraft?.projectId.trim() || selectedPreviewMode?.label || 'No project selected'
-      : selectedPreviewMode?.label || 'No profile selected'
+      : activeProviderId === 'azure'
+        ? activeAzureConnectionDraft?.subscriptionLabel.trim() || selectedPreviewMode?.label || 'No subscription selected'
+        : selectedPreviewMode?.label || 'No profile selected'
   const assumedRoleLabel = isAwsProviderActive && connectionState.activeSession
     ? `Assumed role: ${getRoleDisplayName(connectionState.activeSession.roleArn) || connectionState.activeSession.label}`
     : ''
@@ -3524,9 +3690,15 @@ export function App() {
           ? `${selectedPreviewMode.label} | ${activeGcpConnectionDraft?.location.trim()} ready`
           : `${selectedPreviewMode.label} | complete project context`
         : 'Select a connection mode'
-      : selectedPreviewMode
-        ? `${selectedPreviewMode.status} | terminal env ready`
-        : 'Select a connection mode'
+      : activeProviderId === 'azure'
+        ? selectedPreviewMode
+          ? azureContextReady
+            ? `${selectedPreviewMode.label} | ${activeAzureConnectionDraft?.location.trim()} ready`
+            : `${selectedPreviewMode.label} | select subscription context`
+          : 'Select a connection mode'
+        : selectedPreviewMode
+          ? `${selectedPreviewMode.status} | terminal env ready`
+          : 'Select a connection mode'
     : connectionState.activeSession
       ? assumedRoleLabel
       : connectionState.selectedProfile
@@ -3540,9 +3712,15 @@ export function App() {
         : selectedPreviewMode
           ? `Mode: ${selectedPreviewMode.label}`
           : activeProvider.connectionLabel
-      : selectedPreviewMode
-        ? `Mode: ${selectedPreviewMode.label}`
-        : activeProvider.connectionLabel
+      : activeProviderId === 'azure'
+        ? azureContextReady
+          ? `Subscription: ${activeAzureConnectionDraft?.subscriptionLabel.trim()} | ${activeProvider.locationLabel}: ${activeAzureConnectionDraft?.location.trim()}`
+          : selectedPreviewMode
+            ? `Mode: ${selectedPreviewMode.label}`
+            : activeProvider.connectionLabel
+        : selectedPreviewMode
+          ? `Mode: ${selectedPreviewMode.label}`
+          : activeProvider.connectionLabel
   const navSharedServices = NAV_PRIORITY_SERVICE_IDS
     .map((serviceId) => services.find((service) => service.id === serviceId) ?? null)
     .filter((service): service is ServiceDescriptor => service !== null)
@@ -3550,16 +3728,19 @@ export function App() {
   const providerTerminalPreview = activeProviderId === 'aws' ? null : PROVIDER_TERMINAL_PREVIEWS[activeProviderId]
   const providerTerminalTarget = activeProviderId === 'aws'
     ? null
-    : selectedPreviewMode && (activeProviderId !== 'gcp' || gcpContextReady)
+    : selectedPreviewMode && previewContextReady
       ? {
           providerId: activeProviderId,
           label: activeProviderId === 'gcp' && activeGcpConnectionDraft
             ? `${activeProvider.label} | ${activeGcpConnectionDraft.projectId.trim() || selectedPreviewMode.label}`
+            : activeProviderId === 'azure' && activeAzureConnectionDraft
+              ? `${activeProvider.label} | ${activeAzureConnectionDraft.subscriptionLabel.trim() || selectedPreviewMode.label}`
             : `${activeProvider.label} | ${selectedPreviewMode.label}`,
           modeId: selectedPreviewMode.id,
           modeLabel: selectedPreviewMode.label,
           env: buildPreviewProviderTerminalEnv(activeProviderId, activeProvider.label, selectedPreviewMode, {
             gcpContext: activeProviderId === 'gcp' ? activeGcpConnectionDraft : null,
+            azureContext: activeProviderId === 'azure' ? activeAzureConnectionDraft : null,
             gcpCliPath: activeProviderId === 'gcp' ? detectedGcloudCliPath : '',
             azureCliPath: activeProviderId === 'azure' ? detectedAzureCliPath : ''
           })
@@ -3580,6 +3761,8 @@ export function App() {
         ? 'Idle'
         : activeProviderId === 'gcp' && gcpContextReady
           ? `${activeGcpConnectionDraft?.projectId.trim()} | ${activeGcpConnectionDraft?.location.trim()}`
+          : activeProviderId === 'azure' && azureContextReady
+            ? `${activeAzureConnectionDraft?.subscriptionLabel.trim()} | ${activeAzureConnectionDraft?.location.trim()}`
           : selectedPreviewMode
             ? `${selectedPreviewMode.label} selected`
           : `${activeProvider.shortLabel} preview`
@@ -3600,14 +3783,14 @@ export function App() {
   const terminalToggleEnabled = enterpriseSettings.accessMode === 'operator' && (
     isAwsProviderActive
       ? activeShellConnected
-      : activeProviderId === 'gcp'
-        ? gcpContextReady
-        : selectedPreviewMode !== null
+      : previewContextReady
   )
   const connectionScopeKey = activeShellConnection
     ? `${activeProviderId}:${activeShellConnection.sessionId}:${activeShellConnection.region}`
       : activeProviderId === 'gcp' && selectedPreviewMode && activeGcpConnectionDraft
         ? `provider:${activeProviderId}:${selectedPreviewMode.id}:${activeGcpConnectionDraft.projectId.trim()}:${activeGcpConnectionDraft.location.trim()}`
+      : activeProviderId === 'azure' && selectedPreviewMode && activeAzureConnectionDraft
+        ? `provider:${activeProviderId}:${selectedPreviewMode.id}:${activeAzureConnectionDraft.subscriptionId.trim()}:${activeAzureConnectionDraft.location.trim()}`
       : selectedPreviewMode
         ? `provider:${activeProviderId}:${selectedPreviewMode.id}`
       : `provider:${activeProviderId}:disconnected`
@@ -3616,7 +3799,7 @@ export function App() {
     activeCacheTag,
     activeShellConnection,
     activeShellConnected,
-    gcpContextReady,
+    previewContextReady,
     selectedPreviewMode,
     selectedService
   )
@@ -3674,6 +3857,23 @@ export function App() {
       [targetModeId]: buildGcpDraftFromContext(gcpCliContext, targetModeId, current[targetModeId] ?? null)
     }))
   }, [activeProviderId, gcpCliContext, selectedPreviewModeId])
+
+  useEffect(() => {
+    if (activeProviderId !== 'azure' || !selectedPreviewMode || azureSubscriptions.length === 0) {
+      return
+    }
+
+    setAzureConnectionDrafts((current) => {
+      if (current[selectedPreviewMode.id]) {
+        return current
+      }
+
+      return {
+        ...current,
+        [selectedPreviewMode.id]: createDefaultAzureConnectionDraft()
+      }
+    })
+  }, [activeProviderId, azureSubscriptions.length, selectedPreviewMode])
 
   useEffect(() => {
     if (activeProviderId !== 'aws' || !activeAwsScreenMemoryKey || !isRestorableAwsScreen(screen)) {
@@ -3805,6 +4005,31 @@ export function App() {
       )
     }
 
+    if (service.providerId === 'azure') {
+      const contextLabel = azureContextReady
+        ? activeAzureConnectionDraft?.subscriptionLabel.trim() || 'Subscription ready'
+        : selectedPreviewMode?.label || 'Azure context pending'
+      const contextDetail = azureContextReady
+        ? `${activeAzureConnectionDraft?.location.trim()} | tenant ${activeAzureConnectionDraft?.tenantId.trim() || 'unknown'}`
+        : 'Select an Azure subscription and location in Connection Selector before opening this service.'
+
+      return (
+        <PlaceholderScreen
+          service={service}
+          eyebrow="Azure Rollout"
+          statusLabel="Context shell wired"
+          contextLabel={contextLabel}
+          contextDetail={contextDetail}
+          emptyTitle={`${service.label} is attached to the Azure provider shell.`}
+          emptyCopy={
+            azureContextReady
+              ? 'This entry now follows the selected tenant, subscription, location, and provider-aware terminal env.'
+              : 'Finish the Azure connection selector so the service page inherits the shared subscription and location context.'
+          }
+        />
+      )
+    }
+
     return <PlaceholderScreen service={service} />
   }
 
@@ -3845,6 +4070,10 @@ export function App() {
       setGcpConnectionDrafts((current) => current[modeId]
         ? current
         : { ...current, [modeId]: createDefaultGcpConnectionDraft(modeId) })
+    } else if (activePreviewProviderId === 'azure') {
+      setAzureConnectionDrafts((current) => current[modeId]
+        ? current
+        : { ...current, [modeId]: createDefaultAzureConnectionDraft() })
     }
     setSelectedPreviewModeIds((current) => ({ ...current, [activePreviewProviderId]: modeId }))
   }
@@ -3905,6 +4134,72 @@ export function App() {
         location
       }
     }))
+  }
+
+  function handleApplyAzureSubscription(subscription: AzureSubscriptionSummary): void {
+    if (activeProviderId !== 'azure') {
+      return
+    }
+
+    const targetModeId = selectedPreviewMode?.id || 'azure-subscription'
+    setSelectedPreviewModeIds((current) => ({ ...current, azure: targetModeId }))
+    setAzureConnectionDrafts((current) => ({
+      ...current,
+      [targetModeId]: buildAzureDraftFromSubscription(subscription, targetModeId, current[targetModeId] ?? null)
+    }))
+    setNavOpen(true)
+  }
+
+  function handleApplyAzureLocation(location: string): void {
+    if (activeProviderId !== 'azure') {
+      return
+    }
+
+    const targetModeId = selectedPreviewMode?.id || 'azure-subscription'
+    setSelectedPreviewModeIds((current) => ({ ...current, azure: targetModeId }))
+    setAzureConnectionDrafts((current) => ({
+      ...current,
+      [targetModeId]: {
+        ...(current[targetModeId] ?? createDefaultAzureConnectionDraft()),
+        location
+      }
+    }))
+  }
+
+  function renderAzureSubscriptionCard(subscription: AzureSubscriptionSummary): React.ReactNode {
+    const isSelected = activeAzureConnectionDraft?.subscriptionId.trim() === subscription.subscriptionId
+    const locationLabel = subscription.locations[0] || 'No locations visible'
+
+    return (
+      <div key={subscription.subscriptionId} className={`profile-catalog-card ${isSelected ? 'active' : ''}`}>
+        <div className="profile-catalog-card-header">
+          <div className="profile-catalog-card-badge">{getProfileBadge(subscription.displayName || subscription.subscriptionId)}</div>
+          <div>
+            <strong>{subscription.displayName || subscription.subscriptionId}</strong>
+            <span>{subscription.subscriptionId}</span>
+          </div>
+        </div>
+        <div className="profile-catalog-status">
+          <span>{subscription.state || 'State unavailable'}</span>
+          <strong>{subscription.locationCount} locations</strong>
+        </div>
+        <div className="hero-path">
+          Tenant {subscription.tenantId || 'unknown'} | {locationLabel}
+        </div>
+        <div className="button-row profile-catalog-actions">
+          <button
+            type="button"
+            className={isSelected ? 'accent' : ''}
+            onClick={() => handleApplyAzureSubscription(subscription)}
+          >
+            {isSelected ? 'Selected' : 'Use subscription'}
+          </button>
+          <button type="button" onClick={() => void loadAzureSubscriptionCatalog()} disabled={azureCatalogBusy}>
+            {azureCatalogBusy ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
+      </div>
+    )
   }
 
   function renderGcpProjectCard(project: NonNullable<GcpCliContext['projects'][number]>, compact = false) {
@@ -3993,9 +4288,11 @@ export function App() {
           ? `${activeGcpConnectionDraft?.projectId.trim()} | ${activeGcpConnectionDraft?.location.trim()}`
           : 'Select a project to enable'
         : activeProviderId === 'azure'
-          ? selectedPreviewMode
-            ? `${selectedPreviewMode.label} | shared shell`
-            : 'Select a connection mode'
+          ? azureContextReady
+            ? `${activeAzureConnectionDraft?.subscriptionLabel.trim()} | ${activeAzureConnectionDraft?.location.trim()}`
+            : selectedPreviewMode
+              ? `${selectedPreviewMode.label} | shared shell`
+              : 'Select a connection mode'
           : ''
 
       return (
@@ -4026,9 +4323,11 @@ export function App() {
           ? `${activeGcpConnectionDraft?.projectId.trim()} | lookup staged`
           : 'Select a project to enable'
         : activeProviderId === 'azure'
-          ? selectedPreviewMode
-            ? `${selectedPreviewMode.label} | lookup staged`
-            : 'Select a connection mode'
+          ? azureContextReady
+            ? `${activeAzureConnectionDraft?.subscriptionLabel.trim()} | lookup staged`
+            : selectedPreviewMode
+              ? `${selectedPreviewMode.label} | lookup staged`
+              : 'Select a connection mode'
           : ''
 
       return (
@@ -4404,7 +4703,13 @@ export function App() {
           locationCount: gcpLocationOptions.length
         } : undefined,
         azure: activeProviderId === 'azure'
-          ? { modeLabel: selectedPreviewMode?.label ?? '' }
+          ? {
+              modeLabel: selectedPreviewMode?.label ?? '',
+              selectedSubscriptionId: activeAzureConnectionDraft?.subscriptionId.trim() ?? '',
+              selectedLocation: activeAzureConnectionDraft?.location.trim() ?? '',
+              catalogSubscriptionCount: azureSubscriptions.length,
+              catalogError: azureCatalogError
+            }
           : undefined
       }
       const exported = await exportDiagnosticsBundle(snapshot)
@@ -5093,6 +5398,68 @@ export function App() {
                     </p>
                   </div>
                 )
+              ) : activeProviderId === 'azure' ? (
+                <>
+                  {activeProviderModes.map((mode) => (
+                    <article
+                      key={mode.id}
+                      className={`profile-catalog-card provider-mode-card provider-mode-card-${activeProviderId} ${selectedPreviewMode?.id === mode.id ? 'active' : ''}`}
+                    >
+                      <div className="profile-catalog-status">
+                        <span>{mode.label}</span>
+                        <strong>{mode.status}</strong>
+                      </div>
+                      <p className="hero-path provider-mode-card-copy">{mode.detail}</p>
+                      <div className="button-row profile-catalog-actions">
+                        <button
+                          type="button"
+                          className={selectedPreviewMode?.id === mode.id ? 'accent' : ''}
+                          onClick={() => handleSelectPreviewMode(mode.id)}
+                        >
+                          {selectedPreviewMode?.id === mode.id ? 'Selected' : 'Select'}
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                  {!selectedPreviewMode ? (
+                    <div className="profile-catalog-empty">
+                      <div className="eyebrow">Connection Mode</div>
+                      <h3>Select an Azure connection mode first</h3>
+                      <p className="hero-path">Subscription selection is now wired, but the shared shell still needs one Azure mode to seed tenant and CLI context labels.</p>
+                    </div>
+                  ) : azureSubscriptions.length > 0 ? (
+                    azureSubscriptions.map((subscription) => renderAzureSubscriptionCard(subscription))
+                  ) : (
+                    <div className="profile-catalog-empty">
+                      <div className="eyebrow">
+                        {azureCatalogBusy
+                          ? 'Loading subscriptions'
+                          : azureCatalogError
+                            ? 'Azure error'
+                            : 'No subscriptions'}
+                      </div>
+                      <h3>
+                        {azureCatalogBusy
+                          ? 'Loading Azure subscriptions'
+                          : azureCatalogError
+                            ? 'Azure subscription catalog failed'
+                            : 'No Azure subscriptions were discovered'}
+                      </h3>
+                      <p className="hero-path">
+                        {azureCatalogBusy
+                          ? 'Enumerating accessible subscriptions and their visible locations through the Azure SDK.'
+                          : azureCatalogError
+                            ? azureCatalogError
+                            : 'Sign in with Azure credentials that can enumerate subscriptions, then refresh the catalog.'}
+                      </p>
+                      <div className="profile-catalog-empty__actions">
+                        <button type="button" className="accent" onClick={() => void loadAzureSubscriptionCatalog()} disabled={azureCatalogBusy}>
+                          {azureCatalogBusy ? 'Refreshing...' : 'Refresh catalog'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : (
                 activeProviderModes.map((mode) => (
                   <article
@@ -5395,13 +5762,17 @@ export function App() {
             description={previewDescription}
             contextLabel={activeProviderId === 'gcp' && gcpContextReady
               ? activeGcpConnectionDraft?.projectId.trim()
-              : activeProviderId === 'azure' && selectedPreviewMode
-                ? selectedPreviewMode.label
+              : activeProviderId === 'azure' && azureContextReady
+                ? activeAzureConnectionDraft?.subscriptionLabel.trim()
+                : activeProviderId === 'azure' && selectedPreviewMode
+                  ? selectedPreviewMode.label
                 : undefined}
             contextDetail={activeProviderId === 'gcp' && gcpContextReady
               ? `${activeGcpConnectionDraft?.location.trim()} | ${selectedPreviewMode?.label || 'Google Cloud context'}`
-              : activeProviderId === 'azure' && selectedPreviewMode
-                ? 'Shared shell context selected'
+              : activeProviderId === 'azure' && azureContextReady
+                ? `${activeAzureConnectionDraft?.location.trim()} | tenant ${activeAzureConnectionDraft?.tenantId.trim() || 'unknown'}`
+                : activeProviderId === 'azure' && selectedPreviewMode
+                  ? 'Shared shell context selected'
                 : undefined}
           />
         )
@@ -5732,6 +6103,35 @@ export function App() {
                         ? 'Choose a Google Cloud location to finish the shared shell context.'
                         : 'Refresh the catalog to import selectable Google Cloud locations.'
                     : 'Select a Google Cloud connection mode to start binding project context.'}
+                </small>
+              </label>
+            ) : activeProviderId === 'azure' ? (
+              <label className="field">
+                <span>{activeProvider.locationLabel}</span>
+                <select
+                  value={activeAzureConnectionDraft?.location.trim() || ''}
+                  onChange={(event) => handleApplyAzureLocation(event.target.value)}
+                  disabled={!selectedPreviewMode || azureLocationOptions.length === 0}
+                >
+                  {!activeAzureConnectionDraft?.location.trim() ? (
+                    <option value="" disabled>
+                      {azureCatalogBusy ? 'Loading Azure locations...' : 'Select location'}
+                    </option>
+                  ) : null}
+                  {azureLocationOptions.map((location) => (
+                    <option key={location} value={location}>
+                      {location}
+                    </option>
+                  ))}
+                </select>
+                <small className="field-note">
+                  {selectedPreviewMode
+                    ? azureContextReady
+                      ? `Subscription ${activeAzureConnectionDraft?.subscriptionLabel.trim()} is now bound to ${activeAzureConnectionDraft?.location.trim()} for Azure service pages and terminal env injection.`
+                      : azureLocationOptions.length > 0
+                        ? 'Choose an Azure location to finish the shared subscription context.'
+                        : 'Refresh the Azure subscription catalog to import visible locations.'
+                    : 'Select an Azure connection mode to start binding subscription context.'}
                 </small>
               </label>
             ) : (

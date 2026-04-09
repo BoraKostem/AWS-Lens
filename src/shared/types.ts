@@ -603,6 +603,19 @@ export type GcpCliContext = {
   locations: string[]
 }
 
+export type AzureSubscriptionSummary = {
+  subscriptionId: string
+  displayName: string
+  tenantId: string
+  state: string
+  authorizationSource: string
+  spendingLimit: string
+  quotaId: string
+  locationCount: number
+  locations: string[]
+  managementGroupHints: string[]
+}
+
 export type GcpProjectLabelSummary = {
   key: string
   value: string
@@ -2200,6 +2213,10 @@ export type AppDiagnosticsSnapshot = {
   }
   azure?: {
     modeLabel: string
+    selectedSubscriptionId?: string
+    selectedLocation?: string
+    catalogSubscriptionCount?: number
+    catalogError?: string
   }
 }
 
