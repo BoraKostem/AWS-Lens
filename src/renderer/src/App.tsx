@@ -3703,7 +3703,8 @@ export function App() {
     providerLabel: activeProvider.label,
     accessMode: enterpriseSettings.accessMode,
     awsSelectedContextLabel: connectionState.activeSession?.sourceProfile || connectionState.selectedProfile?.name || connectionState.profile || null,
-    selectedPreviewModeLabel: selectedPreviewMode?.label ?? null
+    selectedPreviewModeLabel: selectedPreviewMode?.label ?? null,
+    azureContext: activeProviderId === 'azure' ? azureProviderContext : null
   })
   const activityLabel = awsActivity.pendingCount > 0
     ? `Fetching ${awsActivity.pendingCount} ${activeProvider.shortLabel} request${awsActivity.pendingCount === 1 ? '' : 's'}`
