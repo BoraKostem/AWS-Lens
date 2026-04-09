@@ -76,7 +76,7 @@ import {
 import { ObservabilityResilienceLab } from './ObservabilityResilienceLab'
 
 type DetailTab = 'actions' | 'state' | 'resources' | 'drift' | 'lab' | 'history'
-type TerraformProviderId = 'aws' | 'gcp'
+type TerraformProviderId = 'aws' | 'gcp' | 'azure'
 
 const TERRAFORM_RESOURCE_TYPE_LABELS: Record<string, string> = {
   google_compute_network: 'VPC Network',
@@ -455,15 +455,110 @@ function connectionForProject(connection: AwsConnection | undefined, project: Te
 }
 
 function providerLabel(providerId: TerraformProviderId): string {
-  return providerId === 'gcp' ? 'Google Cloud' : 'AWS'
+  switch (providerId) {
+    case 'gcp':
+      return 'Google Cloud'
+    case 'azure':
+      return 'Azure'
+    default:
+      return 'AWS'
+  }
 }
 
 function providerContextFieldLabel(providerId: TerraformProviderId): string {
-  return providerId === 'gcp' ? 'Project / CLI context' : 'Profile/Session'
+  switch (providerId) {
+    case 'gcp':
+      return 'Project / CLI context'
+    case 'azure':
+      return 'Subscription / tenant context'
+    default:
+      return 'Profile/Session'
+  }
 }
 
 function providerRegionFieldLabel(providerId: TerraformProviderId): string {
-  return providerId === 'gcp' ? 'Location' : 'Region'
+  return providerId === 'aws' ? 'Region' : 'Location'
+}
+
+function providerIdentifierFieldLabel(providerId: TerraformProviderId): string {
+  return providerId === 'aws' ? 'Arn' : 'Resource ID'
+}
+
+function providerAdvancedTargetPlaceholder(providerId: TerraformProviderId): string {
+  switch (providerId) {
+    case 'gcp':
+      return 'module.network.google_compute_subnetwork.private[0]\ngoogle_compute_instance.web'
+    case 'azure':
+      return 'module.network.azurerm_subnet.private[0]\nazurerm_linux_virtual_machine.web'
+    default:
+      return 'module.network.aws_subnet.private[0]\naws_instance.web'
+  }
+}
+
+function providerAdvancedReplacePlaceholder(providerId: TerraformProviderId): string {
+  switch (providerId) {
+    case 'gcp':
+      return 'module.app.google_compute_instance.web\ngoogle_sql_database_instance.main'
+    case 'azure':
+      return 'module.app.azurerm_linux_virtual_machine.web\nazurerm_postgresql_flexible_server.main'
+    default:
+      return 'module.app.aws_instance.web\naws_db_instance.main'
+  }
+}
+
+function providerImportAddressPlaceholder(providerId: TerraformProviderId): string {
+  switch (providerId) {
+    case 'gcp':
+      return 'google_storage_bucket.logs'
+    case 'azure':
+      return 'azurerm_storage_account.logs'
+    default:
+      return 'aws_s3_bucket.logs'
+  }
+}
+
+function providerStateMoveFromPlaceholder(providerId: TerraformProviderId): string {
+  switch (providerId) {
+    case 'gcp':
+      return 'google_compute_instance.old_name'
+    case 'azure':
+      return 'azurerm_linux_virtual_machine.old_name'
+    default:
+      return 'aws_instance.old_name'
+  }
+}
+
+function providerStateMoveToPlaceholder(providerId: TerraformProviderId): string {
+  switch (providerId) {
+    case 'gcp':
+      return 'module.app.google_compute_instance.new_name'
+    case 'azure':
+      return 'module.app.azurerm_linux_virtual_machine.new_name'
+    default:
+      return 'module.app.aws_instance.new_name'
+  }
+}
+
+function providerStateRemovePlaceholder(providerId: TerraformProviderId): string {
+  switch (providerId) {
+    case 'gcp':
+      return 'google_compute_firewall.legacy'
+    case 'azure':
+      return 'azurerm_network_security_group.legacy'
+    default:
+      return 'aws_security_group.legacy'
+  }
+}
+
+function providerContextPendingMessage(providerId: TerraformProviderId): string {
+  switch (providerId) {
+    case 'gcp':
+      return 'Google Cloud project and location context are not selected yet. Local Terraform review still works, but provider handoffs stay limited.'
+    case 'azure':
+      return 'Azure subscription or location context is not selected yet. Local Terraform review still works, but provider handoffs stay limited.'
+    default:
+      return ''
+  }
 }
 
 function detectGcpTerraformAuthIssue(text: string): {
@@ -484,6 +579,26 @@ function detectGcpTerraformAuthIssue(text: string): {
     body: 'Terraform reached the Google provider, but ADC is not configured for this machine. Complete the ADC login flow, then rerun Init or Plan.',
     command: 'gcloud auth application-default login'
   }
+}
+
+function buildSyntheticTerraformConnection(
+  providerId: Exclude<TerraformProviderId, 'aws'>,
+  contextKey: string,
+  contextValue: string,
+  contextDetailValue: string,
+  detail: TerraformProject | null
+): AwsConnection {
+  const region = detail?.environment.region || contextDetailValue || 'global'
+  return {
+    providerId,
+    kind: 'profile',
+    sessionId: `${providerId}:${contextKey}`,
+    label: contextValue,
+    profileId: contextValue || providerId,
+    locationId: region,
+    profile: contextValue || providerId,
+    region
+  } as AwsConnection
 }
 
 /* ── Inputs Dialog ────────────────────────────────────────── */
@@ -791,9 +906,9 @@ function InputsDialog({
         <p style={{ margin: 0, fontSize: 12, color: '#9ca7b7' }}>
           Base values stay local, overlays override by environment, and runtime secret refs resolve only where provider integrations support them.
         </p>
-        {providerId === 'gcp' && (
+        {providerId !== 'aws' && (
           <p className="tf-inputs-warning">
-            Secret reference storage keeps the AWS layout for now. In Google Cloud projects, prefer local values or var files until the Secret Manager runtime path lands.
+            Secret reference storage keeps the AWS layout for now. In {providerLabel(providerId)} projects, prefer local values or var files until provider-native secret resolution lands.
           </p>
         )}
         {project.inputView.migratedFromLegacy && (
@@ -1851,7 +1966,7 @@ function ActionsTab({
   project: TerraformProject
   cliOk: boolean
   cliLabel: string
-  providerId: 'aws' | 'gcp'
+  providerId: TerraformProviderId
   running: boolean
   commandsEnabled: boolean
   lastLog: TerraformCommandLog | null
@@ -2026,7 +2141,7 @@ function ActionsTab({
                 className="tf-plan-address-input"
                 value={targetText}
                 onChange={(event) => setTargetText(event.target.value)}
-                placeholder={providerId === 'gcp' ? 'module.network.google_compute_subnetwork.private[0]\ngoogle_compute_instance.web' : 'module.network.aws_subnet.private[0]\naws_instance.web'}
+                placeholder={providerAdvancedTargetPlaceholder(providerId)}
               />
             )}
             {advancedMode === 'replace' && (
@@ -2034,7 +2149,7 @@ function ActionsTab({
                 className="tf-plan-address-input"
                 value={replaceText}
                 onChange={(event) => setReplaceText(event.target.value)}
-                placeholder={providerId === 'gcp' ? 'module.app.google_compute_instance.web\ngoogle_sql_database_instance.main' : 'module.app.aws_instance.web\naws_db_instance.main'}
+                placeholder={providerAdvancedReplacePlaceholder(providerId)}
               />
             )}
             <div className="tf-plan-controls-footer">
@@ -2263,7 +2378,7 @@ function ActionsTab({
         <div className="tf-section-head">
           <div>
             <h3>Related Follow-up</h3>
-              <div className="tf-section-hint">Open drift after mutating commands to verify realized state against {providerId === 'gcp' ? 'Google Cloud' : 'AWS'}.</div>
+              <div className="tf-section-hint">Open drift after mutating commands to verify realized state against {providerLabel(providerId)}.</div>
           </div>
           <button type="button" className="tf-toolbar-btn" onClick={onOpenDriftTab}>Open Drift</button>
         </div>
@@ -2339,7 +2454,7 @@ function StateTab({
 }: {
   project: TerraformProject
   running: boolean
-  providerId: 'aws' | 'gcp'
+  providerId: TerraformProviderId
   commandsEnabled: boolean
   lastLog: TerraformCommandLog | null
   onImport: (address: string, importId: string) => void
@@ -2407,7 +2522,7 @@ function StateTab({
             </div>
             <label className="tf-state-field">
               <span>Terraform address</span>
-              <input value={importAddress} onChange={(e) => setImportAddress(e.target.value)} placeholder={providerId === 'gcp' ? 'google_storage_bucket.logs' : 'aws_s3_bucket.logs'} />
+              <input value={importAddress} onChange={(e) => setImportAddress(e.target.value)} placeholder={providerImportAddressPlaceholder(providerId)} />
             </label>
             <label className="tf-state-field">
               <span>Provider import ID</span>
@@ -2429,11 +2544,11 @@ function StateTab({
             </div>
             <label className="tf-state-field">
               <span>From address</span>
-              <input value={moveFrom} onChange={(e) => setMoveFrom(e.target.value)} placeholder={providerId === 'gcp' ? 'google_compute_instance.old_name' : 'aws_instance.old_name'} list="tf-state-addresses" />
+              <input value={moveFrom} onChange={(e) => setMoveFrom(e.target.value)} placeholder={providerStateMoveFromPlaceholder(providerId)} list="tf-state-addresses" />
             </label>
             <label className="tf-state-field">
               <span>To address</span>
-              <input value={moveTo} onChange={(e) => setMoveTo(e.target.value)} placeholder={providerId === 'gcp' ? 'module.app.google_compute_instance.new_name' : 'module.app.aws_instance.new_name'} />
+              <input value={moveTo} onChange={(e) => setMoveTo(e.target.value)} placeholder={providerStateMoveToPlaceholder(providerId)} />
             </label>
             <button
               className="tf-toolbar-btn danger"
@@ -2451,7 +2566,7 @@ function StateTab({
             </div>
             <label className="tf-state-field">
               <span>State address</span>
-              <input value={removeAddress} onChange={(e) => setRemoveAddress(e.target.value)} placeholder={providerId === 'gcp' ? 'google_compute_firewall.legacy' : 'aws_security_group.legacy'} list="tf-state-addresses" />
+              <input value={removeAddress} onChange={(e) => setRemoveAddress(e.target.value)} placeholder={providerStateRemovePlaceholder(providerId)} list="tf-state-addresses" />
             </label>
             <button
               className="tf-toolbar-btn danger"
@@ -2589,8 +2704,8 @@ function ResourcesTab({
   providerId: TerraformProviderId
 }) {
   const rows = project.resourceRows
-  const resourceScopeLabel = providerId === 'gcp' ? 'location' : 'region'
-  const resourceIdentifierLabel = providerId === 'gcp' ? 'ID' : 'Arn'
+  const resourceScopeLabel = providerId === 'aws' ? 'region' : 'location'
+  const resourceIdentifierLabel = providerIdentifierFieldLabel(providerId)
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [query, setQuery] = useState('')
   const categories = useMemo(
@@ -2720,19 +2835,22 @@ const DRIFT_STATUS_LABELS: Record<TerraformDriftStatus, string> = {
 }
 
 function driftStatusLabel(status: TerraformDriftStatus, providerId: TerraformProviderId): string {
-  if (providerId === 'gcp') {
-    if (status === 'missing_in_aws') return 'Missing In GCP'
-    if (status === 'unmanaged_in_aws') return 'Unmanaged In GCP'
+  if (providerId !== 'aws') {
+    const cloud = providerId === 'gcp' ? 'GCP' : 'Azure'
+    if (status === 'missing_in_aws') return `Missing In ${cloud}`
+    if (status === 'unmanaged_in_aws') return `Unmanaged In ${cloud}`
   }
   return DRIFT_STATUS_LABELS[status]
 }
 
 function driftCloudLabel(providerId: TerraformProviderId): string {
-  return providerId === 'gcp' ? 'GCP' : 'AWS'
+  return providerId === 'aws' ? 'AWS' : providerId === 'gcp' ? 'GCP' : 'Azure'
 }
 
 function driftConsoleLabel(providerId: TerraformProviderId): string {
-  return providerId === 'gcp' ? 'Open In Google Cloud Console' : 'Open In AWS Console'
+  if (providerId === 'gcp') return 'Open In Google Cloud Console'
+  if (providerId === 'azure') return 'Open In Azure Portal'
+  return 'Open In AWS Console'
 }
 
 const DRIFT_TREND_LABELS: Record<TerraformDriftReport['history']['trend'], string> = {
@@ -3434,22 +3552,12 @@ export function TerraformConsole({
   const projectConnection = connectionForProject(connection, detail)
   const contextValue = contextLabel || detail?.environment.connectionLabel || connection?.profile || 'Local shell'
   const contextDetailValue = contextDetail || detail?.environment.region || ''
-  const gcpAnalysisConnection = useMemo(() => {
-    if (providerId !== 'gcp') return undefined
-    const region = detail?.environment.region || contextDetailValue || 'global'
-    return {
-      providerId: 'gcp',
-      kind: 'profile',
-      sessionId: `gcp:${contextKey}`,
-      label: contextValue,
-      profileId: contextValue || 'gcp',
-      locationId: region,
-      profile: contextValue || 'gcp',
-      region
-    } as AwsConnection
-  }, [contextDetailValue, contextKey, contextValue, detail?.environment.region, providerId])
-  const driftConnection = providerId === 'gcp' ? gcpAnalysisConnection : projectConnection
-  const labConnection = providerId === 'gcp' ? gcpAnalysisConnection : connection
+  const analysisConnection = useMemo(() => {
+    if (providerId === 'aws') return undefined
+    return buildSyntheticTerraformConnection(providerId, contextKey, contextValue, contextDetailValue, detail)
+  }, [contextDetailValue, contextKey, contextValue, detail, providerId])
+  const driftConnection = providerId === 'aws' ? projectConnection : analysisConnection
+  const labConnection = providerId === 'aws' ? connection : analysisConnection
   const canLoadDrift = Boolean(detail && driftConnection)
   const canLoadLab = Boolean(detail && labConnection)
   const gcpAuthIssue = providerId === 'gcp'
@@ -4309,10 +4417,10 @@ export function TerraformConsole({
           {!commandsEnabled && (
             <div className="tf-cli-banner">Read-only mode is active. Terraform mutations and saved input changes are disabled until you switch to Operator mode.</div>
           )}
-          {providerId === 'gcp' && !contextLabel && (
-            <div className="tf-cli-banner">Google Cloud project and location context are not selected yet. Local Terraform review still works, but provider handoffs stay limited.</div>
+          {providerId !== 'aws' && !contextLabel && (
+            <div className="tf-cli-banner">{providerContextPendingMessage(providerId)}</div>
           )}
-          {providerId === 'gcp' && contextDetailValue && (
+          {providerId !== 'aws' && contextDetailValue && (
             <div className="tf-cli-banner success">{contextValue}{contextDetailValue ? ` | ${contextDetailValue}` : ''}</div>
           )}
           {cliInfo && !cliInfo.found && (
@@ -4384,9 +4492,9 @@ export function TerraformConsole({
               <div className="tf-project-list">
                 {projects.map((project) => {
                   const status = summarizeProjectStatus(project)
-                  const projectRegionLabel = providerId === 'gcp'
-                    ? (project.environment.region || contextDetail || 'global')
-                    : (project.environment.region || 'global')
+                  const projectRegionLabel = providerId === 'aws'
+                    ? (project.environment.region || 'global')
+                    : (project.environment.region || contextDetail || 'global')
                   return (
                     <button
                       key={project.id}

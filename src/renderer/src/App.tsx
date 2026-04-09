@@ -4413,7 +4413,16 @@ export function App() {
           locationCount: gcpLocationOptions.length
         } : undefined,
         azure: activeProviderId === 'azure'
-          ? { modeLabel: selectedPreviewMode?.label ?? '' }
+          ? {
+              modeId: selectedPreviewMode?.id ?? '',
+              modeLabel: selectedPreviewMode?.label ?? '',
+              cliDetected: Boolean(detectedAzureCliPath),
+              cliPath: detectedAzureCliPath,
+              activeContextLabel: selectedPreviewMode?.label ?? '',
+              activeContextDetail: selectedPreviewMode?.detail ?? '',
+              sharedWorkspaceCount,
+              providerWorkspaceCount
+            }
           : undefined
       }
       const exported = await exportDiagnosticsBundle(snapshot)
