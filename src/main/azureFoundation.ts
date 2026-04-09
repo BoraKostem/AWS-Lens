@@ -1,4 +1,5 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import path from 'node:path'
 import { promisify } from 'node:util'
 
 import type {
@@ -315,8 +316,8 @@ function toSubscriptionSummary(entry: Record<string, unknown>): AzureSubscriptio
 
   return {
     id: trimToEmpty(entry.id) || trimToEmpty(entry.subscriptionId),
-    subscriptionId: trimToEmpty(entry.subscriptionId) || trimToEmpty(entry.subscriptionID),
-    displayName: trimToEmpty(entry.displayName) || trimToEmpty(entry.name) || trimToEmpty(entry.subscriptionName) || trimToEmpty(entry.subscriptionId),
+    subscriptionId: trimToEmpty(entry.subscriptionId) || trimToEmpty(entry.subscriptionID) || trimToEmpty(entry.id),
+    displayName: trimToEmpty(entry.displayName) || trimToEmpty(entry.name) || trimToEmpty(entry.subscriptionName) || trimToEmpty(entry.subscriptionId) || trimToEmpty(entry.id),
     state: trimToEmpty(entry.state) || 'Unknown',
     tenantId: trimToEmpty(entry.tenantId) || trimToEmpty(entry.homeTenantId),
     authorizationSource: trimToEmpty(entry.authorizationSource),
@@ -324,10 +325,25 @@ function toSubscriptionSummary(entry: Record<string, unknown>): AzureSubscriptio
   }
 }
 
+function isWindowsBatchFile(command: string): boolean {
+  if (process.platform !== 'win32') {
+    return false
+  }
+
+  const ext = path.extname(command.trim()).toLowerCase()
+  return ext === '.cmd' || ext === '.bat'
+}
+
 async function runAzureCliJson<T>(args: string[]): Promise<T> {
   const cliPath = await loadCliPath()
-  const command = cliPath || 'az'
-  const { stdout } = await execFileAsync(command, [...args, '--output', 'json'], {
+  const resolved = cliPath || (process.platform === 'win32' ? 'az.cmd' : 'az')
+  const fullArgs = [...args, '--output', 'json']
+
+  const [command, execArgs] = isWindowsBatchFile(resolved)
+    ? ['cmd.exe', ['/d', '/c', resolved, ...fullArgs]]
+    : [resolved, fullArgs]
+
+  const { stdout } = await execFileAsync(command, execArgs, {
     windowsHide: true,
     timeout: 20000,
     env: process.env
@@ -391,7 +407,14 @@ async function loadAzureCliLocations(subscriptionId: string): Promise<AzureLocat
   }
 
   try {
-    const records = await runAzureCliJson<Record<string, unknown>[]>(['account', 'list-locations', '--subscription', subscriptionId])
+    const response = await runAzureCliJson<{ value?: Record<string, unknown>[] }>([
+      'rest',
+      '--method',
+      'get',
+      '--uri',
+      `https://management.azure.com/subscriptions/${encodeURIComponent(subscriptionId)}/locations?api-version=2022-12-01`
+    ])
+    const records = Array.isArray(response.value) ? response.value : []
     return records
       .map(toLocationSummary)
       .filter((entry) => entry.name)

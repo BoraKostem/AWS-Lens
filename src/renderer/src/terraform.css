@@ -179,6 +179,34 @@
     linear-gradient(180deg, rgba(27, 47, 36, 0.96), rgba(17, 29, 22, 0.96));
 }
 
+.tf-console-azure .tf-shell-hero,
+.tf-console-azure .tf-detail-hero {
+  background:
+    radial-gradient(circle at top left, rgba(0, 120, 212, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(0, 78, 152, 0.13), transparent 30%),
+    linear-gradient(180deg, rgba(16, 24, 40, 0.98), rgba(10, 16, 26, 0.98));
+  border-color: rgba(56, 152, 236, 0.16);
+}
+
+.tf-console-azure .tf-shell-stat-card-accent,
+.tf-console-azure .tf-detail-stat-card.success {
+  border-color: rgba(0, 120, 212, 0.34);
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.2), transparent 42%),
+    linear-gradient(180deg, rgba(18, 32, 52, 0.96), rgba(12, 20, 34, 0.96));
+}
+
+.tf-console-azure .gcp-session-card.active,
+.tf-console-azure .gcp-session-project-card.active {
+  border-color: rgba(56, 152, 236, 0.5);
+  box-shadow: 0 0 0 1px rgba(56, 152, 236, 0.22);
+}
+
+.tf-console-azure .gcp-session-recent-chip.active {
+  border-color: rgba(56, 152, 236, 0.55);
+  color: #dbeafe;
+}
+
 /* ── Toolbar ─────────────────────────────────────────────── */
 
 .tf-shell-toolbar {

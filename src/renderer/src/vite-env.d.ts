@@ -24,6 +24,7 @@ import type {
   DbConnectionPresetFilter,
   DbConnectionPresetInput,
   DbVaultCredentialInput,
+  AzureVmAction,
   GcpComputeInstanceAction,
   Ec2BulkInstanceAction,
   Ec2InstanceAction,
@@ -161,8 +162,17 @@ declare global {
       getGcpBillingOverview: (projectId: string, catalogProjectIds: string[]) => Promise<unknown>
       listAzureSubscriptions: () => Promise<unknown>
       getAzureRbacOverview: (subscriptionId: string) => Promise<unknown>
+      listAzureRoleAssignments: (subscriptionId: string) => Promise<unknown>
+      listAzureRoleDefinitions: (subscriptionId: string) => Promise<unknown>
+      createAzureRoleAssignment: (subscriptionId: string, principalId: string, roleDefinitionId: string, scope: string) => Promise<unknown>
+      deleteAzureRoleAssignment: (assignmentId: string) => Promise<unknown>
       listAzureVirtualMachines: (subscriptionId: string, location: string) => Promise<unknown>
+      describeAzureVirtualMachine: (subscriptionId: string, resourceGroup: string, vmName: string) => Promise<unknown>
+      runAzureVmAction: (subscriptionId: string, resourceGroup: string, vmName: string, action: AzureVmAction) => Promise<unknown>
       listAzureAksClusters: (subscriptionId: string, location: string) => Promise<unknown>
+      describeAzureAksCluster: (subscriptionId: string, resourceGroup: string, clusterName: string) => Promise<unknown>
+      listAzureAksNodePools: (subscriptionId: string, resourceGroup: string, clusterName: string) => Promise<unknown>
+      updateAzureAksNodePoolScaling: (subscriptionId: string, resourceGroup: string, clusterName: string, nodePoolName: string, min: number, desired: number, max: number) => Promise<unknown>
       listAzureStorageAccounts: (subscriptionId: string, location: string) => Promise<unknown>
       listAzureStorageContainers: (subscriptionId: string, resourceGroup: string, accountName: string, blobEndpoint?: string) => Promise<unknown>
       listAzureStorageBlobs: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, prefix: string, blobEndpoint?: string) => Promise<unknown>
@@ -172,6 +182,7 @@ declare global {
       downloadAzureStorageBlobToPath: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) => Promise<unknown>
       deleteAzureStorageBlob: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) => Promise<unknown>
       getAzureSqlEstate: (subscriptionId: string, location: string) => Promise<unknown>
+      describeAzureSqlServer: (subscriptionId: string, resourceGroup: string, serverName: string) => Promise<unknown>
       listAzureMonitorActivity: (subscriptionId: string, location: string, query: string, windowHours?: number) => Promise<unknown>
       getAzureCostOverview: (subscriptionId: string) => Promise<unknown>
       checkForAppUpdates: () => Promise<unknown>

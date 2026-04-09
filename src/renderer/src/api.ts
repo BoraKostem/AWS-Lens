@@ -60,17 +60,25 @@ import type {
   GcpCliProject,
   AppReleaseInfo,
   AppSecuritySummary,
+  AzureAksClusterDetail,
   AzureAksClusterSummary,
+  AzureAksNodePoolSummary,
   AzureCostOverview,
   AzureMonitorActivityResult,
   AzureRbacOverview,
+  AzureRoleAssignmentSummary,
+  AzureRoleDefinitionSummary,
   AzureSqlEstateOverview,
+  AzureSqlServerDetail,
   AzureStorageAccountSummary,
   AzureStorageBlobContent,
   AzureStorageBlobSummary,
   AzureStorageContainerSummary,
   AzureSubscriptionSummary,
+  AzureVirtualMachineDetail,
   AzureVirtualMachineSummary,
+  AzureVmAction,
+  AzureVmActionResult,
   CloudProviderId,
   CloudWatchInvestigationHistoryEntry,
   CloudWatchInvestigationHistoryInput,
@@ -1599,12 +1607,48 @@ export async function getAzureRbacOverview(subscriptionId: string): Promise<Azur
   return unwrap((await rawAwsBridge().getAzureRbacOverview(subscriptionId)) as Wrapped<AzureRbacOverview>)
 }
 
+export async function listAzureRoleAssignments(subscriptionId: string): Promise<AzureRoleAssignmentSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureRoleAssignments(subscriptionId)) as Wrapped<AzureRoleAssignmentSummary[]>)
+}
+
+export async function listAzureRoleDefinitions(subscriptionId: string): Promise<AzureRoleDefinitionSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureRoleDefinitions(subscriptionId)) as Wrapped<AzureRoleDefinitionSummary[]>)
+}
+
+export async function createAzureRoleAssignment(subscriptionId: string, principalId: string, roleDefinitionId: string, scope: string): Promise<void> {
+  return unwrap((await rawAwsBridge().createAzureRoleAssignment(subscriptionId, principalId, roleDefinitionId, scope)) as Wrapped<void>)
+}
+
+export async function deleteAzureRoleAssignment(assignmentId: string): Promise<void> {
+  return unwrap((await rawAwsBridge().deleteAzureRoleAssignment(assignmentId)) as Wrapped<void>)
+}
+
 export async function listAzureVirtualMachines(subscriptionId: string, location: string): Promise<AzureVirtualMachineSummary[]> {
   return unwrap((await rawAwsBridge().listAzureVirtualMachines(subscriptionId, location)) as Wrapped<AzureVirtualMachineSummary[]>)
 }
 
+export async function describeAzureVirtualMachine(subscriptionId: string, resourceGroup: string, vmName: string): Promise<AzureVirtualMachineDetail> {
+  return unwrap((await rawAwsBridge().describeAzureVirtualMachine(subscriptionId, resourceGroup, vmName)) as Wrapped<AzureVirtualMachineDetail>)
+}
+
+export async function runAzureVmAction(subscriptionId: string, resourceGroup: string, vmName: string, action: AzureVmAction): Promise<AzureVmActionResult> {
+  return unwrap((await rawAwsBridge().runAzureVmAction(subscriptionId, resourceGroup, vmName, action)) as Wrapped<AzureVmActionResult>)
+}
+
 export async function listAzureAksClusters(subscriptionId: string, location: string): Promise<AzureAksClusterSummary[]> {
   return unwrap((await rawAwsBridge().listAzureAksClusters(subscriptionId, location)) as Wrapped<AzureAksClusterSummary[]>)
+}
+
+export async function describeAzureAksCluster(subscriptionId: string, resourceGroup: string, clusterName: string): Promise<AzureAksClusterDetail> {
+  return unwrap((await rawAwsBridge().describeAzureAksCluster(subscriptionId, resourceGroup, clusterName)) as Wrapped<AzureAksClusterDetail>)
+}
+
+export async function listAzureAksNodePools(subscriptionId: string, resourceGroup: string, clusterName: string): Promise<AzureAksNodePoolSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureAksNodePools(subscriptionId, resourceGroup, clusterName)) as Wrapped<AzureAksNodePoolSummary[]>)
+}
+
+export async function updateAzureAksNodePoolScaling(subscriptionId: string, resourceGroup: string, clusterName: string, nodePoolName: string, min: number, desired: number, max: number): Promise<void> {
+  return unwrap((await rawAwsBridge().updateAzureAksNodePoolScaling(subscriptionId, resourceGroup, clusterName, nodePoolName, min, desired, max)) as Wrapped<void>)
 }
 
 export async function listAzureStorageAccounts(subscriptionId: string, location: string): Promise<AzureStorageAccountSummary[]> {
@@ -1641,6 +1685,10 @@ export async function deleteAzureStorageBlob(subscriptionId: string, resourceGro
 
 export async function getAzureSqlEstate(subscriptionId: string, location: string): Promise<AzureSqlEstateOverview> {
   return unwrap((await rawAwsBridge().getAzureSqlEstate(subscriptionId, location)) as Wrapped<AzureSqlEstateOverview>)
+}
+
+export async function describeAzureSqlServer(subscriptionId: string, resourceGroup: string, serverName: string): Promise<AzureSqlServerDetail> {
+  return unwrap((await rawAwsBridge().describeAzureSqlServer(subscriptionId, resourceGroup, serverName)) as Wrapped<AzureSqlServerDetail>)
 }
 
 export async function listAzureMonitorActivity(subscriptionId: string, location: string, query: string, windowHours?: number): Promise<AzureMonitorActivityResult> {

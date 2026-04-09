@@ -84,6 +84,93 @@
   background: linear-gradient(180deg, rgba(18, 33, 25, 0.94), rgba(11, 21, 16, 0.94));
 }
 
+/* ── Azure Storage — blue accent overrides ── */
+
+.azure-storage-shell .s3-shell-hero,
+.azure-storage-shell .s3-detail-hero {
+  background:
+    radial-gradient(circle at top left, rgba(0, 120, 212, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(80, 160, 230, 0.12), transparent 32%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(11, 17, 25, 0.98));
+}
+
+.azure-storage-shell .s3-shell-stat-card-accent,
+.azure-storage-shell .s3-status-badge.success,
+.azure-storage-shell .s3-detail-stat-card.success {
+  border-color: rgba(0, 120, 212, 0.32);
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.2), transparent 42%),
+    linear-gradient(180deg, rgba(20, 35, 55, 0.96), rgba(12, 22, 38, 0.96));
+}
+
+.azure-storage-shell .s3-bucket-row {
+  background:
+    linear-gradient(180deg, rgba(18, 26, 38, 0.98), rgba(10, 16, 26, 0.98)),
+    linear-gradient(135deg, rgba(0, 120, 212, 0.08), rgba(80, 160, 230, 0.03));
+}
+
+.azure-storage-shell .s3-bucket-row.active {
+  border-color: rgba(0, 120, 212, 0.38);
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.18), transparent 40%),
+    linear-gradient(180deg, rgba(20, 34, 52, 0.98), rgba(12, 22, 36, 0.98));
+  box-shadow: inset 0 0 0 1px rgba(0, 120, 212, 0.1), 0 18px 42px rgba(0, 0, 0, 0.22);
+}
+
+.azure-storage-shell .s3-bucket-row-glyph {
+  background:
+    radial-gradient(circle at top left, rgba(0, 120, 212, 0.26), transparent 58%),
+    linear-gradient(135deg, rgba(24, 46, 72, 0.98), rgba(14, 26, 42, 0.98));
+}
+
+.azure-storage-shell .s3-tab-btn.active,
+.azure-storage-shell .s3-detail-tabs button.active,
+.azure-storage-shell .s3-chip.active,
+.azure-storage-shell .s3-summary-button.active {
+  border-color: rgba(0, 120, 212, 0.3);
+  box-shadow: inset 0 0 0 1px rgba(0, 120, 212, 0.08);
+  background: rgba(0, 120, 212, 0.12);
+  color: #c8e2ff;
+}
+
+.azure-storage-shell .s3-btn-ok,
+.azure-storage-shell .s3-btn-upload {
+  background: linear-gradient(135deg, rgba(0, 100, 190, 0.96), rgba(0, 70, 140, 0.96));
+  border-color: rgba(0, 120, 212, 0.24);
+}
+
+.azure-storage-shell .s3-mini-badge.ok,
+.azure-storage-shell .s3-check-enabled,
+.azure-storage-shell .s3-check-present {
+  background: rgba(0, 120, 212, 0.18);
+  color: #a3d0ff;
+}
+
+.azure-storage-shell .s3-summary-risk {
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.16), transparent 42%),
+    linear-gradient(180deg, rgba(18, 28, 42, 0.96), rgba(10, 18, 30, 0.96));
+}
+
+.azure-storage-shell .s3-bucket-focus {
+  background:
+    radial-gradient(circle at top left, rgba(0, 120, 212, 0.14), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(80, 160, 230, 0.1), transparent 30%),
+    linear-gradient(180deg, rgba(18, 26, 38, 0.98), rgba(10, 16, 26, 0.98));
+}
+
+.azure-storage-shell .s3-inline-note {
+  color: #c8e2ff;
+  border-color: rgba(0, 120, 212, 0.16);
+  background: linear-gradient(180deg, rgba(16, 28, 44, 0.94), rgba(10, 18, 32, 0.94));
+}
+
+.azure-storage-shell .s3-btn.accent {
+  background: linear-gradient(135deg, #0078d4, #50a0e6);
+  border-color: rgba(80, 160, 230, 0.24);
+  color: #fff;
+}
+
 .s3-shell-hero,
 .s3-detail-hero {
   display: grid;

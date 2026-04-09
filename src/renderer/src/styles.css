@@ -1124,6 +1124,143 @@ textarea {
   min-width: 0;
 }
 
+/* ── Azure overview blue theme ────────────────────────── */
+.azure-overview-console .overview-hero-card {
+  background:
+    radial-gradient(circle at top left, rgba(56, 139, 253, 0.18), transparent 32%),
+    radial-gradient(circle at bottom right, rgba(88, 166, 255, 0.14), transparent 28%),
+    linear-gradient(180deg, rgba(14, 22, 38, 0.98), rgba(8, 14, 26, 0.98));
+  border-color: rgba(56, 139, 253, 0.16);
+}
+
+.azure-overview-console .overview-glance-card-accent,
+.azure-overview-console .overview-tile.highlight,
+.azure-overview-console button.overview-tile.clickable.active {
+  border-color: rgba(56, 139, 253, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(56, 139, 253, 0.16), transparent 42%),
+    linear-gradient(180deg, rgba(18, 30, 52, 0.96), rgba(12, 20, 38, 0.96));
+}
+
+.azure-overview-console .overview-glance-card-accent strong,
+.azure-overview-console .overview-hint-kicker,
+.azure-overview-console .eyebrow,
+.azure-overview-console .overview-tile.highlight strong,
+.azure-overview-console button.overview-tile.clickable.active strong {
+  color: #79b8ff;
+}
+
+.azure-overview-console .overview-meta-pill,
+.azure-overview-console .overview-account-card,
+.azure-overview-console .overview-hint-card,
+.azure-overview-console .overview-ownership-card {
+  border-color: rgba(56, 139, 253, 0.14);
+}
+
+.azure-overview-console .overview-hint-card.info {
+  border-color: rgba(56, 139, 253, 0.2);
+  background:
+    radial-gradient(circle at top right, rgba(56, 139, 253, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(14, 20, 32, 0.96), rgba(10, 14, 24, 0.96));
+}
+
+.azure-overview-console .overview-hint-card.warning {
+  border-color: rgba(227, 179, 65, 0.22);
+  background:
+    radial-gradient(circle at top right, rgba(227, 179, 65, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(14, 20, 32, 0.96), rgba(10, 14, 24, 0.96));
+}
+
+.azure-overview-console .overview-hint-card.error {
+  border-color: rgba(214, 90, 90, 0.22);
+  background:
+    radial-gradient(circle at top right, rgba(214, 90, 90, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(14, 20, 32, 0.96), rgba(10, 14, 24, 0.96));
+}
+
+.azure-overview-console .overview-tile:hover,
+.azure-overview-console button.overview-tile.clickable:hover {
+  border-color: rgba(56, 139, 253, 0.28);
+  box-shadow: 0 0 0 1px rgba(56, 139, 253, 0.08);
+}
+
+.azure-overview-console .overview-bottom-row,
+.azure-overview-console .overview-data-panel,
+.azure-overview-console .overview-insights-panel {
+  border-color: rgba(56, 139, 253, 0.14);
+  background:
+    linear-gradient(180deg, rgba(14, 22, 36, 0.96), rgba(10, 16, 28, 0.96)),
+    radial-gradient(circle at top right, rgba(56, 139, 253, 0.08), transparent 28%);
+}
+
+.azure-overview-console .overview-data-panel .table-head {
+  background: linear-gradient(180deg, rgba(30, 56, 100, 0.52), rgba(20, 38, 68, 0.52));
+  border-color: rgba(121, 184, 255, 0.1);
+  color: #a5d0ff;
+}
+
+.azure-overview-console .overview-table-row {
+  border-color: rgba(56, 139, 253, 0.08);
+  background: linear-gradient(180deg, rgba(10, 18, 30, 0.98), rgba(8, 14, 24, 0.98));
+}
+
+.azure-overview-console .overview-section-title {
+  color: #79b8ff;
+}
+
+/* ── Clickable table rows & active state ──────────────── */
+button.table-row.overview-table-row {
+  cursor: pointer;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+button.table-row.overview-table-row:hover {
+  border-color: rgba(145, 176, 207, 0.22);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+button.table-row.overview-table-row.active {
+  border-color: rgba(56, 139, 253, 0.38);
+  background: linear-gradient(180deg, rgba(20, 38, 68, 0.7), rgba(14, 26, 48, 0.7));
+  box-shadow: inset 0 0 0 1px rgba(56, 139, 253, 0.08);
+}
+
+/* ── Status badges ────────────────────────────────────── */
+.status-badge {
+  display: inline-block;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: capitalize;
+}
+
+.status-badge.status-ok {
+  background: rgba(52, 168, 83, 0.16);
+  color: #6dd490;
+  border: 1px solid rgba(52, 168, 83, 0.22);
+}
+
+.status-badge.status-warn {
+  background: rgba(227, 179, 65, 0.14);
+  color: #e3b341;
+  border: 1px solid rgba(227, 179, 65, 0.2);
+}
+
+/* ── Note label (key-value rows in insights panels) ───── */
+.note-label {
+  display: inline-block;
+  min-width: 110px;
+  font-size: 0.68rem;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+  margin-right: 0.45rem;
+}
+
 .overview-tiles {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

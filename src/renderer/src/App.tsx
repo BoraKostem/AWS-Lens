@@ -12,8 +12,10 @@ import type {
   AppReleaseInfo,
   AppSecuritySummary,
   AppSettings,
+  AzureLocationSummary,
   AzureProviderContextSnapshot,
   AzureSubscriptionSummary,
+  AzureTenantSummary,
   CloudProviderId,
   ComparisonRequest,
   EnvironmentHealthReport,
@@ -89,7 +91,8 @@ import {
   type CacheTag
 } from './api'
 import { AcmConsole } from './AcmConsole'
-import { AzureCompareWorkspace, AzureComplianceCenter, AzureDirectAccessWorkspace, AzureOverviewConsole, AzureSessionHub } from './AzureSharedWorkspaces'
+import { AzureDirectAccessWorkspace } from './AzureDirectAccessConsole'
+import { AzureCompareWorkspace, AzureComplianceCenter, AzureOverviewConsole, AzureSessionHub } from './AzureSharedWorkspaces'
 import { AutoScalingConsole } from './AutoScalingConsole'
 import {
   AzureAksConsole,
@@ -167,6 +170,7 @@ const GCP_CLI_CONTEXT_CACHE_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:gcp-cli-c
 const GCP_RECENT_PROJECTS_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:gcp-recent-projects-v1`
 const PREVIEW_MODE_SELECTION_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:provider-preview-mode-selection-v1`
 const AZURE_CONNECTION_CONTEXT_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:azure-connection-context-v1`
+const AZURE_CONTEXT_CACHE_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:azure-context-cache-v1`
 type EnvironmentOnboardingStep = 'profile' | 'region' | 'tooling' | 'access'
 type EnvironmentOnboardingState = {
   dismissed: boolean
@@ -2628,6 +2632,124 @@ function writeAzureConnectionDrafts(drafts: AzureConnectionDraftByMode): void {
   }
 }
 
+function sanitizeCachedStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
+}
+
+function sanitizeCachedSubscription(entry: unknown): AzureSubscriptionSummary | null {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+    return null
+  }
+
+  const raw = entry as Record<string, unknown>
+  const subscriptionId = typeof raw.subscriptionId === 'string' ? raw.subscriptionId : ''
+  if (!subscriptionId) {
+    return null
+  }
+
+  return {
+    id: typeof raw.id === 'string' ? raw.id : subscriptionId,
+    subscriptionId,
+    displayName: typeof raw.displayName === 'string' ? raw.displayName : subscriptionId,
+    state: typeof raw.state === 'string' ? raw.state : 'Unknown',
+    tenantId: typeof raw.tenantId === 'string' ? raw.tenantId : '',
+    authorizationSource: typeof raw.authorizationSource === 'string' ? raw.authorizationSource : '',
+    managedByTenants: sanitizeCachedStringArray(raw.managedByTenants)
+  }
+}
+
+function readAzureContextCache(): AzureProviderContextSnapshot | null {
+  try {
+    const raw = window.localStorage.getItem(AZURE_CONTEXT_CACHE_STORAGE_KEY)
+    if (!raw) {
+      return null
+    }
+
+    const parsed = JSON.parse(raw) as Partial<AzureProviderContextSnapshot>
+    const subscriptions = Array.isArray(parsed.subscriptions)
+      ? parsed.subscriptions.map(sanitizeCachedSubscription).filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+      : []
+
+    if (subscriptions.length === 0 && !parsed.activeTenantId) {
+      return null
+    }
+
+    const tenants = Array.isArray(parsed.tenants)
+      ? parsed.tenants.filter((entry): entry is AzureTenantSummary =>
+          Boolean(entry && typeof entry === 'object' && typeof (entry as Record<string, unknown>).tenantId === 'string'))
+      : []
+
+    const locations = Array.isArray(parsed.locations)
+      ? parsed.locations.filter((entry): entry is AzureLocationSummary =>
+          Boolean(entry && typeof entry === 'object' && typeof (entry as Record<string, unknown>).name === 'string'))
+      : []
+
+    const recentSubscriptions = Array.isArray(parsed.recentSubscriptions)
+      ? parsed.recentSubscriptions.map(sanitizeCachedSubscription).filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+      : []
+
+    return {
+      loadedAt: typeof parsed.loadedAt === 'string' ? parsed.loadedAt : '',
+      auth: {
+        status: 'authenticated',
+        message: typeof parsed.auth?.message === 'string' ? parsed.auth.message : 'Restored from cache. Refreshing in background.',
+        prompt: null,
+        signedInAt: typeof parsed.auth?.signedInAt === 'string' ? parsed.auth.signedInAt : '',
+        lastError: ''
+      },
+      cloudName: typeof parsed.cloudName === 'string' ? parsed.cloudName : 'AzureCloud',
+      cliPath: typeof parsed.cliPath === 'string' ? parsed.cliPath : '',
+      activeTenantId: typeof parsed.activeTenantId === 'string' ? parsed.activeTenantId : '',
+      activeSubscriptionId: typeof parsed.activeSubscriptionId === 'string' ? parsed.activeSubscriptionId : '',
+      activeLocation: typeof parsed.activeLocation === 'string' ? parsed.activeLocation : '',
+      activeAccountLabel: typeof parsed.activeAccountLabel === 'string' ? parsed.activeAccountLabel : '',
+      tenants,
+      subscriptions,
+      locations,
+      recentSubscriptionIds: sanitizeCachedStringArray(parsed.recentSubscriptionIds),
+      recentSubscriptions,
+      providerRegistrations: [],
+      diagnostics: []
+    }
+  } catch {
+    return null
+  }
+}
+
+function writeAzureContextCache(snapshot: AzureProviderContextSnapshot | null): void {
+  try {
+    if (!snapshot) {
+      window.localStorage.removeItem(AZURE_CONTEXT_CACHE_STORAGE_KEY)
+      return
+    }
+
+    if (snapshot.auth.status !== 'authenticated') {
+      return
+    }
+
+    window.localStorage.setItem(AZURE_CONTEXT_CACHE_STORAGE_KEY, JSON.stringify(snapshot))
+  } catch {
+    // Ignore Azure context cache persistence failures and keep the current in-memory state.
+  }
+}
+
+function mergeAzureContextSnapshot(
+  current: AzureProviderContextSnapshot | null,
+  next: AzureProviderContextSnapshot
+): AzureProviderContextSnapshot {
+  if (!current || next.auth.status !== 'authenticated') {
+    return next
+  }
+
+  return {
+    ...next,
+    subscriptions: next.subscriptions.length > 0 ? next.subscriptions : current.subscriptions,
+    tenants: next.tenants.length > 0 ? next.tenants : current.tenants,
+    locations: next.locations.length > 0 ? next.locations : current.locations,
+    recentSubscriptions: next.recentSubscriptions.length > 0 ? next.recentSubscriptions : current.recentSubscriptions
+  }
+}
+
 function readGcpCliContextCache(): GcpCliContext | null {
   try {
     const raw = window.localStorage.getItem(GCP_CLI_CONTEXT_CACHE_STORAGE_KEY)
@@ -2743,7 +2865,15 @@ function isGcpContextReady(mode: ProviderConnectionMode | null, draft: GcpConnec
 }
 
 function isAzureContextReady(mode: ProviderConnectionMode | null, draft: AzureConnectionDraft | null): boolean {
-  return Boolean(mode && draft?.subscriptionId.trim() && draft.location.trim())
+  if (!mode || !draft?.subscriptionId.trim()) {
+    return false
+  }
+
+  if (mode.id === 'azure-tenant') {
+    return Boolean(draft.tenantId.trim())
+  }
+
+  return true
 }
 
 function inferGcpModeIdFromContext(context: GcpCliContext): string {
@@ -3003,7 +3133,7 @@ export function App() {
   const [gcpCliBusy, setGcpCliBusy] = useState(false)
   const [gcpProjectCatalogBusy, setGcpProjectCatalogBusy] = useState(false)
   const [gcpCliError, setGcpCliError] = useState('')
-  const [azureProviderContext, setAzureProviderContext] = useState<AzureProviderContextSnapshot | null>(null)
+  const [azureProviderContext, setAzureProviderContext] = useState<AzureProviderContextSnapshot | null>(() => readAzureContextCache())
   const [azureContextBusy, setAzureContextBusy] = useState(false)
   const [azureContextError, setAzureContextError] = useState('')
   const [azureMonitorSeed, setAzureMonitorSeed] = useState<AzureMonitorSeed>(null)
@@ -3171,7 +3301,7 @@ export function App() {
     setAzureContextBusy(true)
     setAzureContextError('')
     try {
-      setAzureProviderContext(await getAzureProviderContext())
+      applyAzureSnapshot(await getAzureProviderContext())
     } catch (error) {
       setAzureContextError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -3230,7 +3360,7 @@ export function App() {
         snapshot = await setAzureActiveLocation(general.azureDefaultLocation.trim())
       }
 
-      setAzureProviderContext(snapshot)
+      applyAzureSnapshot(snapshot)
     } catch (error) {
       setAzureContextError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -3544,7 +3674,11 @@ export function App() {
     ? activeGcpConnectionDraft?.location.trim() || activeGcpConfiguration?.region || activeGcpConfiguration?.zone || 'us-central1'
     : ''
   const azureLocationOptions = activeProviderId === 'azure'
-    ? normalizeAzureLocations(activeAzureConnectionDraft?.availableLocations ?? [])
+    ? normalizeAzureLocations([
+        ...(activeAzureConnectionDraft?.availableLocations ?? []),
+        ...(azureProviderContext?.locations.map((entry) => entry.name) ?? []),
+        azureProviderContext?.activeLocation ?? ''
+      ])
     : []
   const previewContextReady = activeProviderId === 'gcp'
     ? gcpContextReady
@@ -3798,7 +3932,7 @@ export function App() {
   const isProviderPageRefreshing = activeProviderId === 'gcp'
     ? gcpCliBusy || gcpProjectCatalogBusy
     : activeProviderId === 'azure'
-      ? azureContextBusy
+      ? screen === 'profiles' && azureContextBusy
     : isCurrentScreenRefreshing
   const versionLabel = releaseInfo?.currentVersion ?? ''
   const releaseStateLabel = !releaseInfo?.supportsAutoUpdate
@@ -3860,11 +3994,13 @@ export function App() {
     if (!selectedPreviewMode) {
       if (azureProviderContext?.activeSubscriptionId) {
         setSelectedPreviewModeIds((current) => ({ ...current, azure: 'azure-subscription' }))
+        setNavOpen(true)
         return
       }
 
       if (azureProviderContext?.activeTenantId) {
         setSelectedPreviewModeIds((current) => ({ ...current, azure: 'azure-tenant' }))
+        setNavOpen(true)
       }
       return
     }
@@ -4157,6 +4293,14 @@ export function App() {
     }))
   }
 
+  function applyAzureSnapshot(snapshot: AzureProviderContextSnapshot): void {
+    setAzureProviderContext((current) => {
+      const merged = mergeAzureContextSnapshot(current, snapshot)
+      writeAzureContextCache(merged)
+      return merged
+    })
+  }
+
   async function handleAzureDeviceCodeSignIn(): Promise<void> {
     if (activeProviderId !== 'azure') {
       return
@@ -4166,7 +4310,7 @@ export function App() {
     setAzureContextError('')
     try {
       const snapshot = await startAzureDeviceCodeSignIn()
-      setAzureProviderContext(snapshot)
+      applyAzureSnapshot(snapshot)
       if (!selectedPreviewMode) {
         setSelectedPreviewModeIds((current) => ({ ...current, azure: 'azure-subscription' }))
       }
@@ -4185,7 +4329,9 @@ export function App() {
     setAzureContextBusy(true)
     setAzureContextError('')
     try {
-      setAzureProviderContext(await signOutAzureProvider())
+      const snapshot = await signOutAzureProvider()
+      setAzureProviderContext(snapshot)
+      writeAzureContextCache(null)
     } catch (error) {
       setAzureContextError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -4200,7 +4346,7 @@ export function App() {
     setAzureContextBusy(true)
     setAzureContextError('')
     try {
-      setAzureProviderContext(await setAzureActiveTenant(tenantId))
+      applyAzureSnapshot(await setAzureActiveTenant(tenantId))
     } catch (error) {
       setAzureContextError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -4215,7 +4361,7 @@ export function App() {
     setAzureContextBusy(true)
     setAzureContextError('')
     try {
-      setAzureProviderContext(await setAzureActiveSubscription(subscriptionId))
+      applyAzureSnapshot(await setAzureActiveSubscription(subscriptionId))
       setNavOpen(true)
     } catch (error) {
       setAzureContextError(error instanceof Error ? error.message : String(error))
@@ -4228,7 +4374,7 @@ export function App() {
     setAzureContextBusy(true)
     setAzureContextError('')
     try {
-      setAzureProviderContext(await setAzureActiveLocation(location))
+      applyAzureSnapshot(await setAzureActiveLocation(location))
     } catch (error) {
       setAzureContextError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -5511,7 +5657,6 @@ export function App() {
                   onSignIn={() => void handleAzureDeviceCodeSignIn()}
                   onSignOut={() => void handleAzureSignOut()}
                   onSelectSubscription={(subscriptionId) => void handleApplyAzureSubscription(subscriptionId)}
-                  onSelectLocation={(location) => void handleApplyAzureLocation(location)}
                   onOpenVerification={(url) => void openExternalUrl(url)}
                 />
               ) : (
@@ -5721,6 +5866,7 @@ export function App() {
             canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
             onOpenCost={() => setScreen('azure-cost')}
             onOpenMonitor={() => openAzureMonitor(activeAzureConnectionDraft.subscriptionLabel.trim())}
+            onOpenService={(serviceId) => navigateToService(serviceId)}
           />
         )
       }
@@ -5859,6 +6005,8 @@ export function App() {
             onRunTerminalCommand={handleOpenTerminalCommand}
             canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
             onOpenCompliance={() => setScreen('compliance-center')}
+            onOpenMonitor={(query) => openAzureMonitor(query)}
+            onOpenDirectAccess={() => setScreen('direct-access')}
           />
         )
       }
@@ -5985,9 +6133,21 @@ export function App() {
                 modeLabel={azureModeLabel}
                 modeDetail={azureModeDetail}
                 contextKey={azureTerraformContextKey}
+                subscriptionId={activeAzureConnectionDraft?.subscriptionId.trim() ?? ''}
+                subscriptionLabel={activeAzureConnectionDraft?.subscriptionLabel.trim() ?? ''}
+                tenantId={activeAzureConnectionDraft?.tenantId.trim() ?? azureProviderContext?.activeTenantId ?? ''}
+                location={activeAzureConnectionDraft?.location.trim() ?? ''}
+                locationOptions={azureLocationOptions}
+                azureContext={azureProviderContext}
+                catalogSubscriptions={azureProviderContext?.subscriptions ?? []}
+                recentSubscriptions={azureProviderContext?.recentSubscriptions ?? []}
+                cliBusy={azureContextBusy}
                 refreshNonce={pageRefreshNonceByScreen['session-hub'] ?? 0}
                 terminalReady={Boolean(providerTerminalTarget)}
                 canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+                onRefreshCatalog={loadAzureContext}
+                onApplySubscription={(subId, label) => void handleApplyAzureSubscription(subId)}
+                onApplyLocation={(loc) => void handleApplyAzureLocation(loc)}
                 onRunTerminalCommand={handleOpenTerminalCommand}
                 onOpenCompare={() => setScreen('compare')}
                 onOpenCompliance={() => setScreen('compliance-center')}
@@ -6000,11 +6160,13 @@ export function App() {
           if (targetScreen === 'compare') {
             return (
               <AzureCompareWorkspace
-                modeLabel={azureModeLabel}
-                contextKey={azureTerraformContextKey}
+                subscriptionId={activeAzureConnectionDraft?.subscriptionId.trim() ?? ''}
+                subscriptionLabel={activeAzureConnectionDraft?.subscriptionLabel.trim() ?? ''}
+                location={activeAzureConnectionDraft?.location.trim() ?? ''}
+                subscriptions={azureProviderContext?.subscriptions ?? []}
+                locations={azureLocationOptions}
                 refreshNonce={pageRefreshNonceByScreen.compare ?? 0}
                 onNavigate={(serviceId) => navigateToService(serviceId)}
-                onOpenDirectAccess={() => setScreen('direct-access')}
               />
             )
           }
@@ -6012,6 +6174,10 @@ export function App() {
           if (targetScreen === 'overview') {
             return (
               <AzureOverviewConsole
+                subscriptionId={activeAzureConnectionDraft?.subscriptionId.trim() ?? ''}
+                subscriptionLabel={activeAzureConnectionDraft?.subscriptionLabel.trim() ?? ''}
+                location={activeAzureConnectionDraft?.location.trim() ?? ''}
+                tenantId={activeAzureConnectionDraft?.tenantId.trim() ?? azureProviderContext?.activeTenantId ?? ''}
                 modeLabel={azureModeLabel}
                 modeDetail={azureModeDetail}
                 contextKey={azureTerraformContextKey}
@@ -6029,6 +6195,9 @@ export function App() {
               <AzureComplianceCenter
                 modeLabel={azureModeLabel}
                 contextKey={azureTerraformContextKey}
+                subscriptionId={activeAzureConnectionDraft?.subscriptionId.trim() ?? ''}
+                subscriptionLabel={activeAzureConnectionDraft?.subscriptionLabel.trim() ?? ''}
+                location={activeAzureConnectionDraft?.location.trim() ?? ''}
                 refreshNonce={pageRefreshNonceByScreen['compliance-center'] ?? 0}
                 canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
                 onRunTerminalCommand={handleOpenTerminalCommand}
@@ -6041,12 +6210,9 @@ export function App() {
           if (targetScreen === 'direct-access') {
             return (
               <AzureDirectAccessWorkspace
-                modeLabel={azureModeLabel}
-                contextKey={azureTerraformContextKey}
-                refreshNonce={pageRefreshNonceByScreen['direct-access'] ?? 0}
-                canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
-                terminalReady={Boolean(providerTerminalTarget)}
-                onRunTerminalCommand={handleOpenTerminalCommand}
+                subscriptionId={activeAzureConnectionDraft?.subscriptionId.trim() ?? ''}
+                subscriptionLabel={activeAzureConnectionDraft?.subscriptionLabel.trim() ?? ''}
+                location={activeAzureConnectionDraft?.location.trim() ?? ''}
                 onNavigate={(serviceId) => navigateToService(serviceId)}
                 onOpenCompare={() => setScreen('compare')}
                 onOpenCompliance={() => setScreen('compliance-center')}
@@ -6437,11 +6603,6 @@ export function App() {
               </label>
             ) : activeProviderId === 'azure' ? (
               <>
-                <div className={`enterprise-sidebar-note provider-sidebar-note provider-sidebar-note-secondary provider-sidebar-note-${activeProviderId}`}>
-                  <span>{activeProvider.locationLabel}</span>
-                  <strong>{azureContextReady ? activeAzureConnectionDraft?.location.trim() || azureProviderState.sidebarContextTitle : azureProviderState.sidebarContextTitle}</strong>
-                  <small>{azureContextReady ? `Tenant ${activeAzureConnectionDraft?.tenantId.trim() || 'unknown'} | Subscription ${activeAzureConnectionDraft?.subscriptionLabel.trim() || 'pending'}` : azureProviderState.sidebarContextDetail}</small>
-                </div>
                 <label className="field">
                   <span>{activeProvider.locationLabel}</span>
                   <select
@@ -6451,7 +6612,11 @@ export function App() {
                   >
                     {!activeAzureConnectionDraft?.location.trim() ? (
                       <option value="" disabled>
-                        {azureContextBusy ? 'Loading Azure locations...' : 'Select location'}
+                        {azureContextBusy && azureLocationOptions.length === 0
+                          ? 'Loading Azure locations...'
+                          : azureLocationOptions.length > 0
+                            ? 'Select location'
+                            : 'No Azure locations available'}
                       </option>
                     ) : null}
                     {azureLocationOptions.map((location) => (

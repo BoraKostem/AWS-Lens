@@ -729,6 +729,18 @@ export type AzureRbacOverview = {
   notes: string[]
 }
 
+export type AzureRoleDefinitionSummary = {
+  id: string
+  roleName: string
+  description: string
+  roleType: 'BuiltInRole' | 'CustomRole'
+  actions: string[]
+  notActions: string[]
+  dataActions: string[]
+  notDataActions: string[]
+  assignableScopes: string[]
+}
+
 export type AzureVirtualMachineSummary = {
   id: string
   name: string
@@ -746,6 +758,47 @@ export type AzureVirtualMachineSummary = {
   networkInterfaceCount: number
   diagnosticsState: string
   tagCount: number
+}
+
+export type AzureVmAction = 'start' | 'powerOff' | 'restart' | 'deallocate'
+
+export type AzureVmActionResult = {
+  action: AzureVmAction
+  vmName: string
+  resourceGroup: string
+  accepted: boolean
+  error?: string
+}
+
+export type AzureVirtualMachineDetail = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  vmSize: string
+  powerState: string
+  provisioningState: string
+  osType: string
+  osDiskName: string
+  osDiskSizeGiB: number
+  osDiskType: string
+  dataDisks: Array<{ name: string; sizeGiB: number; lun: number; type: string }>
+  identityType: string
+  privateIp: string
+  publicIp: string
+  hasPublicIp: boolean
+  subnetName: string
+  subnetId: string
+  vnetName: string
+  networkInterfaceCount: number
+  networkSecurityGroup: string
+  diagnosticsState: string
+  tags: Record<string, string>
+  imageReference: string
+  computerName: string
+  adminUsername: string
+  availabilityZone: string
+  platform: string
 }
 
 export type AzureAksClusterSummary = {
@@ -766,6 +819,59 @@ export type AzureAksClusterSummary = {
   ingressProfile: string
   agentPoolNames: string[]
   notes: string[]
+}
+
+export type AzureAksClusterDetail = {
+  name: string
+  resourceGroup: string
+  location: string
+  kubernetesVersion: string
+  provisioningState: string
+  powerState: string
+  fqdn: string
+  privateFqdn: string
+  privateCluster: boolean
+  identityType: string
+  workloadIdentityEnabled: boolean
+  oidcIssuerEnabled: boolean
+  oidcIssuerUrl: string
+  networkPlugin: string
+  networkPolicy: string
+  serviceCidr: string
+  dnsServiceIp: string
+  podCidr: string
+  loadBalancerSku: string
+  outboundType: string
+  nodeResourceGroup: string
+  dnsPrefix: string
+  enableRbac: boolean
+  createdAt: string
+  nodePoolCount: number
+  nodeCount: number
+  tags: Record<string, string>
+  loggingEnabled: string[]
+  healthIssues: string[]
+}
+
+export type AzureAksNodePoolSummary = {
+  name: string
+  status: string
+  mode: string
+  vmSize: string
+  osType: string
+  osSku: string
+  kubernetesVersion: string
+  min: number | string
+  desired: number | string
+  max: number | string
+  enableAutoScaling: boolean
+  availabilityZones: string[]
+  maxPods: number
+  osDiskSizeGb: number
+  osDiskType: string
+  powerState: string
+  nodeLabels: Record<string, string>
+  nodeTaints: string[]
 }
 
 export type AzureStorageAccountSummary = {
@@ -861,6 +967,47 @@ export type AzureSqlEstateOverview = {
   notes: string[]
 }
 
+export type AzureSqlOperationalTone = 'good' | 'warning' | 'risk' | 'info' | 'neutral'
+
+export type AzureSqlPostureBadge = {
+  id: string
+  label: string
+  value: string
+  tone: AzureSqlOperationalTone
+}
+
+export type AzureSqlSummaryTile = {
+  id: string
+  label: string
+  value: string
+  tone: AzureSqlOperationalTone
+}
+
+export type AzureSqlFinding = {
+  id: string
+  severity: 'info' | 'warning' | 'risk'
+  title: string
+  message: string
+  recommendation: string
+}
+
+export type AzureSqlFirewallRule = {
+  name: string
+  startIpAddress: string
+  endIpAddress: string
+}
+
+export type AzureSqlServerDetail = {
+  server: AzureSqlServerSummary
+  databases: AzureSqlDatabaseSummary[]
+  firewallRules: AzureSqlFirewallRule[]
+  badges: AzureSqlPostureBadge[]
+  summaryTiles: AzureSqlSummaryTile[]
+  findings: AzureSqlFinding[]
+  recommendations: string[]
+  connectionDetails: Array<{ label: string; value: string }>
+}
+
 export type AzureMonitorFacetCount = {
   label: string
   count: number
@@ -895,13 +1042,25 @@ export type AzureCostBreakdownEntry = {
   sharePercent: number
 }
 
+export type AzureCostDailyEntry = {
+  date: string
+  amount: number
+  currency: string
+}
+
 export type AzureCostOverview = {
   subscriptionId: string
   timeframeLabel: string
   totalAmount: number
   currency: string
+  dailyAverage: number
+  topServiceName: string
+  topServiceAmount: number
+  serviceCount: number
+  resourceGroupCount: number
   topServices: AzureCostBreakdownEntry[]
   topResourceGroups: AzureCostBreakdownEntry[]
+  dailyCosts: AzureCostDailyEntry[]
   notes: string[]
 }
 

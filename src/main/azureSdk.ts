@@ -6,23 +6,35 @@ import { BlobServiceClient, StorageSharedKeyCredential } from '@azure/storage-bl
 import { DefaultAzureCredential } from '@azure/identity'
 
 import type {
+  AzureAksClusterDetail,
   AzureAksClusterSummary,
+  AzureAksNodePoolSummary,
   AzureCostBreakdownEntry,
+  AzureCostDailyEntry,
   AzureCostOverview,
   AzureMonitorActivityEvent,
   AzureMonitorActivityResult,
   AzureMonitorFacetCount,
   AzureRbacOverview,
   AzureRoleAssignmentSummary,
+  AzureRoleDefinitionSummary,
   AzureSqlDatabaseSummary,
   AzureSqlEstateOverview,
+  AzureSqlFinding,
+  AzureSqlFirewallRule,
+  AzureSqlPostureBadge,
+  AzureSqlServerDetail,
   AzureSqlServerSummary,
+  AzureSqlSummaryTile,
   AzureStorageAccountSummary,
   AzureStorageBlobContent,
   AzureStorageBlobSummary,
   AzureStorageContainerSummary,
   AzureSubscriptionSummary,
-  AzureVirtualMachineSummary
+  AzureVirtualMachineDetail,
+  AzureVirtualMachineSummary,
+  AzureVmAction,
+  AzureVmActionResult
 } from '@shared/types'
 
 import { logWarn } from './observability'
@@ -380,6 +392,68 @@ export async function getAzureRbacOverview(subscriptionId: string): Promise<Azur
   }
 }
 
+export async function listAzureRoleDefinitions(subscriptionId: string): Promise<AzureRoleDefinitionSummary[]> {
+  const subscriptionScope = `/subscriptions/${subscriptionId.trim()}`
+  const definitions = await fetchAzureArmCollection<{
+    id?: string
+    properties?: {
+      roleName?: string
+      description?: string
+      type?: string
+      permissions?: Array<{
+        actions?: string[]
+        notActions?: string[]
+        dataActions?: string[]
+        notDataActions?: string[]
+      }>
+      assignableScopes?: string[]
+    }
+  }>(`${subscriptionScope}/providers/Microsoft.Authorization/roleDefinitions`, '2022-04-01')
+
+  return definitions.map((definition) => {
+    const permissions = definition.properties?.permissions?.[0]
+    return {
+      id: definition.id?.trim() || '',
+      roleName: definition.properties?.roleName?.trim() || 'Unknown',
+      description: definition.properties?.description?.trim() || '',
+      roleType: (definition.properties?.type === 'CustomRole' ? 'CustomRole' : 'BuiltInRole') as 'BuiltInRole' | 'CustomRole',
+      actions: permissions?.actions ?? [],
+      notActions: permissions?.notActions ?? [],
+      dataActions: permissions?.dataActions ?? [],
+      notDataActions: permissions?.notDataActions ?? [],
+      assignableScopes: definition.properties?.assignableScopes ?? []
+    }
+  }).sort((left, right) => left.roleName.localeCompare(right.roleName))
+}
+
+export async function listAzureRoleAssignments(subscriptionId: string): Promise<AzureRoleAssignmentSummary[]> {
+  const overview = await getAzureRbacOverview(subscriptionId)
+  return overview.assignments
+}
+
+export async function createAzureRoleAssignment(
+  subscriptionId: string,
+  principalId: string,
+  roleDefinitionId: string,
+  scope: string
+): Promise<void> {
+  const assignmentId = crypto.randomUUID()
+  const assignmentPath = `${scope.trim()}/providers/Microsoft.Authorization/roleAssignments/${assignmentId}`
+  await fetchAzureArmJson(assignmentPath, '2022-04-01', {
+    method: 'PUT',
+    body: JSON.stringify({
+      properties: {
+        principalId: principalId.trim(),
+        roleDefinitionId: roleDefinitionId.trim()
+      }
+    })
+  })
+}
+
+export async function deleteAzureRoleAssignment(assignmentId: string): Promise<void> {
+  await fetchAzureArmJson(assignmentId.trim(), '2022-04-01', { method: 'DELETE' })
+}
+
 async function resolveAzureVmNetworkSummary(
   nicIds: string[]
 ): Promise<{ privateIp: string; publicIp: string; hasPublicIp: boolean; subnetName: string }> {
@@ -473,6 +547,135 @@ export async function listAzureVirtualMachines(subscriptionId: string, location:
   return results.sort((left, right) => left.name.localeCompare(right.name))
 }
 
+export async function describeAzureVirtualMachine(
+  subscriptionId: string,
+  resourceGroup: string,
+  vmName: string
+): Promise<AzureVirtualMachineDetail> {
+  const vm = await fetchAzureArmJson<{
+    id?: string
+    name?: string
+    location?: string
+    zones?: string[]
+    tags?: Record<string, string>
+    properties?: {
+      provisioningState?: string
+      storageProfile?: {
+        osDisk?: { osType?: string; name?: string; diskSizeGB?: number; managedDisk?: { storageAccountType?: string } }
+        dataDisks?: Array<{ name?: string; diskSizeGB?: number; lun?: number; managedDisk?: { storageAccountType?: string } }>
+        imageReference?: { publisher?: string; offer?: string; sku?: string; version?: string }
+      }
+      hardwareProfile?: { vmSize?: string }
+      osProfile?: { computerName?: string; adminUsername?: string }
+      diagnosticsProfile?: { bootDiagnostics?: { enabled?: boolean } }
+      networkProfile?: { networkInterfaces?: Array<{ id?: string }> }
+      instanceView?: { statuses?: Array<{ code?: string; displayStatus?: string }> }
+    }
+    identity?: { type?: string }
+  }>(
+    `/subscriptions/${subscriptionId.trim()}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.Compute/virtualMachines/${encodeURIComponent(vmName)}?$expand=instanceView`,
+    '2023-09-01'
+  )
+
+  const nicIds = (vm.properties?.networkProfile?.networkInterfaces ?? [])
+    .map((item) => item.id?.trim() || '')
+    .filter(Boolean)
+  const network = await resolveAzureVmNetworkSummary(nicIds)
+  const statuses = vm.properties?.instanceView?.statuses ?? []
+  const imageRef = vm.properties?.storageProfile?.imageReference
+  const imageReference = imageRef
+    ? [imageRef.publisher, imageRef.offer, imageRef.sku, imageRef.version].filter(Boolean).join(' / ')
+    : ''
+
+  let networkSecurityGroup = ''
+  let subnetId = ''
+  let vnetName = ''
+  if (nicIds[0]) {
+    try {
+      const nic = await fetchAzureArmJson<{
+        properties?: {
+          networkSecurityGroup?: { id?: string }
+          ipConfigurations?: Array<{ properties?: { subnet?: { id?: string } } }>
+        }
+      }>(nicIds[0], '2024-05-01')
+      networkSecurityGroup = extractResourceName(nic.properties?.networkSecurityGroup?.id ?? '')
+      subnetId = nic.properties?.ipConfigurations?.[0]?.properties?.subnet?.id?.trim() || ''
+      const vnetMatch = subnetId.match(/\/virtualNetworks\/([^/]+)/i)
+      vnetName = vnetMatch?.[1] ?? ''
+    } catch {
+      // Network enrichment is non-critical
+    }
+  }
+
+  return {
+    id: vm.id?.trim() || '',
+    name: vm.name?.trim() || '',
+    resourceGroup,
+    location: vm.location?.trim() || '',
+    vmSize: vm.properties?.hardwareProfile?.vmSize?.trim() || '',
+    powerState: extractPowerState(statuses),
+    provisioningState: extractProvisioningState(statuses, vm.properties?.provisioningState ?? ''),
+    osType: vm.properties?.storageProfile?.osDisk?.osType?.trim() || '',
+    osDiskName: vm.properties?.storageProfile?.osDisk?.name?.trim() || '',
+    osDiskSizeGiB: vm.properties?.storageProfile?.osDisk?.diskSizeGB ?? 0,
+    osDiskType: vm.properties?.storageProfile?.osDisk?.managedDisk?.storageAccountType?.trim() || '',
+    dataDisks: (vm.properties?.storageProfile?.dataDisks ?? []).map((disk) => ({
+      name: disk.name?.trim() || '',
+      sizeGiB: disk.diskSizeGB ?? 0,
+      lun: disk.lun ?? 0,
+      type: disk.managedDisk?.storageAccountType?.trim() || ''
+    })),
+    identityType: vm.identity?.type?.trim() || 'None',
+    privateIp: network.privateIp,
+    publicIp: network.publicIp,
+    hasPublicIp: network.hasPublicIp,
+    subnetName: network.subnetName,
+    subnetId,
+    vnetName,
+    networkInterfaceCount: nicIds.length,
+    networkSecurityGroup,
+    diagnosticsState: vm.properties?.diagnosticsProfile?.bootDiagnostics?.enabled ? 'Boot diagnostics enabled' : 'Boot diagnostics off',
+    tags: vm.tags ?? {},
+    imageReference,
+    computerName: vm.properties?.osProfile?.computerName?.trim() || '',
+    adminUsername: vm.properties?.osProfile?.adminUsername?.trim() || '',
+    availabilityZone: (vm.zones ?? [])[0] || '',
+    platform: vm.properties?.storageProfile?.osDisk?.osType?.trim() || ''
+  } satisfies AzureVirtualMachineDetail
+}
+
+export async function runAzureVmAction(
+  subscriptionId: string,
+  resourceGroup: string,
+  vmName: string,
+  action: AzureVmAction
+): Promise<AzureVmActionResult> {
+  const normalizedSub = subscriptionId.trim()
+  const normalizedRg = encodeURIComponent(resourceGroup.trim())
+  const normalizedVm = encodeURIComponent(vmName.trim())
+  const path = `/subscriptions/${normalizedSub}/resourceGroups/${normalizedRg}/providers/Microsoft.Compute/virtualMachines/${normalizedVm}/${action}`
+  const url = `https://management.azure.com${path}?api-version=2023-09-01`
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${await getAzureAccessToken()}`,
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      const body = await response.text()
+      return { action, vmName, resourceGroup, accepted: false, error: `${response.status}: ${body || response.statusText}` }
+    }
+
+    return { action, vmName, resourceGroup, accepted: true }
+  } catch (error) {
+    return { action, vmName, resourceGroup, accepted: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
 async function listAksAgentPools(subscriptionId: string, clusterId: string): Promise<{ count: number; nodeCount: number; names: string[] }> {
   const resourceGroup = extractResourceGroup(clusterId)
   const clusterName = extractResourceName(clusterId)
@@ -553,6 +756,182 @@ export async function listAzureAksClusters(subscriptionId: string, location: str
   }))
 
   return results.sort((left, right) => left.name.localeCompare(right.name))
+}
+
+export async function describeAzureAksCluster(
+  subscriptionId: string,
+  resourceGroup: string,
+  clusterName: string
+): Promise<AzureAksClusterDetail> {
+  const raw = await fetchAzureArmJson<{
+    name?: string
+    location?: string
+    tags?: Record<string, string>
+    identity?: { type?: string }
+    properties?: {
+      kubernetesVersion?: string
+      provisioningState?: string
+      powerState?: { code?: string }
+      fqdn?: string
+      privateFqdn?: string
+      dnsPrefix?: string
+      nodeResourceGroup?: string
+      enableRBAC?: boolean
+      createdAt?: string
+      securityProfile?: { workloadIdentity?: { enabled?: boolean } }
+      oidcIssuerProfile?: { enabled?: boolean; issuerURL?: string }
+      apiServerAccessProfile?: { enablePrivateCluster?: boolean }
+      networkProfile?: {
+        networkPlugin?: string
+        networkPolicy?: string
+        serviceCidr?: string
+        dnsServiceIP?: string
+        podCidr?: string
+        loadBalancerSku?: string
+        outboundType?: string
+      }
+      addonProfiles?: {
+        omsagent?: { enabled?: boolean }
+        azurepolicy?: { enabled?: boolean }
+        httpApplicationRouting?: { enabled?: boolean }
+      }
+      agentPoolProfiles?: Array<{
+        count?: number
+      }>
+    }
+  }>(
+    `/subscriptions/${subscriptionId.trim()}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.ContainerService/managedClusters/${encodeURIComponent(clusterName)}`,
+    '2024-02-01'
+  )
+
+  const props = raw.properties
+  const netProfile = props?.networkProfile
+
+  const loggingEnabled: string[] = []
+  if (props?.addonProfiles?.omsagent?.enabled) loggingEnabled.push('omsagent')
+  if (props?.addonProfiles?.azurepolicy?.enabled) loggingEnabled.push('azurepolicy')
+  if (props?.addonProfiles?.httpApplicationRouting?.enabled) loggingEnabled.push('httpApplicationRouting')
+
+  const agentPools = props?.agentPoolProfiles ?? []
+  const nodeCount = agentPools.reduce((total, pool) => total + (pool.count ?? 0), 0)
+
+  return {
+    name: raw.name?.trim() || clusterName,
+    resourceGroup,
+    location: raw.location?.trim() || '',
+    kubernetesVersion: props?.kubernetesVersion?.trim() || '-',
+    provisioningState: props?.provisioningState?.trim() || '-',
+    powerState: props?.powerState?.code?.trim() || '-',
+    fqdn: props?.fqdn?.trim() || '-',
+    privateFqdn: props?.privateFqdn?.trim() || '-',
+    privateCluster: props?.apiServerAccessProfile?.enablePrivateCluster === true,
+    identityType: raw.identity?.type?.trim() || 'None',
+    workloadIdentityEnabled: props?.securityProfile?.workloadIdentity?.enabled === true,
+    oidcIssuerEnabled: props?.oidcIssuerProfile?.enabled === true,
+    oidcIssuerUrl: props?.oidcIssuerProfile?.issuerURL?.trim() || '-',
+    networkPlugin: netProfile?.networkPlugin?.trim() || '-',
+    networkPolicy: netProfile?.networkPolicy?.trim() || '-',
+    serviceCidr: netProfile?.serviceCidr?.trim() || '-',
+    dnsServiceIp: netProfile?.dnsServiceIP?.trim() || '-',
+    podCidr: netProfile?.podCidr?.trim() || '-',
+    loadBalancerSku: netProfile?.loadBalancerSku?.trim() || '-',
+    outboundType: netProfile?.outboundType?.trim() || '-',
+    nodeResourceGroup: props?.nodeResourceGroup?.trim() || '-',
+    dnsPrefix: props?.dnsPrefix?.trim() || '-',
+    enableRbac: props?.enableRBAC === true,
+    createdAt: props?.createdAt?.trim() || '-',
+    nodePoolCount: agentPools.length,
+    nodeCount,
+    tags: raw.tags ?? {},
+    loggingEnabled,
+    healthIssues: []
+  }
+}
+
+export async function listAzureAksNodePools(
+  subscriptionId: string,
+  resourceGroup: string,
+  clusterName: string
+): Promise<AzureAksNodePoolSummary[]> {
+  const pools = await fetchAzureArmCollection<{
+    name?: string
+    properties?: {
+      provisioningState?: string
+      mode?: string
+      vmSize?: string
+      osType?: string
+      osSKU?: string
+      orchestratorVersion?: string
+      count?: number
+      minCount?: number
+      maxCount?: number
+      enableAutoScaling?: boolean
+      availabilityZones?: string[]
+      maxPods?: number
+      osDiskSizeGB?: number
+      osDiskType?: string
+      powerState?: { code?: string }
+      nodeLabels?: Record<string, string>
+      nodeTaints?: string[]
+    }
+  }>(
+    `/subscriptions/${subscriptionId.trim()}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.ContainerService/managedClusters/${encodeURIComponent(clusterName)}/agentPools`,
+    '2024-02-01'
+  )
+
+  return pools.map((pool) => {
+    const props = pool.properties
+    const autoScaling = props?.enableAutoScaling === true
+    return {
+      name: pool.name?.trim() || '-',
+      status: props?.provisioningState?.trim() || '-',
+      mode: props?.mode?.trim() || 'User',
+      vmSize: props?.vmSize?.trim() || '-',
+      osType: props?.osType?.trim() || '-',
+      osSku: props?.osSKU?.trim() || '-',
+      kubernetesVersion: props?.orchestratorVersion?.trim() || '-',
+      min: autoScaling ? (props?.minCount ?? '-') : '-',
+      desired: props?.count ?? '-',
+      max: autoScaling ? (props?.maxCount ?? '-') : '-',
+      enableAutoScaling: autoScaling,
+      availabilityZones: props?.availabilityZones ?? [],
+      maxPods: props?.maxPods ?? 0,
+      osDiskSizeGb: props?.osDiskSizeGB ?? 0,
+      osDiskType: props?.osDiskType?.trim() || '-',
+      powerState: props?.powerState?.code?.trim() || '-',
+      nodeLabels: props?.nodeLabels ?? {},
+      nodeTaints: props?.nodeTaints ?? []
+    } satisfies AzureAksNodePoolSummary
+  }).sort((left, right) => left.name.localeCompare(right.name))
+}
+
+export async function updateAzureAksNodePoolScaling(
+  subscriptionId: string,
+  resourceGroup: string,
+  clusterName: string,
+  nodePoolName: string,
+  min: number,
+  desired: number,
+  max: number
+): Promise<void> {
+  const pool = await fetchAzureArmJson<{
+    properties?: { enableAutoScaling?: boolean }
+  }>(
+    `/subscriptions/${subscriptionId.trim()}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.ContainerService/managedClusters/${encodeURIComponent(clusterName)}/agentPools/${encodeURIComponent(nodePoolName)}`,
+    '2024-02-01'
+  )
+
+  const autoScaling = pool.properties?.enableAutoScaling === true
+
+  const body = autoScaling
+    ? { properties: { count: desired, minCount: min, maxCount: max, enableAutoScaling: true } }
+    : { properties: { count: desired } }
+
+  await fetchAzureArmJson(
+    `/subscriptions/${subscriptionId.trim()}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.ContainerService/managedClusters/${encodeURIComponent(clusterName)}/agentPools/${encodeURIComponent(nodePoolName)}`,
+    '2024-02-01',
+    { method: 'PATCH', body: JSON.stringify(body) }
+  )
 }
 
 export async function listAzureStorageAccounts(subscriptionId: string, location: string): Promise<AzureStorageAccountSummary[]> {
@@ -962,6 +1341,175 @@ export async function listAzureSqlEstate(subscriptionId: string, location: strin
   }
 }
 
+export async function describeAzureSqlServer(subscriptionId: string, resourceGroup: string, serverName: string): Promise<AzureSqlServerDetail> {
+  const basePath = `/subscriptions/${encodeURIComponent(subscriptionId.trim())}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.Sql/servers/${encodeURIComponent(serverName)}`
+
+  const [serverRaw, databases, firewallRulesRaw, elasticPools] = await Promise.all([
+    fetchAzureArmJson<{
+      id?: string
+      name?: string
+      location?: string
+      tags?: Record<string, string>
+      properties?: {
+        version?: string
+        fullyQualifiedDomainName?: string
+        publicNetworkAccess?: string
+        minimalTlsVersion?: string
+        administrators?: { administratorType?: string }
+        restrictOutboundNetworkAccess?: string
+      }
+    }>(basePath, '2023-08-01-preview'),
+    fetchAzureArmCollection<{
+      id?: string
+      name?: string
+      location?: string
+      sku?: { name?: string; tier?: string }
+      properties?: {
+        status?: string
+        maxSizeBytes?: number
+        zoneRedundant?: boolean
+        readScale?: string
+        autoPauseDelay?: number
+        requestedBackupStorageRedundancy?: string
+      }
+    }>(`${basePath}/databases`, '2023-08-01-preview'),
+    fetchAzureArmCollection<{
+      id?: string
+      name?: string
+      properties?: { startIpAddress?: string; endIpAddress?: string }
+    }>(`${basePath}/firewallRules`, '2023-08-01-preview'),
+    fetchAzureArmCollection<unknown>(`${basePath}/elasticPools`, '2023-08-01-preview')
+  ])
+
+  const server: AzureSqlServerSummary = {
+    id: serverRaw.id?.trim() || '',
+    name: serverRaw.name?.trim() || serverName,
+    resourceGroup,
+    location: serverRaw.location?.trim() || '',
+    version: serverRaw.properties?.version?.trim() || '',
+    fullyQualifiedDomainName: serverRaw.properties?.fullyQualifiedDomainName?.trim() || '',
+    publicNetworkAccess: serverRaw.properties?.publicNetworkAccess?.trim() || 'Enabled',
+    minimalTlsVersion: serverRaw.properties?.minimalTlsVersion?.trim() || '',
+    administratorType: serverRaw.properties?.administrators?.administratorType?.trim() || '',
+    outboundNetworkRestriction: serverRaw.properties?.restrictOutboundNetworkAccess?.trim() || '',
+    databaseCount: 0,
+    elasticPoolCount: elasticPools.length,
+    tagCount: Object.keys(serverRaw.tags ?? {}).length,
+    notes: []
+  }
+
+  const mappedDatabases: AzureSqlDatabaseSummary[] = databases
+    .filter((db) => (db.name?.trim().toLowerCase() ?? '') !== 'master')
+    .map((db) => ({
+      id: db.id?.trim() || '',
+      name: db.name?.trim() || '',
+      serverName: server.name,
+      resourceGroup,
+      location: db.location?.trim() || server.location,
+      status: db.properties?.status?.trim() || '',
+      skuName: db.sku?.name?.trim() || '',
+      edition: db.sku?.tier?.trim() || '',
+      maxSizeGb: db.properties?.maxSizeBytes ? Number((db.properties.maxSizeBytes / (1024 ** 3)).toFixed(1)) : 0,
+      zoneRedundant: db.properties?.zoneRedundant === true,
+      readScale: db.properties?.readScale?.trim() || '',
+      autoPauseDelayMinutes: db.properties?.autoPauseDelay ?? 0,
+      backupStorageRedundancy: db.properties?.requestedBackupStorageRedundancy?.trim() || ''
+    } satisfies AzureSqlDatabaseSummary))
+
+  server.databaseCount = mappedDatabases.length
+
+  const firewallRules: AzureSqlFirewallRule[] = firewallRulesRaw.map((rule) => ({
+    name: rule.name?.trim() || '',
+    startIpAddress: rule.properties?.startIpAddress?.trim() || '',
+    endIpAddress: rule.properties?.endIpAddress?.trim() || ''
+  }))
+
+  const isPublic = server.publicNetworkAccess.toLowerCase() === 'enabled'
+  const hasWeakTls = !!server.minimalTlsVersion && server.minimalTlsVersion !== '1.2'
+  const noTlsMin = !server.minimalTlsVersion
+  const hasAadAdmin = !!server.administratorType && server.administratorType.toLowerCase().includes('activedirectory')
+  const outboundRestricted = server.outboundNetworkRestriction.toLowerCase() === 'enabled'
+  const hasAllowAllRule = firewallRules.some((r) => r.startIpAddress === '0.0.0.0' && r.endIpAddress === '255.255.255.255')
+  const hasAllowAzureRule = firewallRules.some((r) => r.startIpAddress === '0.0.0.0' && r.endIpAddress === '0.0.0.0')
+  const zoneRedundantCount = mappedDatabases.filter((db) => db.zoneRedundant).length
+  const onlineCount = mappedDatabases.filter((db) => db.status.toLowerCase() === 'online').length
+
+  const badges: AzureSqlPostureBadge[] = [
+    { id: 'public-access', label: 'Public Access', value: isPublic ? 'Enabled' : 'Disabled', tone: isPublic ? 'risk' : 'good' },
+    { id: 'tls', label: 'Min TLS', value: server.minimalTlsVersion || 'Not set', tone: noTlsMin || hasWeakTls ? 'warning' : 'good' },
+    { id: 'aad-admin', label: 'AAD Admin', value: hasAadAdmin ? 'Configured' : 'Local only', tone: hasAadAdmin ? 'good' : 'warning' },
+    { id: 'outbound', label: 'Outbound', value: outboundRestricted ? 'Restricted' : 'Unrestricted', tone: outboundRestricted ? 'good' : 'info' },
+    { id: 'firewall', label: 'Firewall Rules', value: `${firewallRules.length} rules`, tone: hasAllowAllRule ? 'risk' : firewallRules.length === 0 ? 'good' : 'info' }
+  ]
+
+  const findings: AzureSqlFinding[] = []
+  const recommendations: string[] = []
+
+  if (isPublic) {
+    findings.push({ id: 'public-access', severity: 'risk', title: 'Public network access enabled', message: 'This SQL server accepts connections from public IP addresses.', recommendation: 'Disable public network access and use private endpoints for production workloads.' })
+    recommendations.push('Disable public network access and use private endpoints for production workloads.')
+  }
+
+  if (hasWeakTls) {
+    findings.push({ id: 'weak-tls', severity: 'warning', title: `Minimum TLS version is ${server.minimalTlsVersion}`, message: 'The server permits connections using deprecated TLS versions.', recommendation: 'Set the minimum TLS version to 1.2 to enforce modern transport security.' })
+    recommendations.push('Set the minimum TLS version to 1.2 to enforce modern transport security.')
+  }
+
+  if (noTlsMin) {
+    findings.push({ id: 'no-tls-min', severity: 'info', title: 'No minimum TLS version configured', message: 'The server does not enforce a minimum TLS version.', recommendation: 'Explicitly set the minimum TLS version to 1.2.' })
+    recommendations.push('Explicitly set the minimum TLS version to 1.2.')
+  }
+
+  if (!hasAadAdmin) {
+    findings.push({ id: 'no-aad', severity: 'warning', title: 'No Azure AD administrator', message: 'The server uses only SQL authentication without AAD integration.', recommendation: 'Configure an Azure AD administrator for centralized identity management.' })
+    recommendations.push('Configure an Azure AD administrator for centralized identity management.')
+  }
+
+  if (hasAllowAllRule) {
+    findings.push({ id: 'allow-all-firewall', severity: 'risk', title: 'Firewall allows all IP addresses', message: 'A firewall rule permits connections from the entire internet (0.0.0.0 - 255.255.255.255).', recommendation: 'Remove the allow-all firewall rule and restrict to specific IP ranges.' })
+    recommendations.push('Remove the allow-all firewall rule and restrict to specific IP ranges.')
+  }
+
+  if (hasAllowAzureRule) {
+    findings.push({ id: 'allow-azure-services', severity: 'info', title: 'Azure services access allowed', message: 'A special rule allows all Azure services to connect to this server.', recommendation: 'Review whether all Azure services need access or if private endpoints are preferred.' })
+    recommendations.push('Review whether all Azure services need access or if private endpoints are preferred.')
+  }
+
+  if (recommendations.length === 0) {
+    recommendations.push('No immediate operational posture warnings detected. Continue reviewing firewall and access settings during routine checks.')
+  }
+
+  const summaryTiles: AzureSqlSummaryTile[] = [
+    { id: 'findings', label: 'Findings', value: String(findings.length), tone: findings.some((f) => f.severity === 'risk') ? 'risk' : findings.length ? 'warning' : 'good' },
+    { id: 'databases', label: 'Databases', value: `${onlineCount}/${mappedDatabases.length} online`, tone: onlineCount === mappedDatabases.length ? 'good' : 'warning' },
+    { id: 'firewall', label: 'Firewall', value: `${firewallRules.length} rules`, tone: hasAllowAllRule ? 'risk' : 'info' },
+    { id: 'zone-redundant', label: 'Zone Redundant', value: `${zoneRedundantCount}/${mappedDatabases.length}`, tone: zoneRedundantCount === mappedDatabases.length && mappedDatabases.length > 0 ? 'good' : zoneRedundantCount > 0 ? 'info' : 'neutral' }
+  ]
+
+  if (isPublic) server.notes.push('Public network access is enabled for this SQL server.')
+  if (hasWeakTls) server.notes.push(`Minimal TLS version is ${server.minimalTlsVersion}.`)
+
+  return {
+    server,
+    databases: mappedDatabases,
+    firewallRules,
+    badges,
+    summaryTiles,
+    findings,
+    recommendations,
+    connectionDetails: [
+      { label: 'FQDN', value: server.fullyQualifiedDomainName || 'N/A' },
+      { label: 'Server name', value: server.name },
+      { label: 'Resource group', value: server.resourceGroup },
+      { label: 'SQL version', value: server.version || 'N/A' },
+      { label: 'Port', value: '1433' },
+      { label: 'Administrator', value: server.administratorType || 'SQL Authentication' },
+      { label: 'Elastic pools', value: String(server.elasticPoolCount) },
+      { label: 'Tags', value: String(server.tagCount) }
+    ]
+  }
+}
+
 export async function listAzureMonitorActivity(subscriptionId: string, location: string, query: string, windowHours = 24): Promise<AzureMonitorActivityResult> {
   const endTime = new Date()
   const startTime = new Date(endTime.getTime() - windowHours * 60 * 60 * 1000)
@@ -1036,39 +1584,52 @@ export async function listAzureMonitorActivity(subscriptionId: string, location:
 }
 
 export async function getAzureCostOverview(subscriptionId: string): Promise<AzureCostOverview> {
-  const response = await fetchAzureArmJson<{
+  type CostQueryResponse = {
     properties?: {
       columns?: Array<{ name?: string }>
       rows?: Array<Array<string | number | null>>
     }
-  }>(
-    `/subscriptions/${encodeURIComponent(subscriptionId.trim())}/providers/Microsoft.CostManagement/query`,
-    '2023-03-01',
-    {
+  }
+
+  const scope = `/subscriptions/${encodeURIComponent(subscriptionId.trim())}/providers/Microsoft.CostManagement/query`
+  const apiVersion = '2023-03-01'
+
+  const [groupedResponse, dailyResponse] = await Promise.all([
+    fetchAzureArmJson<CostQueryResponse>(scope, apiVersion, {
       method: 'POST',
       body: JSON.stringify({
         type: 'Usage',
         timeframe: 'MonthToDate',
         dataset: {
           granularity: 'None',
-          aggregation: {
-            totalCost: { name: 'Cost', function: 'Sum' }
-          },
+          aggregation: { totalCost: { name: 'Cost', function: 'Sum' } },
           grouping: [
             { type: 'Dimension', name: 'ServiceName' },
             { type: 'Dimension', name: 'ResourceGroupName' }
           ]
         }
       })
-    }
-  )
+    }),
+    fetchAzureArmJson<CostQueryResponse>(scope, apiVersion, {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'Usage',
+        timeframe: 'MonthToDate',
+        dataset: {
+          granularity: 'Daily',
+          aggregation: { totalCost: { name: 'Cost', function: 'Sum' } }
+        }
+      })
+    })
+  ])
 
-  const columnNames = (response.properties?.columns ?? []).map((column) => column.name?.trim() || '')
+  /* ---- grouped (service x resource-group) breakdown ---- */
+  const columnNames = (groupedResponse.properties?.columns ?? []).map((column) => column.name?.trim() || '')
   const costIndex = columnNames.findIndex((name) => name === 'Cost')
   const serviceIndex = columnNames.findIndex((name) => name === 'ServiceName')
   const resourceGroupIndex = columnNames.findIndex((name) => name === 'ResourceGroupName')
   const currencyIndex = columnNames.findIndex((name) => name === 'Currency')
-  const rows = response.properties?.rows ?? []
+  const rows = groupedResponse.properties?.rows ?? []
 
   const totalAmount = rows.reduce((sum, row) => sum + Number(row[costIndex] ?? 0), 0)
   const currency = String(rows[0]?.[currencyIndex] ?? 'USD')
@@ -1091,15 +1652,46 @@ export async function getAzureCostOverview(subscriptionId: string): Promise<Azur
       sharePercent: totalAmount > 0 ? Number(((amount / totalAmount) * 100).toFixed(1)) : 0
     }))
     .sort((left, right) => right.amount - left.amount || left.label.localeCompare(right.label))
-    .slice(0, 8)
+    .slice(0, 10)
+
+  /* ---- daily cost trend ---- */
+  const dailyColumns = (dailyResponse.properties?.columns ?? []).map((column) => column.name?.trim() || '')
+  const dailyCostIndex = dailyColumns.findIndex((name) => name === 'Cost')
+  const dailyDateIndex = dailyColumns.findIndex((name) => name === 'UsageDate')
+  const dailyCurrencyIndex = dailyColumns.findIndex((name) => name === 'Currency')
+  const dailyRows = dailyResponse.properties?.rows ?? []
+
+  const dailyCosts: AzureCostDailyEntry[] = dailyRows
+    .map((row) => {
+      const raw = String(row[dailyDateIndex] ?? '')
+      const dateStr = raw.length === 8
+        ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`
+        : raw
+      return {
+        date: dateStr,
+        amount: Number(Number(row[dailyCostIndex] ?? 0).toFixed(2)),
+        currency: String(row[dailyCurrencyIndex] ?? currency)
+      }
+    })
+    .sort((a, b) => a.date.localeCompare(b.date))
+
+  const daysWithSpend = dailyCosts.filter((d) => d.amount > 0).length
+  const dailyAverage = daysWithSpend > 0 ? Number((totalAmount / daysWithSpend).toFixed(2)) : 0
+  const topServices = toBreakdown(serviceTotals)
 
   return {
     subscriptionId,
     timeframeLabel: 'Month to date',
     totalAmount: Number(totalAmount.toFixed(2)),
     currency,
-    topServices: toBreakdown(serviceTotals),
+    dailyAverage,
+    topServiceName: topServices[0]?.label ?? '',
+    topServiceAmount: topServices[0]?.amount ?? 0,
+    serviceCount: serviceTotals.size,
+    resourceGroupCount: resourceGroupTotals.size,
+    topServices,
     topResourceGroups: toBreakdown(resourceGroupTotals),
+    dailyCosts,
     notes: rows.length === 0 ? ['No subscription cost rows were returned for the current month-to-date window.'] : []
   }
 }

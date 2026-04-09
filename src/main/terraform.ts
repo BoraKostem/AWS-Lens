@@ -62,6 +62,7 @@ import { invalidateTerraformDriftReports } from './terraformDrift'
 import { buildTerraformDiagram } from './terraformDiagramParser'
 import type { TerraformRunRecord } from '@shared/types'
 import { getPreferredTerraformCliKindSetting, listToolCommandCandidates } from './toolchain'
+import { readAzureFoundationStore } from './azureFoundationStore'
 
 /* ── Stored project shape (persistence) ───────────────────── */
 
@@ -200,6 +201,16 @@ function terraformCommand(): string {
 
 function terraformCliLabel(): string {
   return cachedCli?.label || 'Terraform'
+}
+
+function inferTerraformProviderId(
+  profileName: string,
+  connection?: AwsConnection
+): 'aws' | 'gcp' | 'azure' | 'local' {
+  if (connection?.providerId === 'gcp' || profileName.startsWith('provider:gcp:terraform:')) return 'gcp'
+  if (connection?.providerId === 'azure' || profileName.startsWith('provider:azure:terraform:')) return 'azure'
+  if (connection?.providerId === 'aws' || profileName.startsWith('profile:') || profileName.startsWith('assumed-role:')) return 'aws'
+  return 'local'
 }
 
 function parseScopedTerraformProfileName(
@@ -674,11 +685,15 @@ function parseWorkspaceList(output: string, currentWorkspace: string): Terraform
   return [...names.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
-function readWorkspaceSnapshot(project: StoredProject, connection?: AwsConnection): { currentWorkspace: string; workspaces: TerraformWorkspaceSummary[] } {
+function readWorkspaceSnapshot(
+  profileName: string,
+  project: StoredProject,
+  connection?: AwsConnection
+): { currentWorkspace: string; workspaces: TerraformWorkspaceSummary[] } {
   const fallback = fallbackWorkspaceSnapshot(project.rootPath)
 
   try {
-    const env = buildEnvWithVars(project, connection)
+    const env = buildEnvWithVars(project, profileName, connection)
     const currentWorkspace = stripAnsi(execFileSync(terraformCommand(), ['workspace', 'show'], {
       cwd: project.rootPath,
       env,
@@ -2276,7 +2291,12 @@ async function validateRuntimeInputs(project: StoredProject, connection?: AwsCon
   }
 }
 
-function buildEnvWithVars(project: StoredProject, connection?: AwsConnection, runtimeInputs?: TerraformResolvedRuntimeInputs): Record<string, string> {
+function buildEnvWithVars(
+  project: StoredProject,
+  profileName: string,
+  connection?: AwsConnection,
+  runtimeInputs?: TerraformResolvedRuntimeInputs
+): Record<string, string> {
   const env: Record<string, string> = { ...process.env as Record<string, string> }
   env.CHECKPOINT_DISABLE = '1'
   env.TF_IN_AUTOMATION = '1'
@@ -2306,12 +2326,24 @@ function buildEnvWithVars(project: StoredProject, connection?: AwsConnection, ru
     else env[`TF_VAR_${key}`] = JSON.stringify(value)
   }
 
-  if (connection) {
+  const providerId = inferTerraformProviderId(profileName, connection)
+
+  if (providerId === 'aws' && connection) {
     delete env.AWS_PROFILE
     delete env.AWS_ACCESS_KEY_ID
     delete env.AWS_SECRET_ACCESS_KEY
     delete env.AWS_SESSION_TOKEN
     Object.assign(env, getConnectionEnv(connection))
+  } else if (providerId === 'azure') {
+    const azureStore = readAzureFoundationStore()
+    const subscriptionId = azureStore.activeSubscriptionId.trim()
+    const tenantId = azureStore.activeTenantId.trim()
+    const location = connection?.region || project.environment?.region || azureStore.activeLocation.trim()
+
+    if (subscriptionId) env.ARM_SUBSCRIPTION_ID = subscriptionId
+    if (tenantId) env.ARM_TENANT_ID = tenantId
+    if (location) env.ARM_LOCATION = location
+    env.ARM_USE_CLI = 'true'
   }
 
   return env
@@ -2578,7 +2610,7 @@ function loadProject(project: StoredProject, profileName = '', connection?: AwsC
   }
 
   const { metadata, variables } = inferMetadata(project.rootPath)
-  const { currentWorkspace, workspaces } = readWorkspaceSnapshot(project, connection)
+  const { currentWorkspace, workspaces } = readWorkspaceSnapshot(profileName, project, connection)
   const inputs = parseJsonFile<Record<string, unknown>>(managedInputsPath(project.rootPath), {})
   const { inventory, stateAddresses, rawStateJson, stateSource } = readStateSnapshot(project.rootPath)
   const { planChanges, lastPlanSummary } = readPlanSnapshot(project.rootPath)
@@ -2644,11 +2676,12 @@ function validateWorkspaceName(workspaceName: string): string {
 }
 
 async function runWorkspaceCommand(
+  profileName: string,
   project: StoredProject,
   args: string[],
   connection?: AwsConnection
 ): Promise<void> {
-  const env = buildEnvWithVars(project, connection)
+  const env = buildEnvWithVars(project, profileName, connection)
   const result = await runChildProcess(project.rootPath, terraformCommand(), args, env)
   if (result.exitCode !== 0) {
     throw new Error(stripAnsi(result.output).trim() || `Terraform ${args.join(' ')} failed.`)
@@ -2763,7 +2796,7 @@ export async function selectProjectWorkspace(
   const project = getStoredProjects(profileName).find((item) => item.id === projectId)
   if (!project) throw new Error('Project not found.')
   const target = validateWorkspaceName(workspaceName)
-  await runWorkspaceCommand(project, ['workspace', 'select', target], connection)
+  await runWorkspaceCommand(profileName, project, ['workspace', 'select', target], connection)
   clearStateCache(project.rootPath)
   syncStoredProjectEnvironment(profileName, projectId, {
     environmentLabel: inferEnvironmentLabel(target),
@@ -2785,7 +2818,7 @@ export async function createProjectWorkspace(
   const project = getStoredProjects(profileName).find((item) => item.id === projectId)
   if (!project) throw new Error('Project not found.')
   const target = validateWorkspaceName(workspaceName)
-  await runWorkspaceCommand(project, ['workspace', 'new', target], connection)
+  await runWorkspaceCommand(profileName, project, ['workspace', 'new', target], connection)
   clearStateCache(project.rootPath)
   return getProject(profileName, projectId, connection)
 }
@@ -2802,11 +2835,11 @@ export async function deleteProjectWorkspace(
   if (target === 'default') {
     throw new Error('The default workspace cannot be deleted.')
   }
-  const snapshot = readWorkspaceSnapshot(project, connection)
+  const snapshot = readWorkspaceSnapshot(profileName, project, connection)
   if (snapshot.currentWorkspace === target) {
     throw new Error('Select a different workspace before deleting the current workspace.')
   }
-  await runWorkspaceCommand(project, ['workspace', 'delete', target], connection)
+  await runWorkspaceCommand(profileName, project, ['workspace', 'delete', target], connection)
   clearStateCache(project.rootPath)
   return getProject(profileName, projectId, connection)
 }
@@ -3069,7 +3102,7 @@ export async function runProjectCommand(
     ? writeTemporaryVarFile(project.rootPath, runtimeInputs?.secretNames.length ? runtimeInputs.values : {}, 'runtime-inputs')
     : null
   const args = buildArgs(request, project, runtimeVarFile?.filePath ?? '')
-  const env = buildEnvWithVars(project, request.connection, runtimeInputs)
+    const env = buildEnvWithVars(project, request.profileName, request.connection, runtimeInputs)
   const cleanupStateVarFile = ['state-list', 'state-pull', 'state-show', 'state-mv', 'state-rm', 'force-unlock'].includes(request.command)
     ? prepareStateCommandVarFile(project, runtimeInputs)
     : null
@@ -3318,7 +3351,7 @@ export function getProjectContext(profileName: string, projectId: string, connec
   if (!project) throw new Error('Project not found.')
   return {
     rootPath: project.rootPath,
-    env: buildEnvWithVars(project, connection),
+    env: buildEnvWithVars(project, profileName, connection),
     tfCliPath: terraformCommand(),
     tfCliLabel: terraformCliLabel(),
     tfCliKind: cachedCli?.kind ?? ''

@@ -585,10 +585,9 @@ function buildSyntheticTerraformConnection(
   providerId: Exclude<TerraformProviderId, 'aws'>,
   contextKey: string,
   contextValue: string,
-  contextDetailValue: string,
-  detail: TerraformProject | null
+  contextDetailValue: string
 ): AwsConnection {
-  const region = detail?.environment.region || contextDetailValue || 'global'
+  const region = contextDetailValue || 'global'
   return {
     providerId,
     kind: 'profile',
@@ -3554,8 +3553,9 @@ export function TerraformConsole({
   const contextDetailValue = contextDetail || detail?.environment.region || ''
   const analysisConnection = useMemo(() => {
     if (providerId === 'aws') return undefined
-    return buildSyntheticTerraformConnection(providerId, contextKey, contextValue, contextDetailValue, detail)
-  }, [contextDetailValue, contextKey, contextValue, detail, providerId])
+    return buildSyntheticTerraformConnection(providerId, contextKey, contextValue, contextDetailValue)
+  }, [contextDetailValue, contextKey, contextValue, providerId])
+  const effectiveConnection = providerId === 'aws' ? (projectConnection ?? connection) : analysisConnection
   const driftConnection = providerId === 'aws' ? projectConnection : analysisConnection
   const labConnection = providerId === 'aws' ? connection : analysisConnection
   const canLoadDrift = Boolean(detail && driftConnection)
@@ -3599,7 +3599,7 @@ export function TerraformConsole({
     beginWorkspaceRefresh('manual')
     setLoading(true)
     try {
-      const list = await listProjects(contextKey, connection)
+      const list = await listProjects(contextKey, effectiveConnection)
       setProjectsList(list)
       completeWorkspaceRefresh()
     } catch (err) {
@@ -3608,7 +3608,7 @@ export function TerraformConsole({
     } finally {
       setLoading(false)
     }
-  }, [beginWorkspaceRefresh, completeWorkspaceRefresh, connection, contextKey, failWorkspaceRefresh])
+  }, [beginWorkspaceRefresh, completeWorkspaceRefresh, contextKey, effectiveConnection, failWorkspaceRefresh])
 
   useEffect(() => { void reload() }, [reload])
 
@@ -3632,7 +3632,7 @@ export function TerraformConsole({
   // Load detail when selected
   useEffect(() => {
     if (!selectedId) { setDetail(null); setDriftReport(null); return }
-    void getProject(contextKey, selectedId, connection).then((p) => {
+    void getProject(contextKey, selectedId, effectiveConnection).then((p) => {
       setDetail(p)
       setDriftReport(null)
       setDriftError('')
@@ -3641,7 +3641,7 @@ export function TerraformConsole({
       setLabError('')
       void setSelectedProjectId(contextKey, selectedId)
     }).catch(() => setDetail(null))
-  }, [connection, contextKey, selectedId])
+  }, [contextKey, effectiveConnection, selectedId])
 
   useEffect(() => {
     if (!detail) return
@@ -3805,14 +3805,14 @@ export function TerraformConsole({
     if (!detail) return
     setGovernanceRunning(true)
     try {
-      const report = await runGovernanceChecks(contextKey, detail.id, connection)
+      const report = await runGovernanceChecks(contextKey, detail.id, effectiveConnection)
       setGovernanceReport(report)
     } catch (err) {
       setMsg(err instanceof Error ? err.message : String(err))
     } finally {
       setGovernanceRunning(false)
     }
-  }, [connection, contextKey, detail])
+  }, [contextKey, detail, effectiveConnection])
 
   // Subscribe to terraform events
   useEffect(() => {
@@ -3908,7 +3908,7 @@ export function TerraformConsole({
     const dir = await chooseProjectDirectory()
     if (!dir) return
     try {
-      const project = await addProject(contextKey, dir, connection)
+      const project = await addProject(contextKey, dir, effectiveConnection)
       await reload()
       setSelectedId(project.id)
       setMsg('')
@@ -3963,7 +3963,7 @@ export function TerraformConsole({
   async function handleReload() {
     if (!selectedId) { await reload(); return }
     try {
-      const p = await reloadProject(contextKey, selectedId, connection)
+      const p = await reloadProject(contextKey, selectedId, effectiveConnection)
       setDetail(p)
       await reload()
     } catch (err) {
@@ -3978,7 +3978,7 @@ export function TerraformConsole({
     }
     if (!detail || running || workspaceName === detail.currentWorkspace) return
     try {
-      const updated = await selectWorkspace(contextKey, detail.id, workspaceName, connection)
+      const updated = await selectWorkspace(contextKey, detail.id, workspaceName, effectiveConnection)
       setDetail(updated)
       setMsg(`Switched to workspace ${updated.currentWorkspace}`)
       await reload()
@@ -3994,7 +3994,7 @@ export function TerraformConsole({
     }
     if (!detail) return
     try {
-      const updated = await createWorkspace(contextKey, detail.id, workspaceName, connection)
+      const updated = await createWorkspace(contextKey, detail.id, workspaceName, effectiveConnection)
       setDetail(updated)
       setShowCreateWorkspaceDialog(false)
       setMsg(`Created workspace ${updated.currentWorkspace}`)
@@ -4011,7 +4011,7 @@ export function TerraformConsole({
     }
     if (!detail) return
     try {
-      const updated = await deleteWorkspace(contextKey, detail.id, workspaceName, connection)
+      const updated = await deleteWorkspace(contextKey, detail.id, workspaceName, effectiveConnection)
       setDetail(updated)
       setShowDeleteWorkspaceDialog(false)
       setMsg(`Deleted workspace ${workspaceName}`)
@@ -4039,7 +4039,7 @@ export function TerraformConsole({
     }
     if (!detail) return
     try {
-      const updated = await updateInputs(contextKey, detail.id, inputConfig, connection)
+      const updated = await updateInputs(contextKey, detail.id, inputConfig, effectiveConnection)
       setDetail(updated)
       setShowInputs(false)
       setPrefillMissing([])
@@ -4050,13 +4050,13 @@ export function TerraformConsole({
       if (commandToResume) {
         const log = await runCommand({
           profileName: contextKey,
-          connection,
+          connection: effectiveConnection,
           projectId: updated.id,
           command: commandToResume.command,
           ...(commandToResume.command === 'plan' ? { planOptions: commandToResume.planOptions } : {})
         })
         setLastLog(log)
-        const refreshed = await reloadProject(contextKey, updated.id, connection)
+        const refreshed = await reloadProject(contextKey, updated.id, effectiveConnection)
         setDetail(refreshed)
         await reload()
         if (log.success && commandToResume.command === 'plan') {
@@ -4077,7 +4077,13 @@ export function TerraformConsole({
     if (!detail || running) return null
     setMsg('')
     try {
-      const log = await runCommand({ profileName: contextKey, connection, projectId: detail.id, command, ...(command === 'plan' ? { planOptions } : {}) })
+      const log = await runCommand({
+        profileName: contextKey,
+        connection: effectiveConnection,
+        projectId: detail.id,
+        command,
+        ...(command === 'plan' ? { planOptions } : {})
+      })
       // Handle missing vars
       if (!log.success && log.output) {
         const { missing, invalid } = await detectMissingVars(log.output)
@@ -4103,7 +4109,7 @@ export function TerraformConsole({
   function handleInit() { void execCommand('init') }
   function handlePlan(options?: TerraformPlanOptions) {
     if (!detail || running) return
-    void validateProjectInputs(contextKey, detail.id, connection)
+    void validateProjectInputs(contextKey, detail.id, effectiveConnection)
       .then((validation) => {
         const unresolved = uniqueStrings([
           ...validation.missing,
@@ -4254,7 +4260,7 @@ export function TerraformConsole({
     try {
       const log = await runCommand({
         profileName: contextKey,
-        connection,
+        connection: effectiveConnection,
         projectId: detail.id,
         ...request
       })

@@ -32,7 +32,6 @@ export function AzureFoundationPanel({
   onSignIn,
   onSignOut,
   onSelectSubscription,
-  onSelectLocation,
   onOpenVerification
 }: {
   snapshot: AzureProviderContextSnapshot | null
@@ -42,7 +41,6 @@ export function AzureFoundationPanel({
   onSignIn: () => void
   onSignOut: () => void
   onSelectSubscription: (subscriptionId: string) => void
-  onSelectLocation: (location: string) => void
   onOpenVerification: (url: string) => void
 }): JSX.Element {
   const auth = snapshot?.auth
@@ -50,7 +48,6 @@ export function AzureFoundationPanel({
   const currentPrompt = auth?.prompt
   const subscriptions = snapshot?.subscriptions ?? []
   const recentSubscriptions = snapshot?.recentSubscriptions ?? []
-  const locations = snapshot?.locations ?? []
   const selectedSubscriptionId = snapshot?.activeSubscriptionId ?? ''
   const tenantLabelById = useMemo(
     () => new Map((snapshot?.tenants ?? []).map((tenant) => [tenant.tenantId, tenant.displayName || tenant.defaultDomain || tenant.tenantId])),
@@ -159,50 +156,6 @@ export function AzureFoundationPanel({
           </div>
         )}
       </div>
-
-      {selectedSubscriptionId ? (
-        <section className="profile-catalog-recent">
-          <div className="profile-catalog-recent-header">
-            <div className="eyebrow">Selected Azure Context</div>
-            <span>{snapshot?.activeAccountLabel || 'Subscription selected'}</span>
-          </div>
-          <div className="provider-context-grid">
-            <label className="field">
-              <span>Subscription</span>
-              <input
-                value={subscriptions.find((entry) => entry.subscriptionId === selectedSubscriptionId)?.displayName || selectedSubscriptionId}
-                readOnly
-              />
-            </label>
-            <label className="field">
-              <span>Tenant</span>
-              <input
-                value={tenantLabelById.get(snapshot?.activeTenantId || '') || snapshot?.activeTenantId || 'Pending'}
-                readOnly
-              />
-            </label>
-            <label className="field">
-              <span>Location</span>
-              <select
-                value={snapshot?.activeLocation ?? ''}
-                onChange={(event) => onSelectLocation(event.target.value)}
-                disabled={locations.length === 0}
-              >
-                {!snapshot?.activeLocation ? (
-                  <option value="" disabled>
-                    {locations.length > 0 ? 'Select location' : 'No locations available'}
-                  </option>
-                ) : null}
-                {locations.map((location) => (
-                  <option key={location.name} value={location.name}>
-                    {location.regionalDisplayName}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        </section>
-      ) : null}
     </>
   )
 }

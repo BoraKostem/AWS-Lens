@@ -24,6 +24,7 @@ import type {
   DbConnectionPresetInput,
   DbVaultCredentialInput,
   AzureProviderContextSnapshot,
+  AzureVmAction,
   EksUpgradePlannerRequest,
   GcpComputeInstanceAction,
   Ec2BulkInstanceAction,
@@ -189,8 +190,23 @@ const awsLensApi = {
   getGcpBillingOverview: (projectId: string, catalogProjectIds: string[]) => ipcRenderer.invoke('gcp:billing:get-overview', projectId, catalogProjectIds),
   listAzureSubscriptions: () => ipcRenderer.invoke('azure:subscriptions:list'),
   getAzureRbacOverview: (subscriptionId: string) => ipcRenderer.invoke('azure:rbac:get-overview', subscriptionId),
+  listAzureRoleAssignments: (subscriptionId: string) => ipcRenderer.invoke('azure:rbac:list-assignments', subscriptionId),
+  listAzureRoleDefinitions: (subscriptionId: string) => ipcRenderer.invoke('azure:rbac:list-role-definitions', subscriptionId),
+  createAzureRoleAssignment: (subscriptionId: string, principalId: string, roleDefinitionId: string, scope: string) =>
+    ipcRenderer.invoke('azure:rbac:create-assignment', subscriptionId, principalId, roleDefinitionId, scope),
+  deleteAzureRoleAssignment: (assignmentId: string) => ipcRenderer.invoke('azure:rbac:delete-assignment', assignmentId),
   listAzureVirtualMachines: (subscriptionId: string, location: string) => ipcRenderer.invoke('azure:virtual-machines:list', subscriptionId, location),
+  describeAzureVirtualMachine: (subscriptionId: string, resourceGroup: string, vmName: string) =>
+    ipcRenderer.invoke('azure:virtual-machines:describe', subscriptionId, resourceGroup, vmName),
+  runAzureVmAction: (subscriptionId: string, resourceGroup: string, vmName: string, action: AzureVmAction) =>
+    ipcRenderer.invoke('azure:virtual-machines:action', subscriptionId, resourceGroup, vmName, action),
   listAzureAksClusters: (subscriptionId: string, location: string) => ipcRenderer.invoke('azure:aks:list', subscriptionId, location),
+  describeAzureAksCluster: (subscriptionId: string, resourceGroup: string, clusterName: string) =>
+    ipcRenderer.invoke('azure:aks:describe', subscriptionId, resourceGroup, clusterName),
+  listAzureAksNodePools: (subscriptionId: string, resourceGroup: string, clusterName: string) =>
+    ipcRenderer.invoke('azure:aks:list-node-pools', subscriptionId, resourceGroup, clusterName),
+  updateAzureAksNodePoolScaling: (subscriptionId: string, resourceGroup: string, clusterName: string, nodePoolName: string, min: number, desired: number, max: number) =>
+    ipcRenderer.invoke('azure:aks:update-node-pool-scaling', subscriptionId, resourceGroup, clusterName, nodePoolName, min, desired, max),
   listAzureStorageAccounts: (subscriptionId: string, location: string) => ipcRenderer.invoke('azure:storage-accounts:list', subscriptionId, location),
   listAzureStorageContainers: (subscriptionId: string, resourceGroup: string, accountName: string, blobEndpoint?: string) =>
     ipcRenderer.invoke('azure:storage-containers:list', subscriptionId, resourceGroup, accountName, blobEndpoint),
@@ -207,6 +223,7 @@ const awsLensApi = {
   deleteAzureStorageBlob: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) =>
     ipcRenderer.invoke('azure:storage-blob:delete', subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint),
   getAzureSqlEstate: (subscriptionId: string, location: string) => ipcRenderer.invoke('azure:sql:get-estate', subscriptionId, location),
+  describeAzureSqlServer: (subscriptionId: string, resourceGroup: string, serverName: string) => ipcRenderer.invoke('azure:sql:describe-server', subscriptionId, resourceGroup, serverName),
   listAzureMonitorActivity: (subscriptionId: string, location: string, query: string, windowHours?: number) =>
     ipcRenderer.invoke('azure:monitor:list-activity', subscriptionId, location, query, windowHours),
   getAzureCostOverview: (subscriptionId: string) => ipcRenderer.invoke('azure:cost:get-overview', subscriptionId),

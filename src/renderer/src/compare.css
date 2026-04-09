@@ -18,6 +18,33 @@
   background: linear-gradient(180deg, rgba(26, 77, 53, 0.92), rgba(12, 37, 28, 0.92));
 }
 
+.azure-compare-console .compare-shell-hero,
+.azure-compare-console .compare-detail-hero {
+  background:
+    radial-gradient(circle at top left, rgba(56, 139, 253, 0.18), transparent 32%),
+    radial-gradient(circle at bottom right, rgba(125, 175, 252, 0.14), transparent 28%),
+    linear-gradient(180deg, rgba(14, 23, 38, 0.98), rgba(8, 14, 25, 0.98));
+}
+
+.azure-compare-console .compare-shell-stat-card-accent {
+  border-color: rgba(56, 139, 253, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(56, 139, 253, 0.16), transparent 42%),
+    linear-gradient(180deg, rgba(20, 35, 60, 0.96), rgba(12, 22, 40, 0.96));
+}
+
+.azure-compare-console .compare-inventory-card:hover {
+  border-color: rgba(56, 139, 253, 0.24);
+}
+
+.azure-compare-console .compare-inventory-card.active {
+  border-color: rgba(56, 139, 253, 0.34);
+  background:
+    radial-gradient(circle at top right, rgba(56, 139, 253, 0.12), transparent 40%),
+    linear-gradient(180deg, rgba(20, 32, 55, 0.98), rgba(12, 20, 38, 0.98));
+  box-shadow: inset 0 0 0 1px rgba(56, 139, 253, 0.08);
+}
+
 .compare-shell-hero,
 .compare-detail-hero {
   display: grid;

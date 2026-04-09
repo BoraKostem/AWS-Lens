@@ -2254,3 +2254,48 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Azure VM Console — blue theme overrides ─────────────── */
+
+.azure-vm-console .ec2-shell-hero {
+  background:
+    radial-gradient(circle at top left, rgba(56, 139, 253, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(56, 139, 253, 0.10), transparent 30%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(11, 17, 25, 0.98));
+}
+
+.azure-vm-console .ec2-shell-kicker {
+  color: #7db8f5;
+}
+
+.azure-vm-console .ec2-shell-stat-card.accent {
+  border-color: rgba(56, 139, 253, 0.32);
+  background:
+    radial-gradient(circle at top right, rgba(56, 139, 253, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(24, 34, 50, 0.96), rgba(14, 22, 34, 0.96));
+}
+
+.azure-vm-console .ec2-shell-stat-card.warning {
+  border-color: rgba(243, 156, 18, 0.28);
+}
+
+.azure-vm-console .ec2-shell-stat-card.info {
+  border-color: rgba(56, 139, 253, 0.24);
+}
+
+.azure-vm-console .ec2-tab.active {
+  border-bottom-color: #388bfd;
+}
+
+.azure-vm-console .ec2-side-tabs button.active {
+  border-bottom-color: #388bfd;
+}
+
+.azure-vm-console .ec2-toolbar-btn.accent,
+.azure-vm-console .ec2-action-btn.start {
+  background: #1a5fb4;
+}
+
+.azure-vm-console .ec2-data-table tbody tr.active {
+  background: rgba(56, 139, 253, 0.12);
+}

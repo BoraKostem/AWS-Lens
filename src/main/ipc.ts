@@ -7,6 +7,7 @@ import type {
   AppSettings,
   AwsConnection,
   AzureProviderContextSnapshot,
+  AzureVmAction,
   CloudProviderId,
   GcpComputeInstanceAction
 } from '@shared/types'
@@ -23,6 +24,14 @@ import {
 } from './gcpCli'
 import { getVaultEntryCounts } from './localVault'
 import { createHandlerWrapper, type OperationOptions } from './operations'
+import {
+  getAzureProviderContext,
+  setAzureActiveLocation,
+  setAzureActiveSubscription,
+  setAzureActiveTenant,
+  signOutAzureProvider,
+  startAzureDeviceCodeSignIn
+} from './azureFoundation'
 import { checkForAppUpdates, downloadAppUpdate, getReleaseInfo, installAppUpdate } from './releaseCheck'
 import { listProviders } from './providerRegistry'
 import {
@@ -50,12 +59,10 @@ const wrap: <T>(
 ) => Promise<HandlerResult<T>> = createHandlerWrapper('ipc', { timeoutMs: 60000 })
 
 type GcpSdkModule = typeof import('./gcpSdk')
-type AzureFoundationModule = typeof import('./azureFoundation')
 type AzureSdkModule = typeof import('./azureSdk')
 
 let gcpSdkPromise: Promise<GcpSdkModule> | null = null
 let azureSdkPromise: Promise<AzureSdkModule> | null = null
-let azureFoundationPromise: Promise<AzureFoundationModule> | null = null
 
 function loadGcpSdk(): Promise<GcpSdkModule> {
   if (!gcpSdkPromise) {
@@ -63,14 +70,6 @@ function loadGcpSdk(): Promise<GcpSdkModule> {
   }
 
   return gcpSdkPromise
-}
-
-function loadAzureFoundation(): Promise<AzureFoundationModule> {
-  if (!azureFoundationPromise) {
-    azureFoundationPromise = import('./azureFoundation')
-  }
-
-  return azureFoundationPromise
 }
 
 function loadAzureSdk(): Promise<AzureSdkModule> {
@@ -116,22 +115,22 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   })))
   ipcMain.handle('app:environment-health', async () => wrap(() => getEnvironmentHealthReport()))
   ipcMain.handle('azure:context:get', async () =>
-    wrap<AzureProviderContextSnapshot>(async () => (await loadAzureFoundation()).getAzureProviderContext())
+    wrap<AzureProviderContextSnapshot>(async () => getAzureProviderContext())
   )
   ipcMain.handle('azure:context:start-device-code-sign-in', async () =>
-    wrap<AzureProviderContextSnapshot>(async () => (await loadAzureFoundation()).startAzureDeviceCodeSignIn())
+    wrap<AzureProviderContextSnapshot>(async () => startAzureDeviceCodeSignIn())
   )
   ipcMain.handle('azure:context:sign-out', async () =>
-    wrap<AzureProviderContextSnapshot>(async () => (await loadAzureFoundation()).signOutAzureProvider())
+    wrap<AzureProviderContextSnapshot>(async () => signOutAzureProvider())
   )
   ipcMain.handle('azure:context:set-tenant', async (_event, tenantId: string) =>
-    wrap<AzureProviderContextSnapshot>(async () => (await loadAzureFoundation()).setAzureActiveTenant(tenantId))
+    wrap<AzureProviderContextSnapshot>(async () => setAzureActiveTenant(tenantId))
   )
   ipcMain.handle('azure:context:set-subscription', async (_event, subscriptionId: string) =>
-    wrap<AzureProviderContextSnapshot>(async () => (await loadAzureFoundation()).setAzureActiveSubscription(subscriptionId))
+    wrap<AzureProviderContextSnapshot>(async () => setAzureActiveSubscription(subscriptionId))
   )
   ipcMain.handle('azure:context:set-location', async (_event, location: string) =>
-    wrap<AzureProviderContextSnapshot>(async () => (await loadAzureFoundation()).setAzureActiveLocation(location))
+    wrap<AzureProviderContextSnapshot>(async () => setAzureActiveLocation(location))
   )
   ipcMain.handle('gcp:cli-context', async () => wrap(() => getGcpCliContext()))
   ipcMain.handle('gcp:projects', async () => wrap(() => listGcpProjects()))
@@ -282,11 +281,38 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('azure:rbac:get-overview', async (_event, subscriptionId: string) =>
     wrap(async () => (await loadAzureSdk()).getAzureRbacOverview(subscriptionId))
   )
+  ipcMain.handle('azure:rbac:list-assignments', async (_event, subscriptionId: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureRoleAssignments(subscriptionId))
+  )
+  ipcMain.handle('azure:rbac:list-role-definitions', async (_event, subscriptionId: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureRoleDefinitions(subscriptionId))
+  )
+  ipcMain.handle('azure:rbac:create-assignment', async (_event, subscriptionId: string, principalId: string, roleDefinitionId: string, scope: string) =>
+    wrap(async () => (await loadAzureSdk()).createAzureRoleAssignment(subscriptionId, principalId, roleDefinitionId, scope))
+  )
+  ipcMain.handle('azure:rbac:delete-assignment', async (_event, assignmentId: string) =>
+    wrap(async () => (await loadAzureSdk()).deleteAzureRoleAssignment(assignmentId))
+  )
   ipcMain.handle('azure:virtual-machines:list', async (_event, subscriptionId: string, location: string) =>
     wrap(async () => (await loadAzureSdk()).listAzureVirtualMachines(subscriptionId, location))
   )
+  ipcMain.handle('azure:virtual-machines:describe', async (_event, subscriptionId: string, resourceGroup: string, vmName: string) =>
+    wrap(async () => (await loadAzureSdk()).describeAzureVirtualMachine(subscriptionId, resourceGroup, vmName))
+  )
+  ipcMain.handle('azure:virtual-machines:action', async (_event, subscriptionId: string, resourceGroup: string, vmName: string, action: AzureVmAction) =>
+    wrap(async () => (await loadAzureSdk()).runAzureVmAction(subscriptionId, resourceGroup, vmName, action))
+  )
   ipcMain.handle('azure:aks:list', async (_event, subscriptionId: string, location: string) =>
     wrap(async () => (await loadAzureSdk()).listAzureAksClusters(subscriptionId, location))
+  )
+  ipcMain.handle('azure:aks:describe', async (_event, subscriptionId: string, resourceGroup: string, clusterName: string) =>
+    wrap(async () => (await loadAzureSdk()).describeAzureAksCluster(subscriptionId, resourceGroup, clusterName))
+  )
+  ipcMain.handle('azure:aks:list-node-pools', async (_event, subscriptionId: string, resourceGroup: string, clusterName: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureAksNodePools(subscriptionId, resourceGroup, clusterName))
+  )
+  ipcMain.handle('azure:aks:update-node-pool-scaling', async (_event, subscriptionId: string, resourceGroup: string, clusterName: string, nodePoolName: string, min: number, desired: number, max: number) =>
+    wrap(async () => (await loadAzureSdk()).updateAzureAksNodePoolScaling(subscriptionId, resourceGroup, clusterName, nodePoolName, min, desired, max))
   )
   ipcMain.handle('azure:storage-accounts:list', async (_event, subscriptionId: string, location: string) =>
     wrap(async () => (await loadAzureSdk()).listAzureStorageAccounts(subscriptionId, location))
@@ -314,6 +340,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   )
   ipcMain.handle('azure:sql:get-estate', async (_event, subscriptionId: string, location: string) =>
     wrap(async () => (await loadAzureSdk()).listAzureSqlEstate(subscriptionId, location))
+  )
+  ipcMain.handle('azure:sql:describe-server', async (_event, subscriptionId: string, resourceGroup: string, serverName: string) =>
+    wrap(async () => (await loadAzureSdk()).describeAzureSqlServer(subscriptionId, resourceGroup, serverName))
   )
   ipcMain.handle('azure:monitor:list-activity', async (_event, subscriptionId: string, location: string, query: string, windowHours?: number) =>
     wrap(async () => (await loadAzureSdk()).listAzureMonitorActivity(subscriptionId, location, query, windowHours))
