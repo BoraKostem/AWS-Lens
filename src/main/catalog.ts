@@ -109,6 +109,17 @@ const GCP_WORKSPACES: ServiceDescriptor[] = [
   { id: 'gcp-billing', label: 'Billing Basics', category: 'Operations', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true }
 ]
 
+const AZURE_WORKSPACES: ServiceDescriptor[] = [
+  { id: 'azure-subscriptions', label: 'Subscriptions', category: 'Management', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
+  { id: 'azure-rbac', label: 'RBAC Posture', category: 'Security', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
+  { id: 'azure-virtual-machines', label: 'Virtual Machines', category: 'Compute', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
+  { id: 'azure-aks', label: 'AKS', category: 'Containers', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
+  { id: 'azure-storage-accounts', label: 'Storage Accounts', category: 'Storage', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
+  { id: 'azure-sql', label: 'Azure SQL', category: 'Database', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
+  { id: 'azure-monitor', label: 'Monitor', category: 'Operations', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
+  { id: 'azure-cost', label: 'Cost', category: 'Operations', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true }
+]
+
 function sortServices(items: ServiceDescriptor[]): ServiceDescriptor[] {
   return [...items].sort((left, right) => left.label.localeCompare(right.label))
 }
@@ -149,13 +160,25 @@ function buildGcpProviderSections(): WorkspaceCatalogSection[] {
   ]
 }
 
+function buildAzureProviderSections(): WorkspaceCatalogSection[] {
+  return [
+    {
+      id: 'azure-workspaces',
+      label: 'Azure Workspaces',
+      providerId: 'azure',
+      workspaceKind: 'provider',
+      items: sortServices(AZURE_WORKSPACES)
+    }
+  ]
+}
+
 export function getWorkspaceCatalog(providerId: CloudProviderId = 'aws'): WorkspaceCatalog {
   const sharedWorkspaces = buildSharedSections()
   const providerWorkspaces = providerId === 'aws'
     ? buildAwsProviderSections()
     : providerId === 'gcp'
       ? buildGcpProviderSections()
-      : []
+      : buildAzureProviderSections()
   const allServices = [...sharedWorkspaces.flatMap((section) => section.items), ...providerWorkspaces.flatMap((section) => section.items)]
 
   return {

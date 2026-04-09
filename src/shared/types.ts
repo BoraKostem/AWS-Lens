@@ -1717,6 +1717,14 @@ export type ServiceId =
   | 'gcp-cloud-sql'
   | 'gcp-logging'
   | 'gcp-billing'
+  | 'azure-subscriptions'
+  | 'azure-rbac'
+  | 'azure-virtual-machines'
+  | 'azure-aks'
+  | 'azure-storage-accounts'
+  | 'azure-sql'
+  | 'azure-monitor'
+  | 'azure-cost'
 
 export type GovernanceTagKey = 'Owner' | 'Environment' | 'Project' | 'CostCenter'
 
