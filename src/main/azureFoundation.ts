@@ -108,6 +108,57 @@ function mergeRecentSubscriptionIds(current: string[], activeSubscriptionId: str
   return [...new Set(merged)].slice(0, 8)
 }
 
+function mergeRecentSubscriptions(
+  current: AzureFoundationStore['recentSubscriptions'],
+  subscriptions: AzureSubscriptionSummary[],
+  activeSubscriptionId: string
+): AzureSubscriptionSummary[] {
+  const subscriptionMap = new Map(subscriptions.map((entry) => [entry.subscriptionId, entry]))
+  const orderedIds = [
+    activeSubscriptionId.trim(),
+    ...current.map((entry) => entry.subscriptionId),
+    ...subscriptions.map((entry) => entry.subscriptionId)
+  ].filter(Boolean)
+
+  const dedupedIds = [...new Set(orderedIds)].slice(0, 8)
+  return dedupedIds
+    .map((subscriptionId) => {
+      const live = subscriptionMap.get(subscriptionId)
+      if (live) {
+        return live
+      }
+
+      const persisted = current.find((entry) => entry.subscriptionId === subscriptionId)
+      if (!persisted) {
+        return null
+      }
+
+      return {
+        id: persisted.subscriptionId,
+        subscriptionId: persisted.subscriptionId,
+        displayName: persisted.displayName || persisted.subscriptionId,
+        state: 'Persisted',
+        tenantId: persisted.tenantId,
+        authorizationSource: '',
+        managedByTenants: []
+      } satisfies AzureSubscriptionSummary
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+}
+
+function sortSubscriptionsByRecent(subscriptions: AzureSubscriptionSummary[], recentSubscriptions: AzureSubscriptionSummary[]): AzureSubscriptionSummary[] {
+  const order = new Map(recentSubscriptions.map((entry, index) => [entry.subscriptionId, index]))
+  return [...subscriptions].sort((left, right) => {
+    const leftIndex = order.get(left.subscriptionId)
+    const rightIndex = order.get(right.subscriptionId)
+    if (leftIndex !== undefined || rightIndex !== undefined) {
+      return (leftIndex ?? Number.MAX_SAFE_INTEGER) - (rightIndex ?? Number.MAX_SAFE_INTEGER)
+    }
+
+    return left.displayName.localeCompare(right.displayName)
+  })
+}
+
 function selectActiveTenantId(store: AzureFoundationStore, tenants: AzureTenantSummary[], subscriptions: AzureSubscriptionSummary[]): string {
   const requested = store.activeTenantId.trim()
   const availableTenantIds = new Set([
@@ -441,18 +492,27 @@ async function buildAzureProviderContextSnapshot(): Promise<AzureProviderContext
   const recentSubscriptionIds = activeSubscriptionId
     ? mergeRecentSubscriptionIds(refreshedStore.recentSubscriptionIds, activeSubscriptionId)
     : refreshedStore.recentSubscriptionIds.filter((entry) => scopedSubscriptions.some((subscription) => subscription.subscriptionId === entry))
+  const recentSubscriptions = mergeRecentSubscriptions(refreshedStore.recentSubscriptions, scopedSubscriptions, activeSubscriptionId)
+  const orderedSubscriptions = sortSubscriptionsByRecent(scopedSubscriptions, recentSubscriptions)
 
   if (
     activeTenantId !== refreshedStore.activeTenantId
     || activeSubscriptionId !== refreshedStore.activeSubscriptionId
     || activeLocation !== refreshedStore.activeLocation
     || recentSubscriptionIds.join('|') !== refreshedStore.recentSubscriptionIds.join('|')
+    || recentSubscriptions.map((entry) => `${entry.subscriptionId}:${entry.displayName}:${entry.tenantId}`).join('|')
+      !== refreshedStore.recentSubscriptions.map((entry) => `${entry.subscriptionId}:${entry.displayName}:${entry.tenantId}`).join('|')
   ) {
     updateAzureFoundationStore({
       activeTenantId,
       activeSubscriptionId,
       activeLocation,
-      recentSubscriptionIds
+      recentSubscriptionIds,
+      recentSubscriptions: recentSubscriptions.map((entry) => ({
+        subscriptionId: entry.subscriptionId,
+        displayName: entry.displayName,
+        tenantId: entry.tenantId
+      }))
     })
   }
 
@@ -466,16 +526,17 @@ async function buildAzureProviderContextSnapshot(): Promise<AzureProviderContext
     activeLocation,
     activeAccountLabel,
     tenants,
-    subscriptions: scopedSubscriptions,
+    subscriptions: orderedSubscriptions,
     locations,
     recentSubscriptionIds,
+    recentSubscriptions,
     providerRegistrations,
     diagnostics: buildDiagnostics({
       auth: runtimeState.auth,
       cliPath,
       activeTenantId,
       activeSubscriptionId,
-      subscriptions: scopedSubscriptions,
+      subscriptions: orderedSubscriptions,
       providerRegistrations
     })
   }
@@ -508,6 +569,7 @@ export async function getAzureProviderContext(): Promise<AzureProviderContextSna
       subscriptions: [],
       locations: [],
       recentSubscriptionIds: readAzureFoundationStore().recentSubscriptionIds,
+      recentSubscriptions: mergeRecentSubscriptions(readAzureFoundationStore().recentSubscriptions, [], ''),
       providerRegistrations: [],
       diagnostics: buildDiagnostics({
         auth: runtimeState.auth,
@@ -621,12 +683,19 @@ export async function setAzureActiveTenant(tenantId: string): Promise<AzureProvi
 export async function setAzureActiveSubscription(subscriptionId: string): Promise<AzureProviderContextSnapshot> {
   const normalizedSubscriptionId = subscriptionId.trim()
   const matchedSubscription = (await getAzureProviderContext()).subscriptions.find((entry) => entry.subscriptionId === normalizedSubscriptionId) ?? null
+  const currentStore = readAzureFoundationStore()
+  const nextRecentSubscriptions = mergeRecentSubscriptions(currentStore.recentSubscriptions, matchedSubscription ? [matchedSubscription] : [], normalizedSubscriptionId)
 
   updateAzureFoundationStore({
-    activeTenantId: matchedSubscription?.tenantId ?? readAzureFoundationStore().activeTenantId,
+    activeTenantId: matchedSubscription?.tenantId ?? currentStore.activeTenantId,
     activeSubscriptionId: normalizedSubscriptionId,
     activeLocation: '',
-    recentSubscriptionIds: mergeRecentSubscriptionIds(readAzureFoundationStore().recentSubscriptionIds, normalizedSubscriptionId)
+    recentSubscriptionIds: mergeRecentSubscriptionIds(currentStore.recentSubscriptionIds, normalizedSubscriptionId),
+    recentSubscriptions: nextRecentSubscriptions.map((entry) => ({
+      subscriptionId: entry.subscriptionId,
+      displayName: entry.displayName,
+      tenantId: entry.tenantId
+    }))
   })
   return getAzureProviderContext()
 }

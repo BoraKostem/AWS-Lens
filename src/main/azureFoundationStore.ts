@@ -9,6 +9,11 @@ export type AzureFoundationStore = {
   activeSubscriptionId: string
   activeLocation: string
   recentSubscriptionIds: string[]
+  recentSubscriptions: Array<{
+    subscriptionId: string
+    displayName: string
+    tenantId: string
+  }>
   lastSignedInAt: string
   lastError: string
 }
@@ -18,6 +23,7 @@ const DEFAULT_AZURE_FOUNDATION_STORE: AzureFoundationStore = {
   activeSubscriptionId: '',
   activeLocation: '',
   recentSubscriptionIds: [],
+  recentSubscriptions: [],
   lastSignedInAt: '',
   lastError: ''
 }
@@ -42,6 +48,34 @@ function sanitizeRecentSubscriptionIds(value: unknown): string[] {
   return [...new Set(normalized)].slice(0, 8)
 }
 
+function sanitizeRecentSubscriptions(value: unknown): AzureFoundationStore['recentSubscriptions'] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const entries = value
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        return null
+      }
+
+      const raw = entry as Record<string, unknown>
+      const subscriptionId = sanitizeString(raw.subscriptionId).trim()
+      if (!subscriptionId) {
+        return null
+      }
+
+      return {
+        subscriptionId,
+        displayName: sanitizeString(raw.displayName),
+        tenantId: sanitizeString(raw.tenantId)
+      }
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+
+  return entries.slice(0, 8)
+}
+
 function sanitizeAzureFoundationStore(value: unknown): AzureFoundationStore {
   const raw = value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -52,6 +86,7 @@ function sanitizeAzureFoundationStore(value: unknown): AzureFoundationStore {
     activeSubscriptionId: sanitizeString(raw.activeSubscriptionId),
     activeLocation: sanitizeString(raw.activeLocation),
     recentSubscriptionIds: sanitizeRecentSubscriptionIds(raw.recentSubscriptionIds),
+    recentSubscriptions: sanitizeRecentSubscriptions(raw.recentSubscriptions),
     lastSignedInAt: sanitizeString(raw.lastSignedInAt),
     lastError: sanitizeString(raw.lastError)
   }

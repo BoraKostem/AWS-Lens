@@ -151,6 +151,7 @@ const ENVIRONMENT_ONBOARDING_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:environm
 const GCP_CONNECTION_CONTEXT_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:gcp-connection-context-v1`
 const GCP_CLI_CONTEXT_CACHE_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:gcp-cli-context-cache-v1`
 const GCP_RECENT_PROJECTS_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:gcp-recent-projects-v1`
+const PREVIEW_MODE_SELECTION_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:provider-preview-mode-selection-v1`
 type EnvironmentOnboardingStep = 'profile' | 'region' | 'tooling' | 'access'
 type EnvironmentOnboardingState = {
   dismissed: boolean
@@ -2896,6 +2897,31 @@ function writeGcpRecentProjectIds(projectIds: string[]): void {
   }
 }
 
+function readPreviewModeSelections(): Partial<Record<PreviewProviderId, string>> {
+  try {
+    const raw = window.localStorage.getItem(PREVIEW_MODE_SELECTION_STORAGE_KEY)
+    if (!raw) {
+      return {}
+    }
+
+    const parsed = JSON.parse(raw) as Partial<Record<PreviewProviderId, unknown>>
+    return {
+      gcp: typeof parsed.gcp === 'string' ? parsed.gcp : '',
+      azure: typeof parsed.azure === 'string' ? parsed.azure : ''
+    }
+  } catch {
+    return {}
+  }
+}
+
+function writePreviewModeSelections(selections: Partial<Record<PreviewProviderId, string>>): void {
+  try {
+    window.localStorage.setItem(PREVIEW_MODE_SELECTION_STORAGE_KEY, JSON.stringify(selections))
+  } catch {
+    // Ignore preview mode persistence failures and keep the current in-memory state.
+  }
+}
+
 function getGcpCredentialFieldCopy(modeId?: string): { label: string; placeholder: string; helper: string } {
   switch (modeId) {
     case 'gcp-service-account':
@@ -3061,7 +3087,7 @@ export function App() {
   const [visitedScreens, setVisitedScreens] = useState<Screen[]>(['profiles'])
   const [providers, setProviders] = useState<ProviderDescriptor[]>([])
   const [activeProviderId, setActiveProviderId] = useState<CloudProviderId>(DEFAULT_PROVIDER_ID)
-  const [selectedPreviewModeIds, setSelectedPreviewModeIds] = useState<Partial<Record<PreviewProviderId, string>>>({})
+  const [selectedPreviewModeIds, setSelectedPreviewModeIds] = useState<Partial<Record<PreviewProviderId, string>>>(() => readPreviewModeSelections())
   const [gcpConnectionDrafts, setGcpConnectionDrafts] = useState<GcpConnectionDraftByMode>(() => readGcpConnectionDrafts())
   const [gcpCliContext, setGcpCliContext] = useState<GcpCliContext | null>(() => readGcpCliContextCache())
   const [recentGcpProjectIds, setRecentGcpProjectIds] = useState<string[]>(() => readGcpRecentProjectIds())
@@ -3398,6 +3424,10 @@ export function App() {
   useEffect(() => {
     writeGcpRecentProjectIds(recentGcpProjectIds)
   }, [recentGcpProjectIds])
+
+  useEffect(() => {
+    writePreviewModeSelections(selectedPreviewModeIds)
+  }, [selectedPreviewModeIds])
 
   useEffect(() => {
     if (services.length === 0) return
@@ -3948,7 +3978,6 @@ export function App() {
       connectionState.setProfile('')
       connectionState.setError('')
       setAzureContextError('')
-      setSelectedPreviewModeIds({})
     }
 
     setActiveProviderId(providerId)
