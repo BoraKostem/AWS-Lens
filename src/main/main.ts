@@ -2,30 +2,41 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, session } from 'electron'
 
+import { APP_DATA_DIRECTORY, PRODUCT_BRAND_NAME } from '@shared/branding'
 import { hasPendingAwsCredentialActivity, waitForAwsCredentialActivity } from './aws/client'
-import { registerAwsIpcHandlers } from './awsIpc'
-import { registerCompareIpcHandlers } from './compareIpc'
-import { registerComplianceIpcHandlers } from './complianceIpc'
-import { registerEc2IpcHandlers } from './ec2Ipc'
 import { assertEnterpriseAccess, recordEnterpriseAuditEvent } from './enterprise'
-import { registerEcrIpcHandlers } from './ecrIpc'
-import { registerEksIpcHandlers } from './eksIpc'
-import { registerFoundationIpcHandlers } from './foundationIpc'
 import { registerIpcHandlers } from './ipc'
-import { registerOverviewIpcHandlers } from './overviewIpc'
-import { registerSecurityIpcHandlers } from './securityIpc'
-import { registerServiceIpcHandlers } from './serviceIpc'
-import { registerSgIpcHandlers } from './sgIpc'
-import { registerTerminalIpcHandlers } from './terminalIpc'
-import { registerVpcIpcHandlers } from './vpcIpc'
 import { initializeObservability, logError, logInfo, logWarn } from './observability'
+import { registerProviderIpcHandlers } from './providerIpcRegistry'
 import { startReleaseCheck } from './releaseCheck'
 import { hasActiveTerraformApplyOrDestroy } from './terraform'
 
 let mainWindow: BrowserWindow | null = null
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+function ensureDirectory(targetPath: string): void {
+  fs.mkdirSync(targetPath, { recursive: true })
+}
+
+function configureAppStoragePaths(): void {
+  const appDataPath = app.getPath('appData')
+  const rootDataPath = path.join(appDataPath, APP_DATA_DIRECTORY)
+  const sessionDataPath = path.join(rootDataPath, 'session')
+  const cachePath = path.join(sessionDataPath, 'Cache')
+  const gpuCachePath = path.join(sessionDataPath, 'GPUCache')
+
+  ensureDirectory(rootDataPath)
+  ensureDirectory(sessionDataPath)
+  ensureDirectory(cachePath)
+  ensureDirectory(gpuCachePath)
+
+  app.setPath('userData', rootDataPath)
+  app.setPath('sessionData', sessionDataPath)
+  app.commandLine.appendSwitch('disk-cache-dir', cachePath)
+  app.commandLine.appendSwitch('disk-cache-size', `${64 * 1024 * 1024}`)
+}
 
 function showTerraformCloseWarning(owner?: BrowserWindow): number {
   const options = {
@@ -54,8 +65,9 @@ function asHandlerFailure(error: unknown): HandlerFailure {
 }
 
 const originalHandle = ipcMain.handle.bind(ipcMain)
-ipcMain.handle = (channel: string, listener: (...args: any[]) => any) => {
-  originalHandle(channel, async (...args: any[]) => {
+type IpcHandleListener = Parameters<typeof originalHandle>[1]
+ipcMain.handle = (channel: string, listener: IpcHandleListener) => {
+  originalHandle(channel, async (...args: Parameters<IpcHandleListener>) => {
     const enterpriseArgs = args.slice(1)
     let settings
 
@@ -84,39 +96,44 @@ ipcMain.handle = (channel: string, listener: (...args: any[]) => any) => {
           const settled = await result
           pendingRequests.delete(result)
           logInfo('ipc.async-success', `IPC call ${channel} completed.`, { channel })
-          await recordEnterpriseAuditEvent(channel, enterpriseArgs, 'success', settings)
+          try { await recordEnterpriseAuditEvent(channel, enterpriseArgs, 'success', settings) } catch { /* audit failure must not fail the IPC call */ }
           return settled
         } catch (error) {
           pendingRequests.delete(result)
           logError('ipc.async-failure', `IPC call ${channel} failed.`, { channel }, error)
-          await recordEnterpriseAuditEvent(
-            channel,
-            enterpriseArgs,
-            error instanceof Error && error.message.includes('read-only mode') ? 'blocked' : 'failed',
-            settings,
-            error instanceof Error ? error.message : String(error)
-          )
+          try {
+            await recordEnterpriseAuditEvent(
+              channel,
+              enterpriseArgs,
+              error instanceof Error && error.message.includes('read-only mode') ? 'blocked' : 'failed',
+              settings,
+              error instanceof Error ? error.message : String(error)
+            )
+          } catch { /* audit failure must not fail the IPC call */ }
           return asHandlerFailure(error)
         }
       }
 
       logInfo('ipc.sync-success', `IPC call ${channel} completed synchronously.`, { channel })
-      await recordEnterpriseAuditEvent(channel, enterpriseArgs, 'success', settings)
+      try { await recordEnterpriseAuditEvent(channel, enterpriseArgs, 'success', settings) } catch { /* audit failure must not fail the IPC call */ }
       return result
     } catch (error) {
       logError('ipc.sync-failure', `IPC call ${channel} failed synchronously.`, { channel }, error)
-      await recordEnterpriseAuditEvent(
-        channel,
-        enterpriseArgs,
-        'failed',
-        settings,
-        error instanceof Error ? error.message : String(error)
-      )
+      try {
+        await recordEnterpriseAuditEvent(
+          channel,
+          enterpriseArgs,
+          'failed',
+          settings,
+          error instanceof Error ? error.message : String(error)
+        )
+      } catch { /* audit failure must not fail the IPC call */ }
       return asHandlerFailure(error)
     }
   })
 }
 
+configureAppStoragePaths()
 initializeObservability()
 
 function resolvePreloadPath(): string {
@@ -141,7 +158,7 @@ function resolveIconPath(forDock = false): string {
   const ext = process.platform === 'darwin'
     ? (forDock ? 'png' : 'icns')
     : process.platform === 'win32' ? 'ico' : 'png'
-  const filename = forDock ? 'aws-lens-logo-dock' : 'aws-lens-logo'
+  const filename = forDock ? 'infra-lens-logo-dock' : 'infra-lens-logo'
   const candidates = [
     path.join(process.resourcesPath, 'assets', `${filename}.${ext}`),
     path.join(app.getAppPath(), `assets/${filename}.${ext}`),
@@ -170,7 +187,7 @@ function createWindow(): void {
   }
 
   mainWindow = new BrowserWindow({
-    title: 'AWS Lens',
+    title: PRODUCT_BRAND_NAME,
     icon: icon.isEmpty() ? undefined : icon,
     width: 1640,
     height: 1040,
@@ -184,6 +201,19 @@ function createWindow(): void {
       nodeIntegration: false,
       sandbox: false
     }
+  })
+
+  const isDev = !!process.env.ELECTRON_RENDERER_URL
+  const cspPolicy = isDev
+    ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https: ws: wss:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    : "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [cspPolicy]
+      }
+    })
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -212,19 +242,7 @@ app.whenReady().then(() => {
   logInfo('app.ready', 'Electron app is ready.')
   Menu.setApplicationMenu(null)
   registerIpcHandlers(() => mainWindow)
-  registerAwsIpcHandlers()
-  registerCompareIpcHandlers()
-  registerComplianceIpcHandlers()
-  registerEc2IpcHandlers()
-  registerEcrIpcHandlers()
-  registerEksIpcHandlers(() => mainWindow)
-  registerFoundationIpcHandlers()
-  registerOverviewIpcHandlers()
-  registerSecurityIpcHandlers()
-  registerServiceIpcHandlers()
-  registerSgIpcHandlers()
-  registerTerminalIpcHandlers()
-  registerVpcIpcHandlers()
+  registerProviderIpcHandlers({ getWindow: () => mainWindow })
   startReleaseCheck()
   createWindow()
 
@@ -256,8 +274,9 @@ app.on('before-quit', (e) => {
   }
 
   if (isQuitting || (pendingRequests.size === 0 && !hasPendingAwsCredentialActivity())) return
-  isQuitting = true
   e.preventDefault()
+  if (isQuitting) return
+  isQuitting = true
   const timeout = new Promise<void>(resolve => setTimeout(resolve, 5000))
   Promise.race([
     Promise.all([

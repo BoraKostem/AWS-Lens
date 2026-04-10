@@ -1,0 +1,102 @@
+.gcp-gke-console .eks-shell-hero,
+.gcp-gke-console .eks-detail-hero {
+  border-color: var(--provider-accent-border);
+  background:
+    radial-gradient(circle at top right, var(--provider-accent-glow), transparent 34%),
+    linear-gradient(180deg, rgba(15, 32, 24, 0.98), rgba(8, 18, 14, 0.98));
+}
+
+.gcp-gke-console .eks-stat-card.success,
+.gcp-gke-console .eks-toolbar-btn.accent,
+.gcp-gke-console .eks-action-btn.accent {
+  border-color: var(--provider-accent-border-strong);
+}
+
+.gcp-gke-console .eks-section-kicker,
+.gcp-gke-console .eyebrow,
+.gcp-gke-console .eks-shell-meta-pill strong,
+.gcp-gke-console .eks-detail-hero-copy h3 {
+  color: var(--provider-accent-strong);
+}
+
+.gcp-gke-console .eks-main-layout {
+  align-items: stretch;
+}
+
+.gcp-gke-console .eks-project-table-area {
+  flex: 0 0 380px;
+  width: 380px;
+}
+
+.gcp-gke-console .gcp-gke-detail-pane {
+  display: flex;
+}
+
+.gcp-gke-console .gcp-gke-inventory-table-wrap,
+.gcp-gke-console .gcp-gke-nodepool-table-wrap {
+  overflow: hidden;
+}
+
+.gcp-gke-console .gcp-gke-inventory-table-wrap .eks-ng-scroll {
+  max-height: 420px;
+}
+
+.gcp-gke-console .gcp-gke-nodepool-table-wrap .eks-ng-scroll {
+  max-height: 520px;
+}
+
+.gcp-gke-console .gcp-gke-selected-hero .eks-detail-hero-copy p {
+  max-width: 72ch;
+}
+
+.gcp-gke-console .gcp-gke-operations-section {
+  margin-bottom: 12px;
+}
+
+.gcp-gke-console .gcp-gke-scale-panel {
+  margin-top: 12px;
+}
+
+.gcp-gke-console .eks-data-table tbody tr.active td,
+.gcp-gke-console .eks-data-table tbody tr:hover td,
+.gcp-gke-console .eks-detail-tabs button.active {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--provider-accent) 28%, transparent);
+}
+
+.gcp-gke-console .eks-command-block {
+  background: rgba(6, 12, 9, 0.92);
+}
+
+.gcp-gke-console .eks-projects-panel,
+.gcp-gke-console .eks-nodegroups-section {
+  min-width: 0;
+}
+
+.gcp-gke-console .eks-data-table td {
+  vertical-align: middle;
+}
+
+@media (max-width: 1200px) {
+  .gcp-gke-console .eks-project-table-area {
+    flex-basis: 340px;
+    width: 340px;
+    min-width: 300px;
+  }
+
+  .gcp-gke-console .eks-nodegroup-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 960px) {
+  .gcp-gke-console .eks-project-table-area {
+    width: 100%;
+    min-width: 0;
+    flex-basis: auto;
+  }
+
+  .gcp-gke-console .gcp-gke-inventory-table-wrap .eks-ng-scroll,
+  .gcp-gke-console .gcp-gke-nodepool-table-wrap .eks-ng-scroll {
+    max-height: none;
+  }
+}

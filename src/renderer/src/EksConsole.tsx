@@ -4,33 +4,26 @@ import { SvcState } from './SvcState'
 import type {
   AwsConnection,
   CloudTrailEventSummary,
-  ConnectionPreset,
   CorrelatedSignalReference,
   EksCommandHandoff,
   EksClusterDetail,
   EksClusterSummary,
   EksNodegroupSummary,
   EksUpgradePlan,
-  GeneratedArtifact,
   ObservabilityPostureReport,
-  ServiceId,
   TerraformAdoptionTarget
 } from '@shared/types'
 import {
   addEksToKubeconfig,
   buildEksUpgradePlan,
   chooseEksKubeconfigPath,
-  deleteConnectionPreset,
   describeEksCluster,
   getEksObservabilityReport,
   listEksClusters,
-  listConnectionPresets,
   listEksNodegroups,
   lookupCloudTrailEventsByResource,
-  markConnectionPresetUsed,
   prepareEksKubectlSession,
   runEksCommand,
-  saveConnectionPreset,
   updateEksNodegroupScaling
 } from './api'
 import { ObservabilityResilienceLab } from './ObservabilityResilienceLab'
@@ -57,18 +50,6 @@ const NG_COLUMNS: { key: NgCol; label: string; color: string }[] = [
   { key: 'instanceTypes', label: 'Instance types', color: '#f285b9' }
 ]
 
-function isWindowsShell(): boolean {
-  return /win/i.test(navigator.platform || navigator.userAgent)
-}
-
-function wrapKubectlCommand(kubeconfigPath: string, command: string): string {
-  if (isWindowsShell()) {
-    return `$env:KUBECONFIG = '${kubeconfigPath.replace(/'/g, "''")}'; ${command}`
-  }
-
-  return `export KUBECONFIG='${kubeconfigPath.replace(/'/g, `'\\''`)}' && ${command}`
-}
-
 function getNgValue(ng: EksNodegroupSummary, key: NgCol): string {
   switch (key) {
     case 'name': return ng.name
@@ -86,10 +67,6 @@ function getNgValue(ng: EksNodegroupSummary, key: NgCol): string {
 function formatDateTime(value: string): string {
   if (!value || value === '-') return '-'
   try { return new Date(value).toLocaleString() } catch { return value }
-}
-
-function defaultEksPresetName(clusterName: string): string {
-  return clusterName ? `${clusterName} kubeconfig` : ''
 }
 
 function truncate(value: string, max = 52): string {
@@ -150,17 +127,11 @@ async function copyText(value: string): Promise<void> {
 export function EksConsole({
   connection,
   focusClusterName,
-  observabilityLabEnabled = true,
-  onRunTerminalCommand,
-  onNavigateCloudWatch,
-  onNavigateCloudTrail
+  onRunTerminalCommand
 }: {
   connection: AwsConnection
   focusClusterName?: { token: number; clusterName: string } | null
-  observabilityLabEnabled?: boolean
   onRunTerminalCommand?: (command: string) => void
-  onNavigateCloudWatch?: (focus: { logGroupNames?: string[]; queryString?: string; sourceLabel?: string; serviceHint?: ServiceId | '' }) => void
-  onNavigateCloudTrail?: (focus: { resourceName?: string; startTime?: string; endTime?: string; filter?: string }) => void
 }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -187,9 +158,6 @@ export function EksConsole({
   const [kubeconfigLocation, setKubeconfigLocation] = useState('.kube/config')
   const [kubeconfigBusy, setKubeconfigBusy] = useState(false)
   const [kubeconfigErr, setKubeconfigErr] = useState('')
-  const [connectionPresets, setConnectionPresets] = useState<ConnectionPreset[]>([])
-  const [selectedConnectionPresetId, setSelectedConnectionPresetId] = useState('')
-  const [connectionPresetName, setConnectionPresetName] = useState('')
   const [showTerraformAdoption, setShowTerraformAdoption] = useState(false)
   const [timelineEvents, setTimelineEvents] = useState<CloudTrailEventSummary[]>([])
   const [timelineLoading, setTimelineLoading] = useState(false)
@@ -213,12 +181,6 @@ export function EksConsole({
   const [upgradePlan, setUpgradePlan] = useState<EksUpgradePlan | null>(null)
   const [plannerTargetVersion, setPlannerTargetVersion] = useState('')
   const [plannerLoading, setPlannerLoading] = useState(false)
-
-  useEffect(() => {
-    if (!observabilityLabEnabled && sideTab === 'lab') {
-      setSideTab('overview')
-    }
-  }, [observabilityLabEnabled, sideTab])
   const [plannerError, setPlannerError] = useState('')
   const [plannerCopiedCommandId, setPlannerCopiedCommandId] = useState('')
 
@@ -248,11 +210,12 @@ export function EksConsole({
         region: connection.region,
         displayName: detail.name,
         identifier: detail.name,
-        arn: '',
+        arn: detail.name,
         name: detail.name,
         tags: detail.tags,
         resourceContext: {
           vpcId: detail.vpcId,
+          subnetId: detail.subnetIds[0],
           securityGroupIds: detail.securityGroupIds
         }
       }
@@ -285,111 +248,6 @@ export function EksConsole({
     void selectCluster(match.name)
   }, [appliedFocusToken, clusters, focusClusterName])
 
-  async function hydrateConnectionPresets(clusterName = selectedCluster): Promise<void> {
-    if (!clusterName) {
-      setConnectionPresets([])
-      setSelectedConnectionPresetId('')
-      setConnectionPresetName('')
-      return
-    }
-
-    try {
-      const presets = await listConnectionPresets({
-        kind: 'eks',
-        profile: connection.profile,
-        region: connection.region,
-        resourceId: clusterName
-      })
-      setConnectionPresets(presets)
-      setSelectedConnectionPresetId((current) => presets.some((entry) => entry.id === current) ? current : '')
-    } catch {
-      setConnectionPresets([])
-      setSelectedConnectionPresetId('')
-    }
-  }
-
-  function applyConnectionPreset(presetId: string): void {
-    setSelectedConnectionPresetId(presetId)
-    if (!presetId) {
-      setConnectionPresetName(defaultEksPresetName(selectedCluster))
-      return
-    }
-
-    const preset = connectionPresets.find((entry) => entry.id === presetId)
-    if (!preset) {
-      return
-    }
-
-    setConnectionPresetName(preset.name)
-    setKubeconfigContextName(preset.contextName || selectedCluster)
-    setKubeconfigLocation(preset.kubeconfigPath || '.kube/config')
-
-    void markConnectionPresetUsed(preset.id)
-      .then(() => hydrateConnectionPresets(selectedCluster))
-      .catch(() => undefined)
-  }
-
-  async function handleSaveConnectionPreset(): Promise<void> {
-    if (!detail || !selectedCluster) {
-      return
-    }
-
-    try {
-      const name = connectionPresetName.trim() || defaultEksPresetName(selectedCluster)
-      const saved = await saveConnectionPreset({
-        id: selectedConnectionPresetId || undefined,
-        name,
-        kind: 'eks',
-        profile: connection.profile,
-        region: connection.region,
-        resourceKind: 'eks-cluster',
-        resourceId: selectedCluster,
-        resourceLabel: detail.name,
-        engine: 'unknown',
-        host: detail.endpoint,
-        port: 443,
-        databaseName: '',
-        username: '',
-        credentialSourceKind: '',
-        credentialSourceRef: '',
-        connectInput: selectedCluster,
-        vaultEntryId: '',
-        vaultEntryName: '',
-        sshUser: '',
-        bastionImageId: '',
-        bastionInstanceType: '',
-        subnetId: '',
-        keyName: '',
-        securityGroupId: '',
-        contextName: kubeconfigContextName,
-        kubeconfigPath: kubeconfigLocation,
-        notes: accessSummary(detail)
-      })
-      setSelectedConnectionPresetId(saved.id)
-      setConnectionPresetName(saved.name)
-      setMsg(`Connection preset saved: ${saved.name}`)
-      await hydrateConnectionPresets(selectedCluster)
-    } catch (e) {
-      setKubeconfigErr(e instanceof Error ? e.message : 'Failed to save connection preset')
-    }
-  }
-
-  async function handleDeleteConnectionPreset(): Promise<void> {
-    if (!selectedConnectionPresetId || !selectedCluster) {
-      return
-    }
-
-    try {
-      await deleteConnectionPreset(selectedConnectionPresetId)
-      setSelectedConnectionPresetId('')
-      setConnectionPresetName(defaultEksPresetName(selectedCluster))
-      setMsg('Connection preset deleted.')
-      await hydrateConnectionPresets(selectedCluster)
-    } catch (e) {
-      setKubeconfigErr(e instanceof Error ? e.message : 'Failed to delete connection preset')
-    }
-  }
-
   async function selectCluster(name: string) {
     setSelectedCluster(name)
     setError('')
@@ -402,8 +260,6 @@ export function EksConsole({
     setKubeconfigContextName(name)
     setKubeconfigLocation('.kube/config')
     setKubeconfigErr('')
-    setConnectionPresetName(defaultEksPresetName(name))
-    setSelectedConnectionPresetId('')
     setLabReport(null)
     setLabError('')
     setUpgradePlan(null)
@@ -418,7 +274,6 @@ export function EksConsole({
       setDetail(clusterDetail)
       setNodegroups(clusterNodegroups)
       setSelectedNg(clusterNodegroups[0]?.name ?? '')
-      await hydrateConnectionPresets(name)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
@@ -497,58 +352,14 @@ export function EksConsole({
   }, [connection, labReport, selectedCluster, sideTab])
 
   function handleLabSignalNavigate(signal: CorrelatedSignalReference) {
-    if (signal.targetView === 'timeline') {
-      setSideTab('timeline')
-      return
-    }
-
-    if (signal.serviceId === 'cloudtrail') {
-      onNavigateCloudTrail?.({
-        resourceName: selectedCluster,
-        filter: selectedCluster,
-        startTime: new Date(`${timelineStart}T00:00:00`).toISOString(),
-        endTime: new Date(`${timelineEnd}T23:59:59`).toISOString()
-      })
-      return
-    }
-
-    if (signal.serviceId === 'cloudwatch' && selectedCluster) {
-      onNavigateCloudWatch?.({
-        logGroupNames: [`/aws/eks/${selectedCluster}/cluster`],
-        queryString: [
-          'fields @timestamp, @logStream, @message',
-          `| filter @message like /(?i)(${selectedCluster.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|error|failed|throttle|evicted)/`,
-          '| sort @timestamp desc',
-          '| limit 50'
-        ].join('\n'),
-        sourceLabel: selectedCluster,
-        serviceHint: 'eks'
-      })
-    }
-  }
-
-  async function handleLabArtifactRun(artifact: GeneratedArtifact): Promise<void> {
-    setError('')
-    setMsg('')
-
-    try {
-      let command = artifact.content
-
-      if (selectedCluster && /\bkubectl\b/.test(artifact.content)) {
-        const session = await prepareEksKubectlSession(connection, selectedCluster)
-        command = wrapKubectlCommand(session.path, artifact.content)
-      }
-
-      onRunTerminalCommand?.(command)
-      setMsg(`${artifact.title} sent to the app terminal`)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    }
+    if (signal.targetView === 'timeline') setSideTab('timeline')
   }
 
   function openKubeconfigForm() {
     if (!selectedCluster) return
     setShowKubeconfigForm(true)
+    setKubeconfigContextName(selectedCluster)
+    setKubeconfigLocation('.kube/config')
     setKubeconfigErr('')
   }
 
@@ -575,9 +386,6 @@ export function EksConsole({
     setKubeconfigBusy(true)
     try {
       const result = await addEksToKubeconfig(connection, selectedCluster, contextName, kubeconfigPath)
-      if (selectedConnectionPresetId) {
-        await markConnectionPresetUsed(selectedConnectionPresetId).catch(() => undefined)
-      }
       setMsg(result)
       setShowKubeconfigForm(false)
     } catch (e) {
@@ -811,9 +619,7 @@ export function EksConsole({
                 <button className={sideTab === 'overview' ? 'active' : ''} type="button" onClick={() => setSideTab('overview')}>Overview</button>
                 <button className={sideTab === 'planner' ? 'active' : ''} type="button" onClick={() => setSideTab('planner')}>Upgrade planner</button>
                 <button className={sideTab === 'timeline' ? 'active' : ''} type="button" onClick={() => setSideTab('timeline')}>Change timeline</button>
-                {observabilityLabEnabled && (
-                  <button className={sideTab === 'lab' ? 'active' : ''} type="button" onClick={() => setSideTab('lab')}>Resilience lab</button>
-                )}
+                <button className={sideTab === 'lab' ? 'active' : ''} type="button" onClick={() => setSideTab('lab')}>Resilience lab</button>
               </div>
 
               {sideTab === 'overview' && (
@@ -1097,7 +903,7 @@ export function EksConsole({
 
                       <section className="eks-section">
                         <div className="eks-section-head">
-                          <div><span className="eks-section-kicker">Handoff commands</span><h4>AWS CLI and kubectl snippets</h4></div>
+                          <div><span className="eks-section-kicker">Handoff commands</span><h4>CLI and kubectl snippets</h4></div>
                           <span className="eks-section-hint">These commands are shown for operator handoff only. This planner does not execute upgrades in-app.</span>
                         </div>
                         <div className="eks-planner-card-grid">
@@ -1163,7 +969,6 @@ export function EksConsole({
                     loading={labLoading}
                     error={labError}
                     onRefresh={() => void loadLab()}
-                    onRunArtifact={handleLabArtifactRun}
                     onNavigateSignal={handleLabSignalNavigate}
                   />
                 </section>
@@ -1177,41 +982,6 @@ export function EksConsole({
           <section className="eks-modal-panel" onClick={(event) => event.stopPropagation()}>
             <div className="eks-section-head">
               <div><span className="eks-section-kicker">Kubeconfig</span><h4>Add selected cluster</h4></div>
-            </div>
-            <div className="eks-inline-panel eks-preset-panel">
-              <div className="eks-section-head">
-                <div><span className="eks-section-kicker">Connection preset</span><h4>Reusable kubeconfig defaults</h4></div>
-              </div>
-              <div className="eks-form-grid">
-                <label>
-                  Saved preset
-                  <div className="eks-picker-field">
-                    <select value={selectedConnectionPresetId} onChange={(event) => applyConnectionPreset(event.target.value)}>
-                      <option value="">Current form values</option>
-                      {connectionPresets.map((preset) => (
-                        <option key={preset.id} value={preset.id}>
-                          {preset.name}
-                        </option>
-                      ))}
-                    </select>
-                    <button type="button" className="eks-toolbar-btn" onClick={() => void handleSaveConnectionPreset()} disabled={kubeconfigBusy || !selectedCluster}>
-                      {selectedConnectionPresetId ? 'Update' : 'Save'}
-                    </button>
-                    <button type="button" className="eks-toolbar-btn" onClick={() => void handleDeleteConnectionPreset()} disabled={kubeconfigBusy || !selectedConnectionPresetId}>
-                      Delete
-                    </button>
-                  </div>
-                </label>
-                <label>
-                  Preset name
-                  <input value={connectionPresetName} onChange={(event) => setConnectionPresetName(event.target.value)} placeholder="prod-cluster kubeconfig" />
-                </label>
-              </div>
-              <div className="eks-section-hint">
-                {selectedConnectionPresetId
-                  ? `Preset scope: ${selectedCluster}${connectionPresets.find((preset) => preset.id === selectedConnectionPresetId)?.lastUsedAt ? ` | Last used ${formatDateTime(connectionPresets.find((preset) => preset.id === selectedConnectionPresetId)?.lastUsedAt ?? '')}` : ''}`
-                  : `${connectionPresets.length} saved EKS preset${connectionPresets.length === 1 ? '' : 's'} for this cluster`}
-              </div>
             </div>
             <div className="eks-form-grid">
               <label>Context name<input value={kubeconfigContextName} onChange={(event) => setKubeconfigContextName(event.target.value)} placeholder="my-eks-context" autoFocus /></label>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { CollapsibleInfoPanel } from './CollapsibleInfoPanel'
+import { ProviderPermissionDiagnosticsPanel } from './ProviderPermissionDiagnosticsPanel'
 import { VaultManagerPanel } from './VaultManagerPanel'
-import { APP_FEATURE_FLAGS, getDefaultAppFeatureSettings, isFeatureFlagEnabled } from '@shared/featureFlags'
 
 import type {
   AppReleaseInfo,
@@ -9,23 +9,32 @@ import type {
   AppSettings,
   AwsProfile,
   AwsRegionOption,
+  AzureProviderContextSnapshot,
+  CloudProviderId,
   EnterpriseAccessMode,
   EnterpriseAuditEvent,
   EnterpriseSettings,
   EnvironmentPermissionCheck,
   EnvironmentHealthReport,
   EnvironmentToolCheck,
+  GcpCliContext,
   GovernanceTagDefaults,
+  ProviderDescriptor,
   TerraformCliInfo
 } from '@shared/types'
+import type { ProviderPermissionDiagnosticsReport } from './providerPermissionDiagnostics'
 
-type SettingsTab = 'general' | 'registry' | 'terminal' | 'refresh' | 'governance' | 'toolchain' | 'updates' | 'security'
+type SettingsTab = 'general' | 'terminal' | 'refresh' | 'governance' | 'toolchain' | 'updates' | 'security'
 
 type SettingsPageProps = {
   isVisible: boolean
   appSettings: AppSettings | null
+  providers: ProviderDescriptor[]
+  providerConnectionModes: Record<CloudProviderId, Array<{ id: string; label: string }>>
   profiles: AwsProfile[]
   regions: AwsRegionOption[]
+  gcpCliContext: GcpCliContext | null
+  azureProviderContext: AzureProviderContextSnapshot | null
   toolchainInfo: TerraformCliInfo | null
   securitySummary: AppSecuritySummary | null
   enterpriseSettings: EnterpriseSettings
@@ -40,13 +49,13 @@ type SettingsPageProps = {
   releaseStateLabel: string
   releaseStateTone: string
   environmentHealth: EnvironmentHealthReport | null
+  providerPermissionDiagnostics: ProviderPermissionDiagnosticsReport
   environmentBusy: boolean
   governanceDefaults: GovernanceTagDefaults | null
   toolchainBusy: boolean
   enterpriseBusy: boolean
   settingsMessage: string
   onUpdateGeneralSettings: (update: AppSettings['general']) => void
-  onUpdateFeatureSettings: (update: AppSettings['features']) => void
   onUpdateTerminalSettings: (update: AppSettings['terminal']) => void
   onUpdateRefreshSettings: (update: AppSettings['refresh']) => void
   onUpdateGovernanceDefaults: (update: GovernanceTagDefaults) => void
@@ -65,7 +74,6 @@ type SettingsPageProps = {
 
 const TAB_ITEMS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'general', label: 'App' },
-  { id: 'registry', label: 'Registry' },
   { id: 'terminal', label: 'Terminal' },
   { id: 'refresh', label: 'Refresh' },
   { id: 'governance', label: 'Governance' },
@@ -111,6 +119,10 @@ function environmentPermissionTone(status: EnvironmentPermissionCheck['status'])
   return status === 'ok' ? 'stable' : status === 'error' ? 'preview' : 'unknown'
 }
 
+function mergeDistinctStrings(values: Array<string | undefined>): string[] {
+  return [...new Set(values.map((value) => value?.trim() ?? '').filter(Boolean))].sort((left, right) => left.localeCompare(right))
+}
+
 function SettingSection({
   title,
   children
@@ -149,8 +161,12 @@ function SettingRow({
 export function SettingsPage({
   isVisible,
   appSettings,
+  providers,
+  providerConnectionModes,
   profiles,
   regions,
+  gcpCliContext,
+  azureProviderContext,
   toolchainInfo,
   securitySummary,
   enterpriseSettings,
@@ -161,13 +177,13 @@ export function SettingsPage({
   releaseStateLabel,
   releaseStateTone,
   environmentHealth,
+  providerPermissionDiagnostics,
   environmentBusy,
   governanceDefaults,
   toolchainBusy,
   enterpriseBusy,
   settingsMessage,
   onUpdateGeneralSettings,
-  onUpdateFeatureSettings,
   onUpdateTerminalSettings,
   onUpdateRefreshSettings,
   onUpdateGovernanceDefaults,
@@ -185,11 +201,19 @@ export function SettingsPage({
 }: SettingsPageProps): JSX.Element {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
   const [generalDraft, setGeneralDraft] = useState<AppSettings['general']>({
+    defaultProviderId: 'aws',
     defaultProfileName: '',
     defaultRegion: 'us-east-1',
+    gcpDefaultModeId: 'gcp-adc',
+    gcpDefaultProjectId: '',
+    gcpDefaultLocation: 'us-central1',
+    azureDefaultModeId: 'azure-subscription',
+    azureDefaultSubscriptionId: '',
+    azureDefaultSubscriptionLabel: '',
+    azureDefaultTenantId: '',
+    azureDefaultLocation: '',
     launchScreen: 'profiles'
   })
-  const [featureDraft, setFeatureDraft] = useState<AppSettings['features']>(getDefaultAppFeatureSettings())
   const [terminalDraft, setTerminalDraft] = useState<AppSettings['terminal']>({
     autoOpen: false,
     defaultCommand: '',
@@ -215,6 +239,8 @@ export function SettingsPage({
     terraformPathOverride: '',
     opentofuPathOverride: '',
     awsCliPathOverride: '',
+    gcloudPathOverride: '',
+    azureCliPathOverride: '',
     kubectlPathOverride: '',
     dockerPathOverride: ''
   })
@@ -226,7 +252,6 @@ export function SettingsPage({
   useEffect(() => {
     if (!appSettings) return
     setGeneralDraft(appSettings.general)
-    setFeatureDraft(appSettings.features)
     setTerminalDraft(appSettings.terminal)
     setRefreshDraft(appSettings.refresh)
     setToolchainDraft(appSettings.toolchain)
@@ -252,39 +277,215 @@ export function SettingsPage({
     return `${toolchainInfo.label} ${toolchainInfo.version}`
   }, [toolchainInfo])
 
-  function registryTone(maturity: 'beta' | 'experimental'): 'stable' | 'preview' | 'unknown' {
-    return maturity === 'experimental' ? 'preview' : 'unknown'
-  }
+  const selectedStartupProvider = useMemo<ProviderDescriptor>(() => (
+    providers.find((provider) => provider.id === generalDraft.defaultProviderId) ?? providers[0] ?? {
+      id: 'aws',
+      label: 'AWS',
+      shortLabel: 'AWS',
+      availability: 'available',
+      profileLabel: 'Profile',
+      locationLabel: 'Region',
+      connectionLabel: 'AWS profile or assumed role'
+    }
+  ), [generalDraft.defaultProviderId, providers])
+
+  const selectedStartupProviderModes = providerConnectionModes[selectedStartupProvider.id] ?? []
+  const selectedAzureSubscription = useMemo(
+    () => azureProviderContext?.subscriptions.find((subscription) => subscription.subscriptionId === generalDraft.azureDefaultSubscriptionId) ?? null,
+    [azureProviderContext?.subscriptions, generalDraft.azureDefaultSubscriptionId]
+  )
+  const gcpLocationOptions = useMemo(
+    () => mergeDistinctStrings([
+      generalDraft.gcpDefaultLocation,
+      ...(gcpCliContext?.locations ?? []),
+      gcpCliContext?.activeRegion,
+      gcpCliContext?.activeZone
+    ]),
+    [gcpCliContext?.activeRegion, gcpCliContext?.activeZone, gcpCliContext?.locations, generalDraft.gcpDefaultLocation]
+  )
+  const azureLocationOptions = useMemo(
+    () => mergeDistinctStrings([
+      generalDraft.azureDefaultLocation,
+      ...(selectedAzureSubscription?.locations ?? []),
+      ...(azureProviderContext?.locations.map((location) => location.name) ?? []),
+      azureProviderContext?.activeLocation
+    ]),
+    [
+      azureProviderContext?.activeLocation,
+      azureProviderContext?.locations,
+      generalDraft.azureDefaultLocation,
+      selectedAzureSubscription?.locations
+    ]
+  )
 
   function renderGeneralTab(): JSX.Element {
+    const selectedProviderId = generalDraft.defaultProviderId
+    const selectedModeId = selectedProviderId === 'gcp'
+      ? generalDraft.gcpDefaultModeId
+      : selectedProviderId === 'azure'
+        ? generalDraft.azureDefaultModeId
+        : ''
+
     return (
       <>
         <SettingSection title="Startup">
-          <SettingRow label="Default profile" description="Select the profile AWS Lens should prefer when no manual profile is pinned.">
+          <SettingRow label="Startup provider" description="Choose which cloud provider should be preselected when the app shell opens.">
             <select
-              value={generalDraft.defaultProfileName}
-              onChange={(event) => setGeneralDraft((current) => ({ ...current, defaultProfileName: event.target.value }))}
+              value={selectedProviderId}
+              onChange={(event) => setGeneralDraft((current) => ({
+                ...current,
+                defaultProviderId: event.target.value as CloudProviderId
+              }))}
               disabled={!appSettings}
             >
-              <option value="">Follow manual selection</option>
-              {profiles.map((profile) => (
-                <option key={profile.name} value={profile.name}>{profile.name}</option>
+              {providers.map((provider) => (
+                <option key={provider.id} value={provider.id}>{provider.label}</option>
               ))}
             </select>
           </SettingRow>
-          <SettingRow label="Default region" description="Used when the workspace starts without an explicit region context.">
-            <select
-              value={generalDraft.defaultRegion}
-              onChange={(event) => setGeneralDraft((current) => ({ ...current, defaultRegion: event.target.value }))}
-              disabled={!appSettings}
+          {selectedProviderId !== 'aws' && (
+            <SettingRow
+              label="Connection mode"
+              description={`Choose which ${selectedStartupProvider.label} context model should seed the shared shell.`}
             >
-              {regions.map((region) => (
-                <option key={region.id} value={region.id}>{region.id} - {region.name}</option>
-              ))}
-              {!regions.some((region) => region.id === generalDraft.defaultRegion) && (
-                <option value={generalDraft.defaultRegion}>{generalDraft.defaultRegion}</option>
-              )}
-            </select>
+              <select
+                value={selectedModeId}
+                onChange={(event) => setGeneralDraft((current) => (
+                  selectedProviderId === 'gcp'
+                    ? { ...current, gcpDefaultModeId: event.target.value }
+                    : { ...current, azureDefaultModeId: event.target.value }
+                ))}
+                disabled={!appSettings}
+              >
+                {selectedStartupProviderModes.map((mode) => (
+                  <option key={mode.id} value={mode.id}>{mode.label}</option>
+                ))}
+                {!selectedStartupProviderModes.some((mode) => mode.id === selectedModeId) && selectedModeId && (
+                  <option value={selectedModeId}>{selectedModeId}</option>
+                )}
+              </select>
+            </SettingRow>
+          )}
+          <SettingRow
+            label={`Default ${selectedStartupProvider.profileLabel.toLowerCase()}`}
+            description={`Choose which ${selectedStartupProvider.profileLabel.toLowerCase()} the shell should restore for ${selectedStartupProvider.label}.`}
+          >
+            {selectedProviderId === 'aws' ? (
+              <select
+                value={generalDraft.defaultProfileName}
+                onChange={(event) => setGeneralDraft((current) => ({ ...current, defaultProfileName: event.target.value }))}
+                disabled={!appSettings}
+              >
+                <option value="">Follow manual selection</option>
+                {profiles.map((profile) => (
+                  <option key={profile.name} value={profile.name}>{profile.name}</option>
+                ))}
+              </select>
+            ) : selectedProviderId === 'gcp' ? (
+              <select
+                value={generalDraft.gcpDefaultProjectId}
+                onChange={(event) => setGeneralDraft((current) => ({ ...current, gcpDefaultProjectId: event.target.value }))}
+                disabled={!appSettings}
+              >
+                <option value="">Follow detected project</option>
+                {(gcpCliContext?.projects ?? []).map((project) => (
+                  <option key={project.projectId} value={project.projectId}>
+                    {project.projectId}{project.name ? ` - ${project.name}` : ''}
+                  </option>
+                ))}
+                {generalDraft.gcpDefaultProjectId && !(gcpCliContext?.projects ?? []).some((project) => project.projectId === generalDraft.gcpDefaultProjectId) && (
+                  <option value={generalDraft.gcpDefaultProjectId}>{generalDraft.gcpDefaultProjectId}</option>
+                )}
+              </select>
+            ) : (
+              <select
+                value={generalDraft.azureDefaultSubscriptionId}
+                onChange={(event) => {
+                  const subscriptionId = event.target.value
+                  const subscription = azureProviderContext?.subscriptions.find((entry) => entry.subscriptionId === subscriptionId) ?? null
+                  const nextLocations = mergeDistinctStrings([
+                    generalDraft.azureDefaultLocation,
+                    ...(subscription?.locations ?? []),
+                    ...(azureProviderContext?.locations.map((location) => location.name) ?? [])
+                  ])
+
+                  setGeneralDraft((current) => ({
+                    ...current,
+                    azureDefaultSubscriptionId: subscriptionId,
+                    azureDefaultSubscriptionLabel: subscription?.displayName ?? '',
+                    azureDefaultTenantId: subscription?.tenantId ?? '',
+                    azureDefaultLocation: subscriptionId
+                      ? (nextLocations.includes(current.azureDefaultLocation) ? current.azureDefaultLocation : nextLocations[0] ?? '')
+                      : current.azureDefaultLocation
+                  }))
+                }}
+                disabled={!appSettings}
+              >
+                <option value="">Follow active subscription</option>
+                {(azureProviderContext?.subscriptions ?? []).map((subscription) => (
+                  <option key={subscription.subscriptionId} value={subscription.subscriptionId}>
+                    {subscription.displayName || subscription.subscriptionId}
+                  </option>
+                ))}
+                {generalDraft.azureDefaultSubscriptionId
+                  && !(azureProviderContext?.subscriptions ?? []).some((subscription) => subscription.subscriptionId === generalDraft.azureDefaultSubscriptionId) && (
+                  <option value={generalDraft.azureDefaultSubscriptionId}>
+                    {generalDraft.azureDefaultSubscriptionLabel || generalDraft.azureDefaultSubscriptionId}
+                  </option>
+                )}
+              </select>
+            )}
+          </SettingRow>
+          <SettingRow
+            label={`Default ${selectedStartupProvider.locationLabel.toLowerCase()}`}
+            description={`Used when ${selectedStartupProvider.label} opens without an explicit ${selectedStartupProvider.locationLabel.toLowerCase()} context.`}
+          >
+            {selectedProviderId === 'aws' ? (
+              <select
+                value={generalDraft.defaultRegion}
+                onChange={(event) => setGeneralDraft((current) => ({ ...current, defaultRegion: event.target.value }))}
+                disabled={!appSettings}
+              >
+                {regions.map((region) => (
+                  <option key={region.id} value={region.id}>{region.id} - {region.name}</option>
+                ))}
+                {!regions.some((region) => region.id === generalDraft.defaultRegion) && (
+                  <option value={generalDraft.defaultRegion}>{generalDraft.defaultRegion}</option>
+                )}
+              </select>
+            ) : selectedProviderId === 'gcp' ? (
+              <select
+                value={generalDraft.gcpDefaultLocation}
+                onChange={(event) => setGeneralDraft((current) => ({ ...current, gcpDefaultLocation: event.target.value }))}
+                disabled={!appSettings}
+              >
+                {gcpLocationOptions.map((location) => (
+                  <option key={location} value={location}>{location}</option>
+                ))}
+                {!gcpLocationOptions.includes(generalDraft.gcpDefaultLocation) && (
+                  <option value={generalDraft.gcpDefaultLocation}>{generalDraft.gcpDefaultLocation}</option>
+                )}
+              </select>
+            ) : (
+              <select
+                value={generalDraft.azureDefaultLocation}
+                onChange={(event) => setGeneralDraft((current) => ({ ...current, azureDefaultLocation: event.target.value }))}
+                disabled={!appSettings}
+              >
+                {azureLocationOptions.length === 0 ? (
+                  <option value="">
+                    {selectedAzureSubscription ? 'Select location' : 'Load Azure context to list locations'}
+                  </option>
+                ) : (
+                  azureLocationOptions.map((location) => (
+                    <option key={location} value={location}>{location}</option>
+                  ))
+                )}
+                {!azureLocationOptions.includes(generalDraft.azureDefaultLocation) && generalDraft.azureDefaultLocation && (
+                  <option value={generalDraft.azureDefaultLocation}>{generalDraft.azureDefaultLocation}</option>
+                )}
+              </select>
+            )}
           </SettingRow>
           <SettingRow label="Launch screen" description="Choose which workspace opens first after the shell loads.">
             <select
@@ -304,85 +505,7 @@ export function SettingsPage({
 
         <div className="settings-tab-actions">
           <button type="button" className="accent" disabled={!appSettings} onClick={() => onUpdateGeneralSettings(generalDraft)}>
-            Save app preferences
-          </button>
-        </div>
-      </>
-    )
-  }
-
-  function renderRegistryTab(): JSX.Element {
-    const labFlags = APP_FEATURE_FLAGS.filter((flag) => flag.surface === 'lab')
-    const serviceFlags = APP_FEATURE_FLAGS.filter((flag) => flag.surface === 'service')
-    const enabledCount = APP_FEATURE_FLAGS.filter((flag) => isFeatureFlagEnabled(featureDraft, flag.id)).length
-
-    return (
-      <>
-        <SettingSection title="Labs">
-          {labFlags.map((flag) => {
-            const enabled = isFeatureFlagEnabled(featureDraft, flag.id)
-            return (
-              <SettingRow key={flag.id} label={flag.label} description={`${flag.description} Default: ${flag.defaultEnabled ? 'enabled' : 'disabled'}.`}>
-                <div className="settings-inline-actions">
-                  <span className={`settings-status-pill settings-status-pill-${registryTone(flag.maturity)}`}>{flag.maturity}</span>
-                  <label className="settings-toggle">
-                    <input
-                      type="checkbox"
-                      checked={enabled}
-                      onChange={(event) => setFeatureDraft((current) => ({
-                        ...current,
-                        registry: {
-                          ...current.registry,
-                          [flag.id]: event.target.checked
-                        }
-                      }))}
-                      disabled={!appSettings}
-                    />
-                    <span>{enabled ? 'Enabled' : 'Disabled'}</span>
-                  </label>
-                </div>
-              </SettingRow>
-            )
-          })}
-        </SettingSection>
-
-        <SettingSection title="Experimental Services">
-          {serviceFlags.map((flag) => {
-            const enabled = isFeatureFlagEnabled(featureDraft, flag.id)
-            return (
-              <SettingRow key={flag.id} label={flag.label} description={flag.description}>
-                <div className="settings-inline-actions">
-                  <span className={`settings-status-pill settings-status-pill-${registryTone(flag.maturity)}`}>{flag.maturity}</span>
-                  <label className="settings-toggle">
-                    <input
-                      type="checkbox"
-                      checked={enabled}
-                      onChange={(event) => setFeatureDraft((current) => ({
-                        ...current,
-                        registry: {
-                          ...current.registry,
-                          [flag.id]: event.target.checked
-                        }
-                      }))}
-                      disabled={!appSettings}
-                    />
-                    <span>{enabled ? 'Enabled' : 'Disabled'}</span>
-                  </label>
-                </div>
-              </SettingRow>
-            )
-          })}
-        </SettingSection>
-
-        <SettingSection title="Registry Summary">
-          <SettingRow label="Enabled surfaces" description="Only flagged labs and experimental services stay visible in the shell when enabled here.">
-            <div className="settings-static-value">{enabledCount} / {APP_FEATURE_FLAGS.length}</div>
-          </SettingRow>
-        </SettingSection>
-
-        <div className="settings-tab-actions">
-          <button type="button" className="accent" disabled={!appSettings} onClick={() => onUpdateFeatureSettings(featureDraft)}>
-            Save registry
+            Save startup preferences
           </button>
         </div>
       </>
@@ -503,7 +626,7 @@ export function SettingsPage({
     return (
       <>
         <SettingSection title="Default Tags">
-          <SettingRow label="Apply defaults automatically" description="When enabled, AWS Lens applies the saved Owner, Environment, Project, and CostCenter tags to supported EC2 workflows it creates.">
+          <SettingRow label="Apply defaults automatically" description="When enabled, the shell applies the saved Owner, Environment, Project, and CostCenter tags to supported resource workflows it creates.">
             <label className="settings-toggle">
               <input
                 type="checkbox"
@@ -564,7 +687,7 @@ export function SettingsPage({
         </SettingSection>
 
         <SettingSection title="Current Coverage">
-          <SettingRow label="Configured values" description="Only non-empty values are applied to new supported resources and the EC2 apply-defaults shortcuts.">
+          <SettingRow label="Configured values" description="Only non-empty values are applied to new supported resources and the apply-defaults shortcuts.">
             <div className="settings-static-value">
               {configuredValues.length > 0
                 ? configuredValues.map(([key, value]) => `${key}=${value}`).join(' | ')
@@ -592,11 +715,6 @@ export function SettingsPage({
     const attentionTools = environmentHealth?.tools.filter((tool) => tool.status !== 'available') ?? []
     const readyPermissions = environmentHealth?.permissions.filter((item) => item.status === 'ok') ?? []
     const attentionPermissions = environmentHealth?.permissions.filter((item) => item.status !== 'ok') ?? []
-    const readyCheckCount = readyTools.length + readyPermissions.length
-    const attentionCheckCount = attentionTools.length + attentionPermissions.length
-    const diagnosticsNextStep = attentionPermissions[0]?.remediation
-      || attentionTools[0]?.remediation
-      || 'Machine checks look healthy. Export a diagnostics bundle only when you need to share workstation context or support state.'
 
     return (
       <>
@@ -639,6 +757,22 @@ export function SettingsPage({
               disabled={!appSettings || toolchainBusy}
             />
           </SettingRow>
+          <SettingRow label="Google Cloud CLI path override">
+            <input
+              value={toolchainDraft.gcloudPathOverride}
+              onChange={(event) => setToolchainDraft((current) => ({ ...current, gcloudPathOverride: event.target.value }))}
+              placeholder="Optional executable path"
+              disabled={!appSettings || toolchainBusy}
+            />
+          </SettingRow>
+          <SettingRow label="Azure CLI path override">
+            <input
+              value={toolchainDraft.azureCliPathOverride}
+              onChange={(event) => setToolchainDraft((current) => ({ ...current, azureCliPathOverride: event.target.value }))}
+              placeholder="Optional executable path"
+              disabled={!appSettings || toolchainBusy}
+            />
+          </SettingRow>
           <SettingRow label="kubectl path override">
             <input
               value={toolchainDraft.kubectlPathOverride}
@@ -661,32 +795,11 @@ export function SettingsPage({
           <SettingRow label="Detected CLI" description={toolchainInfo?.found ? `Path: ${toolchainInfo.path || 'resolved by runtime'}` : (toolchainInfo?.error || 'No CLI detected yet.')}>
             <div className="settings-static-value">{toolchainSummary}</div>
           </SettingRow>
-          <div className="settings-check-grid">
-            <div className="settings-check-card">
-              <span>Ready</span>
-              <strong>{readyCheckCount}</strong>
-            </div>
-            <div className="settings-check-card">
-              <span>Needs attention</span>
-              <strong>{attentionCheckCount}</strong>
-            </div>
-            <div className="settings-check-card">
-              <span>Last checked</span>
-              <strong>{environmentHealth?.checkedAt ? new Date(environmentHealth.checkedAt).toLocaleTimeString() : environmentBusy ? 'Running now' : 'Not checked yet'}</strong>
-            </div>
-          </div>
-          <div className="settings-check-callout">
-            <strong>{environmentHealth?.summary ?? 'Run a rescan to refresh tool and permission state.'}</strong>
-            <span>{diagnosticsNextStep}</span>
-          </div>
-          <div className="settings-action-row">
+          <SettingRow label="Machine validation" description={environmentHealth?.summary ?? 'Run a rescan to refresh tool and permission state.'}>
             <button type="button" className="accent" disabled={environmentBusy} onClick={onRefreshEnvironment}>
               {environmentBusy ? 'Refreshing...' : 'Rescan environment'}
             </button>
-            <button type="button" disabled={enterpriseBusy} onClick={onDiagnosticsExport}>
-              Diagnostics bundle
-            </button>
-          </div>
+          </SettingRow>
           {environmentHealth && (
             <div className="environment-onboarding-grid">
               <section className="environment-onboarding-section">
@@ -951,14 +1064,16 @@ export function SettingsPage({
             {auditEvents.length === 0 && <div className="settings-static-muted">No audit events yet.</div>}
           </div>
         </SettingSection>
+
+        <SettingSection title="Provider Permission Diagnostics">
+          <ProviderPermissionDiagnosticsPanel report={providerPermissionDiagnostics} compact title="Current Provider" />
+        </SettingSection>
       </>
     )
   }
 
   function renderActiveTab(): JSX.Element {
     switch (activeTab) {
-      case 'registry':
-        return renderRegistryTab()
       case 'terminal':
         return renderTerminalTab()
       case 'refresh':
@@ -1020,12 +1135,11 @@ export function SettingsPage({
 
           <CollapsibleInfoPanel title="Quick Help" className="settings-info-panel">
             <div className="settings-tab-section__body">
-              {activeTab === 'general' && <p>Set the default profile, region, and launch screen when you want AWS Lens to boot into a predictable operator context.</p>}
-              {activeTab === 'registry' && <p>Registry controls whether embedded lab panels and experimental services are visible in the shell without changing the rest of the operator workflow.</p>}
+              {activeTab === 'general' && <p>Set the default profile, region, and launch screen when you want the shell to boot into a predictable operator context.</p>}
               {activeTab === 'terminal' && <p>Terminal preferences control how the embedded shell opens after a session becomes active. Operator mode is still required for command execution.</p>}
-              {activeTab === 'refresh' && <p>Use refresh policy to decide whether heavy screens re-query automatically or only on demand. Conservative defaults reduce surprise AWS API traffic.</p>}
-              {activeTab === 'governance' && <p>Governance defaults define reusable ownership tags that AWS Lens can inherit into supported EC2 workflows and reapply from resource consoles.</p>}
-              {activeTab === 'toolchain' && <p>Toolchain settings define which local CLI AWS Lens should prefer and let you override executable paths when workstation PATH state is inconsistent.</p>}
+              {activeTab === 'refresh' && <p>Use refresh policy to decide whether heavy screens re-query automatically or only on demand. Conservative defaults reduce surprise provider API traffic.</p>}
+              {activeTab === 'governance' && <p>Governance defaults define reusable ownership tags that the shell can inherit into supported resource workflows and reapply from resource consoles across all providers.</p>}
+              {activeTab === 'toolchain' && <p>Toolchain settings define which local CLI the shell should prefer and let you override Terraform, AWS, Google Cloud, and Azure executable paths when workstation PATH state is inconsistent.</p>}
               {activeTab === 'updates' && <p>Update preferences let you pin stable versus preview behavior, check release state manually, and decide whether packages download automatically.</p>}
               {activeTab === 'security' && <p>Security is the operational control plane for workspace mode, vault inventory, secret handling, audit export, diagnostics export, and active session review.</p>}
             </div>

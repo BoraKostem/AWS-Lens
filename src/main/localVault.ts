@@ -2,6 +2,14 @@ import path from 'node:path'
 
 import { app } from 'electron'
 
+/** Parse JSON while stripping prototype-polluting keys (__proto__, constructor, prototype) */
+function safeJsonParse<T>(raw: string): T {
+  return JSON.parse(raw, (key, value) => {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') return undefined
+    return value
+  }) as T
+}
+
 import type {
   VaultEntryFilter,
   VaultEntryInput,
@@ -121,15 +129,13 @@ function sanitizeOrigin(value: unknown): VaultOrigin {
   switch (value) {
     case 'manual':
     case 'imported':
+    case 'imported-file':
     case 'aws-secrets-manager':
     case 'aws-ssm':
+    case 'aws-iam':
     case 'generated':
     case 'unknown':
       return value
-    case 'imported-file':
-      return 'imported'
-    case 'aws-iam':
-      return 'unknown'
     default:
       return DEFAULT_VAULT_ORIGIN
   }
@@ -271,10 +277,10 @@ export function setVaultSecret(kind: VaultEntryKind, name: string, secret: strin
     origin: existing?.origin ?? DEFAULT_VAULT_ORIGIN,
     rotationState: existing?.rotationState ?? DEFAULT_ROTATION_STATE,
     rotationUpdatedAt: existing?.rotationUpdatedAt ?? '',
-    reminderAt: existing?.reminderAt ?? '',
-    expiryAt: existing?.expiryAt ?? '',
     lastUsedAt: existing?.lastUsedAt ?? '',
-    lastUsedContext: existing?.lastUsedContext ?? null
+    lastUsedContext: existing?.lastUsedContext ?? null,
+    reminderAt: existing?.reminderAt ?? '',
+    expiryAt: existing?.expiryAt ?? ''
   })
 }
 
@@ -302,7 +308,7 @@ export function getAwsProfileVaultSecret(profileName: string): AwsProfileVaultSe
   }
 
   try {
-    const parsed = JSON.parse(raw) as Partial<AwsProfileVaultSecret>
+    const parsed = safeJsonParse<Partial<AwsProfileVaultSecret>>(raw)
     if (typeof parsed.accessKeyId !== 'string' || typeof parsed.secretAccessKey !== 'string') {
       return null
     }
@@ -376,7 +382,7 @@ export function getDbVaultCredentialSecret(name: string): DbVaultCredentialSecre
   }
 
   try {
-    const parsed = JSON.parse(raw) as Partial<DbVaultCredentialSecret>
+    const parsed = safeJsonParse<Partial<DbVaultCredentialSecret>>(raw)
     if (typeof parsed.password !== 'string' || !parsed.password.trim()) {
       return null
     }

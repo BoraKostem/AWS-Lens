@@ -2,13 +2,13 @@
 
 ## Purpose
 
-This document explains how AWS Lens manages Terraform workspaces for a tracked project, where workspace state is stored, and what safeguards apply when an operator creates, switches, or deletes a workspace.
+This document explains how InfraLens manages Terraform workspaces for a tracked project, where workspace state is stored, and what safeguards apply when an operator creates, switches, or deletes a workspace.
 
 It focuses on the current Electron implementation in this repository, not generic Terraform usage.
 
-## What AWS Lens Treats As Workspace State
+## What InfraLens Treats As Workspace State
 
-AWS Lens tracks workspace information in two places:
+InfraLens tracks workspace information in two places:
 
 - Terraform-native files inside the project directory
 - app-managed metadata under Electron `userData`
@@ -17,7 +17,7 @@ AWS Lens tracks workspace information in two places:
 
 Terraform itself remains the source of truth for the active workspace and workspace-specific state layout.
 
-AWS Lens reads or writes these project-local locations:
+InfraLens reads or writes these project-local locations:
 
 - `.terraform/environment`
   - current workspace name
@@ -34,7 +34,7 @@ AWS Lens reads or writes these project-local locations:
 
 ### Inside Electron userData
 
-AWS Lens persists project registration and workspace-related UI metadata in:
+InfraLens persists project registration and workspace-related UI metadata in:
 
 - `terraform-workspace-state.json`
 
@@ -55,9 +55,9 @@ That file stores data per AWS profile. For each tracked project it keeps:
 
 This app-level file does not replace Terraform's own workspace state. It exists so the UI can restore project context quickly.
 
-## How AWS Lens Detects Workspaces
+## How InfraLens Detects Workspaces
 
-When a project is loaded, AWS Lens first tries the Terraform CLI:
+When a project is loaded, InfraLens first tries the Terraform CLI:
 
 ```text
 terraform workspace show
@@ -66,7 +66,7 @@ terraform workspace list
 
 If those commands succeed, the UI uses their output as the workspace snapshot.
 
-If they fail, AWS Lens falls back to a filesystem-based snapshot:
+If they fail, InfraLens falls back to a filesystem-based snapshot:
 
 1. read `.terraform/environment` for the current workspace
 2. scan `terraform.tfstate.d/` for known workspace directories
@@ -80,13 +80,13 @@ All workspace mutations run in the Electron main process and invoke Terraform di
 
 ### Select Workspace
 
-AWS Lens runs:
+InfraLens runs:
 
 ```text
 terraform workspace select <name>
 ```
 
-After a successful switch, AWS Lens:
+After a successful switch, InfraLens:
 
 - clears the cached state snapshot
 - refreshes the project detail
@@ -94,23 +94,23 @@ After a successful switch, AWS Lens:
 
 ### Create Workspace
 
-AWS Lens runs:
+InfraLens runs:
 
 ```text
 terraform workspace new <name>
 ```
 
-Terraform creates the workspace and switches into it. After success, AWS Lens clears cached state and reloads the project view.
+Terraform creates the workspace and switches into it. After success, InfraLens clears cached state and reloads the project view.
 
 ### Delete Workspace
 
-AWS Lens runs:
+InfraLens runs:
 
 ```text
 terraform workspace delete <name>
 ```
 
-Before it allows that action, AWS Lens enforces these rules:
+Before it allows that action, InfraLens enforces these rules:
 
 - workspace name must be non-empty
 - workspace name cannot contain whitespace
@@ -118,15 +118,15 @@ Before it allows that action, AWS Lens enforces these rules:
 - the currently selected workspace cannot be deleted
 - the UI requires typed confirmation for the chosen workspace name
 
-Terraform remains the final authority. If the backend refuses deletion, AWS Lens surfaces the Terraform error instead of forcing the change.
+Terraform remains the final authority. If the backend refuses deletion, InfraLens surfaces the Terraform error instead of forcing the change.
 
 ## Backend And State Implications
 
-Workspace handling affects where Terraform state lives and how AWS Lens labels backend details.
+Workspace handling affects where Terraform state lives and how InfraLens labels backend details.
 
 ### Local Backend
 
-For local state, AWS Lens treats:
+For local state, InfraLens treats:
 
 - `terraform.tfstate` as the default workspace state file
 - `terraform.tfstate.d/<workspace>/terraform.tfstate` as the non-default workspace location
@@ -140,7 +140,7 @@ When the app needs to display a current state snapshot, it resolves sources in t
 
 ### S3 Backend
 
-For S3 backends, AWS Lens parses backend settings from Terraform files and computes the effective state key for the active workspace.
+For S3 backends, InfraLens parses backend settings from Terraform files and computes the effective state key for the active workspace.
 
 Behavior:
 
@@ -151,21 +151,21 @@ Behavior:
 <workspace_key_prefix>/<workspace>/<key>
 ```
 
-If `workspace_key_prefix` is not set, AWS Lens assumes Terraform's common default of `env:`.
+If `workspace_key_prefix` is not set, InfraLens assumes Terraform's common default of `env:`.
 
 That computed path is used in backend labels shown in the UI so operators can tell which remote state object is active for the selected workspace.
 
 ## Inputs And Workspace Changes
 
-Workspace selection is separate from variable-set selection, but AWS Lens keeps both in the project environment summary.
+Workspace selection is separate from variable-set selection, but InfraLens keeps both in the project environment summary.
 
-Commands such as `plan`, `apply`, `destroy`, `import`, and selected state commands can cause AWS Lens to write runtime input files before invoking Terraform. That means:
+Commands such as `plan`, `apply`, `destroy`, `import`, and selected state commands can cause InfraLens to write runtime input files before invoking Terraform. That means:
 
 - switching workspaces changes the Terraform state target
 - selected variable sets still control the input values passed into Terraform
 - the two concepts are related in the UI but stored independently
 
-AWS Lens does not automatically map a workspace name to a variable overlay. Operators can use matching names if they want that convention, but it is not enforced by the app.
+InfraLens does not automatically map a workspace name to a variable overlay. Operators can use matching names if they want that convention, but it is not enforced by the app.
 
 ## UI Safeguards
 

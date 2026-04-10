@@ -56,7 +56,7 @@ import {
   UpdateAssumeRolePolicyCommand
 } from '@aws-sdk/client-iam'
 
-import { awsClientConfig } from './client'
+import { getAwsClient } from './client'
 import { getGovernanceTagDefaults } from '../phase1FoundationStore'
 import type {
   AwsConnection,
@@ -87,14 +87,10 @@ function resolveGovernanceTags(): Array<{ Key: string; Value: string }> {
     .filter((tag) => Boolean(tag.Value))
 }
 
-function createClient(connection: AwsConnection): IAMClient {
-  return new IAMClient(awsClientConfig(connection))
-}
-
 /* ── Users ────────────────────────────────────────────────── */
 
 export async function listIamUsers(connection: AwsConnection): Promise<IamUserSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   const users: IamUserSummary[] = []
   let marker: string | undefined
 
@@ -135,7 +131,7 @@ export async function listIamUsers(connection: AwsConnection): Promise<IamUserSu
 /* ── Groups ───────────────────────────────────────────────── */
 
 export async function listIamGroups(connection: AwsConnection): Promise<IamGroupSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   const groups: IamGroupSummary[] = []
   let marker: string | undefined
 
@@ -170,7 +166,7 @@ export async function listIamGroups(connection: AwsConnection): Promise<IamGroup
 /* ── Roles ────────────────────────────────────────────────── */
 
 export async function listIamRoles(connection: AwsConnection): Promise<IamRoleSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   const roles: IamRoleSummary[] = []
   let marker: string | undefined
 
@@ -178,9 +174,10 @@ export async function listIamRoles(connection: AwsConnection): Promise<IamRoleSu
     const output = await client.send(new ListRolesCommand({ Marker: marker }))
     for (const r of output.Roles ?? []) {
       const roleName = r.RoleName ?? ''
-      const attachedRes = await client
-        .send(new ListAttachedRolePoliciesCommand({ RoleName: roleName }))
-        .catch(() => ({ AttachedPolicies: [] }))
+
+      const attachedRes = await client.send(
+        new ListAttachedRolePoliciesCommand({ RoleName: roleName })
+      )
 
       roles.push({
         roleName,
@@ -205,7 +202,7 @@ export async function listIamPolicies(
   connection: AwsConnection,
   scope: string
 ): Promise<IamPolicySummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   const policies: IamPolicySummary[] = []
   let marker: string | undefined
 
@@ -236,7 +233,7 @@ export async function listIamPolicies(
 /* ── Account summary ──────────────────────────────────────── */
 
 export async function getAccountSummary(connection: AwsConnection): Promise<IamAccountSummary> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   const output = await client.send(new GetAccountSummaryCommand({}))
   return (output.SummaryMap as Record<string, number>) ?? {}
 }
@@ -247,7 +244,7 @@ export async function listUserAccessKeys(
   connection: AwsConnection,
   userName: string
 ): Promise<IamAccessKeySummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   const output = await client.send(new ListAccessKeysCommand({ UserName: userName }))
   return (output.AccessKeyMetadata ?? []).map((k) => ({
     accessKeyId: k.AccessKeyId ?? '',
@@ -261,7 +258,7 @@ export async function createAccessKey(
   connection: AwsConnection,
   userName: string
 ): Promise<{ accessKeyId: string; secretAccessKey: string }> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   const output = await client.send(new CreateAccessKeyCommand({ UserName: userName }))
   return {
     accessKeyId: output.AccessKey?.AccessKeyId ?? '',
@@ -274,7 +271,7 @@ export async function deleteAccessKey(
   userName: string,
   accessKeyId: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(new DeleteAccessKeyCommand({ UserName: userName, AccessKeyId: accessKeyId }))
 }
 
@@ -284,7 +281,7 @@ export async function updateAccessKeyStatus(
   accessKeyId: string,
   status: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(
     new UpdateAccessKeyCommand({ UserName: userName, AccessKeyId: accessKeyId, Status: status as 'Active' | 'Inactive' })
   )
@@ -296,7 +293,7 @@ export async function listUserMfaDevices(
   connection: AwsConnection,
   userName: string
 ): Promise<IamMfaDevice[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   const output = await client.send(new ListMFADevicesCommand({ UserName: userName }))
   return (output.MFADevices ?? []).map((d) => ({
     serialNumber: d.SerialNumber ?? '',
@@ -310,7 +307,7 @@ export async function deleteUserMfaDevice(
   userName: string,
   serialNumber: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(
     new DeactivateMFADeviceCommand({ UserName: userName, SerialNumber: serialNumber })
   )
@@ -323,7 +320,7 @@ export async function listAttachedUserPolicies(
   connection: AwsConnection,
   userName: string
 ): Promise<IamAttachedPolicy[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   const policies: IamAttachedPolicy[] = []
   let marker: string | undefined
 
@@ -347,7 +344,7 @@ export async function listUserInlinePolicies(
   connection: AwsConnection,
   userName: string
 ): Promise<IamInlinePolicy[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   const names: string[] = []
   let marker: string | undefined
 
@@ -378,7 +375,7 @@ export async function attachUserPolicy(
   userName: string,
   policyArn: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(new AttachUserPolicyCommand({ UserName: userName, PolicyArn: policyArn }))
 }
 
@@ -387,7 +384,7 @@ export async function detachUserPolicy(
   userName: string,
   policyArn: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(new DetachUserPolicyCommand({ UserName: userName, PolicyArn: policyArn }))
 }
 
@@ -397,7 +394,7 @@ export async function putUserInlinePolicy(
   policyName: string,
   policyDocument: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(
     new PutUserPolicyCommand({
       UserName: userName,
@@ -412,7 +409,7 @@ export async function deleteUserInlinePolicy(
   userName: string,
   policyName: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(new DeleteUserPolicyCommand({ UserName: userName, PolicyName: policyName }))
 }
 
@@ -422,7 +419,7 @@ export async function listUserGroups(
   connection: AwsConnection,
   userName: string
 ): Promise<string[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   const groups: string[] = []
   let marker: string | undefined
 
@@ -444,7 +441,7 @@ export async function addUserToGroup(
   userName: string,
   groupName: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(new AddUserToGroupCommand({ UserName: userName, GroupName: groupName }))
 }
 
@@ -453,7 +450,7 @@ export async function removeUserFromGroup(
   userName: string,
   groupName: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(new RemoveUserFromGroupCommand({ UserName: userName, GroupName: groupName }))
 }
 
@@ -463,7 +460,7 @@ export async function createUser(
   connection: AwsConnection,
   userName: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(new CreateUserCommand({
     UserName: userName,
     Tags: resolveGovernanceTags()
@@ -474,7 +471,7 @@ export async function deleteUser(
   connection: AwsConnection,
   userName: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(new DeleteUserCommand({ UserName: userName }))
 }
 
@@ -484,7 +481,7 @@ export async function createLoginProfile(
   password: string,
   requireReset: boolean
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(
     new CreateLoginProfileCommand({
       UserName: userName,
@@ -498,7 +495,7 @@ export async function deleteLoginProfile(
   connection: AwsConnection,
   userName: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(new DeleteLoginProfileCommand({ UserName: userName }))
 }
 
@@ -508,7 +505,7 @@ export async function listAttachedRolePolicies(
   connection: AwsConnection,
   roleName: string
 ): Promise<IamAttachedPolicy[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   const policies: IamAttachedPolicy[] = []
   let marker: string | undefined
 
@@ -532,7 +529,7 @@ export async function listRoleInlinePolicies(
   connection: AwsConnection,
   roleName: string
 ): Promise<IamInlinePolicy[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   const names: string[] = []
   let marker: string | undefined
 
@@ -562,7 +559,7 @@ export async function getRoleTrustPolicy(
   connection: AwsConnection,
   roleName: string
 ): Promise<string> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   const output = await client.send(new GetRoleCommand({ RoleName: roleName }))
   return decodeURIComponent(output.Role?.AssumeRolePolicyDocument ?? '')
 }
@@ -572,7 +569,7 @@ export async function updateRoleTrustPolicy(
   roleName: string,
   policyDocument: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(
     new UpdateAssumeRolePolicyCommand({ RoleName: roleName, PolicyDocument: policyDocument })
   )
@@ -583,7 +580,7 @@ export async function attachRolePolicy(
   roleName: string,
   policyArn: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(new AttachRolePolicyCommand({ RoleName: roleName, PolicyArn: policyArn }))
 }
 
@@ -592,7 +589,7 @@ export async function detachRolePolicy(
   roleName: string,
   policyArn: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(new DetachRolePolicyCommand({ RoleName: roleName, PolicyArn: policyArn }))
 }
 
@@ -602,7 +599,7 @@ export async function putRoleInlinePolicy(
   policyName: string,
   policyDocument: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(
     new PutRolePolicyCommand({
       RoleName: roleName,
@@ -617,7 +614,7 @@ export async function deleteRoleInlinePolicy(
   roleName: string,
   policyName: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(new DeleteRolePolicyCommand({ RoleName: roleName, PolicyName: policyName }))
 }
 
@@ -629,7 +626,7 @@ export async function createRole(
   trustPolicy: string,
   description: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(
     new CreateRoleCommand({
       RoleName: roleName,
@@ -643,7 +640,7 @@ export async function deleteRole(
   connection: AwsConnection,
   roleName: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(new DeleteRoleCommand({ RoleName: roleName }))
 }
 
@@ -653,7 +650,7 @@ export async function listAttachedGroupPolicies(
   connection: AwsConnection,
   groupName: string
 ): Promise<IamAttachedPolicy[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   const policies: IamAttachedPolicy[] = []
   let marker: string | undefined
 
@@ -678,7 +675,7 @@ export async function attachGroupPolicy(
   groupName: string,
   policyArn: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(
     new AttachGroupPolicyCommand({ GroupName: groupName, PolicyArn: policyArn })
   )
@@ -689,7 +686,7 @@ export async function detachGroupPolicy(
   groupName: string,
   policyArn: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(
     new DetachGroupPolicyCommand({ GroupName: groupName, PolicyArn: policyArn })
   )
@@ -701,7 +698,7 @@ export async function createGroup(
   connection: AwsConnection,
   groupName: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(new CreateGroupCommand({ GroupName: groupName }))
 }
 
@@ -709,7 +706,7 @@ export async function deleteGroup(
   connection: AwsConnection,
   groupName: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(new DeleteGroupCommand({ GroupName: groupName }))
 }
 
@@ -720,7 +717,7 @@ export async function getPolicyVersion(
   policyArn: string,
   versionId: string
 ): Promise<IamPolicyVersion> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   const output = await client.send(
     new GetPolicyVersionCommand({ PolicyArn: policyArn, VersionId: versionId })
   )
@@ -737,7 +734,7 @@ export async function listPolicyVersions(
   connection: AwsConnection,
   policyArn: string
 ): Promise<IamPolicyVersion[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   const output = await client.send(new ListPolicyVersionsCommand({ PolicyArn: policyArn }))
   return (output.Versions ?? []).map((v) => ({
     versionId: v.VersionId ?? '',
@@ -753,7 +750,7 @@ export async function createPolicyVersion(
   document: string,
   setAsDefault: boolean
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(
     new CreatePolicyVersionCommand({
       PolicyArn: policyArn,
@@ -768,7 +765,7 @@ export async function deletePolicyVersion(
   policyArn: string,
   versionId: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(
     new DeletePolicyVersionCommand({ PolicyArn: policyArn, VersionId: versionId })
   )
@@ -782,7 +779,7 @@ export async function createPolicy(
   document: string,
   description: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(
     new CreatePolicyCommand({
       PolicyName: policyName,
@@ -796,7 +793,7 @@ export async function deletePolicy(
   connection: AwsConnection,
   policyArn: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(new DeletePolicyCommand({ PolicyArn: policyArn }))
 }
 
@@ -808,7 +805,7 @@ export async function simulatePolicy(
   actions: string[],
   resourceArns: string[]
 ): Promise<IamSimulationResult[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   const results: IamSimulationResult[] = []
   let marker: string | undefined
 
@@ -841,14 +838,14 @@ export async function simulatePolicy(
 /* ── Credential report ────────────────────────────────────── */
 
 export async function generateCredentialReport(connection: AwsConnection): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   await client.send(new GenerateCredentialReportCommand({}))
 }
 
 export async function getCredentialReport(
   connection: AwsConnection
 ): Promise<IamCredentialReportEntry[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(IAMClient, connection)
   const output = await client.send(new GetCredentialReportCommand({}))
 
   const csv = output.Content ? new TextDecoder().decode(output.Content) : ''

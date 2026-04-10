@@ -137,7 +137,12 @@ export function OverviewConsole({
   onNavigate?: (serviceId: ServiceId, resourceId?: string) => void
   onNavigateCloudWatch?: (focus: { logGroupNames?: string[]; queryString?: string; sourceLabel?: string; serviceHint?: ServiceId | '' }) => void
   onNavigateCloudTrail?: (focus: { resourceName?: string; startTime?: string; endTime?: string; filter?: string }) => void
-  onNavigateTerraform?: (focus?: { projectId?: string; detailTab?: 'operations' | 'actions' | 'state' | 'resources' | 'drift' | 'lab' | 'history'; runId?: string; driftItemKey?: string }) => void
+  onNavigateTerraform?: (focus?: {
+    projectId?: string
+    detailTab?: 'operations' | 'actions' | 'state' | 'resources' | 'drift' | 'lab' | 'history'
+    runId?: string
+    driftItemKey?: string
+  }) => void
   onRunTerminalCommand?: (command: string) => void
   state?: ReturnType<typeof useAwsPageConnection>
   embedded?: boolean
@@ -229,7 +234,6 @@ export function OverviewConsole({
     setAccountContext(retainedAccountContext)
     setRelationships(retainedRelationships)
     setCostBreakdown(retainedCostBreakdown)
-
     try {
       const nextMetrics = await getOverviewMetrics(connection, [connection.region])
       if (regionalLoadTokenRef.current !== loadToken) {
@@ -289,7 +293,6 @@ export function OverviewConsole({
     if (costSnapshot.value) {
       setCostBreakdown(costSnapshot.value)
     }
-
     try {
       const [nextMetrics, nextCost] = await Promise.all([
         getOverviewMetrics(connectionState.connection, availableRegions),
@@ -345,7 +348,6 @@ export function OverviewConsole({
     if (tagResourceTypeFilter === 'all') return tagResults.resources
     return tagResults.resources.filter((resource) => resource.resourceType === tagResourceTypeFilter)
   }, [tagResults, tagResourceTypeFilter])
-
   const displayedMonthlyCost = costBreakdown?.total ?? null
   const displayedMonthlyCostLabel = displayedMonthlyCost == null ? '-' : fmtCurrency(displayedMonthlyCost)
   const displayedCostDetail = costBreakdown
@@ -415,12 +417,12 @@ export function OverviewConsole({
                 <div className="overview-chip-row">
                   <button
                     type="button"
-                    className="overview-service-chip"
-                    style={{ cursor: 'default', borderColor: 'rgba(223, 105, 42, 0.2)' }}
-                  >
-                    <span style={{ color: 'var(--accent)' }}>{displayedMonthlyCostLabel}</span>
-                    <strong>Cost</strong>
-                  </button>
+                  className="overview-service-chip"
+                  style={{ cursor: 'default', borderColor: 'rgba(223, 105, 42, 0.2)' }}
+                >
+                  <span style={{ color: 'var(--accent)' }}>{displayedMonthlyCostLabel}</span>
+                  <strong>Cost</strong>
+                </button>
                   {SERVICE_TILES.map((tile) => {
                     const total = sumMetricField(globalMetrics.regions, tile.key)
                     return (
@@ -557,18 +559,18 @@ export function OverviewConsole({
                                 <span>Billing home</span>
                                 <strong>{accountContext.billingHomeRegion}</strong>
                               </div>
-                                <div>
-                                  <span>Visibility</span>
-                                  <strong>{describePayerVisibility(accountContext.payerVisibility)}</strong>
-                                </div>
-                                <div>
-                                  <span>Payer / management</span>
-                                  <strong>{accountContext.payerAccountLabel}</strong>
-                                </div>
+                              <div>
+                                <span>Visibility</span>
+                                <strong>{describePayerVisibility(accountContext.payerVisibility)}</strong>
                               </div>
-                              <div className="overview-note-list">
-                                {accountContext.notes.map((note) => (
-                                  <div key={note} className="overview-note-item">{note}</div>
+                              <div>
+                                <span>Payer / management</span>
+                                <strong>{accountContext.payerAccountLabel}</strong>
+                              </div>
+                            </div>
+                            <div className="overview-note-list">
+                              {accountContext.notes.map((note) => (
+                                <div key={note} className="overview-note-item">{note}</div>
                               ))}
                             </div>
                           </article>
@@ -590,66 +592,66 @@ export function OverviewConsole({
                                   </div>
                                 ))}
                               </div>
-                              ) : (
-                                <SvcState
-                                  variant="empty"
-                                  message="Linked-account rollups are not visible with the current billing context."
-                                  compact
-                                />
-                              )}
-                            </article>
+                            ) : (
+                              <SvcState
+                                variant="empty"
+                                message="Linked-account rollups are not visible with the current billing context."
+                                compact
+                              />
+                            )}
+                          </article>
 
-                            <article className="overview-account-card overview-org-card">
-                              <div className="panel-header minor">
-                                <h3>Organization Context</h3>
-                                <span className="hero-path" style={{ margin: 0 }}>
-                                  {accountContext.organization?.status === 'available'
-                                    ? 'Live tree'
-                                    : accountContext.organization?.status === 'limited'
-                                      ? 'Partial visibility'
-                                      : 'Unavailable'}
-                                </span>
+                          <article className="overview-account-card overview-org-card">
+                            <div className="panel-header minor">
+                              <h3>Organization Context</h3>
+                              <span className="hero-path" style={{ margin: 0 }}>
+                                {accountContext.organization?.status === 'available'
+                                  ? 'Live tree'
+                                  : accountContext.organization?.status === 'limited'
+                                    ? 'Partial visibility'
+                                    : 'Unavailable'}
+                              </span>
+                            </div>
+                            <div className="overview-account-kv">
+                              <div>
+                                <span>Org ID</span>
+                                <strong>{accountContext.organization?.organizationId || '-'}</strong>
                               </div>
-                              <div className="overview-account-kv">
-                                <div>
-                                  <span>Org ID</span>
-                                  <strong>{accountContext.organization?.organizationId || '-'}</strong>
-                                </div>
-                                <div>
-                                  <span>Current OU path</span>
-                                  <strong>{accountContext.organization?.currentAccountPath.join(' / ') || 'Not available'}</strong>
-                                </div>
+                              <div>
+                                <span>Current OU path</span>
+                                <strong>{accountContext.organization?.currentAccountPath.join(' / ') || 'Not available'}</strong>
                               </div>
-                              {accountContext.organization?.warning && (
-                                <div className="overview-note-item">{accountContext.organization.warning}</div>
-                              )}
-                              {flattenOrganizationNodes(accountContext).length ? (
-                                <div className="overview-org-tree">
-                                  {flattenOrganizationNodes(accountContext).slice(0, 40).map((node) => (
-                                    <div
-                                      key={node.id}
-                                      className={`overview-org-row ${node.isCurrent ? 'active' : ''}`}
-                                      style={{ paddingLeft: `${node.depth * 16 + 10}px` }}
-                                    >
-                                      <span className={`overview-org-type overview-org-type-${node.type}`}>
-                                        {node.type === 'organizational-unit' ? 'OU' : node.type === 'root' ? 'Root' : 'Acct'}
-                                      </span>
-                                      <strong>{node.label}</strong>
-                                    </div>
-                                  ))}
-                                  {flattenOrganizationNodes(accountContext).length > 40 && (
-                                    <div className="overview-note-item">Showing first 40 nodes to keep the overview compact.</div>
-                                  )}
-                                </div>
-                              ) : (
-                                <SvcState
-                                  variant="empty"
-                                  message="Organization tree is not visible with the current credentials."
-                                  compact
-                                />
-                              )}
-                            </article>
-                          </section>
+                            </div>
+                            {accountContext.organization?.warning && (
+                              <div className="overview-note-item">{accountContext.organization.warning}</div>
+                            )}
+                            {flattenOrganizationNodes(accountContext).length ? (
+                              <div className="overview-org-tree">
+                                {flattenOrganizationNodes(accountContext).slice(0, 40).map((node) => (
+                                  <div
+                                    key={node.id}
+                                    className={`overview-org-row ${node.isCurrent ? 'active' : ''}`}
+                                    style={{ paddingLeft: `${node.depth * 16 + 10}px` }}
+                                  >
+                                    <span className={`overview-org-type overview-org-type-${node.type}`}>
+                                      {node.type === 'organizational-unit' ? 'OU' : node.type === 'root' ? 'Root' : 'Acct'}
+                                    </span>
+                                    <strong>{node.label}</strong>
+                                  </div>
+                                ))}
+                                {flattenOrganizationNodes(accountContext).length > 40 && (
+                                  <div className="overview-note-item">Showing first 40 nodes to keep the overview compact.</div>
+                                )}
+                              </div>
+                            ) : (
+                              <SvcState
+                                variant="empty"
+                                message="Organization tree is not visible with the current credentials."
+                                compact
+                              />
+                            )}
+                          </article>
+                        </section>
 
                         <div className="overview-section-title">Capability Hints</div>
                         <section className="overview-hint-grid">
@@ -826,7 +828,9 @@ export function OverviewConsole({
                             <div className="insight-card-message">{item.message}</div>
                           </div>
                         ))}
-                        {!supplementalLoading && !statistics?.insights.length && <SvcState variant="empty" resourceName="insights" message="No insights generated." compact />}
+                        {!supplementalLoading && !statistics?.insights.length && (
+                          <SvcState variant="empty" resourceName="insights" message="No insights generated." compact />
+                        )}
                       </div>
                     </div>
                   </section>
@@ -837,6 +841,7 @@ export function OverviewConsole({
               )}
             </>
           )}
+
           {tab === 'incidents' && connectionState.connection && (
             <section className="overview-surface">
               <IncidentTimelineTab
@@ -1057,10 +1062,10 @@ export function OverviewConsole({
 
             const allInsights = statistics?.insights ?? []
             const allSignals = statistics?.signals ?? []
-              const allStats = (statistics?.stats ?? []).map((stat) => {
-                if (stat.label !== 'Est. Monthly Cost') return stat
-                if (costBreakdown) {
-                  return {
+            const allStats = (statistics?.stats ?? []).map((stat) => {
+              if (stat.label !== 'Est. Monthly Cost') return stat
+              if (costBreakdown) {
+                return {
                   ...stat,
                   label: 'Monthly Cost',
                   value: fmtCurrency(costBreakdown.total),
@@ -1068,13 +1073,13 @@ export function OverviewConsole({
                 }
               }
 
-                return {
-                  ...stat,
-                  label: 'Monthly Cost',
-                  value: '-',
-                  detail: 'Cost Explorer unavailable'
-                }
-              })
+              return {
+                ...stat,
+                label: 'Monthly Cost',
+                value: '-',
+                detail: 'Cost Explorer unavailable'
+              }
+            })
 
             const infoCount = allInsights.filter((i) => i.severity === 'info').length
             const warningCount = allInsights.filter((i) => i.severity === 'warning').length

@@ -8,7 +8,7 @@ import {
   type IpPermission
 } from '@aws-sdk/client-ec2'
 
-import { awsClientConfig, readTags } from './client'
+import { getAwsClient, readTags } from './client'
 import type {
   AwsConnection,
   SecurityGroupDetail,
@@ -16,10 +16,6 @@ import type {
   SecurityGroupRuleInput,
   SecurityGroupSummary
 } from '@shared/types'
-
-function createClient(connection: AwsConnection): EC2Client {
-  return new EC2Client(awsClientConfig(connection))
-}
 
 /* ── helpers ───────────────────────────────────────────────── */
 
@@ -84,7 +80,7 @@ export async function listSecurityGroups(
   connection: AwsConnection,
   vpcId?: string
 ): Promise<SecurityGroupSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const groups: SecurityGroupSummary[] = []
   let nextToken: string | undefined
   const filters = vpcId ? [{ Name: 'vpc-id', Values: [vpcId] }] : undefined
@@ -134,7 +130,7 @@ export async function describeSecurityGroup(
   connection: AwsConnection,
   groupId: string
 ): Promise<SecurityGroupDetail | null> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const output = await client.send(new DescribeSecurityGroupsCommand({ GroupIds: [groupId] }))
   const sg = output.SecurityGroups?.[0]
   if (!sg) return null
@@ -159,7 +155,7 @@ export async function addInboundRule(
   groupId: string,
   rule: SecurityGroupRuleInput
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(
     new AuthorizeSecurityGroupIngressCommand({
       GroupId: groupId,
@@ -173,7 +169,7 @@ export async function revokeInboundRule(
   groupId: string,
   rule: SecurityGroupRuleInput
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(
     new RevokeSecurityGroupIngressCommand({
       GroupId: groupId,
@@ -189,7 +185,7 @@ export async function addOutboundRule(
   groupId: string,
   rule: SecurityGroupRuleInput
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(
     new AuthorizeSecurityGroupEgressCommand({
       GroupId: groupId,
@@ -203,7 +199,7 @@ export async function revokeOutboundRule(
   groupId: string,
   rule: SecurityGroupRuleInput
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(
     new RevokeSecurityGroupEgressCommand({
       GroupId: groupId,

@@ -14,7 +14,7 @@ import {
   StartImageScanCommand
 } from '@aws-sdk/client-ecr'
 
-import { awsClientConfig } from './client'
+import { getAwsClient } from './client'
 import type {
   AwsConnection,
   EcrAuthorizationData,
@@ -27,12 +27,8 @@ import { getToolCommand } from '../toolchain'
 const execFileAsync = promisify(execFile)
 const dockerCommand = () => getToolCommand('docker', 'docker')
 
-function createClient(connection: AwsConnection): ECRClient {
-  return new ECRClient(awsClientConfig(connection))
-}
-
 export async function listEcrRepositories(connection: AwsConnection): Promise<EcrRepositorySummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(ECRClient, connection)
   const repos: EcrRepositorySummary[] = []
   let nextToken: string | undefined
 
@@ -69,7 +65,7 @@ export async function listEcrImages(
   connection: AwsConnection,
   repositoryName: string
 ): Promise<EcrImageSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(ECRClient, connection)
   const images: EcrImageSummary[] = []
   let nextToken: string | undefined
 
@@ -103,7 +99,7 @@ export async function createEcrRepository(
   imageTagMutability: string,
   scanOnPush: boolean
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(ECRClient, connection)
   await client.send(
     new CreateRepositoryCommand({
       repositoryName,
@@ -118,7 +114,7 @@ export async function deleteEcrRepository(
   repositoryName: string,
   force: boolean
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(ECRClient, connection)
   await client.send(new DeleteRepositoryCommand({ repositoryName, force }))
 }
 
@@ -127,7 +123,7 @@ export async function deleteEcrImage(
   repositoryName: string,
   imageDigest: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(ECRClient, connection)
   await client.send(
     new BatchDeleteImageCommand({
       repositoryName,
@@ -142,7 +138,7 @@ export async function startEcrImageScan(
   imageDigest: string,
   imageTag?: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(ECRClient, connection)
   await client.send(
     new StartImageScanCommand({
       repositoryName,
@@ -156,7 +152,7 @@ export async function getEcrScanFindings(
   repositoryName: string,
   imageDigest: string
 ): Promise<EcrScanResult> {
-  const client = createClient(connection)
+  const client = getAwsClient(ECRClient, connection)
   const findings: EcrScanResult['findings'] = []
   let nextToken: string | undefined
 
@@ -201,7 +197,7 @@ export async function getEcrScanFindings(
 export async function getEcrAuthorizationToken(
   connection: AwsConnection
 ): Promise<EcrAuthorizationData> {
-  const client = createClient(connection)
+  const client = getAwsClient(ECRClient, connection)
   const output = await client.send(new GetAuthorizationTokenCommand({}))
   const auth = output.authorizationData?.[0]
 

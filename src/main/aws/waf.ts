@@ -18,11 +18,7 @@ import type {
   WafWebAclDetail,
   WafWebAclSummary
 } from '@shared/types'
-import { awsClientConfig } from './client'
-
-function createClient(connection: AwsConnection): WAFV2Client {
-  return new WAFV2Client(awsClientConfig(connection))
-}
+import { getAwsClient } from './client'
 
 function defaultVisibilityConfig(metricName: string) {
   return {
@@ -51,7 +47,7 @@ async function getAssociations(client: WAFV2Client, scope: WafScope, webAclArn: 
 }
 
 export async function listWebAcls(connection: AwsConnection, scope: WafScope): Promise<WafWebAclSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(WAFV2Client, connection)
   const response = await client.send(new ListWebACLsCommand({ Scope: scope, Limit: 100 }))
 
   return (response.WebACLs ?? []).map((acl) => ({
@@ -66,7 +62,7 @@ export async function listWebAcls(connection: AwsConnection, scope: WafScope): P
 }
 
 export async function describeWebAcl(connection: AwsConnection, scope: WafScope, id: string, name: string): Promise<WafWebAclDetail> {
-  const client = createClient(connection)
+  const client = getAwsClient(WAFV2Client, connection)
   const response = await client.send(new GetWebACLCommand({ Scope: scope, Id: id, Name: name }))
   const acl = response.WebACL
 
@@ -97,7 +93,7 @@ export async function describeWebAcl(connection: AwsConnection, scope: WafScope,
 }
 
 export async function createWebAcl(connection: AwsConnection, input: WafCreateWebAclInput): Promise<string> {
-  const client = createClient(connection)
+  const client = getAwsClient(WAFV2Client, connection)
   const response = await client.send(
     new CreateWebACLCommand({
       Name: input.name,
@@ -113,7 +109,7 @@ export async function createWebAcl(connection: AwsConnection, input: WafCreateWe
 }
 
 export async function deleteWebAcl(connection: AwsConnection, scope: WafScope, id: string, name: string, lockToken: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(WAFV2Client, connection)
   await client.send(new DeleteWebACLCommand({ Scope: scope, Id: id, Name: name, LockToken: lockToken }))
 }
 
@@ -164,7 +160,7 @@ async function updateWebAclRules(
   description: string,
   rules: any[]
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(WAFV2Client, connection)
   await client.send(
     new UpdateWebACLCommand({
       Scope: scope,
@@ -180,11 +176,11 @@ async function updateWebAclRules(
 }
 
 export async function associateWebAcl(connection: AwsConnection, resourceArn: string, webAclArn: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(WAFV2Client, connection)
   await client.send(new AssociateWebACLCommand({ ResourceArn: resourceArn, WebACLArn: webAclArn }))
 }
 
 export async function disassociateWebAcl(connection: AwsConnection, resourceArn: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(WAFV2Client, connection)
   await client.send(new DisassociateWebACLCommand({ ResourceArn: resourceArn }))
 }

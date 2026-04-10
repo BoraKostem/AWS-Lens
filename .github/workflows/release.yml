@@ -25,13 +25,24 @@ on:
           - linux
 
 permissions:
-  contents: write
-  actions: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}-${{ github.event.inputs.release_channel }}-${{ github.event.inputs.target_platform }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "10"
+  SSLCOM_CODESIGNTOOL_VERSION: "1.3.2"
 
 jobs:
   prepare:
     name: Prepare matrix
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       full_version: ${{ steps.release-meta.outputs.full_version }}
@@ -99,14 +110,17 @@ jobs:
     name: Build ${{ matrix.label }}
     needs: prepare
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
     env:
       CSC_LINK: ${{ matrix.os == 'macos-latest' && secrets.CSC_LINK_MAC || '' }}
       CSC_KEY_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.CSC_KEY_PASSWORD_MAC || '' }}
       APPLE_API_KEY: ${{ matrix.os == 'macos-latest' && secrets.APPLE_API_KEY || '' }}
       APPLE_API_KEY_ID: ${{ matrix.os == 'macos-latest' && secrets.APPLE_API_KEY_ID || '' }}
       APPLE_API_ISSUER: ${{ matrix.os == 'macos-latest' && secrets.APPLE_API_ISSUER || '' }}
-      AWS_LENS_BUILD_HASH: ${{ github.sha }}
-      AWS_LENS_RELEASE_CHANNEL: ${{ github.event.inputs.release_channel }}
+      INFRA_LENS_BUILD_HASH: ${{ github.sha }}
+      INFRA_LENS_RELEASE_CHANNEL: ${{ github.event.inputs.release_channel }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
@@ -121,18 +135,21 @@ jobs:
           fi
 
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
         with:
-          version: 10
+          version: ${{ env.PNPM_VERSION }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Set package version
         shell: bash
@@ -188,7 +205,8 @@ jobs:
         run: |
           $zip = Join-Path $env:RUNNER_TEMP 'CodeSignTool.zip'
           $extract = Join-Path $env:GITHUB_WORKSPACE 'tools'
-          Invoke-WebRequest -OutFile $zip 'https://github.com/SSLcom/CodeSignTool/releases/latest/download/CodeSignTool-v1.3.2-windows.zip'
+          $url = "https://github.com/SSLcom/CodeSignTool/releases/download/v$env:SSLCOM_CODESIGNTOOL_VERSION/CodeSignTool-v$env:SSLCOM_CODESIGNTOOL_VERSION-windows.zip"
+          Invoke-WebRequest -OutFile $zip $url
           New-Item -ItemType Directory -Force -Path $extract | Out-Null
           Expand-Archive -Path $zip -DestinationPath $extract -Force
           $tool = Get-ChildItem -Path $extract -Recurse -Filter CodeSignTool.bat | Select-Object -First 1
@@ -250,12 +268,13 @@ jobs:
             "${{ github.sha }}"
 
       - name: Upload release artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_glob }}
           if-no-files-found: error
           include-hidden-files: true
+          retention-days: 1
 
   publish:
     name: Publish GitHub release
@@ -263,16 +282,26 @@ jobs:
       always() &&
       needs.build.result == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
     needs:
       - prepare
       - build
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist-artifacts
 
@@ -332,18 +361,20 @@ jobs:
             dist-artifacts/**/release-manifest-*.json
             dist-artifacts/**/release-checksums-*.txt
 
-
   cleanup:
     name: Cleanup workflow artifacts
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
     needs:
       - build
       - publish
 
     steps:
       - name: Delete current run artifacts
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const { owner, repo } = context.repo;

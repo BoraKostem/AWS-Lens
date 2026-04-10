@@ -18,11 +18,7 @@ import type {
   LoadBalancerTimelineEvent,
   LoadBalancerWorkspace
 } from '@shared/types'
-import { awsClientConfig } from './client'
-
-function createClient(connection: AwsConnection): ElasticLoadBalancingV2Client {
-  return new ElasticLoadBalancingV2Client(awsClientConfig(connection))
-}
+import { getAwsClient } from './client'
 
 function formatAction(action: Record<string, unknown>): string {
   const type = typeof action.Type === 'string' ? action.Type : 'unknown'
@@ -105,7 +101,7 @@ function buildTimeline(workspace: Omit<LoadBalancerWorkspace, 'timeline'>): Load
 }
 
 export async function listLoadBalancerWorkspaces(connection: AwsConnection): Promise<LoadBalancerWorkspace[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(ElasticLoadBalancingV2Client, connection)
   const loadBalancers = await client.send(new DescribeLoadBalancersCommand({}))
 
   return await Promise.all(
@@ -217,6 +213,6 @@ export async function listLoadBalancerWorkspaces(connection: AwsConnection): Pro
 }
 
 export async function deleteLoadBalancer(connection: AwsConnection, loadBalancerArn: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(ElasticLoadBalancingV2Client, connection)
   await client.send(new DeleteLoadBalancerCommand({ LoadBalancerArn: loadBalancerArn }))
 }

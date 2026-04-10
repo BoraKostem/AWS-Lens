@@ -168,7 +168,9 @@ export function FreshnessIndicator({
         {freshness.loading && <span className="freshness-pill loading">{reasonLabel(freshness.refreshReason)}</span>}
         {freshness.fetchedAt && freshness.source === 'local' && <span className="freshness-pill cached">Cached</span>}
         {!freshness.loading && freshness.stale && <span className="freshness-pill stale">{staleLabel}</span>}
-        {freshness.fetchedAt && !freshness.loading && !freshness.stale && freshness.source !== 'local' && <span className="freshness-pill ready">Fresh</span>}
+        {freshness.fetchedAt && !freshness.loading && !freshness.stale && freshness.source !== 'local' && (
+          <span className="freshness-pill ready">Fresh</span>
+        )}
       </div>
     </div>
   )

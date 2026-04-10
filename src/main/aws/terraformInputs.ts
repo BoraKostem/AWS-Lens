@@ -1,12 +1,10 @@
 import { GetParameterCommand, SSMClient } from '@aws-sdk/client-ssm'
 
 import type { AwsConnection, TerraformSecretReference } from '@shared/types'
-import { awsClientConfig } from './client'
+import { getAwsClient } from './client'
 import { getSecretValue } from './secretsManager'
 
-function createSsmClient(connection: AwsConnection): SSMClient {
-  return new SSMClient(awsClientConfig(connection))
-}
+
 
 function parseJsonKey(rawValue: string, jsonKey: string): unknown {
   if (!jsonKey) {
@@ -41,7 +39,7 @@ export async function resolveTerraformSecretReference(
   }
 
   if (reference.source === 'ssm-parameter') {
-    const client = createSsmClient(connection)
+    const client = getAwsClient(SSMClient, connection)
     const response = await client.send(new GetParameterCommand({
       Name: reference.target,
       WithDecryption: true

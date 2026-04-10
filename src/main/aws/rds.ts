@@ -32,11 +32,7 @@ import type {
   RdsInstanceDetail,
   RdsInstanceSummary
 } from '@shared/types'
-import { awsClientConfig } from './client'
-
-function createClient(connection: AwsConnection): RDSClient {
-  return new RDSClient(awsClientConfig(connection))
-}
+import { getAwsClient } from './client'
 
 function isAuroraEngine(engine?: string): boolean {
   return (engine ?? '').startsWith('aurora')
@@ -457,7 +453,7 @@ function buildClusterPosture(
 }
 
 export async function listDbInstances(connection: AwsConnection): Promise<RdsInstanceSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(RDSClient, connection)
   const instances = await listAllInstances(client)
 
   return instances
@@ -467,7 +463,7 @@ export async function listDbInstances(connection: AwsConnection): Promise<RdsIns
 }
 
 export async function listDbClusters(connection: AwsConnection): Promise<RdsClusterSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(RDSClient, connection)
   const [clusters, instances] = await Promise.all([listAllClusters(client), listAllInstances(client)])
   const instanceMap = new Map(instances.map((instance) => [instance.DBInstanceIdentifier ?? '', instance]))
 
@@ -509,7 +505,7 @@ export async function listDbClusters(connection: AwsConnection): Promise<RdsClus
 }
 
 export async function describeDbInstance(connection: AwsConnection, dbInstanceIdentifier: string): Promise<RdsInstanceDetail> {
-  const client = createClient(connection)
+  const client = getAwsClient(RDSClient, connection)
   const [output, maintenanceMap] = await Promise.all([
     client.send(new DescribeDBInstancesCommand({ DBInstanceIdentifier: dbInstanceIdentifier })),
     getPendingMaintenanceMap(client)
@@ -557,7 +553,7 @@ export async function describeDbInstance(connection: AwsConnection, dbInstanceId
 }
 
 export async function describeDbCluster(connection: AwsConnection, dbClusterIdentifier: string): Promise<RdsClusterDetail> {
-  const client = createClient(connection)
+  const client = getAwsClient(RDSClient, connection)
   const [clusters, instances, maintenanceMap] = await Promise.all([
     client.send(new DescribeDBClustersCommand({ DBClusterIdentifier: dbClusterIdentifier })),
     listAllInstances(client),
@@ -635,22 +631,22 @@ export async function describeDbCluster(connection: AwsConnection, dbClusterIden
 }
 
 export async function startDbInstance(connection: AwsConnection, dbInstanceIdentifier: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(RDSClient, connection)
   await client.send(new StartDBInstanceCommand({ DBInstanceIdentifier: dbInstanceIdentifier }))
 }
 
 export async function stopDbInstance(connection: AwsConnection, dbInstanceIdentifier: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(RDSClient, connection)
   await client.send(new StopDBInstanceCommand({ DBInstanceIdentifier: dbInstanceIdentifier }))
 }
 
 export async function rebootDbInstance(connection: AwsConnection, dbInstanceIdentifier: string, forceFailover = false): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(RDSClient, connection)
   await client.send(new RebootDBInstanceCommand({ DBInstanceIdentifier: dbInstanceIdentifier, ForceFailover: forceFailover }))
 }
 
 export async function resizeDbInstance(connection: AwsConnection, dbInstanceIdentifier: string, dbInstanceClass: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(RDSClient, connection)
   await client.send(new ModifyDBInstanceCommand({
     DBInstanceIdentifier: dbInstanceIdentifier,
     DBInstanceClass: dbInstanceClass,
@@ -659,7 +655,7 @@ export async function resizeDbInstance(connection: AwsConnection, dbInstanceIden
 }
 
 export async function createDbSnapshot(connection: AwsConnection, dbInstanceIdentifier: string, dbSnapshotIdentifier: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(RDSClient, connection)
   await client.send(new CreateDBSnapshotCommand({
     DBInstanceIdentifier: dbInstanceIdentifier,
     DBSnapshotIdentifier: dbSnapshotIdentifier
@@ -667,22 +663,22 @@ export async function createDbSnapshot(connection: AwsConnection, dbInstanceIden
 }
 
 export async function startDbCluster(connection: AwsConnection, dbClusterIdentifier: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(RDSClient, connection)
   await client.send(new StartDBClusterCommand({ DBClusterIdentifier: dbClusterIdentifier }))
 }
 
 export async function stopDbCluster(connection: AwsConnection, dbClusterIdentifier: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(RDSClient, connection)
   await client.send(new StopDBClusterCommand({ DBClusterIdentifier: dbClusterIdentifier }))
 }
 
 export async function failoverDbCluster(connection: AwsConnection, dbClusterIdentifier: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(RDSClient, connection)
   await client.send(new FailoverDBClusterCommand({ DBClusterIdentifier: dbClusterIdentifier }))
 }
 
 export async function createDbClusterSnapshot(connection: AwsConnection, dbClusterIdentifier: string, dbClusterSnapshotIdentifier: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(RDSClient, connection)
   await client.send(new CreateDBClusterSnapshotCommand({
     DBClusterIdentifier: dbClusterIdentifier,
     DBClusterSnapshotIdentifier: dbClusterSnapshotIdentifier

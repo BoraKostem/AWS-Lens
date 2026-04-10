@@ -4,7 +4,6 @@ import type {
   EksClusterDetail,
   EksNodegroupSummary,
   GeneratedArtifact,
-  InvestigationPack,
   ObservabilityFinding,
   ObservabilityPostureArea,
   ObservabilityPostureReport,
@@ -13,11 +12,11 @@ import type {
   TerraformDriftReport,
   TerraformProject
 } from '@shared/types'
-import { getShellConfig } from '../shell'
 import { getTerraformDriftReport } from '../terraformDrift'
 import { getProject } from '../terraform'
 import { createTempEksKubeconfig, describeEksCluster, getEksMetricsSnapshot, listEksNodegroups, type EksMetricsSnapshot } from './eks'
 import { getServiceDiagnostics } from './ecs'
+import { logWarn } from '../observability'
 
 function connectionRef(connection: AwsConnection) {
   return {
@@ -51,15 +50,7 @@ function buildArtifact(
   copyLabel = 'Copy artifact',
   runLabel = 'Run in terminal'
 ): GeneratedArtifact {
-  const hasPlaceholders = /<[^>\r\n]+>/.test(content)
-  const resolvedRunnable =
-    !hasPlaceholders && (isRunnable || (type === 'shell-command' && /^read-only\b/i.test(safety.trim())))
-  return { id, title, type, language, summary, content, safety, isRunnable: resolvedRunnable, copyLabel, runLabel }
-}
-
-function joinShellCommands(commands: string[]): string {
-  const separator = getShellConfig().kind === 'powershell' ? '; ' : ' && '
-  return commands.filter((command) => command.trim()).join(separator)
+  return { id, title, type, language, summary, content, safety, isRunnable, copyLabel, runLabel }
 }
 
 function sortReport(report: ObservabilityPostureReport): ObservabilityPostureReport {
@@ -90,281 +81,6 @@ function pushRecommendationArtifacts(
     ...recommendations.flatMap((item) => (item.artifact ? [item.artifact] : [])),
     ...experiments.flatMap((item) => (item.artifact ? [item.artifact] : []))
   ]
-}
-
-function hasAccessDeniedSignal(values: string[]): boolean {
-  return values.some((value) => /access.?denied|unauthorized|forbidden/i.test(value))
-}
-
-function enrichRecommendations(
-  recommendations: ObservabilityRecommendation[],
-  defaults: { owner: string; verificationPrefix: string }
-): ObservabilityRecommendation[] {
-  return recommendations.map((recommendation) => ({
-    ...recommendation,
-    owner: defaults.owner,
-    verificationStep: `${defaults.verificationPrefix}: validate "${recommendation.title}" by checking the related signal turns healthy and no new critical findings appear.`
-  }))
-}
-
-function buildEksInvestigationPacks(clusterName: string, findings: ObservabilityFinding[]): InvestigationPack[] {
-  const packs: InvestigationPack[] = [
-    {
-      id: 'eks-pod-restart-pack',
-      title: 'Pod Restart Investigation Pack',
-      summary: 'Follow a saved triage sequence for restart loops, evictions, and node pressure before changing the workload.',
-      problem: 'pod restart',
-      labels: ['EKS', 'Saved pack', 'kubectl'],
-      steps: [
-        {
-          id: 'eks-pod-restart-list',
-          title: 'List recent pod churn',
-          detail: 'Start with pod age and restart counts across namespaces to isolate the hottest workload first.',
-          artifact: buildArtifact(
-            'eks-pack-pod-list',
-            'List recent pod churn',
-            'shell-command',
-            'bash',
-            'Read-only kubectl query for pod restarts and age.',
-            'kubectl get pods -A --sort-by=.status.startTime',
-            'Read-only. Requires kubectl access.'
-          )
-        },
-        {
-          id: 'eks-pod-restart-describe',
-          title: 'Describe the failing pod',
-          detail: 'Capture events, scheduling failures, and recent container lifecycle messages for the specific pod.',
-          artifact: buildArtifact(
-            'eks-pack-pod-describe',
-            'Describe one pod',
-            'shell-command',
-            'bash',
-            'Read-only kubectl describe command for the affected pod.',
-            'kubectl describe pod -n <namespace> <pod-name>',
-            'Read-only. Replace placeholders before running.'
-          )
-        },
-        {
-          id: 'eks-pod-restart-previous',
-          title: 'Check previous container logs',
-          detail: 'Use the previous container stream when the current pod already restarted and the failing process exited.',
-          artifact: buildArtifact(
-            'eks-pack-pod-previous-logs',
-            'Read previous container logs',
-            'shell-command',
-            'bash',
-            'Read-only kubectl logs command for previous container output.',
-            'kubectl logs -n <namespace> <pod-name> --previous',
-            'Read-only. Replace placeholders before running.'
-          )
-        }
-      ]
-    }
-  ]
-
-  if (hasAccessDeniedSignal(findings.flatMap((finding) => [finding.title, finding.summary, finding.detail, ...finding.evidence]))) {
-    packs.push({
-      id: 'eks-access-denied-pack',
-      title: 'Access Denied Investigation Pack',
-      summary: 'Use a saved path for auth failures before assuming the issue is in the workload itself.',
-      problem: 'access denied',
-      labels: ['EKS', 'Saved pack', 'IAM'],
-      steps: [
-        {
-          id: 'eks-access-identity',
-          title: 'Confirm current caller identity',
-          detail: 'Make sure the active terminal session is using the expected principal before testing cluster access again.',
-          artifact: buildArtifact(
-            'eks-pack-sts-caller',
-            'STS caller identity',
-            'shell-command',
-            'bash',
-            'Read-only AWS CLI identity command.',
-            'aws sts get-caller-identity',
-            'Read-only.'
-          )
-        },
-        {
-          id: 'eks-access-auth',
-          title: 'Validate cluster auth path',
-          detail: 'Check whether the failure is coming from EKS auth, kubeconfig generation, or Kubernetes RBAC.',
-          artifact: buildArtifact(
-            'eks-pack-kubectl-auth',
-            'Verify cluster auth',
-            'shell-command',
-            'bash',
-            'Read-only kubectl auth check.',
-            'kubectl auth can-i get pods -A',
-            'Read-only. Requires kubectl access.'
-          )
-        }
-      ]
-    })
-  }
-
-  return packs
-}
-
-function buildEcsInvestigationPacks(diagnostics: EcsServiceDiagnostics, findings: ObservabilityFinding[]): InvestigationPack[] {
-  const packs: InvestigationPack[] = []
-
-  if (findings.some((finding) => finding.id === 'ecs-running-gap')) {
-    packs.push({
-      id: 'ecs-under-desired-pack',
-      title: 'Service Under Desired Count Pack',
-      summary: 'Use a saved investigation sequence to confirm whether the gap is capacity, task health, or deployment failure.',
-      problem: 'service under desired count',
-      labels: ['ECS', 'Saved pack', 'deployments'],
-      steps: [
-        {
-          id: 'ecs-under-desired-service',
-          title: 'Inspect service deployment state',
-          detail: 'Start with the live service object to confirm desired, running, pending, and deployment rollout status.',
-          artifact: buildArtifact(
-            'ecs-pack-service-state',
-            'Describe ECS service',
-            'shell-command',
-            'bash',
-            'Read-only ECS service describe command.',
-            `aws ecs describe-services --cluster "${diagnostics.service.clusterArn}" --services "${diagnostics.service.serviceName}"`,
-            'Read-only.'
-          )
-        },
-        {
-          id: 'ecs-under-desired-tasks',
-          title: 'List stopped tasks',
-          detail: 'Review recent stopped tasks and stopped reasons before forcing a new deployment.',
-          artifact: buildArtifact(
-            'ecs-pack-stopped-tasks',
-            'List stopped tasks',
-            'shell-command',
-            'bash',
-            'Read-only ECS stopped task listing command.',
-            `aws ecs list-tasks --cluster "${diagnostics.service.clusterArn}" --service-name "${diagnostics.service.serviceName}" --desired-status STOPPED`,
-            'Read-only.'
-          )
-        }
-      ]
-    })
-  }
-
-  if (hasAccessDeniedSignal(findings.flatMap((finding) => [finding.title, finding.summary, finding.detail, ...finding.evidence]))) {
-    packs.push({
-      id: 'ecs-access-denied-pack',
-      title: 'Access Denied Investigation Pack',
-      summary: 'Separate IAM, task role, and execution role failures before retrying the deployment.',
-      problem: 'access denied',
-      labels: ['ECS', 'Saved pack', 'IAM'],
-      steps: [
-        {
-          id: 'ecs-access-identity',
-          title: 'Confirm current operator identity',
-          detail: 'Verify the terminal session is using the intended AWS principal.',
-          artifact: buildArtifact(
-            'ecs-pack-sts-caller',
-            'STS caller identity',
-            'shell-command',
-            'bash',
-            'Read-only AWS CLI identity command.',
-            'aws sts get-caller-identity',
-            'Read-only.'
-          )
-        }
-      ]
-    })
-  }
-
-  return packs
-}
-
-function buildTerraformInvestigationPacks(project: TerraformProject, drift: TerraformDriftReport | null, findings: ObservabilityFinding[]): InvestigationPack[] {
-  const packs: InvestigationPack[] = []
-  const primaryDriftItem = drift?.items.find((item) => item.status === 'drifted') ?? null
-  const primaryDriftAddress = primaryDriftItem?.terraformAddress || '<resource-address>'
-
-  if ((drift?.summary.statusCounts.drifted ?? 0) > 0 || findings.some((finding) => finding.id === 'tf-drift-present')) {
-    packs.push({
-      id: 'tf-drift-spike-pack',
-      title: 'Terraform Drift Spike Pack',
-      summary: 'Follow a saved sequence to confirm whether drift is concentrated in one service, one module, or one recent out-of-band change.',
-      problem: 'terraform drift spike',
-      labels: ['Terraform', 'Saved pack', 'drift'],
-      steps: [
-        {
-          id: 'tf-drift-plan',
-          title: 'Re-run refresh-only plan',
-          detail: 'Start with a refresh-only plan to isolate state drift before touching configuration.',
-          artifact: buildArtifact(
-            'tf-pack-refresh-only',
-            'Refresh-only plan',
-            'shell-command',
-            'bash',
-            'Read-only Terraform drift confirmation command.',
-            `terraform -chdir="${project.rootPath}" plan -refresh-only`,
-            'Read-only.'
-          )
-        },
-        {
-          id: 'tf-drift-state',
-          title: 'Inspect the noisiest resource directly',
-          detail: primaryDriftItem
-            ? `Use state show on ${primaryDriftAddress} before deciding between import, move, or manual reconciliation.`
-            : 'Use state show on one affected address before deciding between import, move, or manual reconciliation.',
-          artifact: buildArtifact(
-            'tf-pack-state-show',
-            'Inspect resource in state',
-            'shell-command',
-            'bash',
-            'Read-only Terraform state inspection command.',
-            `terraform -chdir="${project.rootPath}" state show ${primaryDriftAddress}`,
-            primaryDriftItem ? 'Read-only.' : 'Read-only. Replace the placeholder before running.'
-          )
-        }
-      ]
-    })
-  }
-
-  if (hasAccessDeniedSignal(findings.flatMap((finding) => [finding.title, finding.summary, finding.detail, ...finding.evidence]))) {
-    packs.push({
-      id: 'tf-access-denied-pack',
-      title: 'Access Denied Investigation Pack',
-      summary: 'Use a saved path to separate provider credential issues from backend or resource policy failures.',
-      problem: 'access denied',
-      labels: ['Terraform', 'Saved pack', 'IAM'],
-      steps: [
-        {
-          id: 'tf-access-identity',
-          title: 'Confirm active AWS identity',
-          detail: 'Verify the active terminal session and Terraform provider are aligned on the same AWS principal.',
-          artifact: buildArtifact(
-            'tf-pack-sts-caller',
-            'STS caller identity',
-            'shell-command',
-            'bash',
-            'Read-only AWS CLI identity command.',
-            'aws sts get-caller-identity',
-            'Read-only.'
-          )
-        },
-        {
-          id: 'tf-access-backend',
-          title: 'Validate backend access separately',
-          detail: 'Check whether the failure is backend-related before treating it as a provider/resource issue.',
-          artifact: buildArtifact(
-            'tf-pack-init-backend',
-            'Backend init check',
-            'shell-command',
-            'bash',
-            'Read-only Terraform backend validation command.',
-            `terraform -chdir="${project.rootPath}" init -backend=false`,
-            'Read-only.'
-          )
-        }
-      ]
-    })
-  }
-
-  return packs
 }
 
 function makeEksOtelYaml(clusterName: string): string {
@@ -419,7 +135,7 @@ spec:
     metadata:
       labels:
         app: otel-collector
-        aws-lens.scope: "${clusterName}"
+        infra-lens.scope: "${clusterName}"
     spec:
       containers:
         - name: otel-collector
@@ -494,7 +210,7 @@ function makeFisJson(scopeName: string): string {
         stop_one_target: {
           actionId: 'aws:ecs:stop-task',
           description: 'Stop a single running target to verify alarms and rollout behavior.',
-          parameters: { reason: 'aws-lens resilience lab validation' },
+          parameters: { reason: 'infra-lens resilience lab validation' },
           targets: { Tasks: 'oneRandomTask' }
         }
       },
@@ -529,7 +245,7 @@ function makeTerraformAlarmSnippet(name: string): string {
 
 function makeTerraformLogRetentionSnippet(name: string): string {
   return `resource "aws_cloudwatch_log_group" "service_logs_${name.replace(/[^a-zA-Z0-9_]/g, '_')}" {
-  name              = "/aws-lens/${name}"
+  name              = "/infra-lens/${name}"
   retention_in_days = 30
 }`
 }
@@ -646,7 +362,6 @@ export async function generateEksObservabilityReport(
     ]),
     findings,
     recommendations,
-    investigationPacks: buildEksInvestigationPacks(cluster.name, findings),
     experiments,
     artifacts,
     safetyNotes: [
@@ -670,13 +385,6 @@ export async function generateEksObservabilityReport(
         detail: 'Use the existing CloudTrail-backed timeline to correlate control plane changes.',
         serviceId: 'eks',
         targetView: 'timeline'
-      },
-      {
-        id: 'eks-cloudwatch',
-        title: 'CloudWatch control plane logs',
-        detail: 'Inspect the shared EKS control plane log group in CloudWatch without rebuilding the query by hand.',
-        serviceId: 'cloudwatch',
-        targetView: 'logs'
       },
       {
         id: 'cloudtrail',
@@ -862,10 +570,7 @@ function buildEksRecommendations(region: string, cluster: EksClusterDetail, find
     'shell-command',
     'bash',
     'Read-only command to verify metrics.k8s.io and current node usage from kubectl.',
-    joinShellCommands([
-      'kubectl get --raw /apis/metrics.k8s.io/v1beta1/nodes',
-      'kubectl top nodes'
-    ]),
+    'kubectl get --raw /apis/metrics.k8s.io/v1beta1/nodes && kubectl top nodes',
     'Read-only. Requires kubectl access and a working Metrics Server deployment.'
   )
 
@@ -960,10 +665,7 @@ function buildEksRecommendations(region: string, cluster: EksClusterDetail, find
     })
   }
 
-  return enrichRecommendations(recommendations, {
-    owner: 'Platform / Kubernetes owner',
-    verificationPrefix: 'After the EKS change'
-  })
+  return recommendations
 }
 
 function buildEksExperiments(clusterName: string): ResilienceExperimentSuggestion[] {
@@ -1079,7 +781,6 @@ export async function generateEcsObservabilityReport(
     ]),
     findings,
     recommendations,
-    investigationPacks: buildEcsInvestigationPacks(diagnostics, findings),
     experiments,
     artifacts,
     safetyNotes: [
@@ -1292,10 +993,7 @@ function buildEcsRecommendations(
     })
   }
 
-  return enrichRecommendations(recommendations, {
-    owner: 'Service owner / ECS operator',
-    verificationPrefix: 'After the ECS change'
-  })
+  return recommendations
 }
 
 function buildEcsExperiments(serviceName: string): ResilienceExperimentSuggestion[] {
@@ -1332,7 +1030,8 @@ export async function generateTerraformObservabilityReport(
   let drift: TerraformDriftReport | null = null
   try {
     drift = await getTerraformDriftReport(profileName, projectId, connection)
-  } catch {
+  } catch (error) {
+    logWarn('observability-lab.drift-fetch', 'Failed to fetch Terraform drift report for observability lab.', { projectId }, error)
     drift = null
   }
 
@@ -1394,7 +1093,6 @@ export async function generateTerraformObservabilityReport(
     ]),
     findings,
     recommendations,
-    investigationPacks: buildTerraformInvestigationPacks(project, drift, findings),
     experiments,
     artifacts,
     safetyNotes: [
@@ -1500,7 +1198,7 @@ function buildTerraformFindings(project: TerraformProject, drift: TerraformDrift
 }
 
 function buildTerraformRecommendations(project: TerraformProject): ObservabilityRecommendation[] {
-  return enrichRecommendations([
+  return [
     {
       id: 'tf-add-alarm',
       title: 'Generate a baseline CloudWatch alarm resource',
@@ -1571,10 +1269,7 @@ function buildTerraformRecommendations(project: TerraformProject): Observability
       setupEffort: 'medium',
       labels: ['No extra install']
     }
-  ], {
-    owner: 'Infrastructure owner / Terraform maintainer',
-    verificationPrefix: 'After the Terraform change'
-  })
+  ]
 }
 
 function buildTerraformExperiments(projectName: string): ResilienceExperimentSuggestion[] {

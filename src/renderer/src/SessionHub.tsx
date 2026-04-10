@@ -1,26 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import type {
-  AssumeRoleRequest,
-  AwsAssumeRoleTarget,
-  AwsConnection,
-  AwsSessionSummary,
-  ComparisonPreset,
-  ComparisonPresetSummary,
-  ComparisonRequest,
-  IamRoleSummary
-} from '@shared/types'
+import type { AssumeRoleRequest, AwsAssumeRoleTarget, AwsConnection, AwsSessionSummary, ComparisonRequest, IamRoleSummary } from '@shared/types'
 import {
   assumeRoleSession,
   assumeSavedRoleTarget,
   deleteAssumedSession,
   deleteAssumeRoleTarget,
-  deleteComparisonPreset,
-  getComparisonPreset,
   listIamRoles,
-  listComparisonPresets,
   refreshAssumedSession,
-  saveComparisonPreset,
   saveAssumeRoleTarget
 } from './api'
 import { CollapsibleInfoPanel } from './CollapsibleInfoPanel'
@@ -96,7 +83,7 @@ function emptyDraft(profile: string, region: string): Omit<AwsAssumeRoleTarget, 
   return {
     label: '',
     roleArn: '',
-    defaultSessionName: 'aws-lens',
+    defaultSessionName: 'infra-lens',
     externalId: '',
     sourceProfile: profile,
     defaultRegion: region,
@@ -147,10 +134,6 @@ function getEnvironmentLabel(value: string): string {
   return value.trim() || 'Unspecified env'
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`
-}
-
 function formatCountdown(expiration: string): string {
   const remainingMs = new Date(expiration).getTime() - Date.now()
   if (!Number.isFinite(remainingMs)) {
@@ -193,9 +176,12 @@ function getSessionStatusClassName(session: AwsSessionSummary): string {
 
 function buildSessionConnection(session: AwsSessionSummary): AwsConnection {
   return {
+    providerId: 'aws',
     kind: 'assumed-role',
     sessionId: session.id,
     label: session.label,
+    profileId: session.profile,
+    locationId: session.region,
     profile: session.profile,
     sourceProfile: session.sourceProfile,
     region: session.region,
@@ -211,13 +197,11 @@ function buildSessionConnection(session: AwsSessionSummary): AwsConnection {
 export function SessionHub({
   connectionState,
   onOpenCompare,
-  onOpenTerminal,
-  onRunTerminalCommand
+  onOpenTerminal
 }: {
   connectionState: ConnectionState
   onOpenCompare: (request: ComparisonRequest) => void
   onOpenTerminal: (connection: AwsConnection) => void
-  onRunTerminalCommand: (command: string) => void
 }) {
   const [draft, setDraft] = useState<Omit<AwsAssumeRoleTarget, 'id' | 'createdAt' | 'updatedAt'>>(
     emptyDraft(connectionState.selectedProfile?.name ?? connectionState.profile, connectionState.region)
@@ -233,13 +217,6 @@ export function SessionHub({
   const [rolesLoading, setRolesLoading] = useState(false)
   const [roleArnPickerOpen, setRoleArnPickerOpen] = useState(false)
   const [sourceProfilePickerOpen, setSourceProfilePickerOpen] = useState(false)
-  const [comparePresets, setComparePresets] = useState<ComparisonPresetSummary[]>([])
-  const [selectedComparePresetId, setSelectedComparePresetId] = useState('')
-  const [loadedComparePreset, setLoadedComparePreset] = useState<ComparisonPreset | null>(null)
-  const [comparePresetName, setComparePresetName] = useState('')
-  const [comparePresetDescription, setComparePresetDescription] = useState('')
-  const [comparePresetBusy, setComparePresetBusy] = useState('')
-  const [comparePresetMessage, setComparePresetMessage] = useState('')
   const {
     freshness,
     beginRefresh,
@@ -295,7 +272,6 @@ export function SessionHub({
       requestBase:
         | { kind: 'profile'; profile: string; label?: string }
         | { kind: 'assumed-role'; sessionId: string; label?: string }
-        | { kind: 'saved-target'; targetId: string; label?: string }
     }> = []
 
     for (const profile of connectionState.profiles) {
@@ -306,18 +282,6 @@ export function SessionHub({
           kind: 'profile',
           profile: profile.name,
           label: profile.name
-        }
-      })
-    }
-
-    for (const target of connectionState.targets) {
-      options.push({
-        id: `target:${target.id}`,
-        label: `Saved target: ${target.label} (${target.sourceProfile})`,
-        requestBase: {
-          kind: 'saved-target',
-          targetId: target.id,
-          label: target.label
         }
       })
     }
@@ -335,7 +299,7 @@ export function SessionHub({
     }
 
     return options
-  }, [connectionState.profiles, connectionState.sessions, connectionState.targets])
+  }, [connectionState.profiles, connectionState.sessions])
 
   useEffect(() => {
     const sourceProfile = draft.sourceProfile.trim()
@@ -345,9 +309,12 @@ export function SessionHub({
     }
 
     const connection: AwsConnection = {
+      providerId: 'aws',
       kind: 'profile',
       sessionId: `profile:${sourceProfile}`,
       label: sourceProfile,
+      profileId: sourceProfile,
+      locationId: draft.defaultRegion || connectionState.region,
       profile: sourceProfile,
       region: draft.defaultRegion || connectionState.region
     }
@@ -390,10 +357,6 @@ export function SessionHub({
       setCompareRight(compareOptions[1].id)
     }
   }, [compareLeft, compareOptions, compareRight])
-
-  useEffect(() => {
-    void refreshComparePresets()
-  }, [])
 
   function updateDraft<K extends keyof typeof draft>(key: K, value: (typeof draft)[K]): void {
     setDraft((current) => ({ ...current, [key]: value }))
@@ -477,6 +440,43 @@ export function SessionHub({
     }
   }
 
+  async function handleDeleteTarget(targetId: string): Promise<void> {
+    setError('')
+    setMessage('')
+    setBusyId(targetId)
+
+    try {
+      await deleteAssumeRoleTarget(targetId)
+      if (editingTargetId === targetId) {
+        setEditingTargetId('')
+        setDraft(emptyDraft(connectionState.selectedProfile?.name ?? connectionState.profile, connectionState.region))
+      }
+      await refreshSessionHub()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusyId('')
+    }
+  }
+
+  async function handleDeleteSession(sessionId: string): Promise<void> {
+    setError('')
+    setMessage('')
+    setBusyId(sessionId)
+
+    try {
+      await deleteAssumedSession(sessionId)
+      if (connectionState.activeSession?.id === sessionId) {
+        connectionState.clearActiveSession()
+      }
+      await refreshSessionHub()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusyId('')
+    }
+  }
+
   async function handleRefreshSession(sessionId: string, options?: { activateOnSuccess?: boolean }): Promise<void> {
     setError('')
     setMessage('')
@@ -485,11 +485,9 @@ export function SessionHub({
     try {
       const result = await refreshAssumedSession(sessionId)
       await refreshSessionHub()
-
       if (options?.activateOnSuccess) {
         connectionState.activateSession(result.sessionId)
       }
-
       setMessage(`Refreshed ${result.label}. A new temporary session is now available.`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -541,176 +539,18 @@ export function SessionHub({
     }
   }
 
-  async function handleDeleteTarget(targetId: string): Promise<void> {
-    setError('')
-    setMessage('')
-    setBusyId(targetId)
-
-    try {
-      await deleteAssumeRoleTarget(targetId)
-      if (editingTargetId === targetId) {
-        setEditingTargetId('')
-        setDraft(emptyDraft(connectionState.selectedProfile?.name ?? connectionState.profile, connectionState.region))
-      }
-      await refreshSessionHub()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusyId('')
-    }
-  }
-
-  async function handleDeleteSession(sessionId: string): Promise<void> {
-    setError('')
-    setMessage('')
-    setBusyId(sessionId)
-
-    try {
-      await deleteAssumedSession(sessionId)
-      if (connectionState.activeSession?.id === sessionId) {
-        connectionState.clearActiveSession()
-      }
-      await refreshSessionHub()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusyId('')
-    }
-  }
-
-  function buildCompareRequest(): ComparisonRequest | null {
+  function handleCompareLaunch(): void {
     const left = compareOptions.find((entry) => entry.id === compareLeft)
     const right = compareOptions.find((entry) => entry.id === compareRight)
     if (!left || !right) {
-      return null
-    }
-
-    return {
-      left: { ...left.requestBase, region: connectionState.region },
-      right: { ...right.requestBase, region: connectionState.region }
-    }
-  }
-
-  function applyCompareRequest(request: ComparisonRequest): void {
-    setCompareLeft(
-      request.left.kind === 'profile'
-        ? `profile:${request.left.profile}`
-        : request.left.kind === 'saved-target'
-          ? `target:${request.left.targetId}`
-          : `session:${request.left.sessionId}`
-    )
-    setCompareRight(
-      request.right.kind === 'profile'
-        ? `profile:${request.right.profile}`
-        : request.right.kind === 'saved-target'
-          ? `target:${request.right.targetId}`
-          : `session:${request.right.sessionId}`
-    )
-  }
-
-  async function refreshComparePresets(): Promise<void> {
-    try {
-      const next = await listComparisonPresets()
-      setComparePresets(next)
-      setSelectedComparePresetId((current) => {
-        if (current && next.some((preset) => preset.id === current)) return current
-        return next[0]?.id ?? ''
-      })
-    } catch (err) {
-      setComparePresetMessage(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  async function handleLoadComparePreset(): Promise<void> {
-    if (!selectedComparePresetId) {
-      return
-    }
-
-    setComparePresetBusy('load')
-    setComparePresetMessage('')
-    try {
-      const preset = await getComparisonPreset(selectedComparePresetId)
-      if (!preset) {
-        setLoadedComparePreset(null)
-        setComparePresetMessage('Selected compare preset no longer exists.')
-        await refreshComparePresets()
-        return
-      }
-
-      setLoadedComparePreset(preset)
-      setComparePresetName(preset.name)
-      setComparePresetDescription(preset.description)
-      applyCompareRequest(preset.request)
-      setComparePresetMessage(`Loaded compare preset "${preset.name}".`)
-    } catch (err) {
-      setComparePresetMessage(err instanceof Error ? err.message : String(err))
-    } finally {
-      setComparePresetBusy('')
-    }
-  }
-
-  async function handleSaveComparePreset(): Promise<void> {
-    const request = buildCompareRequest()
-    if (!request) {
-      setComparePresetMessage('Choose two contexts before saving a compare preset.')
-      return
-    }
-    if (!comparePresetName.trim()) {
-      setComparePresetMessage('Enter a compare preset name.')
-      return
-    }
-
-    setComparePresetBusy('save')
-    setComparePresetMessage('')
-    try {
-      const summary = await saveComparisonPreset({
-        id: loadedComparePreset?.id,
-        name: comparePresetName.trim(),
-        description: comparePresetDescription.trim(),
-        request
-      })
-      await refreshComparePresets()
-      setSelectedComparePresetId(summary.id)
-      setLoadedComparePreset(await getComparisonPreset(summary.id))
-      setComparePresetMessage(`Saved compare preset "${summary.name}".`)
-    } catch (err) {
-      setComparePresetMessage(err instanceof Error ? err.message : String(err))
-    } finally {
-      setComparePresetBusy('')
-    }
-  }
-
-  async function handleDeleteComparePreset(): Promise<void> {
-    if (!selectedComparePresetId) {
-      return
-    }
-
-    setComparePresetBusy('delete')
-    setComparePresetMessage('')
-    try {
-      await deleteComparisonPreset(selectedComparePresetId)
-      if (loadedComparePreset?.id === selectedComparePresetId) {
-        setLoadedComparePreset(null)
-      }
-      setComparePresetName('')
-      setComparePresetDescription('')
-      await refreshComparePresets()
-      setComparePresetMessage('Compare preset deleted.')
-    } catch (err) {
-      setComparePresetMessage(err instanceof Error ? err.message : String(err))
-    } finally {
-      setComparePresetBusy('')
-    }
-  }
-
-  function handleCompareLaunch(): void {
-    const request = buildCompareRequest()
-    if (!request) {
       setError('Choose two contexts to compare.')
       return
     }
 
-    onOpenCompare(request)
+    onOpenCompare({
+      left: { ...left.requestBase, region: connectionState.region },
+      right: { ...right.requestBase, region: connectionState.region }
+    })
   }
 
   function loadTargetIntoForm(target: AwsAssumeRoleTarget): void {
@@ -738,51 +578,6 @@ export function SessionHub({
   const currentContextMeta = connectionState.activeSession
     ? connectionState.activeSession.assumedRoleArn || connectionState.activeSession.roleArn
     : connectionState.selectedProfile?.name || connectionState.profile || 'No profile selected'
-  const terminalCommandTemplates = useMemo(() => {
-    const currentConnection = connectionState.connection
-    if (!currentConnection) {
-      return []
-    }
-
-    const currentRegion = currentConnection.region || connectionState.region || 'us-east-1'
-    const contextLabel = currentConnection.label || currentConnection.profile || 'current-context'
-
-    return [
-      {
-        id: 'aws-identity',
-        label: 'AWS Identity',
-        description: 'Confirm the active caller identity and region before running sensitive actions.',
-        command: `aws sts get-caller-identity; aws configure get region`
-      },
-      {
-        id: 'aws-inventory',
-        label: 'AWS Inventory',
-        description: 'Quickly inspect common account-scoped resources in the active region.',
-        command: `aws eks list-clusters --region ${currentRegion}; aws ec2 describe-instances --max-items 10 --region ${currentRegion}`
-      },
-      {
-        id: 'kubectl',
-        label: 'kubectl Bootstrap',
-        description: 'Prepare or reuse an EKS cluster name, then list nodes and pods from the active AWS context.',
-        command:
-          `$clusterName = '<eks-cluster-name>'; aws eks update-kubeconfig --name $clusterName --region ${currentRegion}; kubectl config current-context; kubectl get nodes; kubectl get pods -A`
-      },
-      {
-        id: 'terraform',
-        label: 'Terraform Plan',
-        description: 'Export the active AWS region, then run a safe Terraform init and plan in the current shell.',
-        command:
-          `$env:AWS_REGION='${currentRegion}'; $env:AWS_DEFAULT_REGION='${currentRegion}'; terraform init; terraform plan -var aws_region=${shellQuote(currentRegion)}`
-      },
-      {
-        id: 'session-debug',
-        label: 'Session Debug',
-        description: 'Capture the current shell AWS variables and identity for support or incident debugging.',
-        command:
-          `Write-Host 'Context: ${contextLabel}'; Get-ChildItem Env:AWS_* | Sort-Object Name; aws sts get-caller-identity`
-      }
-    ]
-  }, [connectionState.connection, connectionState.region])
   void countdownTick
 
   return (
@@ -795,7 +590,7 @@ export function SessionHub({
           <div className="eyebrow">Security</div>
           <h2>Cross-Account Session Hub</h2>
           <p>
-            Saved role targets persist locally. Temporary credentials stay in memory only and are never written into AWS config or credentials files.
+            Saved role targets persist locally. Temporary credentials stay in memory only and are never written into local config or credentials files.
           </p>
           <div className="session-hub-shell-meta-strip">
             <div className="session-hub-shell-meta-pill">
@@ -835,7 +630,7 @@ export function SessionHub({
           <div className="session-hub-shell-stat-card">
             <span>Diff contexts</span>
             <strong>{compareOptions.length}</strong>
-            <small>Profiles, saved targets, and sessions available to compare</small>
+            <small>Profiles and sessions available to compare</small>
           </div>
         </div>
       </section>
@@ -891,8 +686,8 @@ export function SessionHub({
       </div>
 
       {expiringSessions.length > 0 && (
-        <section className="session-hub-refresh-banner">
-          <div>
+        <section className="panel session-hub-compare-panel">
+          <div className="empty-state compact">
             <strong>
               {expiringSessions.length === 1
                 ? '1 session is expiring soon.'
@@ -1119,7 +914,7 @@ export function SessionHub({
                   <button type="button" disabled={session.status !== 'active'} onClick={() => onOpenTerminal(buildSessionConnection(session))}>Terminal</button>
                   <button
                     type="button"
-                    disabled={busyId === session.id}
+                    disabled={busyId === session.id || session.status !== 'active'}
                     onClick={() => void handleRefreshSession(session.id, { activateOnSuccess: connectionState.activeSession?.id === session.id })}
                   >
                     {session.expiryState === 'expiring' ? 'Refresh Now' : 'Re-Assume'}
@@ -1151,86 +946,13 @@ export function SessionHub({
               {compareOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
             </select>
           </label>
-          <label className="field">
-            <span>Saved Preset</span>
-            <select value={selectedComparePresetId} onChange={(event) => setSelectedComparePresetId(event.target.value)}>
-              <option value="">Select...</option>
-              {comparePresets.map((preset) => (
-                <option key={preset.id} value={preset.id}>
-                  {preset.name} ({preset.leftLabel} vs {preset.rightLabel})
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Preset Name</span>
-            <input
-              value={comparePresetName}
-              onChange={(event) => setComparePresetName(event.target.value)}
-              placeholder="Prod vs staging"
-            />
-          </label>
-          <label className="field session-hub-compare-description">
-            <span>Preset Description</span>
-            <input
-              value={comparePresetDescription}
-              onChange={(event) => setComparePresetDescription(event.target.value)}
-              placeholder="Optional note for this reusable compare pair"
-            />
-          </label>
         </div>
         <div className="button-row session-hub-toolbar">
-          <button
-            type="button"
-            disabled={!selectedComparePresetId || comparePresetBusy === 'load'}
-            onClick={() => void handleLoadComparePreset()}
-          >
-            {comparePresetBusy === 'load' ? 'Loading...' : 'Load Preset'}
-          </button>
-          <button
-            type="button"
-            disabled={comparePresetBusy === 'save'}
-            onClick={() => void handleSaveComparePreset()}
-          >
-            {comparePresetBusy === 'save' ? 'Saving...' : loadedComparePreset ? 'Update Preset' : 'Save Preset'}
-          </button>
-          <button
-            type="button"
-            disabled={!selectedComparePresetId || comparePresetBusy === 'delete'}
-            onClick={() => void handleDeleteComparePreset()}
-          >
-            {comparePresetBusy === 'delete' ? 'Deleting...' : 'Delete Preset'}
-          </button>
           <button type="button" className="accent" onClick={handleCompareLaunch}>
             Open Compare Workspace
           </button>
         </div>
-        {comparePresetMessage && <div className="empty-state compact">{comparePresetMessage}</div>}
         <div className="empty-state compact">Diff Mode opens a dedicated workspace with inventory, posture, ownership, cost, and risk-focused comparisons.</div>
-      </section>
-
-      <div className="overview-section-title">Command Templates</div>
-      <section className="panel session-hub-compare-panel">
-        {terminalCommandTemplates.length === 0 ? (
-          <div className="empty-state compact">Select or activate a context first to send suggested commands to the terminal.</div>
-        ) : (
-          <div className="info-card-grid info-card-grid-3">
-            {terminalCommandTemplates.map((template) => (
-              <article key={template.id} className="info-card session-hub-command-card">
-                <div className="info-card__copy">
-                  <strong>{template.label}</strong>
-                  <p>{template.description}</p>
-                  <code className="session-hub-command-preview">{template.command}</code>
-                </div>
-                <div className="button-row">
-                  <button type="button" className="accent" onClick={() => onRunTerminalCommand(template.command)}>
-                    Send To Terminal
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
       </section>
 
       <CollapsibleInfoPanel title="Recommended Next Actions" className="panel session-hub-compare-panel">
@@ -1294,7 +1016,7 @@ export function SessionHub({
           <article className="info-card">
             <div className="info-card__copy">
               <strong>Compare staging and production posture</strong>
-              <p>Assume or activate both contexts, launch Compare Workspace, and inspect posture or ownership differences without rewriting local AWS config.</p>
+              <p>Assume or activate both contexts, launch Compare Workspace, and inspect posture or ownership differences without rewriting local profile configuration.</p>
             </div>
           </article>
           <article className="info-card">

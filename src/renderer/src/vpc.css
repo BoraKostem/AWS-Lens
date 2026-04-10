@@ -579,3 +579,53 @@
     justify-content: center;
   }
 }
+
+/* ── Azure Network Console — blue theme overrides ────────── */
+
+.azure-network-theme.vpc-console .vpc-shell-hero,
+.azure-network-theme.vpc-console .vpc-detail-hero {
+  border-color: rgba(0, 120, 212, 0.16);
+  background:
+    radial-gradient(circle at top left, rgba(0, 120, 212, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(56, 139, 253, 0.10), transparent 30%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(11, 17, 25, 0.98));
+}
+
+.azure-network-theme .vpc-shell-meta-pill,
+.azure-network-theme .vpc-detail-meta-pill,
+.azure-network-theme .vpc-shell-status-card,
+.azure-network-theme .vpc-shell-toolbar,
+.azure-network-theme .vpc-table-area,
+.azure-network-theme .vpc-detail-pane,
+.azure-network-theme .vpc-section,
+.azure-network-theme .vpc-inventory-pane {
+  border-color: rgba(0, 120, 212, 0.14);
+}
+
+.azure-network-theme .vpc-stat-card-accent {
+  border-color: rgba(0, 120, 212, 0.32);
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(22, 35, 52, 0.96), rgba(14, 24, 38, 0.96));
+}
+
+.azure-network-theme .vpc-toolbar-tab.active {
+  border-color: rgba(0, 120, 212, 0.32);
+  background: linear-gradient(180deg, rgba(0, 120, 212, 0.18), rgba(0, 120, 212, 0.08));
+}
+
+.azure-network-theme .vpc-toolbar-tab:hover {
+  border-color: rgba(0, 120, 212, 0.24);
+  background: rgba(0, 120, 212, 0.1);
+}
+
+.azure-network-theme .vpc-toolbar-btn.accent {
+  background: linear-gradient(135deg, #0078d4, #50a0e6);
+  border-color: rgba(80, 160, 230, 0.24);
+  color: #fff;
+}
+
+.azure-network-theme .svc-table tbody tr.active,
+.azure-network-theme .svc-table tbody tr:hover {
+  background: rgba(0, 120, 212, 0.08);
+}

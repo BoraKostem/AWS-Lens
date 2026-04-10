@@ -1,0 +1,338 @@
+/* ── Azure Log Analytics Console ────────────────────────────── */
+
+.azure-log-analytics-theme .asg-hero,
+.azure-log-analytics-theme .asg-detail-hero {
+  background:
+    radial-gradient(circle at top left, rgba(0, 120, 212, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(56, 139, 253, 0.1), transparent 30%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(11, 17, 25, 0.98));
+}
+
+.azure-log-analytics-theme .eyebrow,
+.azure-log-analytics-theme .asg-pane-kicker {
+  color: #8fc7ff;
+}
+
+.azure-log-analytics-theme .asg-meta-pill,
+.azure-log-analytics-theme .asg-stat-card,
+.azure-log-analytics-theme .asg-groups-pane,
+.azure-log-analytics-theme .asg-right-pane,
+.azure-log-analytics-theme .asg-detail-pane,
+.azure-log-analytics-theme .asg-tab-bar,
+.azure-log-analytics-theme .la-results-table {
+  border-color: rgba(0, 120, 212, 0.14);
+}
+
+.azure-log-analytics-theme .asg-stat-card-accent {
+  border-color: rgba(0, 120, 212, 0.32);
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(22, 35, 52, 0.96), rgba(14, 24, 38, 0.96));
+}
+
+.azure-log-analytics-theme .svc-tab.active {
+  border-color: rgba(0, 120, 212, 0.32);
+  background: linear-gradient(180deg, rgba(0, 120, 212, 0.18), rgba(0, 120, 212, 0.08));
+}
+
+.azure-log-analytics-theme .asg-group-card:hover {
+  border-color: rgba(0, 120, 212, 0.24);
+}
+
+.azure-log-analytics-theme .asg-group-card.active {
+  border-color: rgba(0, 120, 212, 0.34);
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.12), transparent 40%),
+    linear-gradient(180deg, rgba(28, 40, 55, 0.98), rgba(14, 23, 34, 0.98));
+  box-shadow: inset 0 0 0 1px rgba(0, 120, 212, 0.08);
+}
+
+.azure-log-analytics-theme .asg-group-card-badge,
+.azure-log-analytics-theme .la-query-preset-btn:focus,
+.azure-log-analytics-theme .la-timespan-select:focus,
+.azure-log-analytics-theme .la-workspace-select:focus,
+.azure-log-analytics-theme .la-query-editor:focus {
+  border-color: rgba(0, 120, 212, 0.34);
+}
+
+.azure-log-analytics-theme .asg-group-card-badge {
+  background: rgba(0, 120, 212, 0.16);
+  color: #7db8f5;
+}
+
+.azure-log-analytics-theme .svc-btn.primary {
+  background: linear-gradient(135deg, #0078d4, #50a0e6);
+  border-color: rgba(80, 160, 230, 0.24);
+}
+
+.la-query-area {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+}
+
+.la-query-editor {
+  width: 100%;
+  min-height: 160px;
+  max-height: 300px;
+  background: #0d1117;
+  color: #c9d1d9;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  padding: 10px;
+  resize: vertical;
+  line-height: 1.5;
+  tab-size: 4;
+}
+
+.la-query-editor:focus {
+  outline: none;
+  border-color: #4a8fe7;
+}
+
+.la-query-editor::placeholder {
+  color: #525a68;
+}
+
+.la-query-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.la-query-presets {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.la-query-preset-btn {
+  padding: 4px 10px;
+  background: #1e232b;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  color: #9ca7b7;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.la-query-preset-btn:hover {
+  background: #2d333d;
+  color: #eef0f4;
+}
+
+.la-query-preset-btn:active {
+  background: #353d49;
+}
+
+.la-results-table {
+  width: 100%;
+  overflow: auto;
+  max-height: calc(100vh - 520px);
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+}
+
+.la-results-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.la-results-table th {
+  position: sticky;
+  top: 0;
+  background: #1e232b;
+  color: #9ca7b7;
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid #3b4350;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.la-results-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid #262c35;
+  color: #d0d8e2;
+  font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.la-results-table tr:hover td {
+  background: #1e232b;
+}
+
+.la-query-stats {
+  font-size: 11px;
+  color: #9ca7b7;
+  padding: 6px 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.la-query-stats strong {
+  color: #d0d8e2;
+}
+
+.la-timespan-select {
+  background: #1e232b;
+  color: #eef0f4;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.la-timespan-select:focus {
+  outline: none;
+  border-color: #4a8fe7;
+}
+
+.la-workspace-select {
+  background: #1e232b;
+  color: #eef0f4;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  padding: 5px 10px;
+  font-size: 12px;
+  min-width: 200px;
+  cursor: pointer;
+}
+
+.la-workspace-select:focus {
+  outline: none;
+  border-color: #4a8fe7;
+}
+
+.la-query-error {
+  background: rgba(220, 60, 60, 0.12);
+  border: 1px solid rgba(220, 60, 60, 0.3);
+  border-radius: 4px;
+  color: #f48771;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.la-empty-query {
+  text-align: center;
+  color: #525a68;
+  padding: 40px 20px;
+  font-size: 13px;
+}
+
+.la-empty-query strong {
+  display: block;
+  color: #9ca7b7;
+  margin-bottom: 6px;
+  font-size: 14px;
+}
+
+.la-saved-search-card {
+  background: linear-gradient(180deg, rgba(22, 28, 36, 0.95), rgba(16, 20, 28, 0.95));
+  border: 1px solid rgba(145, 176, 207, 0.12);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.15s;
+}
+
+.la-saved-search-card:hover {
+  border-color: rgba(145, 176, 207, 0.25);
+}
+
+.la-saved-search-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.la-saved-search-card-head strong {
+  color: #eef0f4;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.la-saved-search-card-query {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: #7d8a9c;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 6px 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.la-saved-search-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+.la-linked-services-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+.la-linked-service-card {
+  background: linear-gradient(180deg, rgba(22, 28, 36, 0.95), rgba(16, 20, 28, 0.95));
+  border: 1px solid rgba(145, 176, 207, 0.12);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: border-color 0.15s;
+}
+
+.la-linked-service-card:hover {
+  border-color: rgba(145, 176, 207, 0.25);
+}
+
+.la-linked-service-card strong {
+  color: #eef0f4;
+  font-size: 13px;
+}
+
+.la-linked-service-card code {
+  font-size: 11px;
+  color: #7d8a9c;
+  word-break: break-all;
+}
+
+.la-results-empty {
+  text-align: center;
+  color: #525a68;
+  padding: 32px 20px;
+  font-size: 12px;
+}
+
+.la-row-count {
+  font-size: 11px;
+  color: #7d8a9c;
+  padding: 4px 0;
+}

@@ -2,7 +2,6 @@ import type {
   AwsConnection,
   DbConnectionEngine,
   DbConnectionResolveInput,
-  DbConnectionSecretHandling,
   DbConnectionResolutionResult
 } from '@shared/types'
 import { getSecretValue } from './aws/secretsManager'
@@ -194,29 +193,6 @@ function summarizeSource(kind: DbConnectionResolveInput['credentialSourceKind'],
   }
 }
 
-function summarizeSecretHandling(kind: DbConnectionResolveInput['credentialSourceKind']): {
-  handling: DbConnectionSecretHandling
-  summary: string
-} {
-  switch (kind) {
-    case 'local-vault':
-      return {
-        handling: 'persisted-local-vault',
-        summary: 'Password is stored in the encrypted local vault and reused from there.'
-      }
-    case 'aws-secrets-manager':
-      return {
-        handling: 'runtime-secrets-manager',
-        summary: 'Password is resolved on demand from AWS Secrets Manager and is not persisted to the local vault.'
-      }
-    default:
-      return {
-        handling: 'ephemeral-manual',
-        summary: 'Password is held only for this helper session unless you explicitly save it to the local vault.'
-      }
-  }
-}
-
 export async function resolveDbConnectionMaterial(
   connection: AwsConnection,
   input: DbConnectionResolveInput
@@ -297,7 +273,6 @@ export async function resolveDbConnectionMaterial(
   const resolvedUsername = parsedSecret.username || username
   const normalizedEngine = normalizeEngine(input.engine)
   const warnings: string[] = []
-  const secretHandling = summarizeSecretHandling(input.credentialSourceKind)
 
   if (parsedSecret.host && parsedSecret.host !== host) {
     warnings.push(`Secret host override applied: ${parsedSecret.host}`)
@@ -345,8 +320,6 @@ export async function resolveDbConnectionMaterial(
     credentialSourceKind: input.credentialSourceKind,
     credentialSourceRef,
     sourceSummary: summarizeSource(input.credentialSourceKind, credentialSourceRef),
-    secretHandling: secretHandling.handling,
-    secretHandlingSummary: secretHandling.summary,
     warnings,
     snippets: [
       { id: 'terminal-command', label: 'Terminal Command', value: terminalCommand, sensitive: false },

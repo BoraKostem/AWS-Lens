@@ -20,6 +20,7 @@ import type {
   EcrRepositorySummary,
   LambdaFunctionSummary,
   LoadBalancerWorkspace,
+  NormalizedResourceIdentity,
   OverviewMetrics,
   OverviewStatistics,
   RdsClusterSummary,
@@ -31,13 +32,8 @@ import type {
   VpcSummary,
   WafWebAclSummary
 } from '@shared/types'
-import {
-  assumeRoleSession,
-  createBaseConnection,
-  createConnectionFromSession,
-  getAssumeRoleTarget,
-  getSessionSummary
-} from './sessionHub'
+import { toNormalizedActorIdentity } from '@shared/providerAdapters'
+import { createBaseConnection, createConnectionFromSession, getSessionSummary } from './sessionHub'
 import { listAcmCertificates } from './aws/acm'
 import { getComplianceReport } from './aws/compliance'
 import { listEc2Instances } from './aws/ec2'
@@ -112,6 +108,30 @@ function fieldDetails(left?: Record<string, string>, right?: Record<string, stri
   }))
 }
 
+function normalizeCanonicalType(providerId: AwsConnection['providerId'], resourceType: string): string {
+  return `${providerId}:${resourceType.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
+}
+
+function makeResourceIdentity(
+  dataset: ContextDataset,
+  serviceId: ServiceId,
+  resourceType: string,
+  identityKey: string,
+  displayName: string,
+  locationId = dataset.descriptor.region
+): NormalizedResourceIdentity {
+  return {
+    providerId: dataset.descriptor.normalizedIdentity.providerId,
+    serviceId,
+    resourceType,
+    canonicalType: normalizeCanonicalType(dataset.descriptor.normalizedIdentity.providerId, resourceType),
+    identityKey,
+    displayName,
+    locationId,
+    scopeId: dataset.descriptor.normalizedIdentity.scopeId
+  }
+}
+
 function makeDescriptor(connection: AwsConnection, accountId: string, arn: string): ComparisonContextDescriptor {
   return {
     kind: connection.kind,
@@ -122,7 +142,16 @@ function makeDescriptor(connection: AwsConnection, accountId: string, arn: strin
     region: connection.region,
     accountId,
     roleArn: connection.kind === 'assumed-role' ? connection.roleArn : '',
-    arn
+    arn,
+    normalizedIdentity: toNormalizedActorIdentity({
+      providerId: connection.providerId,
+      accountId,
+      account: accountId,
+      principalArn: arn,
+      principalId: arn,
+      arn,
+      userId: arn
+    } as const, connection.label)
   }
 }
 
@@ -433,29 +462,9 @@ function normalizeInventory(input: {
 }
 
 async function resolveConnection(input: ComparisonContextInput): Promise<AwsConnection> {
-  if (input.kind === 'profile') {
-    return createBaseConnection(input.profile, input.region)
-  }
-
-  if (input.kind === 'assumed-role') {
-    return createConnectionFromSession(input.sessionId, input.region)
-  }
-
-  const target = getAssumeRoleTarget(input.targetId)
-  if (!target) {
-    throw new Error('Saved compare target was not found. Update the preset or recreate the target in Session Hub.')
-  }
-
-  const assumed = await assumeRoleSession({
-    label: input.label?.trim() || target.label,
-    roleArn: target.roleArn,
-    sessionName: target.defaultSessionName,
-    externalId: target.externalId || undefined,
-    sourceProfile: target.sourceProfile,
-    region: input.region || target.defaultRegion
-  })
-
-  return createConnectionFromSession(assumed.sessionId, input.region)
+  return input.kind === 'profile'
+    ? createBaseConnection(input.profile, input.region)
+    : createConnectionFromSession(input.sessionId, input.region)
 }
 
 async function loadDataset(input: ComparisonContextInput): Promise<ContextDataset> {
@@ -465,7 +474,7 @@ async function loadDataset(input: ComparisonContextInput): Promise<ContextDatase
     getOverviewMetrics(connection, [connection.region]),
     getOverviewStatistics(connection),
     getComplianceReport(connection),
-    getCostBreakdown(connection).catch(() => ({ entries: [], total: 0, period: '', metric: 'Unavailable' })),
+    getCostBreakdown(connection).catch(() => ({ entries: [], total: 0, period: '', metric: '' })),
     listEc2Instances(connection).catch(() => []),
     listVpcs(connection).catch(() => []),
     listSubnets(connection).catch(() => []),
@@ -480,10 +489,9 @@ async function loadDataset(input: ComparisonContextInput): Promise<ContextDatase
     listWebAcls(connection, 'REGIONAL').catch(() => [])
   ])
 
-  const summary = input.kind === 'assumed-role'
-    ? getSessionSummary(input.sessionId)
-    : null
-  const descriptor = makeDescriptor(connection, identity.account || summary?.accountId || '', identity.arn)
+  const summary = input.kind === 'assumed-role' ? getSessionSummary(input.sessionId) : null
+  const accountId = identity.account || summary?.accountId || ''
+  const descriptor = makeDescriptor(connection, accountId, identity.arn)
 
   return {
     descriptor: { ...descriptor, label: input.label?.trim() || descriptor.label },
@@ -538,6 +546,8 @@ function buildInventoryGroups(left: ContextDataset, right: ContextDataset): Comp
       const rightItem = rightMap.get(key)
       const same = leftItem && rightItem ? attrsEqual(leftItem.attributes, rightItem.attributes) : false
       const source = leftItem ?? rightItem!
+      const identityDataset = leftItem ? left : right
+      const normalizedIdentity = makeResourceIdentity(identityDataset, source.serviceId, source.resourceType, key, source.title, source.region)
 
       return {
         id: `inventory:${section}:${key}`,
@@ -550,15 +560,18 @@ function buildInventoryGroups(left: ContextDataset, right: ContextDataset): Comp
         serviceId: source.serviceId,
         resourceType: source.resourceType,
         identityKey: key,
+        normalizedIdentity,
         focusModes: source.focusModes,
         rationale: source.rationale,
         left: { value: leftItem?.value ?? 'Absent', secondary: leftItem?.secondary ?? '' },
         right: { value: rightItem?.value ?? 'Absent', secondary: rightItem?.secondary ?? '' },
         detailFields: fieldDetails(leftItem?.attributes, rightItem?.attributes),
         navigation: {
+          providerId: normalizedIdentity.providerId,
           serviceId: source.serviceId,
           region: source.region,
-          resourceLabel: source.title
+          resourceLabel: source.title,
+          identity: normalizedIdentity
         }
       } satisfies ComparisonDiffRow
     })
@@ -587,6 +600,15 @@ function buildPostureGroup(left: ContextDataset, right: ContextDataset): Compari
       : false
     const source = leftItem ?? rightItem!
     const risk: ComparisonRiskLevel = source.severity === 'high' ? 'high' : source.severity === 'medium' ? 'medium' : 'low'
+    const identityDataset = leftItem ? left : right
+    const normalizedIdentity = makeResourceIdentity(
+      identityDataset,
+      source.service,
+      'Compliance Finding',
+      key,
+      source.resourceId || source.title,
+      source.region || identityDataset.descriptor.region
+    )
 
     return {
       id: `posture:${key}`,
@@ -599,6 +621,7 @@ function buildPostureGroup(left: ContextDataset, right: ContextDataset): Compari
       serviceId: source.service,
       resourceType: 'Compliance Finding',
       identityKey: key,
+      normalizedIdentity,
       focusModes: source.category === 'cost' ? ['cost', 'drift-compliance'] : ['security', 'drift-compliance'],
       rationale: source.recommendedAction,
       left: { value: leftItem ? `${leftItem.severity} ${leftItem.category}` : 'Absent', secondary: leftItem?.description ?? '' },
@@ -607,7 +630,13 @@ function buildPostureGroup(left: ContextDataset, right: ContextDataset): Compari
         leftItem ? { severity: leftItem.severity, category: leftItem.category, region: leftItem.region, resource_id: leftItem.resourceId } : undefined,
         rightItem ? { severity: rightItem.severity, category: rightItem.category, region: rightItem.region, resource_id: rightItem.resourceId } : undefined
       ),
-      navigation: { serviceId: source.service, region: source.region || left.descriptor.region, resourceLabel: source.resourceId || source.title }
+      navigation: {
+        providerId: normalizedIdentity.providerId,
+        serviceId: source.service,
+        region: source.region || left.descriptor.region,
+        resourceLabel: source.resourceId || source.title,
+        identity: normalizedIdentity
+      }
     } satisfies ComparisonDiffRow
   })
 
@@ -623,6 +652,13 @@ function buildPostureGroup(left: ContextDataset, right: ContextDataset): Compari
 }
 
 function buildComplianceDeltaGroup(left: ContextDataset, right: ContextDataset): ComparisonDiffGroup {
+  const makeComplianceIdentity = (
+    serviceId: ServiceId,
+    resourceType: string,
+    identityKey: string,
+    displayName: string
+  ) => makeResourceIdentity(left, serviceId, resourceType, identityKey, displayName)
+
   const metricRows: ComparisonDiffRow[] = [
     {
       id: 'compliance:total',
@@ -635,6 +671,7 @@ function buildComplianceDeltaGroup(left: ContextDataset, right: ContextDataset):
       serviceId: 'compliance-center',
       resourceType: 'Compliance Summary',
       identityKey: 'total-findings',
+      normalizedIdentity: makeComplianceIdentity('compliance-center', 'Compliance Summary', 'total-findings', 'Total compliance findings'),
       focusModes: ['security', 'drift-compliance', 'cost'],
       rationale: 'Overall compliance volume differs between the selected contexts.',
       left: { value: String(left.compliance.summary.total), secondary: `${left.compliance.warnings.length} warnings` },
@@ -651,7 +688,13 @@ function buildComplianceDeltaGroup(left: ContextDataset, right: ContextDataset):
           generated_at: right.compliance.generatedAt
         }
       ),
-      navigation: { serviceId: 'compliance-center', region: left.descriptor.region, resourceLabel: 'compliance-summary' }
+      navigation: {
+        providerId: left.descriptor.normalizedIdentity.providerId,
+        serviceId: 'compliance-center',
+        region: left.descriptor.region,
+        resourceLabel: 'compliance-summary',
+        identity: makeComplianceIdentity('compliance-center', 'Compliance Summary', 'total-findings', 'Total compliance findings')
+      }
     },
     {
       id: 'compliance:severity:high',
@@ -664,6 +707,7 @@ function buildComplianceDeltaGroup(left: ContextDataset, right: ContextDataset):
       serviceId: 'compliance-center',
       resourceType: 'Compliance Severity',
       identityKey: 'severity-high',
+      normalizedIdentity: makeComplianceIdentity('compliance-center', 'Compliance Severity', 'severity-high', 'High severity findings'),
       focusModes: ['security', 'drift-compliance'],
       rationale: 'High-severity compliance pressure differs.',
       left: { value: String(left.compliance.summary.bySeverity.high), secondary: '' },
@@ -672,7 +716,13 @@ function buildComplianceDeltaGroup(left: ContextDataset, right: ContextDataset):
         { high: String(left.compliance.summary.bySeverity.high) },
         { high: String(right.compliance.summary.bySeverity.high) }
       ),
-      navigation: { serviceId: 'compliance-center', region: left.descriptor.region, resourceLabel: 'high-severity' }
+      navigation: {
+        providerId: left.descriptor.normalizedIdentity.providerId,
+        serviceId: 'compliance-center',
+        region: left.descriptor.region,
+        resourceLabel: 'high-severity',
+        identity: makeComplianceIdentity('compliance-center', 'Compliance Severity', 'severity-high', 'High severity findings')
+      }
     },
     {
       id: 'compliance:severity:medium',
@@ -685,6 +735,7 @@ function buildComplianceDeltaGroup(left: ContextDataset, right: ContextDataset):
       serviceId: 'compliance-center',
       resourceType: 'Compliance Severity',
       identityKey: 'severity-medium',
+      normalizedIdentity: makeComplianceIdentity('compliance-center', 'Compliance Severity', 'severity-medium', 'Medium severity findings'),
       focusModes: ['security', 'drift-compliance'],
       rationale: 'Medium-severity compliance pressure differs.',
       left: { value: String(left.compliance.summary.bySeverity.medium), secondary: '' },
@@ -693,7 +744,13 @@ function buildComplianceDeltaGroup(left: ContextDataset, right: ContextDataset):
         { medium: String(left.compliance.summary.bySeverity.medium) },
         { medium: String(right.compliance.summary.bySeverity.medium) }
       ),
-      navigation: { serviceId: 'compliance-center', region: left.descriptor.region, resourceLabel: 'medium-severity' }
+      navigation: {
+        providerId: left.descriptor.normalizedIdentity.providerId,
+        serviceId: 'compliance-center',
+        region: left.descriptor.region,
+        resourceLabel: 'medium-severity',
+        identity: makeComplianceIdentity('compliance-center', 'Compliance Severity', 'severity-medium', 'Medium severity findings')
+      }
     },
     {
       id: 'compliance:category:security',
@@ -706,6 +763,7 @@ function buildComplianceDeltaGroup(left: ContextDataset, right: ContextDataset):
       serviceId: 'compliance-center',
       resourceType: 'Compliance Category',
       identityKey: 'category-security',
+      normalizedIdentity: makeComplianceIdentity('compliance-center', 'Compliance Category', 'category-security', 'Security findings'),
       focusModes: ['security', 'drift-compliance'],
       rationale: 'Security-category compliance findings differ.',
       left: { value: String(left.compliance.summary.byCategory.security), secondary: '' },
@@ -714,7 +772,13 @@ function buildComplianceDeltaGroup(left: ContextDataset, right: ContextDataset):
         { security: String(left.compliance.summary.byCategory.security) },
         { security: String(right.compliance.summary.byCategory.security) }
       ),
-      navigation: { serviceId: 'compliance-center', region: left.descriptor.region, resourceLabel: 'security-findings' }
+      navigation: {
+        providerId: left.descriptor.normalizedIdentity.providerId,
+        serviceId: 'compliance-center',
+        region: left.descriptor.region,
+        resourceLabel: 'security-findings',
+        identity: makeComplianceIdentity('compliance-center', 'Compliance Category', 'category-security', 'Security findings')
+      }
     },
     {
       id: 'compliance:category:cost',
@@ -727,6 +791,7 @@ function buildComplianceDeltaGroup(left: ContextDataset, right: ContextDataset):
       serviceId: 'compliance-center',
       resourceType: 'Compliance Category',
       identityKey: 'category-cost',
+      normalizedIdentity: makeComplianceIdentity('compliance-center', 'Compliance Category', 'category-cost', 'Cost findings'),
       focusModes: ['cost', 'drift-compliance'],
       rationale: 'Cost-oriented compliance findings differ.',
       left: { value: String(left.compliance.summary.byCategory.cost), secondary: '' },
@@ -735,7 +800,13 @@ function buildComplianceDeltaGroup(left: ContextDataset, right: ContextDataset):
         { cost: String(left.compliance.summary.byCategory.cost) },
         { cost: String(right.compliance.summary.byCategory.cost) }
       ),
-      navigation: { serviceId: 'compliance-center', region: left.descriptor.region, resourceLabel: 'cost-findings' }
+      navigation: {
+        providerId: left.descriptor.normalizedIdentity.providerId,
+        serviceId: 'compliance-center',
+        region: left.descriptor.region,
+        resourceLabel: 'cost-findings',
+        identity: makeComplianceIdentity('compliance-center', 'Compliance Category', 'category-cost', 'Cost findings')
+      }
     }
   ]
 
@@ -758,6 +829,7 @@ function buildComplianceDeltaGroup(left: ContextDataset, right: ContextDataset):
       serviceId: serviceId as ServiceId,
       resourceType: 'Compliance Service Delta',
       identityKey: `service:${serviceId}`,
+      normalizedIdentity: makeComplianceIdentity(serviceId as ServiceId, 'Compliance Service Delta', `service:${serviceId}`, `${serviceId} findings`),
       focusModes: ['security', 'drift-compliance', 'cost'],
       rationale: 'Service-specific compliance volume differs.',
       left: { value: String(leftCount), secondary: '' },
@@ -766,75 +838,24 @@ function buildComplianceDeltaGroup(left: ContextDataset, right: ContextDataset):
         leftCount > 0 ? { findings: String(leftCount) } : undefined,
         rightCount > 0 ? { findings: String(rightCount) } : undefined
       ),
-      navigation: { serviceId: 'compliance-center', region: left.descriptor.region, resourceLabel: String(serviceId) }
-    } satisfies ComparisonDiffRow
-  })
-
-  const policyPackKeys = [...new Set([
-    ...left.compliance.policyPacks.map((item) => item.id),
-    ...right.compliance.policyPacks.map((item) => item.id)
-  ])].sort((a, b) => a.localeCompare(b))
-
-  const policyPackRows = policyPackKeys.map((policyPackId) => {
-    const leftPack = left.compliance.policyPacks.find((item) => item.id === policyPackId)
-    const rightPack = right.compliance.policyPacks.find((item) => item.id === policyPackId)
-    const title = leftPack?.title ?? rightPack?.title ?? policyPackId
-    const leftCount = leftPack?.findingCount ?? 0
-    const rightCount = rightPack?.findingCount ?? 0
-    const leftExpectations = leftPack?.expectations.join(' | ') ?? ''
-    const rightExpectations = rightPack?.expectations.join(' | ') ?? ''
-
-    return {
-      id: `compliance:policy-pack:${policyPackId}`,
-      layer: 'posture',
-      section: 'Compliance deltas',
-      title,
-      subtitle: 'Policy pack',
-      status: toStatus(Boolean(leftPack), Boolean(rightPack), leftCount === rightCount && leftExpectations === rightExpectations),
-      risk: Math.max(leftCount, rightCount) >= 3 ? 'medium' : leftCount !== rightCount ? 'low' : 'none',
-      serviceId: 'compliance-center',
-      resourceType: 'Compliance Policy Pack',
-      identityKey: `policy-pack:${policyPackId}`,
-      focusModes: ['security', 'drift-compliance', 'cost'],
-      rationale: 'Policy-pack coverage or finding counts differ between the compared contexts.',
-      left: {
-        value: String(leftCount),
-        secondary: leftPack?.focus.replace(/-/g, ' ') ?? 'Not present'
-      },
-      right: {
-        value: String(rightCount),
-        secondary: rightPack?.focus.replace(/-/g, ' ') ?? 'Not present'
-      },
-      detailFields: fieldDetails(
-        leftPack ? {
-          findings: String(leftCount),
-          focus: leftPack.focus,
-          resource_types: leftPack.resourceTypes.join(', '),
-          expectations: leftExpectations
-        } : undefined,
-        rightPack ? {
-          findings: String(rightCount),
-          focus: rightPack.focus,
-          resource_types: rightPack.resourceTypes.join(', '),
-          expectations: rightExpectations
-        } : undefined
-      ),
       navigation: {
+        providerId: left.descriptor.normalizedIdentity.providerId,
         serviceId: 'compliance-center',
         region: left.descriptor.region,
-        resourceLabel: policyPackId
+        resourceLabel: String(serviceId),
+        identity: makeComplianceIdentity(serviceId as ServiceId, 'Compliance Service Delta', `service:${serviceId}`, `${serviceId} findings`)
       }
     } satisfies ComparisonDiffRow
   })
 
-  const rows = [...metricRows, ...policyPackRows, ...serviceRows]
+  const rows = [...metricRows, ...serviceRows]
 
   return {
     id: 'compliance-deltas',
     label: 'Compliance deltas',
     layer: 'posture',
     focusModes: ['security', 'drift-compliance', 'cost'],
-    coverage: policyPackRows.length > 0 ? 'full' : 'partial',
+    coverage: 'partial',
     counts: statusCounts(rows),
     rows: sortRows(rows)
   }
@@ -851,6 +872,8 @@ function buildTagGroup(left: ContextDataset, right: ContextDataset): ComparisonD
     const rightTags = Object.fromEntries(GOVERNANCE_TAG_KEYS.map((tagKey) => [tagKey, rightItem?.tags?.[tagKey] ?? '']))
     const missing = GOVERNANCE_TAG_KEYS.some((tagKey) => !(leftItem?.tags?.[tagKey] ?? rightItem?.tags?.[tagKey] ?? '').trim())
     const source = leftItem ?? rightItem!
+    const identityDataset = leftItem ? left : right
+    const normalizedIdentity = makeResourceIdentity(identityDataset, source.serviceId, source.resourceType, key, source.title, source.region)
 
     return {
       id: `tags:${key}`,
@@ -863,12 +886,19 @@ function buildTagGroup(left: ContextDataset, right: ContextDataset): ComparisonD
       serviceId: source.serviceId,
       resourceType: source.resourceType,
       identityKey: key,
+      normalizedIdentity,
       focusModes: ['security', 'drift-compliance', 'cost'],
       rationale: missing ? 'Governance tag coverage is incomplete.' : 'Ownership tags differ.',
       left: { value: leftItem?.tags?.Owner || 'Unassigned', secondary: leftItem?.tags?.Environment || '' },
       right: { value: rightItem?.tags?.Owner || 'Unassigned', secondary: rightItem?.tags?.Environment || '' },
       detailFields: fieldDetails(leftTags, rightTags),
-      navigation: { serviceId: source.serviceId, region: source.region, resourceLabel: source.title }
+      navigation: {
+        providerId: normalizedIdentity.providerId,
+        serviceId: source.serviceId,
+        region: source.region,
+        resourceLabel: source.title,
+        identity: normalizedIdentity
+      }
     } satisfies ComparisonDiffRow
   }).filter((row) => row.detailFields.length > 0)
 
@@ -884,6 +914,13 @@ function buildTagGroup(left: ContextDataset, right: ContextDataset): ComparisonD
 }
 
 function buildCostGroup(left: ContextDataset, right: ContextDataset): ComparisonDiffGroup {
+  const makeCostIdentity = (
+    identityKey: string,
+    resourceType: string,
+    displayName: string,
+    region = left.descriptor.region
+  ) => makeResourceIdentity(left, 'overview', resourceType, identityKey, displayName, region)
+
   const costServices = [...new Set([
     ...left.costBreakdown.entries.map((entry) => entry.service),
     ...right.costBreakdown.entries.map((entry) => entry.service)
@@ -901,6 +938,7 @@ function buildCostGroup(left: ContextDataset, right: ContextDataset): Comparison
       serviceId: 'overview',
       resourceType: 'Cost Summary',
       identityKey: 'monthly-total',
+      normalizedIdentity: makeCostIdentity('monthly-total', 'Cost Summary', 'Estimated Monthly Cost'),
       focusModes: ['cost'],
       rationale: 'Estimated monthly spend differs.',
       left: { value: formatCurrency(left.costBreakdown.total), secondary: `${left.costBreakdown.entries.length} services` },
@@ -909,7 +947,13 @@ function buildCostGroup(left: ContextDataset, right: ContextDataset): Comparison
         { total: formatCurrency(left.costBreakdown.total), period: left.costBreakdown.period },
         { total: formatCurrency(right.costBreakdown.total), period: right.costBreakdown.period }
       ),
-      navigation: { serviceId: 'overview', region: left.descriptor.region, resourceLabel: 'overview' }
+      navigation: {
+        providerId: left.descriptor.normalizedIdentity.providerId,
+        serviceId: 'overview',
+        region: left.descriptor.region,
+        resourceLabel: 'overview',
+        identity: makeCostIdentity('monthly-total', 'Cost Summary', 'Estimated Monthly Cost')
+      }
     }
   ]
 
@@ -929,12 +973,19 @@ function buildCostGroup(left: ContextDataset, right: ContextDataset): Comparison
       serviceId: 'overview',
       resourceType: 'Cost Entry',
       identityKey: service,
+      normalizedIdentity: makeCostIdentity(service, 'Cost Entry', service),
       focusModes: ['cost'],
       rationale: 'Service cost differs.',
       left: { value: formatCurrency(leftAmount), secondary: '' },
       right: { value: formatCurrency(rightAmount), secondary: '' },
       detailFields: fieldDetails(leftEntry ? { amount: formatCurrency(leftAmount) } : undefined, rightEntry ? { amount: formatCurrency(rightAmount) } : undefined),
-      navigation: { serviceId: 'overview', region: left.descriptor.region, resourceLabel: service }
+      navigation: {
+        providerId: left.descriptor.normalizedIdentity.providerId,
+        serviceId: 'overview',
+        region: left.descriptor.region,
+        resourceLabel: service,
+        identity: makeCostIdentity(service, 'Cost Entry', service)
+      }
     })
   }
 
@@ -955,6 +1006,7 @@ function buildCostGroup(left: ContextDataset, right: ContextDataset): Comparison
       serviceId: 'overview',
       resourceType: 'Regional Signal',
       identityKey: key,
+      normalizedIdentity: makeCostIdentity(key, 'Regional Signal', source.title, source.region),
       focusModes: source.category === 'cost' ? ['cost'] : ['security', 'drift-compliance'],
       rationale: source.nextStep,
       left: { value: leftSignal ? `${leftSignal.severity} ${leftSignal.region}` : 'Absent', secondary: leftSignal?.description ?? '' },
@@ -963,7 +1015,13 @@ function buildCostGroup(left: ContextDataset, right: ContextDataset): Comparison
         leftSignal ? { severity: leftSignal.severity, category: leftSignal.category, next_step: leftSignal.nextStep } : undefined,
         rightSignal ? { severity: rightSignal.severity, category: rightSignal.category, next_step: rightSignal.nextStep } : undefined
       ),
-      navigation: { serviceId: 'overview', region: source.region, resourceLabel: source.title }
+      navigation: {
+        providerId: left.descriptor.normalizedIdentity.providerId,
+        serviceId: 'overview',
+        region: source.region,
+        resourceLabel: source.title,
+        identity: makeCostIdentity(key, 'Regional Signal', source.title, source.region)
+      }
     })
   }
 

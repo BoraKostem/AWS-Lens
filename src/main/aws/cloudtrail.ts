@@ -6,10 +6,10 @@ import {
 } from '@aws-sdk/client-cloudtrail'
 
 import type { AwsConnection, CloudTrailEventSummary, CloudTrailSummary } from '@shared/types'
-import { awsClientConfig } from './client'
+import { getAwsClient } from './client'
 
 export async function listTrails(connection: AwsConnection): Promise<CloudTrailSummary[]> {
-  const client = new CloudTrailClient(awsClientConfig(connection))
+  const client = getAwsClient(CloudTrailClient, connection)
   const output = await client.send(new DescribeTrailsCommand({}))
 
   const trails: CloudTrailSummary[] = []
@@ -41,7 +41,7 @@ export async function lookupEvents(
   startTime: string,
   endTime: string
 ): Promise<CloudTrailEventSummary[]> {
-  const client = new CloudTrailClient(awsClientConfig(connection))
+  const client = getAwsClient(CloudTrailClient, connection)
   const events: CloudTrailEventSummary[] = []
   let nextToken: string | undefined
 
@@ -86,7 +86,7 @@ export async function lookupEventsByResource(
   startTime: string,
   endTime: string
 ): Promise<CloudTrailEventSummary[]> {
-  const client = new CloudTrailClient(awsClientConfig(connection))
+  const client = getAwsClient(CloudTrailClient, connection)
   const events: CloudTrailEventSummary[] = []
   let nextToken: string | undefined
   let scanned = 0

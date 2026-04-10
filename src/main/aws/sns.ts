@@ -14,7 +14,7 @@ import {
   UntagResourceCommand
 } from '@aws-sdk/client-sns'
 
-import { awsClientConfig } from './client'
+import { getAwsClient } from './client'
 import type {
   AwsConnection,
   SnsPublishResult,
@@ -22,12 +22,8 @@ import type {
   SnsTopicSummary
 } from '@shared/types'
 
-function createClient(connection: AwsConnection): SNSClient {
-  return new SNSClient(awsClientConfig(connection))
-}
-
 export async function listTopics(connection: AwsConnection): Promise<SnsTopicSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(SNSClient, connection)
   const topics: SnsTopicSummary[] = []
   let nextToken: string | undefined
 
@@ -69,7 +65,7 @@ export async function listTopics(connection: AwsConnection): Promise<SnsTopicSum
 }
 
 export async function getTopicDetail(connection: AwsConnection, topicArn: string): Promise<SnsTopicSummary> {
-  const client = createClient(connection)
+  const client = getAwsClient(SNSClient, connection)
   const attrs = await client.send(new GetTopicAttributesCommand({ TopicArn: topicArn }))
   const a = attrs.Attributes ?? {}
 
@@ -103,7 +99,7 @@ export async function createTopic(
   fifo: boolean,
   attributes?: Record<string, string>
 ): Promise<string> {
-  const client = createClient(connection)
+  const client = getAwsClient(SNSClient, connection)
   const topicName = fifo && !name.endsWith('.fifo') ? `${name}.fifo` : name
   const attrs: Record<string, string> = { ...(attributes ?? {}) }
   if (fifo) attrs.FifoTopic = 'true'
@@ -113,7 +109,7 @@ export async function createTopic(
 }
 
 export async function deleteTopic(connection: AwsConnection, topicArn: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(SNSClient, connection)
   await client.send(new DeleteTopicCommand({ TopicArn: topicArn }))
 }
 
@@ -123,7 +119,7 @@ export async function setTopicAttribute(
   attributeName: string,
   attributeValue: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(SNSClient, connection)
   await client.send(new SetTopicAttributesCommand({
     TopicArn: topicArn,
     AttributeName: attributeName,
@@ -132,7 +128,7 @@ export async function setTopicAttribute(
 }
 
 export async function listSubscriptions(connection: AwsConnection, topicArn: string): Promise<SnsSubscriptionSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(SNSClient, connection)
   const subs: SnsSubscriptionSummary[] = []
   let nextToken: string | undefined
 
@@ -163,7 +159,7 @@ export async function subscribe(
   protocol: string,
   endpoint: string
 ): Promise<string> {
-  const client = createClient(connection)
+  const client = getAwsClient(SNSClient, connection)
   const output = await client.send(new SubscribeCommand({
     TopicArn: topicArn,
     Protocol: protocol,
@@ -174,7 +170,7 @@ export async function subscribe(
 }
 
 export async function unsubscribe(connection: AwsConnection, subscriptionArn: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(SNSClient, connection)
   await client.send(new UnsubscribeCommand({ SubscriptionArn: subscriptionArn }))
 }
 
@@ -186,7 +182,7 @@ export async function publishMessage(
   messageGroupId?: string,
   messageDeduplicationId?: string
 ): Promise<SnsPublishResult> {
-  const client = createClient(connection)
+  const client = getAwsClient(SNSClient, connection)
   const output = await client.send(new PublishCommand({
     TopicArn: topicArn,
     Message: message,
@@ -201,7 +197,7 @@ export async function publishMessage(
 }
 
 export async function tagTopic(connection: AwsConnection, topicArn: string, tags: Record<string, string>): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(SNSClient, connection)
   await client.send(new TagResourceCommand({
     ResourceArn: topicArn,
     Tags: Object.entries(tags).map(([Key, Value]) => ({ Key, Value }))
@@ -209,7 +205,7 @@ export async function tagTopic(connection: AwsConnection, topicArn: string, tags
 }
 
 export async function untagTopic(connection: AwsConnection, topicArn: string, tagKeys: string[]): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(SNSClient, connection)
   await client.send(new UntagResourceCommand({
     ResourceArn: topicArn,
     TagKeys: tagKeys

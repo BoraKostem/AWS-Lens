@@ -2,7 +2,7 @@ import { execFile, spawn } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
 
-import type { AppSettingsTerminalShellPreference, AwsConnection } from '@shared/types'
+import type { AppSettingsTerminalShellPreference, AwsConnection, CloudProviderId } from '@shared/types'
 import { getAppSettings } from './appSettings'
 import { getConnectionEnv } from './sessionHub'
 import { getToolCommand } from './toolchain'
@@ -62,54 +62,6 @@ function parseEnvOutput(output: string): Record<string, string> {
   return parsed
 }
 
-function getPathVariableName(env: Record<string, string>): string {
-  return Object.keys(env).find((key) => key.toLowerCase() === 'path') ?? 'PATH'
-}
-
-function prependPathEntries(env: Record<string, string>, entries: string[]): Record<string, string> {
-  if (!entries.length) {
-    return { ...env }
-  }
-
-  const pathKey = getPathVariableName(env)
-  const current = (env[pathKey] ?? '')
-    .split(path.delimiter)
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-  const merged: string[] = []
-  const seen = new Set<string>()
-
-  for (const entry of [...entries, ...current]) {
-    const normalized = process.platform === 'win32' ? entry.toLowerCase() : entry
-    if (seen.has(normalized)) {
-      continue
-    }
-    seen.add(normalized)
-    merged.push(entry)
-  }
-
-  return {
-    ...env,
-    [pathKey]: merged.join(path.delimiter)
-  }
-}
-
-export function applyToolPathOverrides(env: Record<string, string>): Record<string, string> {
-  const overrideDirs = [
-    getToolCommand('aws-cli', 'aws'),
-    getToolCommand('kubectl', 'kubectl'),
-    getToolCommand('docker', 'docker'),
-    getToolCommand('terraform', 'terraform'),
-    getToolCommand('opentofu', 'opentofu')
-  ]
-    .map((command) => command.trim())
-    .filter(looksLikeExplicitPath)
-    .map((command) => path.dirname(command))
-    .filter(Boolean)
-
-  return prependPathEntries(env, overrideDirs)
-}
-
 function execFileText(command: string, args: string[], env: Record<string, string>): Promise<string> {
   return new Promise((resolve) => {
     execFile(
@@ -134,7 +86,7 @@ function execFileText(command: string, args: string[], env: Record<string, strin
 }
 
 async function loadShellEnvironment(): Promise<Record<string, string>> {
-  const baseEnv = applyToolPathOverrides({ ...process.env as Record<string, string> })
+  const baseEnv = { ...process.env as Record<string, string> }
   if (process.platform === 'win32') {
     return baseEnv
   }
@@ -154,10 +106,10 @@ async function loadShellEnvironment(): Promise<Record<string, string>> {
     return baseEnv
   }
 
-  return applyToolPathOverrides({
+  return {
     ...baseEnv,
     ...parsed
-  })
+  }
 }
 
 function shellEnvironmentCacheKey(): string {
@@ -179,7 +131,7 @@ export function invalidateResolvedProcessEnv(): void {
 
 export async function getResolvedProcessEnv(options: { fresh?: boolean } = {}): Promise<Record<string, string>> {
   if (process.platform === 'win32') {
-    return applyToolPathOverrides({ ...process.env as Record<string, string> })
+    return { ...process.env as Record<string, string> }
   }
 
   const key = shellEnvironmentCacheKey()
@@ -206,7 +158,14 @@ export async function resolveExecutablePath(command: string, env?: Record<string
 
   const baseEnv = env ?? await getResolvedProcessEnv()
   const probeCommand = process.platform === 'win32' ? 'where.exe' : 'which'
-  const output = await execFileText(probeCommand, [command], baseEnv)
+  let output = ''
+
+  try {
+    output = await execFileText(probeCommand, [command], baseEnv)
+  } catch {
+    return command
+  }
+
   const resolved = output
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -322,10 +281,41 @@ function unsetPosix(name: string): string {
   return `unset ${name}`
 }
 
+function buildShellEnvCommands(env: Record<string, string>): string[] {
+  const shell = getShellConfig()
+
+  return Object.entries(env).map(([key, value]) =>
+    shell.kind === 'powershell'
+      ? `$env:${key} = ${quotePowerShell(value)}`
+      : `export ${key}=${quotePosix(value)}`
+    )
+}
+
+function buildProviderCliBindingCommands(providerId: Exclude<CloudProviderId, 'aws'>, env: Record<string, string>): string[] {
+  const shell = getShellConfig()
+  const cliPath = providerId === 'gcp'
+    ? env.INFRA_LENS_GCP_CLI_PATH?.trim()
+    : env.INFRA_LENS_AZURE_CLI_PATH?.trim()
+  const commandName = providerId === 'gcp' ? 'gcloud' : 'az'
+
+  if (!cliPath) {
+    return []
+  }
+
+  if (shell.kind === 'powershell') {
+    return [
+      `function global:${commandName} { & ${quotePowerShell(cliPath)} @args }`
+    ]
+  }
+
+  return [
+    `${commandName}() { ${quotePosix(cliPath)} "$@"; }`
+  ]
+}
+
 function buildEnvCommands(connection: AwsConnection): string[] {
   const shell = getShellConfig()
   const env = getConnectionEnv(connection)
-  const awsCliCommand = getToolCommand('aws-cli', 'aws').trim()
   const baseCommands = shell.kind === 'powershell'
     ? [
         unsetPowerShell('AWS_PROFILE'),
@@ -340,19 +330,9 @@ function buildEnvCommands(connection: AwsConnection): string[] {
         unsetPosix('AWS_SESSION_TOKEN')
       ]
 
-  const assignments = Object.entries(env).map(([key, value]) =>
-    shell.kind === 'powershell'
-      ? `$env:${key} = ${quotePowerShell(value)}`
-      : `export ${key}=${quotePosix(value)}`
-  )
+  const assignments = buildShellEnvCommands(env)
 
-  const toolAlias = looksLikeExplicitPath(awsCliCommand)
-    ? (shell.kind === 'powershell'
-        ? `Set-Alias -Name aws -Value ${quotePowerShell(awsCliCommand)} -Scope Global`
-        : `aws() { ${quotePosix(awsCliCommand)} "$@"; }`)
-    : ''
-
-  return [...baseCommands, ...assignments, ...(toolAlias ? [toolAlias] : [])]
+  return [...baseCommands, ...assignments]
 }
 
 export function buildAwsContextCommand(connection: AwsConnection): string {
@@ -373,6 +353,40 @@ export function buildAwsContextCommand(connection: AwsConnection): string {
     connection.kind === 'profile'
       ? 'printf "AWS context: profile=%s region=%s\\n" "$AWS_PROFILE" "$AWS_REGION"'
       : `printf "AWS context: session=%s region=%s account=%s\\n" ${quotePosix(connection.label)} "$AWS_REGION" ${quotePosix(connection.accountId)}`
+  ].join('; ')
+}
+
+export function buildProviderShellContextCommand(
+  providerId: Exclude<CloudProviderId, 'aws'>,
+  label: string,
+  modeLabel: string,
+  env: Record<string, string>
+): string {
+  const shell = getShellConfig()
+  const envCommands = buildShellEnvCommands(env)
+  const cliBindingCommands = buildProviderCliBindingCommands(providerId, env)
+  const guidance = providerId === 'gcp'
+    ? 'Use gcloud auth list, gcloud config list, and project-scoped commands in this shell.'
+    : 'Use az account show, az account list, and tenant or subscription-scoped commands in this shell.'
+  const modeSummary = `${providerId === 'gcp' ? 'Google Cloud' : 'Azure'} mode: ${modeLabel}`
+
+  if (shell.kind === 'powershell') {
+    return [
+      buildPowerShellUtf8Command(),
+      ...envCommands,
+      ...cliBindingCommands,
+      `Write-Host ${quotePowerShell(`${label} shell ready`)}`,
+      `Write-Host ${quotePowerShell(modeSummary)}`,
+      `Write-Host ${quotePowerShell(guidance)}`
+    ].join('; ')
+  }
+
+  return [
+    ...envCommands,
+    ...cliBindingCommands,
+    `printf "%s\\n" ${quotePosix(`${label} shell ready`)}`,
+    `printf "%s\\n" ${quotePosix(modeSummary)}`,
+    `printf "%s\\n" ${quotePosix(guidance)}`
   ].join('; ')
 }
 

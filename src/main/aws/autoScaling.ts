@@ -6,15 +6,11 @@ import {
   UpdateAutoScalingGroupCommand
 } from '@aws-sdk/client-auto-scaling'
 
-import { awsClientConfig } from './client'
+import { getAwsClient } from './client'
 import type { AutoScalingGroupSummary, AutoScalingInstanceSummary, AwsConnection } from '@shared/types'
 
-function createClient(connection: AwsConnection): AutoScalingClient {
-  return new AutoScalingClient(awsClientConfig(connection))
-}
-
 export async function listAutoScalingGroups(connection: AwsConnection): Promise<AutoScalingGroupSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(AutoScalingClient, connection)
   const groups: AutoScalingGroupSummary[] = []
   let nextToken: string | undefined
 
@@ -41,7 +37,7 @@ export async function listAutoScalingGroupInstances(
   connection: AwsConnection,
   groupName: string
 ): Promise<AutoScalingInstanceSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(AutoScalingClient, connection)
   const output = await client.send(
     new DescribeAutoScalingGroupsCommand({
       AutoScalingGroupNames: [groupName]
@@ -65,7 +61,7 @@ export async function updateAutoScalingGroupCapacity(
   desired: number,
   maximum: number
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(AutoScalingClient, connection)
   await client.send(
     new UpdateAutoScalingGroupCommand({
       AutoScalingGroupName: groupName,
@@ -80,7 +76,7 @@ export async function startAutoScalingInstanceRefresh(
   connection: AwsConnection,
   groupName: string
 ): Promise<string> {
-  const client = createClient(connection)
+  const client = getAwsClient(AutoScalingClient, connection)
   const output = await client.send(
     new StartInstanceRefreshCommand({
       AutoScalingGroupName: groupName
@@ -95,7 +91,7 @@ export async function deleteAutoScalingGroup(
   groupName: string,
   forceDelete = false
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(AutoScalingClient, connection)
   await client.send(
     new DeleteAutoScalingGroupCommand({
       AutoScalingGroupName: groupName,

@@ -303,6 +303,15 @@
     linear-gradient(180deg, rgba(40, 54, 71, 0.98), rgba(24, 36, 48, 0.98)) !important;
 }
 
+.sim-row-clickable {
+  cursor: pointer;
+}
+
+.iam-mini-table tbody tr.sim-row-clickable:focus-visible {
+  outline: 1px solid rgba(52, 168, 83, 0.45);
+  outline-offset: -1px;
+}
+
 .iam-bottom-actions,
 .sim-panel-footer {
   display: flex;
@@ -701,4 +710,36 @@
   .iam-bottom-actions input {
     min-width: 0;
   }
+}
+
+/* ── Azure RBAC blue theme overrides ───────────────────────── */
+
+.azure-rbac-theme .iam-shell-hero {
+  background:
+    radial-gradient(circle at top left, rgba(0, 120, 212, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(59, 130, 246, 0.12), transparent 30%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(11, 17, 25, 0.98));
+}
+
+.azure-rbac-theme .iam-shell-stat-card-accent {
+  border-color: rgba(0, 120, 212, 0.32);
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(22, 35, 52, 0.96), rgba(14, 24, 38, 0.96));
+}
+
+.azure-rbac-theme .iam-tab-bar .svc-tab:hover {
+  border-color: rgba(0, 120, 212, 0.24);
+  background: rgba(0, 120, 212, 0.1);
+}
+
+.azure-rbac-theme .iam-tab-bar .svc-tab.active {
+  border-color: rgba(0, 120, 212, 0.32);
+  background: linear-gradient(180deg, rgba(0, 120, 212, 0.18), rgba(0, 120, 212, 0.08));
+}
+
+.azure-rbac-theme .iam-table-area .svc-table tbody tr.active {
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.12), transparent 38%),
+    linear-gradient(180deg, rgba(24, 40, 60, 0.98), rgba(16, 28, 44, 0.98)) !important;
 }

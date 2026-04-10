@@ -26,7 +26,7 @@ import {
   type Session
 } from '@aws-sdk/client-ssm'
 
-import { awsClientConfig, readTags } from './client'
+import { getAwsClient, readTags } from './client'
 import {
   buildAwsCliCommand,
   getResolvedProcessEnv,
@@ -47,9 +47,9 @@ import type {
   SsmStartSessionRequest
 } from '@shared/types'
 
-const TEMP_PURPOSE_TAG = 'aws-lens:purpose'
+const TEMP_PURPOSE_TAG = 'infra-lens:purpose'
 const TEMP_PURPOSE_EBS_INSPECTION = 'ebs-inspection'
-const TEMP_SOURCE_VOLUME_TAG = 'aws-lens:source-volume-id'
+const TEMP_SOURCE_VOLUME_TAG = 'infra-lens:source-volume-id'
 const SSM_MANAGED_POLICY_ARN = 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
 const TERMINAL_COMMAND_TIMEOUTS = new Set([
   'Success',
@@ -61,41 +61,10 @@ const TERMINAL_COMMAND_TIMEOUTS = new Set([
   'Terminated'
 ])
 
-function createEc2Client(connection: AwsConnection): EC2Client {
-  return new EC2Client(awsClientConfig(connection))
-}
 
-function createIamClient(connection: AwsConnection): IAMClient {
-  return new IAMClient(awsClientConfig(connection))
-}
-
-function createSsmClient(connection: AwsConnection): SSMClient {
-  return new SSMClient(awsClientConfig(connection))
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-function isAccessDeniedError(error: unknown): boolean {
-  return /accessdenied|access denied|not authorized|unauthorized/i.test(errorMessage(error))
-}
-
-function isDescribeInstanceInformationAccessDenied(error: unknown): boolean {
-  return isAccessDeniedError(error) && /describeinstanceinformation/i.test(errorMessage(error))
-}
-
-function describeInstanceInformationDeniedDiagnostic(): SsmConnectionDiagnostic {
-  return {
-    severity: 'warning',
-    code: 'ssm-read-access-denied',
-    summary: 'Session Manager status could not be inspected.',
-    detail: 'The current AWS identity does not allow ssm:DescribeInstanceInformation, so AWS Lens cannot verify whether this instance is managed or online in SSM.'
-  }
 }
 
 function isTempInspectionInstance(instance: Instance | null | undefined): boolean {
@@ -300,10 +269,8 @@ function connectionDiagnostics(
   instance: Instance | null,
   managedInfo: InstanceInformation | undefined,
   hasPolicy: boolean | null,
-  hasNetworkPath: boolean | null,
-  options: { includeManagedStatus?: boolean } = {}
+  hasNetworkPath: boolean | null
 ): SsmConnectionDiagnostic[] {
-  const includeManagedStatus = options.includeManagedStatus ?? true
   const diagnostics: SsmConnectionDiagnostic[] = []
 
   if ((instance?.State?.Name ?? '') !== 'running') {
@@ -331,22 +298,20 @@ function connectionDiagnostics(
     })
   }
 
-  if (includeManagedStatus) {
-    if (!managedInfo) {
-      diagnostics.push({
-        severity: 'error',
-        code: 'not-managed',
-        summary: 'The instance is not registered as a managed instance.',
-        detail: 'Confirm the SSM agent is installed, the instance role is correct, and the instance can reach SSM endpoints.'
-      })
-    } else if ((managedInfo.PingStatus ?? '') !== 'Online') {
-      diagnostics.push({
-        severity: 'error',
-        code: 'agent-offline',
-        summary: `SSM agent status is ${managedInfo.PingStatus ?? 'unknown'}.`,
-        detail: 'The instance is registered but not currently reachable through Session Manager.'
-      })
-    }
+  if (!managedInfo) {
+    diagnostics.push({
+      severity: 'error',
+      code: 'not-managed',
+      summary: 'The instance is not registered as a managed instance.',
+      detail: 'Confirm the SSM agent is installed, the instance role is correct, and the instance can reach SSM endpoints.'
+    })
+  } else if ((managedInfo.PingStatus ?? '') !== 'Online') {
+    diagnostics.push({
+      severity: 'error',
+      code: 'agent-offline',
+      summary: `SSM agent status is ${managedInfo.PingStatus ?? 'unknown'}.`,
+      detail: 'The instance is registered but not currently reachable through Session Manager.'
+    })
   }
 
   if (hasNetworkPath === false) {
@@ -358,7 +323,7 @@ function connectionDiagnostics(
     })
   }
 
-  if (diagnostics.length === 0 && includeManagedStatus && managedInfo?.PingStatus === 'Online') {
+  if (diagnostics.length === 0 && managedInfo?.PingStatus === 'Online') {
     diagnostics.push({
       severity: 'info',
       code: 'ready',
@@ -410,22 +375,12 @@ function formatCliParameters(parameters: Record<string, string[]>): string {
 }
 
 export async function listSsmManagedInstances(connection: AwsConnection): Promise<SsmManagedInstanceSummary[]> {
-  const ec2Client = createEc2Client(connection)
-  const ssmClient = createSsmClient(connection)
-  let ec2Instances: Instance[] = []
-  let managedInfos: InstanceInformation[] = []
-
-  try {
-    ;[ec2Instances, managedInfos] = await Promise.all([
-      listAllEc2Instances(ec2Client),
-      listManagedInstanceInformation(ssmClient)
-    ])
-  } catch (error) {
-    if (isDescribeInstanceInformationAccessDenied(error)) {
-      return []
-    }
-    throw error
-  }
+  const ec2Client = getAwsClient(EC2Client, connection)
+  const ssmClient = getAwsClient(SSMClient, connection)
+  const [ec2Instances, managedInfos] = await Promise.all([
+    listAllEc2Instances(ec2Client),
+    listManagedInstanceInformation(ssmClient)
+  ])
 
   const instanceMap = new Map(ec2Instances.map((instance) => [instance.InstanceId ?? '', instance]))
 
@@ -441,39 +396,24 @@ export async function listSsmManagedInstances(connection: AwsConnection): Promis
 }
 
 export async function getSsmConnectionTarget(connection: AwsConnection, instanceId: string): Promise<SsmConnectionTarget> {
-  const ec2Client = createEc2Client(connection)
-  const iamClient = createIamClient(connection)
-  const ssmClient = createSsmClient(connection)
+  const ec2Client = getAwsClient(EC2Client, connection)
+  const iamClient = getAwsClient(IAMClient, connection)
+  const ssmClient = getAwsClient(SSMClient, connection)
   const instance = await loadInstance(ec2Client, instanceId)
 
   if (!instance) {
     throw new Error(`EC2 instance ${instanceId} was not found`)
   }
 
+  const [managedInfo] = await listManagedInstanceInformation(ssmClient, [instanceId])
   const [hasPolicy, hasNetworkPath] = await Promise.all([
     hasAwsManagedSsmPolicy(iamClient, instance),
     hasSsmNetworkPath(ec2Client, instance)
   ])
-  let managedInfo: InstanceInformation | undefined
-  let describeAccessDenied = false
-
-  try {
-    ;[managedInfo] = await listManagedInstanceInformation(ssmClient, [instanceId])
-  } catch (error) {
-    if (!isDescribeInstanceInformationAccessDenied(error)) {
-      throw error
-    }
-    describeAccessDenied = true
-  }
 
   const status = summarizeStatus(managedInfo)
   const managedInstance = managedInfo ? toManagedInstanceSummary(managedInfo, instance) : null
-  const diagnostics = [
-    ...(describeAccessDenied ? [describeInstanceInformationDeniedDiagnostic()] : []),
-    ...connectionDiagnostics(instance, managedInfo, hasPolicy, hasNetworkPath, {
-      includeManagedStatus: !describeAccessDenied
-    })
-  ]
+  const diagnostics = connectionDiagnostics(instance, managedInfo, hasPolicy, hasNetworkPath)
 
   return {
     instanceId,
@@ -488,7 +428,7 @@ export async function getSsmConnectionTarget(connection: AwsConnection, instance
 }
 
 export async function listSsmSessions(connection: AwsConnection, targetInstanceId?: string): Promise<SsmSessionSummary[]> {
-  const ssmClient = createSsmClient(connection)
+  const ssmClient = getAwsClient(SSMClient, connection)
   const filters: SessionFilter[] | undefined = targetInstanceId ? [{ key: 'Target', value: targetInstanceId }] : undefined
   const [active, history] = await Promise.all([
     ssmClient.send(new DescribeSessionsCommand({ State: 'Active', Filters: filters, MaxResults: 20 })),
@@ -560,7 +500,7 @@ export async function sendSsmCommand(connection: AwsConnection, request: SsmSend
     throw new Error(`Instance ${request.instanceId} is not online in Systems Manager.`)
   }
 
-  const ssmClient = createSsmClient(connection)
+  const ssmClient = getAwsClient(SSMClient, connection)
   const output = await ssmClient.send(
     new SendCommandCommand({
       InstanceIds: [request.instanceId],

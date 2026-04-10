@@ -82,7 +82,7 @@ async function readEntryPublicKey(entryId: string): Promise<{ publicKey: string;
 
   const secret = revealVaultEntrySecret(entry.id)
   const extension = path.extname(entry.metadata.fileName || entry.name) || (entry.kind === 'pem' ? '.pem' : '.key')
-  const targetDir = path.join(app.getPath('temp'), 'aws-lens', 'ssh-keys')
+  const targetDir = path.join(app.getPath('temp'), 'infra-lens', 'ssh-keys')
   const targetPath = path.join(targetDir, `${randomUUID()}${extension}`)
 
   await fs.mkdir(targetDir, { recursive: true })
@@ -118,7 +118,7 @@ async function inspectPublicKey(publicKey: string): Promise<{ fingerprintSha256:
     }
   }
 
-  const targetDir = path.join(app.getPath('temp'), 'aws-lens', 'ssh-keys')
+  const targetDir = path.join(app.getPath('temp'), 'infra-lens', 'ssh-keys')
   const targetPath = path.join(targetDir, `${randomUUID()}.pub`)
 
   await fs.mkdir(targetDir, { recursive: true })
@@ -174,11 +174,13 @@ export async function stageVaultSshPrivateKey(entryId: string): Promise<string> 
 
   const secret = revealVaultEntrySecret(entry.id)
   const extension = path.extname(entry.metadata.fileName || entry.name) || (entry.kind === 'pem' ? '.pem' : '.key')
-  const targetDir = path.join(app.getPath('temp'), 'aws-lens', 'ssh-keys')
+  const targetDir = path.join(app.getPath('temp'), 'infra-lens', 'ssh-keys')
   const targetPath = path.join(targetDir, `${randomUUID()}${extension}`)
 
   await fs.mkdir(targetDir, { recursive: true })
-  await fs.writeFile(targetPath, secret, 'utf8')
+  // Write with restricted permissions from the start; on Windows the mode hint is not enforced
+  // by Node.js so lockDownPrivateKey (icacls) is still called below.
+  await fs.writeFile(targetPath, secret, { encoding: 'utf8', mode: 0o600 })
 
   const { publicKey } = await readEntryPublicKey(entry.id)
   if (publicKey) {
@@ -208,6 +210,7 @@ export async function importSshPrivateKeyToVault(sourcePath: string): Promise<Ec
     metadata: {
       fileName: baseName,
       publicKey,
+      sourcePath,
       sshFingerprintSha256: fingerprints.fingerprintSha256,
       sshFingerprintMd5: fingerprints.fingerprintMd5
     },

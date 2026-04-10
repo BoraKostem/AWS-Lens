@@ -22,14 +22,14 @@ export function classifyError(error: string): ClassifiedError {
       kind: 'permission',
       original: error,
       title: 'Access Denied',
-      guidance: 'The current IAM identity lacks the required permissions for this operation. Check the IAM policies attached to your role or user.'
+      guidance: 'The current identity lacks the required permissions for this operation. Check the policies attached to your role or user.'
     }
   }
   if (THROTTLE_PATTERNS.some((p) => lower.includes(p))) {
-    return { kind: 'throttle', original: error, title: 'Request Throttled', guidance: 'AWS is rate-limiting requests. Wait a moment and try again.' }
+    return { kind: 'throttle', original: error, title: 'Request Throttled', guidance: 'The cloud provider is rate-limiting requests. Wait a moment and try again.' }
   }
   if (EXPIRED_PATTERNS.some((p) => lower.includes(p))) {
-    return { kind: 'expired-token', original: error, title: 'Session Expired', guidance: 'Your AWS session credentials have expired. Re-authenticate or assume a new role.' }
+    return { kind: 'expired-token', original: error, title: 'Session Expired', guidance: 'Your session credentials have expired. Re-authenticate or assume a new role.' }
   }
   if (NOT_FOUND_PATTERNS.some((p) => lower.includes(p))) {
     return { kind: 'not-found', original: error, title: 'Resource Not Found', guidance: 'The requested resource was not found. It may have been deleted or is in a different region.' }

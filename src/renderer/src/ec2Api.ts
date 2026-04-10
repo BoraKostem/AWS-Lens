@@ -32,197 +32,56 @@ import type {
   SnapshotLaunchConfig
 } from '@shared/types'
 import { trackedAwsBridge } from './api'
+import { makeBridgeCall } from './bridgeUtils'
 
-type Wrapped<T> = { ok: true; data: T } | { ok: false; error: string }
+const call = makeBridgeCall(trackedAwsBridge)
 
-function bridge() {
-  return trackedAwsBridge()
-}
+export const chooseEc2SshKey = call<[], Ec2ChosenSshKey | null>('chooseEc2SshKey')
+export const listEc2SshKeySuggestions = call<[preferredKeyName?: string], Ec2SshKeySuggestion[]>('listEc2SshKeySuggestions')
+export const materializeEc2VaultSshKey = call<[entryId: string], string>('materializeEc2VaultSshKey')
+export const listEc2Instances = call<[c: AwsConnection], Ec2InstanceSummary[]>('listEc2Instances')
+export const listEbsVolumes = call<[c: AwsConnection], EbsVolumeSummary[]>('listEbsVolumes')
+export const describeEc2Instance = call<[c: AwsConnection, id: string], Ec2InstanceDetail | null>('describeEc2Instance')
+export const describeEbsVolume = call<[c: AwsConnection, id: string], EbsVolumeDetail | null>('describeEbsVolume')
+export const tagEbsVolume = call<[c: AwsConnection, id: string, tags: Record<string, string>], void>('tagEbsVolume')
+export const untagEbsVolume = call<[c: AwsConnection, id: string, tagKeys: string[]], void>('untagEbsVolume')
+export const attachEbsVolume = call<[c: AwsConnection, id: string, request: EbsVolumeAttachRequest], void>('attachEbsVolume')
+export const detachEbsVolume = call<[c: AwsConnection, id: string, request?: EbsVolumeDetachRequest], void>('detachEbsVolume')
+export const deleteEbsVolume = call<[c: AwsConnection, id: string], void>('deleteEbsVolume')
+export const modifyEbsVolume = call<[c: AwsConnection, id: string, request: EbsVolumeModifyRequest], void>('modifyEbsVolume')
+export const runEc2InstanceAction = call<[c: AwsConnection, id: string, action: Ec2InstanceAction], void>('runEc2InstanceAction')
+export const runEc2BulkInstanceAction = call<[c: AwsConnection, ids: string[], action: Ec2BulkInstanceAction], Ec2BulkInstanceActionResult>('runEc2BulkInstanceAction')
+export const terminateEc2Instance = call<[c: AwsConnection, id: string], void>('terminateEc2Instance')
+export const terminateEc2Instances = call<[c: AwsConnection, ids: string[]], Ec2BulkInstanceActionResult>('terminateEc2Instances')
+export const resizeEc2Instance = call<[c: AwsConnection, id: string, type: string], void>('resizeEc2Instance')
+export const listInstanceTypes = call<[c: AwsConnection, arch?: string, currentGenerationOnly?: boolean], Ec2InstanceTypeOption[]>('listInstanceTypes')
+export const listEc2Snapshots = call<[c: AwsConnection], Ec2SnapshotSummary[]>('listEc2Snapshots')
+export const createEc2Snapshot = call<[c: AwsConnection, volumeId: string, desc: string], string>('createEc2Snapshot')
+export const deleteEc2Snapshot = call<[c: AwsConnection, snapshotId: string], void>('deleteEc2Snapshot')
+export const tagEc2Snapshot = call<[c: AwsConnection, snapshotId: string, tags: Record<string, string>], void>('tagEc2Snapshot')
+export const getIamAssociation = call<[c: AwsConnection, id: string], Ec2IamAssociation | null>('getIamAssociation')
+export const attachIamProfile = call<[c: AwsConnection, id: string, name: string], void>('attachIamProfile')
+export const replaceIamProfile = call<[c: AwsConnection, assocId: string, name: string], void>('replaceIamProfile')
+export const removeIamProfile = call<[c: AwsConnection, assocId: string], void>('removeIamProfile')
+export const launchBastion = call<[c: AwsConnection, config: BastionLaunchConfig], string>('launchBastion')
+export const findBastionConnectionsForInstance = call<[c: AwsConnection, targetInstanceId: string], BastionConnectionInfo[]>('findBastionConnectionsForInstance')
+export const deleteBastion = call<[c: AwsConnection, targetInstanceId: string], void>('deleteBastion')
+export const createTempVolumeCheck = call<[c: AwsConnection, volumeId: string], EbsTempInspectionEnvironment>('createTempVolumeCheck')
+export const deleteTempVolumeCheck = call<[c: AwsConnection, tempUuidOrInstanceId: string], void>('deleteTempVolumeCheck')
+export const listBastions = call<[c: AwsConnection], Ec2InstanceSummary[]>('listBastions')
+export const listPopularBastionAmis = call<[c: AwsConnection, architecture?: string], BastionAmiOption[]>('listPopularBastionAmis')
+export const describeVpc = call<[c: AwsConnection, vpcId: string], Ec2VpcDetail | null>('describeVpc')
+export const launchFromSnapshot = call<[c: AwsConnection, config: SnapshotLaunchConfig], string>('launchFromSnapshot')
+export const sendSshPublicKey = call<[c: AwsConnection, id: string, osUser: string, pubKey: string, az: string], boolean>('sendSshPublicKey')
+export const getEc2Recommendations = call<[c: AwsConnection], Ec2Recommendation[]>('getEc2Recommendations')
+export const listSsmManagedInstances = call<[c: AwsConnection], SsmManagedInstanceSummary[]>('listSsmManagedInstances')
+export const getSsmConnectionTarget = call<[c: AwsConnection, instanceId: string], SsmConnectionTarget>('getSsmConnectionTarget')
+export const listSsmSessions = call<[c: AwsConnection, targetInstanceId?: string], SsmSessionSummary[]>('listSsmSessions')
+export const startSsmSession = call<[c: AwsConnection, request: SsmStartSessionRequest], SsmSessionLaunchSpec>('startSsmSession')
+export const sendSsmCommand = call<[c: AwsConnection, request: SsmSendCommandRequest], SsmCommandExecutionResult>('sendSsmCommand')
 
-function unwrap<T>(result: Wrapped<T>): T {
-  if (!result.ok) throw new Error(result.error)
-  return result.data
-}
-
-export async function chooseEc2SshKey(): Promise<Ec2ChosenSshKey | null> {
-  return unwrap((await bridge().chooseEc2SshKey()) as Wrapped<Ec2ChosenSshKey | null>)
-}
-
-export async function listEc2SshKeySuggestions(preferredKeyName?: string): Promise<Ec2SshKeySuggestion[]> {
-  return unwrap((await bridge().listEc2SshKeySuggestions(preferredKeyName)) as Wrapped<Ec2SshKeySuggestion[]>)
-}
-
-export async function materializeEc2VaultSshKey(entryId: string): Promise<string> {
-  return unwrap((await bridge().materializeEc2VaultSshKey(entryId)) as Wrapped<string>)
-}
-
-export async function listEc2Instances(c: AwsConnection): Promise<Ec2InstanceSummary[]> {
-  return unwrap((await bridge().listEc2Instances(c)) as Wrapped<Ec2InstanceSummary[]>)
-}
-
-export async function listEbsVolumes(c: AwsConnection): Promise<EbsVolumeSummary[]> {
-  return unwrap((await bridge().listEbsVolumes(c)) as Wrapped<EbsVolumeSummary[]>)
-}
-
-export async function describeEc2Instance(c: AwsConnection, id: string): Promise<Ec2InstanceDetail | null> {
-  return unwrap((await bridge().describeEc2Instance(c, id)) as Wrapped<Ec2InstanceDetail | null>)
-}
-
-export async function describeEbsVolume(c: AwsConnection, id: string): Promise<EbsVolumeDetail | null> {
-  return unwrap((await bridge().describeEbsVolume(c, id)) as Wrapped<EbsVolumeDetail | null>)
-}
-
-export async function tagEbsVolume(c: AwsConnection, id: string, tags: Record<string, string>): Promise<void> {
-  return unwrap((await bridge().tagEbsVolume(c, id, tags)) as Wrapped<void>)
-}
-
-export async function untagEbsVolume(c: AwsConnection, id: string, tagKeys: string[]): Promise<void> {
-  return unwrap((await bridge().untagEbsVolume(c, id, tagKeys)) as Wrapped<void>)
-}
-
-export async function attachEbsVolume(c: AwsConnection, id: string, request: EbsVolumeAttachRequest): Promise<void> {
-  return unwrap((await bridge().attachEbsVolume(c, id, request)) as Wrapped<void>)
-}
-
-export async function detachEbsVolume(c: AwsConnection, id: string, request?: EbsVolumeDetachRequest): Promise<void> {
-  return unwrap((await bridge().detachEbsVolume(c, id, request)) as Wrapped<void>)
-}
-
-export async function deleteEbsVolume(c: AwsConnection, id: string): Promise<void> {
-  return unwrap((await bridge().deleteEbsVolume(c, id)) as Wrapped<void>)
-}
-
-export async function modifyEbsVolume(c: AwsConnection, id: string, request: EbsVolumeModifyRequest): Promise<void> {
-  return unwrap((await bridge().modifyEbsVolume(c, id, request)) as Wrapped<void>)
-}
-
-export async function runEc2InstanceAction(c: AwsConnection, id: string, action: Ec2InstanceAction): Promise<void> {
-  return unwrap((await bridge().runEc2InstanceAction(c, id, action)) as Wrapped<void>)
-}
-
-export async function runEc2BulkInstanceAction(c: AwsConnection, ids: string[], action: Ec2BulkInstanceAction): Promise<Ec2BulkInstanceActionResult> {
-  return unwrap((await bridge().runEc2BulkInstanceAction(c, ids, action)) as Wrapped<Ec2BulkInstanceActionResult>)
-}
-
-export async function terminateEc2Instance(c: AwsConnection, id: string): Promise<void> {
-  return unwrap((await bridge().terminateEc2Instance(c, id)) as Wrapped<void>)
-}
-
-export async function terminateEc2Instances(c: AwsConnection, ids: string[]): Promise<Ec2BulkInstanceActionResult> {
-  return unwrap((await bridge().terminateEc2Instances(c, ids)) as Wrapped<Ec2BulkInstanceActionResult>)
-}
-
-export async function resizeEc2Instance(c: AwsConnection, id: string, type: string): Promise<void> {
-  return unwrap((await bridge().resizeEc2Instance(c, id, type)) as Wrapped<void>)
-}
-
-export async function listInstanceTypes(c: AwsConnection, arch?: string, currentGenerationOnly?: boolean): Promise<Ec2InstanceTypeOption[]> {
-  return unwrap((await bridge().listInstanceTypes(c, arch, currentGenerationOnly)) as Wrapped<Ec2InstanceTypeOption[]>)
-}
-
-export async function listEc2Snapshots(c: AwsConnection): Promise<Ec2SnapshotSummary[]> {
-  return unwrap((await bridge().listEc2Snapshots(c)) as Wrapped<Ec2SnapshotSummary[]>)
-}
-
-export async function createEc2Snapshot(c: AwsConnection, volumeId: string, desc: string): Promise<string> {
-  return unwrap((await bridge().createEc2Snapshot(c, volumeId, desc)) as Wrapped<string>)
-}
-
-export async function deleteEc2Snapshot(c: AwsConnection, snapshotId: string): Promise<void> {
-  return unwrap((await bridge().deleteEc2Snapshot(c, snapshotId)) as Wrapped<void>)
-}
-
-export async function tagEc2Snapshot(c: AwsConnection, snapshotId: string, tags: Record<string, string>): Promise<void> {
-  return unwrap((await bridge().tagEc2Snapshot(c, snapshotId, tags)) as Wrapped<void>)
-}
-
-export async function getIamAssociation(c: AwsConnection, id: string): Promise<Ec2IamAssociation | null> {
-  return unwrap((await bridge().getIamAssociation(c, id)) as Wrapped<Ec2IamAssociation | null>)
-}
-
-export async function attachIamProfile(c: AwsConnection, id: string, name: string): Promise<void> {
-  return unwrap((await bridge().attachIamProfile(c, id, name)) as Wrapped<void>)
-}
-
-export async function replaceIamProfile(c: AwsConnection, assocId: string, name: string): Promise<void> {
-  return unwrap((await bridge().replaceIamProfile(c, assocId, name)) as Wrapped<void>)
-}
-
-export async function removeIamProfile(c: AwsConnection, assocId: string): Promise<void> {
-  return unwrap((await bridge().removeIamProfile(c, assocId)) as Wrapped<void>)
-}
-
-export async function launchBastion(c: AwsConnection, config: BastionLaunchConfig): Promise<string> {
-  return unwrap((await bridge().launchBastion(c, config)) as Wrapped<string>)
-}
-
-export async function findBastionConnectionsForInstance(c: AwsConnection, targetInstanceId: string): Promise<BastionConnectionInfo[]> {
-  return unwrap((await bridge().findBastionConnectionsForInstance(c, targetInstanceId)) as Wrapped<BastionConnectionInfo[]>)
-}
-
-export async function deleteBastion(c: AwsConnection, targetInstanceId: string): Promise<void> {
-  return unwrap((await bridge().deleteBastion(c, targetInstanceId)) as Wrapped<void>)
-}
-
-export async function createTempVolumeCheck(c: AwsConnection, volumeId: string): Promise<EbsTempInspectionEnvironment> {
-  return unwrap((await bridge().createTempVolumeCheck(c, volumeId)) as Wrapped<EbsTempInspectionEnvironment>)
-}
-
-export async function deleteTempVolumeCheck(c: AwsConnection, tempUuidOrInstanceId: string): Promise<void> {
-  return unwrap((await bridge().deleteTempVolumeCheck(c, tempUuidOrInstanceId)) as Wrapped<void>)
-}
-
-export async function listBastions(c: AwsConnection): Promise<Ec2InstanceSummary[]> {
-  return unwrap((await bridge().listBastions(c)) as Wrapped<Ec2InstanceSummary[]>)
-}
-
-export async function listPopularBastionAmis(c: AwsConnection, architecture?: string): Promise<BastionAmiOption[]> {
-  return unwrap((await bridge().listPopularBastionAmis(c, architecture)) as Wrapped<BastionAmiOption[]>)
-}
-
-export async function describeVpc(c: AwsConnection, vpcId: string): Promise<Ec2VpcDetail | null> {
-  return unwrap((await bridge().describeVpc(c, vpcId)) as Wrapped<Ec2VpcDetail | null>)
-}
-
-export async function launchFromSnapshot(c: AwsConnection, config: SnapshotLaunchConfig): Promise<string> {
-  return unwrap((await bridge().launchFromSnapshot(c, config)) as Wrapped<string>)
-}
-
-export async function sendSshPublicKey(
-  c: AwsConnection,
-  id: string,
-  osUser: string,
-  pubKey: string,
-  az: string
-): Promise<boolean> {
-  return unwrap((await bridge().sendSshPublicKey(c, id, osUser, pubKey, az)) as Wrapped<boolean>)
-}
-
-export async function getEc2Recommendations(c: AwsConnection): Promise<Ec2Recommendation[]> {
-  return unwrap((await bridge().getEc2Recommendations(c)) as Wrapped<Ec2Recommendation[]>)
-}
-
-export async function listSsmManagedInstances(c: AwsConnection): Promise<SsmManagedInstanceSummary[]> {
-  return unwrap((await bridge().listSsmManagedInstances(c)) as Wrapped<SsmManagedInstanceSummary[]>)
-}
-
-export async function getSsmConnectionTarget(c: AwsConnection, instanceId: string): Promise<SsmConnectionTarget> {
-  return unwrap((await bridge().getSsmConnectionTarget(c, instanceId)) as Wrapped<SsmConnectionTarget>)
-}
-
-export async function listSsmSessions(c: AwsConnection, targetInstanceId?: string): Promise<SsmSessionSummary[]> {
-  return unwrap((await bridge().listSsmSessions(c, targetInstanceId)) as Wrapped<SsmSessionSummary[]>)
-}
-
-export async function startSsmSession(c: AwsConnection, request: SsmStartSessionRequest): Promise<SsmSessionLaunchSpec> {
-  return unwrap((await bridge().startSsmSession(c, request)) as Wrapped<SsmSessionLaunchSpec>)
-}
-
-export async function sendSsmCommand(c: AwsConnection, request: SsmSendCommandRequest): Promise<SsmCommandExecutionResult> {
-  return unwrap((await bridge().sendSsmCommand(c, request)) as Wrapped<SsmCommandExecutionResult>)
-}
-
+// Non-standard: subscription pattern, not a simple async call
 export function subscribeToTempVolumeProgress(listener: (event: EbsTempInspectionProgress) => void): () => void {
-  bridge().subscribeTempVolumeProgress(listener)
-  return () => bridge().unsubscribeTempVolumeProgress(listener)
+  trackedAwsBridge().subscribeTempVolumeProgress(listener)
+  return () => trackedAwsBridge().unsubscribeTempVolumeProgress(listener)
 }

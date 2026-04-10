@@ -5,8 +5,8 @@ import { app } from 'electron'
 import type {
   AppSettings,
   AppSettingsGeneral,
-  AppSettingsLaunchScreen,
   AppSettingsFeatures,
+  AppSettingsLaunchScreen,
   AppSettingsRefresh,
   AppSettingsRefreshMode,
   AppSettingsReleaseChannelPreference,
@@ -21,8 +21,17 @@ import { readSecureJsonFile, writeSecureJsonFile } from './secureJson'
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
   general: {
+    defaultProviderId: 'aws',
     defaultProfileName: '',
     defaultRegion: 'us-east-1',
+    gcpDefaultModeId: 'gcp-adc',
+    gcpDefaultProjectId: '',
+    gcpDefaultLocation: 'us-central1',
+    azureDefaultModeId: 'azure-subscription',
+    azureDefaultSubscriptionId: '',
+    azureDefaultSubscriptionLabel: '',
+    azureDefaultTenantId: '',
+    azureDefaultLocation: '',
     launchScreen: 'profiles'
   },
   terminal: {
@@ -40,6 +49,8 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
     terraformPathOverride: '',
     opentofuPathOverride: '',
     awsCliPathOverride: '',
+    gcloudPathOverride: '',
+    azureCliPathOverride: '',
     kubectlPathOverride: '',
     dockerPathOverride: ''
   },
@@ -52,7 +63,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
 
 function sanitizeFeatures(value: unknown): AppSettingsFeatures {
   return sanitizeAppFeatureSettings(value)
-  }
+}
 
 function settingsPath(): string {
   return path.join(app.getPath('userData'), 'app-settings.json')
@@ -68,6 +79,17 @@ function sanitizeLaunchScreen(value: unknown): AppSettingsLaunchScreen {
       return value
     default:
       return DEFAULT_APP_SETTINGS.general.launchScreen
+  }
+}
+
+function sanitizeProviderId(value: unknown): AppSettings['general']['defaultProviderId'] {
+  switch (value) {
+    case 'aws':
+    case 'gcp':
+    case 'azure':
+      return value
+    default:
+      return DEFAULT_APP_SETTINGS.general.defaultProviderId
   }
 }
 
@@ -136,8 +158,17 @@ function sanitizeGeneral(value: unknown): AppSettingsGeneral {
     : {}
 
   return {
+    defaultProviderId: sanitizeProviderId(raw.defaultProviderId),
     defaultProfileName: sanitizeString(raw.defaultProfileName),
     defaultRegion: sanitizeString(raw.defaultRegion, DEFAULT_APP_SETTINGS.general.defaultRegion),
+    gcpDefaultModeId: sanitizeString(raw.gcpDefaultModeId, DEFAULT_APP_SETTINGS.general.gcpDefaultModeId),
+    gcpDefaultProjectId: sanitizeString(raw.gcpDefaultProjectId),
+    gcpDefaultLocation: sanitizeString(raw.gcpDefaultLocation, DEFAULT_APP_SETTINGS.general.gcpDefaultLocation),
+    azureDefaultModeId: sanitizeString(raw.azureDefaultModeId, DEFAULT_APP_SETTINGS.general.azureDefaultModeId),
+    azureDefaultSubscriptionId: sanitizeString(raw.azureDefaultSubscriptionId),
+    azureDefaultSubscriptionLabel: sanitizeString(raw.azureDefaultSubscriptionLabel),
+    azureDefaultTenantId: sanitizeString(raw.azureDefaultTenantId),
+    azureDefaultLocation: sanitizeString(raw.azureDefaultLocation),
     launchScreen: sanitizeLaunchScreen(raw.launchScreen)
   }
 }
@@ -179,6 +210,8 @@ function sanitizeToolchain(value: unknown): AppSettingsToolchain {
     terraformPathOverride: sanitizeString(raw.terraformPathOverride),
     opentofuPathOverride: sanitizeString(raw.opentofuPathOverride),
     awsCliPathOverride: sanitizeString(raw.awsCliPathOverride),
+    gcloudPathOverride: sanitizeString(raw.gcloudPathOverride),
+    azureCliPathOverride: sanitizeString(raw.azureCliPathOverride),
     kubectlPathOverride: sanitizeString(raw.kubectlPathOverride),
     dockerPathOverride: sanitizeString(raw.dockerPathOverride)
   }
@@ -219,16 +252,28 @@ export function getDefaultAppSettings(): AppSettings {
   return sanitizeAppSettings(DEFAULT_APP_SETTINGS)
 }
 
+let settingsCache: AppSettings | null = null
+
 export function getAppSettings(): AppSettings {
+  if (settingsCache) {
+    return settingsCache
+  }
+
   const parsed = readSecureJsonFile<Record<string, unknown>>(settingsPath(), {
     fallback: DEFAULT_APP_SETTINGS as unknown as Record<string, unknown>,
     fileLabel: 'App settings'
   })
 
-  return sanitizeAppSettings(parsed)
+  settingsCache = sanitizeAppSettings(parsed)
+  return settingsCache
+}
+
+export function invalidateAppSettingsCache(): void {
+  settingsCache = null
 }
 
 export function setAppSettings(settings: AppSettings): AppSettings {
+  settingsCache = null
   return write(sanitizeAppSettings(settings))
 }
 
@@ -252,9 +297,11 @@ export function updateAppSettings(update: Partial<AppSettings>): AppSettings {
     }
   })
 
+  settingsCache = null
   return write(next)
 }
 
 export function resetAppSettings(): AppSettings {
+  settingsCache = null
   return write(getDefaultAppSettings())
 }

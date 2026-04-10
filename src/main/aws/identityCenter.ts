@@ -25,12 +25,12 @@ import type {
   SsoSimulationResult,
   SsoUserSummary
 } from '@shared/types'
-import { awsClientConfig } from './client'
+import { getAwsClient } from './client'
 
 /* ── Instances ────────────────────────────────────────────── */
 
 export async function listInstances(connection: AwsConnection): Promise<SsoInstanceSummary[]> {
-  const client = new SSOAdminClient(awsClientConfig(connection))
+  const client = getAwsClient(SSOAdminClient, connection)
   const output = await client.send(new ListInstancesCommand({}))
   return (output.Instances ?? []).map((i) => ({
     instanceArn: i.InstanceArn ?? '-',
@@ -43,13 +43,13 @@ export async function listInstances(connection: AwsConnection): Promise<SsoInsta
 }
 
 export async function createInstance(connection: AwsConnection, name: string): Promise<string> {
-  const client = new SSOAdminClient(awsClientConfig(connection))
+  const client = getAwsClient(SSOAdminClient, connection)
   const output = await client.send(new CreateInstanceCommand({ Name: name }))
   return output.InstanceArn ?? ''
 }
 
 export async function deleteInstance(connection: AwsConnection, instanceArn: string): Promise<void> {
-  const client = new SSOAdminClient(awsClientConfig(connection))
+  const client = getAwsClient(SSOAdminClient, connection)
   await client.send(new DeleteInstanceCommand({ InstanceArn: instanceArn }))
 }
 
@@ -59,7 +59,7 @@ export async function listPermissionSets(
   connection: AwsConnection,
   instanceArn: string
 ): Promise<SsoPermissionSetSummary[]> {
-  const client = new SSOAdminClient(awsClientConfig(connection))
+  const client = getAwsClient(SSOAdminClient, connection)
   const arns: string[] = []
   let nextToken: string | undefined
 
@@ -97,7 +97,7 @@ export async function listUsers(
   connection: AwsConnection,
   identityStoreId: string
 ): Promise<SsoUserSummary[]> {
-  const client = new IdentitystoreClient(awsClientConfig(connection))
+  const client = getAwsClient(IdentitystoreClient, connection)
   const results: SsoUserSummary[] = []
   let nextToken: string | undefined
 
@@ -125,7 +125,7 @@ export async function listGroups(
   connection: AwsConnection,
   identityStoreId: string
 ): Promise<SsoGroupSummary[]> {
-  const client = new IdentitystoreClient(awsClientConfig(connection))
+  const client = getAwsClient(IdentitystoreClient, connection)
   const results: SsoGroupSummary[] = []
   let nextToken: string | undefined
 
@@ -155,7 +155,7 @@ export async function listAccountAssignments(
   accountId: string,
   permissionSetArn: string
 ): Promise<SsoAccountAssignment[]> {
-  const client = new SSOAdminClient(awsClientConfig(connection))
+  const client = getAwsClient(SSOAdminClient, connection)
   const results: SsoAccountAssignment[] = []
   let nextToken: string | undefined
 
@@ -191,7 +191,7 @@ export async function simulatePermissions(
   instanceArn: string,
   permissionSetArn: string
 ): Promise<SsoSimulationResult> {
-  const client = new SSOAdminClient(awsClientConfig(connection))
+  const client = getAwsClient(SSOAdminClient, connection)
 
   // Describe the permission set
   const describeOutput = await client.send(

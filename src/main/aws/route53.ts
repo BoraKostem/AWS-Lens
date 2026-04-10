@@ -10,7 +10,7 @@ import {
   type VPCRegion
 } from '@aws-sdk/client-route-53'
 
-import { awsClientConfig } from './client'
+import { getAwsClient } from './client'
 import type {
   AwsConnection,
   Route53HostedZoneCreateInput,
@@ -19,10 +19,6 @@ import type {
   Route53RecordSummary
 } from '@shared/types'
 import { randomUUID } from 'node:crypto'
-
-function createClient(connection: AwsConnection): Route53Client {
-  return new Route53Client(awsClientConfig(connection))
-}
 
 function normalizeHostedZoneId(hostedZoneId: string): string {
   return hostedZoneId.replace('/hostedzone/', '')
@@ -76,7 +72,7 @@ function toRecordSummary(record: ResourceRecordSet): Route53RecordSummary {
 }
 
 export async function listRoute53HostedZones(connection: AwsConnection): Promise<Route53HostedZoneSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(Route53Client, connection)
   const zones: Route53HostedZoneSummary[] = []
   let dnsName: string | undefined
   let hostedZoneId: string | undefined
@@ -114,7 +110,7 @@ export async function listRoute53Records(
   connection: AwsConnection,
   hostedZoneId: string
 ): Promise<Route53RecordSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(Route53Client, connection)
   const records: Route53RecordSummary[] = []
   let startRecordName: string | undefined
   let startRecordType: RRType | undefined
@@ -151,7 +147,7 @@ export async function upsertRoute53Record(
   hostedZoneId: string,
   record: Route53RecordChange
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(Route53Client, connection)
 
   await client.send(
     new ChangeResourceRecordSetsCommand({
@@ -173,7 +169,7 @@ export async function deleteRoute53Record(
   hostedZoneId: string,
   record: Route53RecordChange
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(Route53Client, connection)
 
   await client.send(
     new ChangeResourceRecordSetsCommand({
@@ -194,7 +190,7 @@ export async function createRoute53HostedZone(
   connection: AwsConnection,
   input: Route53HostedZoneCreateInput
 ): Promise<Route53HostedZoneSummary> {
-  const client = createClient(connection)
+  const client = getAwsClient(Route53Client, connection)
   const domainName = input.domainName.trim().replace(/\.+$/, '')
 
   if (!domainName) {
@@ -208,7 +204,7 @@ export async function createRoute53HostedZone(
   const output = await client.send(
     new CreateHostedZoneCommand({
       Name: domainName,
-      CallerReference: `aws-lens-${randomUUID()}`,
+      CallerReference: `infra-lens-${randomUUID()}`,
       HostedZoneConfig: {
         Comment: input.comment.trim() || undefined,
         PrivateZone: input.privateZone

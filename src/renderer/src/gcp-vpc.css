@@ -1,0 +1,43 @@
+.gcp-vpc-console .vpc-shell-hero,
+.gcp-vpc-console .vpc-detail-hero {
+  border-color: var(--provider-accent-border);
+  background:
+    radial-gradient(circle at top left, var(--provider-accent-glow), transparent 36%),
+    radial-gradient(circle at bottom right, rgba(59, 130, 246, 0.1), transparent 30%),
+    linear-gradient(180deg, rgba(14, 29, 22, 0.98), rgba(8, 18, 14, 0.98));
+}
+
+.gcp-vpc-console .vpc-toolbar-tab.active,
+.gcp-vpc-console .vpc-detail-tabs button.active {
+  border-color: var(--provider-accent-border-strong);
+  background: linear-gradient(180deg, rgba(52, 168, 83, 0.18), rgba(52, 168, 83, 0.08));
+}
+
+.gcp-vpc-console .vpc-toolbar-btn.accent {
+  background: linear-gradient(135deg, #34a853, #8bd467);
+  border-color: rgba(109, 202, 125, 0.32);
+  color: #08140b;
+}
+
+.gcp-vpc-console .vpc-inventory-card.active {
+  border-color: var(--provider-accent-border-strong);
+  background:
+    radial-gradient(circle at top right, var(--provider-accent-glow), transparent 42%),
+    linear-gradient(180deg, rgba(21, 39, 27, 0.98), rgba(10, 21, 14, 0.98));
+}
+
+.gcp-vpc-console .vpc-status-badge.success {
+  background: rgba(52, 168, 83, 0.16);
+  color: #8ce5a7;
+}
+
+.gcp-vpc-console .vpc-status-badge.warning {
+  background: rgba(251, 188, 5, 0.16);
+  color: #ffe089;
+}
+
+.gcp-vpc-console .vpc-status-badge.info {
+  background: rgba(66, 133, 244, 0.16);
+  color: #9cc2ff;
+}
+

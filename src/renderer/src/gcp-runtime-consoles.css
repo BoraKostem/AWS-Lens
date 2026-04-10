@@ -1,0 +1,1373 @@
+.gcp-runtime-console .overview-hero-card {
+  border-color: var(--provider-accent-border);
+  background:
+    radial-gradient(circle at top right, var(--provider-accent-glow), transparent 32%),
+    linear-gradient(180deg, rgba(15, 32, 24, 0.98), rgba(8, 18, 14, 0.98));
+}
+
+.gcp-runtime-console .overview-glance-card-accent {
+  border-color: var(--provider-accent-border-strong);
+  background:
+    radial-gradient(circle at top right, var(--provider-accent-glow), transparent 42%),
+    linear-gradient(180deg, rgba(20, 46, 31, 0.96), rgba(10, 24, 17, 0.96));
+}
+
+.gcp-runtime-console .iam-shell-hero {
+  background:
+    radial-gradient(circle at top left, var(--provider-accent-glow), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(74, 143, 231, 0.12), transparent 30%),
+    linear-gradient(180deg, rgba(15, 32, 24, 0.98), rgba(8, 18, 14, 0.98));
+}
+
+.gcp-runtime-console .iam-shell-stat-card-accent {
+  border-color: var(--provider-accent-border-strong);
+  background:
+    radial-gradient(circle at top right, var(--provider-accent-glow), transparent 42%),
+    linear-gradient(180deg, rgba(20, 46, 31, 0.96), rgba(10, 24, 17, 0.96));
+}
+
+.gcp-runtime-console .overview-glance-card-accent strong,
+.gcp-runtime-console .eyebrow {
+  color: var(--provider-accent-strong);
+}
+
+.gcp-runtime-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--provider-accent-border);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top right, var(--provider-accent-glow), transparent 36%),
+    linear-gradient(180deg, rgba(13, 24, 18, 0.96), rgba(8, 16, 13, 0.96));
+}
+
+.gcp-runtime-toolbar-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.gcp-runtime-toolbar-status {
+  flex-shrink: 0;
+}
+
+.gcp-runtime-field {
+  min-width: 160px;
+}
+
+.gcp-runtime-search {
+  min-width: min(320px, 100%);
+}
+
+.gcp-runtime-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.gcp-runtime-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.95fr) minmax(0, 1.25fr);
+  gap: 12px;
+  min-width: 0;
+}
+
+.gcp-runtime-list-panel,
+.gcp-runtime-detail-panel {
+  min-width: 0;
+}
+
+.gcp-runtime-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: calc(100vh - 360px);
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.gcp-runtime-card {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(17, 28, 22, 0.96), rgba(9, 17, 13, 0.96));
+  text-align: left;
+  color: inherit;
+}
+
+.gcp-runtime-card:hover {
+  border-color: var(--provider-accent-border-strong);
+}
+
+.gcp-runtime-card.active {
+  border-color: var(--provider-accent-border-strong);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--provider-accent) 28%, transparent);
+  background:
+    radial-gradient(circle at top right, var(--provider-accent-glow), transparent 40%),
+    linear-gradient(180deg, rgba(22, 39, 29, 0.98), rgba(12, 23, 17, 0.98));
+}
+
+.gcp-runtime-card-top,
+.gcp-runtime-card-meta,
+.gcp-runtime-action-grid,
+.gcp-runtime-chip-row,
+.gcp-runtime-distribution-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.gcp-runtime-card-top {
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.gcp-runtime-card-copy {
+  min-width: 0;
+}
+
+.gcp-runtime-card-copy strong,
+.gcp-runtime-card-copy span {
+  display: block;
+}
+
+.gcp-runtime-card-copy strong {
+  font-size: 0.96rem;
+  color: #edf5ff;
+}
+
+.gcp-runtime-card-copy span,
+.gcp-runtime-card-meta span,
+.gcp-runtime-detail-card small {
+  color: #98afc3;
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+.gcp-runtime-card-meta span {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(8, 14, 11, 0.66);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.gcp-runtime-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.gcp-runtime-detail-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: linear-gradient(180deg, rgba(15, 26, 20, 0.96), rgba(8, 15, 11, 0.96));
+}
+
+.gcp-runtime-detail-card span {
+  color: #98afc3;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.gcp-runtime-detail-card strong {
+  font-size: 1rem;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  letter-spacing: -0.03em;
+  word-break: break-word;
+}
+
+.gcp-runtime-section + .gcp-runtime-section {
+  margin-top: 4px;
+}
+
+.gcp-runtime-action-grid button {
+  min-width: 148px;
+}
+
+.gcp-runtime-facts-grid,
+.gcp-runtime-label-grid,
+.gcp-runtime-inline-actions,
+.gcp-runtime-node-pool-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.gcp-runtime-facts-grid,
+.gcp-runtime-node-pool-list {
+  margin-top: 10px;
+}
+
+.gcp-runtime-fact {
+  flex: 1 1 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(10, 18, 14, 0.68);
+}
+
+.gcp-runtime-fact span {
+  color: #98afc3;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.gcp-runtime-fact strong {
+  font-size: 0.88rem;
+  word-break: break-word;
+}
+
+.gcp-runtime-label-chip {
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(8, 14, 11, 0.76);
+  color: #d7e6f8;
+  font-size: 0.76rem;
+}
+
+.gcp-runtime-node-pool-card {
+  flex: 1 1 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: linear-gradient(180deg, rgba(15, 26, 20, 0.96), rgba(8, 15, 11, 0.96));
+}
+
+.gcp-runtime-node-pool-top,
+.gcp-runtime-node-pool-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.gcp-runtime-node-pool-top strong,
+.gcp-runtime-node-pool-top span {
+  display: block;
+}
+
+.gcp-runtime-node-pool-top span {
+  color: #98afc3;
+  font-size: 0.76rem;
+}
+
+.gcp-runtime-node-pool-meta span {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(8, 14, 11, 0.66);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  color: #98afc3;
+  font-size: 0.76rem;
+}
+
+.gcp-runtime-inline-actions {
+  margin: 10px 0 8px;
+}
+
+.gcp-runtime-inline-note {
+  margin: 0 0 10px;
+  color: #98afc3;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.gcp-runtime-code-block {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(6, 12, 9, 0.92);
+  color: #dfe8f2;
+  font-family: "IBM Plex Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.gcp-runtime-form-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.gcp-runtime-textarea {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(6, 12, 9, 0.92);
+  color: #dfe8f2;
+  padding: 12px 14px;
+  font: inherit;
+}
+
+.gcp-runtime-textarea:focus {
+  outline: 1px solid var(--provider-accent-border-strong);
+  border-color: var(--provider-accent-border-strong);
+}
+
+.gcp-runtime-serial-block {
+  max-height: 320px;
+  overflow: auto;
+}
+
+.gcp-runtime-data-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gcp-runtime-data-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: linear-gradient(180deg, rgba(15, 26, 20, 0.96), rgba(8, 15, 11, 0.96));
+}
+
+.gcp-runtime-data-top,
+.gcp-runtime-data-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.gcp-runtime-data-top strong,
+.gcp-runtime-data-top span {
+  display: block;
+}
+
+.gcp-runtime-data-top span,
+.gcp-runtime-data-meta span {
+  color: #98afc3;
+  font-size: 0.76rem;
+}
+
+.gcp-runtime-data-meta span {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(8, 14, 11, 0.66);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.gcp-runtime-distribution-item {
+  flex: 1 1 180px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(10, 18, 14, 0.72);
+}
+
+.gcp-runtime-distribution-item span {
+  color: #9eb4c7;
+  font-size: 0.78rem;
+}
+
+.gcp-runtime-distribution-item strong {
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  font-size: 1rem;
+}
+
+.gcp-sql-console {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.gcp-sql-msg {
+  padding: 10px 12px;
+  border-radius: 14px;
+  font-size: 12px;
+}
+
+.gcp-sql-msg.success {
+  border: 1px solid rgba(104, 214, 146, 0.18);
+  background: linear-gradient(180deg, rgba(20, 45, 28, 0.96), rgba(10, 22, 14, 0.96));
+  color: #d8f7e1;
+}
+
+.gcp-sql-msg.error {
+  border: 1px solid rgba(238, 145, 118, 0.2);
+  background: linear-gradient(180deg, rgba(50, 24, 20, 0.96), rgba(24, 11, 10, 0.96));
+  color: #ffd8cf;
+}
+
+.gcp-sql-enable-state {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gcp-sql-shell-hero,
+.gcp-sql-detail-hero {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(145, 176, 207, 0.14);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at top left, rgba(112, 219, 147, 0.14), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(74, 143, 231, 0.12), transparent 32%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(11, 17, 25, 0.98));
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+}
+
+.gcp-sql-shell-hero {
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.95fr);
+  padding: 16px 18px;
+}
+
+.gcp-sql-detail-hero {
+  grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
+  padding: 12px 14px;
+}
+
+.gcp-sql-shell-hero-copy,
+.gcp-sql-detail-hero-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gcp-sql-shell-hero-copy h2,
+.gcp-sql-detail-hero-copy h3 {
+  margin: 0;
+  color: #edf4fb;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  letter-spacing: -0.04em;
+}
+
+.gcp-sql-shell-hero-copy h2 {
+  font-size: clamp(1.5rem, 2vw, 2.1rem);
+}
+
+.gcp-sql-detail-hero-copy h3 {
+  font-size: clamp(1.25rem, 1.8vw, 1.7rem);
+}
+
+.gcp-sql-shell-hero-copy p,
+.gcp-sql-detail-hero-copy p {
+  margin: 0;
+  color: #a6bbcf;
+  font-size: 0.8rem;
+  line-height: 1.42;
+  max-width: 62ch;
+}
+
+.gcp-sql-shell-meta-strip,
+.gcp-sql-detail-meta-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gcp-sql-shell-meta-pill,
+.gcp-sql-detail-meta-pill,
+.gcp-sql-shell-stat-card,
+.gcp-sql-detail-stat-card,
+.gcp-sql-shell-status-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(9, 14, 22, 0.52);
+  backdrop-filter: blur(12px);
+}
+
+.gcp-sql-shell-meta-pill,
+.gcp-sql-detail-meta-pill {
+  min-width: 132px;
+  padding: 8px 10px;
+  border-radius: 12px;
+}
+
+.gcp-sql-shell-meta-pill span,
+.gcp-sql-detail-meta-pill span,
+.gcp-sql-shell-stat-card span,
+.gcp-sql-detail-stat-card span,
+.gcp-sql-shell-status-card span,
+.gcp-sql-pane-kicker,
+.gcp-sql-pane-summary,
+.gcp-sql-overview-kicker {
+  display: block;
+  color: #8fa3ba;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.gcp-sql-shell-meta-pill strong,
+.gcp-sql-detail-meta-pill strong,
+.gcp-sql-shell-stat-card strong,
+.gcp-sql-detail-stat-card strong,
+.gcp-sql-pane-head h3,
+.gcp-sql-overview-head h3,
+.gcp-sql-sidebar-section h3,
+.gcp-sql-empty-state h3,
+.gcp-sql-finding-title,
+.gcp-sql-state-card strong {
+  color: #edf4fb;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  letter-spacing: -0.03em;
+}
+
+.gcp-sql-shell-meta-pill strong,
+.gcp-sql-detail-meta-pill strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.8rem;
+  word-break: break-word;
+}
+
+.gcp-sql-shell-hero-stats,
+.gcp-sql-detail-hero-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.gcp-sql-shell-stat-card,
+.gcp-sql-detail-stat-card {
+  min-height: 82px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 6px;
+  background: linear-gradient(180deg, rgba(21, 28, 37, 0.96), rgba(13, 19, 27, 0.96));
+}
+
+.gcp-sql-shell-stat-card strong,
+.gcp-sql-detail-stat-card strong {
+  font-size: 1rem;
+  line-height: 1.05;
+}
+
+.gcp-sql-shell-stat-card small,
+.gcp-sql-detail-stat-card small {
+  color: rgba(230, 236, 232, 0.72);
+  font-size: 0.68rem;
+  line-height: 1.3;
+}
+
+.gcp-sql-shell-stat-card.accent {
+  border-color: rgba(112, 219, 147, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(112, 219, 147, 0.15), transparent 42%),
+    linear-gradient(180deg, rgba(28, 45, 34, 0.98), rgba(15, 25, 18, 0.98));
+}
+
+.gcp-sql-shell-stat-card.warning {
+  border-color: rgba(245, 158, 11, 0.26);
+}
+
+.gcp-sql-shell-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(145, 176, 207, 0.12);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(17, 24, 34, 0.94), rgba(10, 16, 25, 0.94));
+}
+
+.gcp-sql-toolbar,
+.gcp-sql-shell-status {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.gcp-sql-shell-status {
+  justify-content: flex-end;
+  min-width: min(100%, 560px);
+}
+
+.gcp-sql-shell-status-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(20, 28, 40, 0.94), rgba(13, 20, 31, 0.94));
+}
+
+.gcp-sql-shell-status-search {
+  flex: 1;
+  min-width: 240px;
+}
+
+.gcp-sql-toolbar-btn,
+.gcp-sql-chip,
+.gcp-sql-side-tabs button,
+.gcp-sql-action-btn,
+.gcp-sql-data-table tbody tr {
+  transition: transform 0.16s ease, border-color 0.16s ease, filter 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.gcp-sql-toolbar-btn {
+  padding: 10px 16px;
+  border: 1px solid rgba(145, 176, 207, 0.12);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(30, 40, 53, 0.98), rgba(18, 27, 40, 0.98));
+  color: #edf1f6;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.gcp-sql-toolbar-btn:hover,
+.gcp-sql-chip:hover,
+.gcp-sql-side-tabs button:hover,
+.gcp-sql-action-btn:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.gcp-sql-toolbar-btn.active {
+  border-color: rgba(112, 219, 147, 0.28);
+  background: linear-gradient(180deg, rgba(112, 219, 147, 0.16), rgba(112, 219, 147, 0.08));
+  color: #eaffee;
+}
+
+.gcp-sql-toolbar-btn.accent,
+.gcp-sql-action-btn.start {
+  background: linear-gradient(135deg, #6ad88b, #9af0b2);
+  border-color: rgba(154, 240, 178, 0.24);
+  color: #08200f;
+}
+
+.gcp-sql-search-input,
+.gcp-sql-code-block {
+  min-width: 0;
+  border: 1px solid rgba(145, 176, 207, 0.12);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(20, 29, 40, 0.98), rgba(11, 18, 28, 0.98));
+  color: #edf1f6;
+  font: inherit;
+  box-sizing: border-box;
+}
+
+.gcp-sql-search-input {
+  height: 38px;
+  width: 100%;
+  padding: 8px 12px;
+}
+
+.gcp-sql-search-input::placeholder {
+  color: #6b7688;
+}
+
+.gcp-sql-main-layout {
+  display: flex;
+  gap: 12px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.gcp-sql-table-panel {
+  width: 430px;
+  min-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(13, 20, 30, 0.98), rgba(8, 14, 22, 0.98));
+  border: 1px solid rgba(145, 176, 207, 0.12);
+  border-radius: 20px;
+}
+
+.gcp-sql-pane-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.gcp-sql-pane-head h3,
+.gcp-sql-overview-head h3,
+.gcp-sql-sidebar-section h3,
+.gcp-sql-empty-state h3 {
+  margin: 4px 0 0;
+  font-size: 1rem;
+}
+
+.gcp-sql-column-chips,
+.gcp-sql-chip-list,
+.gcp-sql-posture-badges,
+.gcp-sql-actions-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gcp-sql-chip,
+.gcp-sql-network-chip {
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(145, 176, 207, 0.12);
+  background: linear-gradient(180deg, rgba(30, 40, 53, 0.94), rgba(18, 27, 40, 0.94));
+  color: #9ca7b7;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.gcp-sql-chip.active {
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+}
+
+.gcp-sql-network-chip {
+  cursor: default;
+  color: #d0d8e2;
+}
+
+.gcp-sql-table-area {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  background: rgba(12, 18, 27, 0.65);
+  border: 1px solid rgba(145, 176, 207, 0.08);
+  border-radius: 16px;
+  max-height: calc(100vh - 410px);
+}
+
+.gcp-sql-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.gcp-sql-data-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.gcp-sql-data-table th {
+  background: rgba(20, 29, 40, 0.98);
+  color: #8fa3ba;
+  font-weight: 700;
+  padding: 11px 14px;
+  text-align: left;
+  border-bottom: 1px solid rgba(145, 176, 207, 0.1);
+  white-space: nowrap;
+  letter-spacing: 0.04em;
+}
+
+.gcp-sql-data-table td {
+  padding: 11px 14px;
+  color: #d0d8e2;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  vertical-align: top;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.gcp-sql-data-table tbody tr {
+  cursor: pointer;
+}
+
+.gcp-sql-data-table tbody tr:hover {
+  background: rgba(38, 44, 53, 0.72);
+}
+
+.gcp-sql-data-table tbody tr.active {
+  background:
+    radial-gradient(circle at top right, rgba(112, 219, 147, 0.08), transparent 40%),
+    rgba(50, 57, 71, 0.88);
+}
+
+.gcp-sql-row-primary {
+  display: grid;
+  gap: 3px;
+}
+
+.gcp-sql-row-primary strong {
+  color: #edf4fb;
+}
+
+.gcp-sql-row-primary span {
+  color: #92a0b2;
+  font-size: 0.72rem;
+}
+
+.gcp-sql-sidebar {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  background: linear-gradient(180deg, rgba(12, 18, 27, 0.94), rgba(8, 13, 20, 0.98));
+  border: 1px solid rgba(145, 176, 207, 0.12);
+  border-radius: 20px;
+  overflow-y: auto;
+  max-height: calc(100vh - 340px);
+}
+
+.gcp-sql-side-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid rgba(145, 176, 207, 0.1);
+  border-radius: 16px;
+  background: rgba(9, 15, 23, 0.72);
+}
+
+.gcp-sql-side-tabs button {
+  padding: 10px 14px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  color: #9ca7b7;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.gcp-sql-side-tabs button.active {
+  color: #edf1f6;
+  border-color: rgba(112, 219, 147, 0.28);
+  background: linear-gradient(180deg, rgba(112, 219, 147, 0.16), rgba(112, 219, 147, 0.08));
+}
+
+.gcp-sql-sidebar-section {
+  padding: 16px;
+  border: 1px solid rgba(145, 176, 207, 0.1);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(18, 25, 35, 0.96), rgba(11, 17, 25, 0.96));
+}
+
+.gcp-sql-overview-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.gcp-sql-summary-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.gcp-sql-summary-tile,
+.gcp-sql-state-card,
+.gcp-sql-finding-card,
+.gcp-sql-data-card,
+.gcp-sql-suggestion-item {
+  border: 1px solid rgba(145, 176, 207, 0.1);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(20, 29, 40, 0.96), rgba(11, 18, 28, 0.96));
+  padding: 12px;
+}
+
+.gcp-sql-summary-tile-label {
+  color: #8f9bae;
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+
+.gcp-sql-summary-tile-value {
+  color: #edf1f6;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.gcp-sql-posture-badge,
+.gcp-sql-status-badge {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 7px 10px;
+  border: 1px solid rgba(145, 176, 207, 0.1);
+  background: rgba(34, 41, 51, 0.88);
+  font-size: 12px;
+}
+
+.gcp-sql-posture-badge strong {
+  color: #edf1f6;
+}
+
+.gcp-sql-stack-list,
+.gcp-sql-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gcp-sql-finding-card {
+  border-left-width: 4px;
+}
+
+.gcp-sql-finding-title {
+  margin-bottom: 6px;
+  font-size: 0.92rem;
+}
+
+.gcp-sql-finding-text,
+.gcp-sql-sidebar-hint,
+.gcp-sql-data-card-meta,
+.gcp-sql-inline-error,
+.gcp-sql-state-card-body,
+.gcp-sql-empty-state p {
+  color: #9ca7b7;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.gcp-sql-data-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.gcp-sql-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.gcp-sql-action-btn {
+  padding: 10px 12px;
+  border: 1px solid rgba(145, 176, 207, 0.1);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(30, 40, 53, 0.98), rgba(18, 27, 40, 0.98));
+  color: #edf1f6;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.gcp-sql-action-btn:disabled,
+.gcp-sql-toolbar-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: none;
+  transform: none;
+}
+
+.gcp-sql-empty,
+.gcp-sql-empty-state {
+  color: #9ca7b7;
+  padding: 16px;
+  font-size: 13px;
+}
+
+.gcp-sql-empty-state {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+  min-height: 200px;
+}
+
+.gcp-sql-inline-error {
+  color: #ffb4a7;
+}
+
+.gcp-sql-kv {
+  display: grid;
+  gap: 8px;
+}
+
+.gcp-sql-kv-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 12px;
+}
+
+.gcp-sql-kv-row:last-child {
+  border-bottom: 0;
+}
+
+.gcp-sql-kv-label {
+  color: #8fa3ba;
+}
+
+.gcp-sql-kv-value {
+  color: #dce8f5;
+  word-break: break-word;
+}
+
+.gcp-sql-tone-good {
+  border-color: rgba(46, 204, 113, 0.24);
+  background: rgba(29, 49, 37, 0.84);
+  color: #9dd8ae;
+}
+
+.gcp-sql-tone-info {
+  border-color: rgba(72, 173, 128, 0.22);
+  background: rgba(21, 46, 34, 0.9);
+  color: #ade7c4;
+}
+
+.gcp-sql-tone-warning {
+  border-color: rgba(243, 156, 18, 0.28);
+  background: rgba(49, 39, 16, 0.9);
+  color: #f4d682;
+}
+
+.gcp-sql-tone-risk {
+  border-color: rgba(231, 76, 60, 0.28);
+  background: rgba(52, 27, 27, 0.9);
+  color: #f2aaaa;
+}
+
+@media (max-width: 1100px) {
+  .gcp-sql-main-layout {
+    flex-direction: column;
+  }
+
+  .gcp-sql-table-panel,
+  .gcp-sql-sidebar {
+    width: auto;
+    min-width: 0;
+    max-height: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .gcp-sql-shell-hero,
+  .gcp-sql-detail-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .gcp-sql-shell-toolbar,
+  .gcp-sql-pane-head,
+  .gcp-sql-overview-head {
+    flex-direction: column;
+  }
+
+  .gcp-sql-shell-status,
+  .gcp-sql-toolbar,
+  .gcp-sql-column-chips,
+  .gcp-sql-side-tabs {
+    width: 100%;
+  }
+
+  .gcp-sql-toolbar-btn,
+  .gcp-sql-side-tabs button,
+  .gcp-sql-action-btn {
+    width: 100%;
+  }
+
+  .gcp-sql-summary-tiles,
+  .gcp-sql-shell-hero-stats,
+  .gcp-sql-detail-hero-stats,
+  .gcp-sql-actions-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gcp-sql-kv-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
+
+@media (max-width: 1180px) {
+  .gcp-runtime-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .gcp-runtime-toolbar {
+    flex-direction: column;
+  }
+
+  .gcp-runtime-list {
+    max-height: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .gcp-runtime-toolbar,
+  .gcp-runtime-console .overview-hero-card {
+    padding: 12px;
+  }
+
+  .gcp-runtime-toolbar-main,
+  .gcp-runtime-chip-row,
+  .gcp-runtime-action-grid,
+  .gcp-runtime-inline-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .gcp-runtime-summary-grid,
+  .gcp-runtime-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gcp-runtime-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gcp-runtime-field,
+  .gcp-runtime-search {
+    min-width: 0;
+  }
+}
+
+.gcp-ec2-shell {
+  gap: 12px;
+}
+
+.gcp-ec2-hero {
+  border-color: rgba(145, 176, 207, 0.14);
+  background:
+    radial-gradient(circle at top left, rgba(98, 205, 132, 0.1), transparent 30%),
+    radial-gradient(circle at bottom right, rgba(74, 143, 231, 0.08), transparent 28%),
+    linear-gradient(180deg, rgba(20, 29, 35, 0.98), rgba(11, 17, 24, 0.98));
+}
+
+.gcp-runtime-console-compute .gcp-ec2-kicker {
+  background: rgba(126, 231, 158, 0.08);
+  color: #b8efc6;
+}
+
+.gcp-runtime-console-compute .ec2-shell-toolbar,
+.gcp-runtime-console-compute .ec2-filter-shell,
+.gcp-runtime-console-compute .ec2-table-shell,
+.gcp-runtime-console-compute .ec2-sidebar,
+.gcp-runtime-console-compute .ec2-main-layout {
+  border-color: rgba(145, 176, 207, 0.12);
+  background: linear-gradient(180deg, rgba(17, 24, 34, 0.94), rgba(10, 16, 25, 0.94));
+}
+
+.gcp-runtime-console-compute .ec2-shell-status .freshness-indicator,
+.gcp-runtime-console-compute .ec2-shell-meta-pill,
+.gcp-runtime-console-compute .ec2-shell-stat-card,
+.gcp-runtime-console-compute .ec2-tab,
+.gcp-runtime-console-compute .ec2-side-tabs button,
+.gcp-runtime-console-compute .ec2-action-btn,
+.gcp-runtime-console-compute .ec2-select,
+.gcp-runtime-console-compute .ec2-search-input {
+  border-color: rgba(145, 176, 207, 0.12);
+  background: linear-gradient(180deg, rgba(30, 40, 53, 0.98), rgba(18, 27, 40, 0.98));
+}
+
+.gcp-runtime-console-compute .ec2-select {
+  color: #edf4fb;
+}
+
+.gcp-runtime-console-compute .ec2-select option,
+.gcp-runtime-console-compute .ec2-select optgroup {
+  color: #102015;
+  background: #edf8f0;
+}
+
+.gcp-runtime-console-compute .ec2-select option:checked,
+.gcp-runtime-console-compute .ec2-select option:hover {
+  color: #08120c;
+  background: #9de7b1;
+}
+
+.gcp-runtime-console-compute .ec2-shell-stat-card.accent {
+  border-color: rgba(112, 219, 147, 0.18);
+  background:
+    radial-gradient(circle at top right, rgba(112, 219, 147, 0.1), transparent 42%),
+    linear-gradient(180deg, rgba(26, 34, 46, 0.98), rgba(18, 27, 40, 0.98));
+}
+
+.gcp-runtime-console-compute .ec2-shell-stat-card.info,
+.gcp-runtime-console-compute .ec2-tab.active,
+.gcp-runtime-console-compute .ec2-side-tabs button.active {
+  border-color: rgba(112, 219, 147, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(112, 219, 147, 0.08);
+}
+
+.gcp-runtime-console-compute .ec2-toolbar-btn.accent,
+.gcp-runtime-console-compute .ec2-action-btn.apply,
+.gcp-runtime-console-compute .ec2-action-btn.start {
+  background: linear-gradient(135deg, #62c884, #8ee3a6);
+  border-color: rgba(154, 240, 178, 0.2);
+  color: #0c1a12;
+}
+
+.gcp-runtime-console-compute .ec2-action-btn.stop {
+  background: linear-gradient(180deg, rgba(58, 42, 19, 0.96), rgba(42, 30, 13, 0.96));
+  color: #f7d49e;
+}
+
+.gcp-runtime-console-compute .ec2-action-btn.remove {
+  background: linear-gradient(180deg, rgba(67, 19, 19, 0.96), rgba(42, 11, 11, 0.96));
+  color: #ffb8b8;
+}
+
+.gcp-runtime-console-compute .ec2-workspace-badge {
+  color: #b4c7df;
+  background: rgba(74, 143, 231, 0.12);
+}
+
+.gcp-runtime-console-compute .ec2-data-table th {
+  background: rgba(20, 28, 40, 0.98);
+  border-bottom-color: rgba(145, 176, 207, 0.12);
+}
+
+.gcp-runtime-console-compute .ec2-data-table td {
+  border-bottom-color: rgba(145, 176, 207, 0.08);
+}
+
+.gcp-runtime-console-compute .ec2-data-table tbody tr:hover {
+  background: rgba(35, 47, 64, 0.72);
+}
+
+.gcp-runtime-console-compute .ec2-data-table tbody tr.active {
+  background:
+    linear-gradient(90deg, rgba(106, 216, 139, 0.06), rgba(74, 143, 231, 0.06)),
+    rgba(35, 47, 64, 0.85);
+}
+
+.gcp-runtime-console-compute .ec2-badge.running,
+.gcp-runtime-console-compute .ec2-badge.completed {
+  background: rgba(32, 84, 49, 0.92);
+  color: #9bf0b3;
+}
+
+.gcp-runtime-console-compute .ec2-badge.pending {
+  background: rgba(74, 72, 25, 0.88);
+  color: #f6df8c;
+}
+
+.gcp-runtime-console-compute .ec2-badge.stopped,
+.gcp-runtime-console-compute .ec2-badge.terminated {
+  background: rgba(61, 32, 24, 0.9);
+  color: #ffc3a3;
+}
+
+.gcp-ec2-row-primary {
+  display: grid;
+  gap: 3px;
+}
+
+.gcp-ec2-row-primary strong {
+  color: #edf4fb;
+}
+
+.gcp-ec2-row-primary span {
+  color: #92a99a;
+  font-size: 0.72rem;
+}
+
+.gcp-ec2-table-state,
+.gcp-ec2-empty-state {
+  padding: 18px;
+}
+
+.gcp-ec2-summary-pills {
+  justify-content: flex-start;
+}
+
+.gcp-ec2-secondary-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.gcp-ec2-inline-form {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.gcp-ec2-inline-form .ec2-filter-field {
+  min-width: 0;
+}
+
+.gcp-ec2-textarea {
+  min-height: 132px;
+  margin-bottom: 10px;
+}
+
+.gcp-ec2-msg {
+  border: 1px solid rgba(112, 219, 147, 0.12);
+  background: linear-gradient(180deg, rgba(21, 33, 26, 0.94), rgba(12, 19, 15, 0.94));
+  color: #dff7e6;
+}
+
+.gcp-ec2-msg.error {
+  border-color: rgba(255, 180, 146, 0.18);
+  background: linear-gradient(180deg, rgba(44, 21, 17, 0.95), rgba(24, 12, 10, 0.95));
+}
+
+.gcp-ec2-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.gcp-ec2-section-head h3 {
+  margin: 0;
+}
+
+@media (max-width: 1180px) {
+  .gcp-runtime-console-compute .ec2-main-layout {
+    flex-direction: column;
+  }
+
+  .gcp-runtime-console-compute .ec2-sidebar {
+    width: auto;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .gcp-runtime-console-compute .ec2-shell-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .gcp-runtime-console-compute .ec2-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gcp-ec2-secondary-actions,
+  .gcp-runtime-console-compute .ec2-actions-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,338 @@
+/* ── GCP IAM Console ────────────────────────────────────── */
+
+.gcp-iam-console-surface {
+  --accent: #34a853;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 0;
+}
+
+/* Hero card */
+.gcp-iam-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.95fr);
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid rgba(52, 168, 83, 0.14);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at top left, rgba(52, 168, 83, 0.16), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(113, 204, 138, 0.12), transparent 30%),
+    linear-gradient(180deg, rgba(19, 31, 25, 0.98), rgba(9, 17, 13, 0.98));
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+}
+
+.gcp-iam-hero-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gcp-iam-hero-copy h2 {
+  margin: 0;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  font-size: clamp(1.4rem, 2vw, 2rem);
+  letter-spacing: -0.04em;
+  color: #edf4fb;
+}
+
+.gcp-iam-hero-copy p {
+  margin: 0;
+  max-width: 62ch;
+  color: #a6bbcf;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.gcp-iam-meta-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gcp-iam-meta-pill {
+  min-width: 120px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(9, 14, 22, 0.52);
+  backdrop-filter: blur(12px);
+}
+
+.gcp-iam-meta-pill span {
+  display: block;
+  color: #8fa3ba;
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.gcp-iam-meta-pill strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.8rem;
+  color: #edf4fb;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  word-break: break-word;
+}
+
+/* Glance stat cards (2×2 grid in hero) */
+.gcp-iam-hero-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.gcp-iam-glance-card {
+  min-height: 84px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(21, 28, 37, 0.96), rgba(13, 19, 27, 0.96));
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.gcp-iam-glance-card span {
+  display: block;
+  color: #8fa3ba;
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.gcp-iam-glance-card strong {
+  font-size: 1.06rem;
+  line-height: 1;
+  color: #edf4fb;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+}
+
+.gcp-iam-glance-card small {
+  color: rgba(238, 240, 244, 0.7);
+  font-size: 0.69rem;
+  line-height: 1.28;
+}
+
+.gcp-iam-glance-card-accent {
+  border-color: rgba(52, 168, 83, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(52, 168, 83, 0.16), transparent 42%),
+    linear-gradient(180deg, rgba(20, 40, 28, 0.96), rgba(11, 24, 17, 0.96));
+}
+
+/* Tab bar */
+.gcp-iam-tabs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid rgba(52, 168, 83, 0.12);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(12, 21, 16, 0.94), rgba(8, 15, 11, 0.98));
+  flex-wrap: wrap;
+}
+
+.gcp-iam-tab {
+  padding: 10px 14px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: #9db1c8;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.gcp-iam-tab:hover {
+  color: #edf1f6;
+  border-color: rgba(52, 168, 83, 0.2);
+  background: rgba(52, 168, 83, 0.08);
+}
+
+.gcp-iam-tab.active {
+  color: #edf1f6;
+  border-color: rgba(52, 168, 83, 0.28);
+  background: linear-gradient(180deg, rgba(52, 168, 83, 0.16), rgba(52, 168, 83, 0.08));
+}
+
+.gcp-iam-refresh-btn {
+  margin-left: auto;
+  padding: 10px 16px;
+  border: 1px solid rgba(52, 168, 83, 0.12);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(28, 40, 31, 0.98), rgba(17, 27, 19, 0.98));
+  color: #edf1f6;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.gcp-iam-refresh-btn:hover {
+  border-color: rgba(52, 168, 83, 0.24);
+  background: linear-gradient(180deg, rgba(33, 48, 37, 0.98), rgba(20, 33, 23, 0.98));
+}
+
+/* Create form */
+.gcp-iam-create-form {
+  padding: 12px 16px;
+  border: 1px solid rgba(52, 168, 83, 0.1);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(13, 20, 15, 0.96), rgba(8, 14, 10, 0.98));
+}
+
+/* Filter row */
+.gcp-iam-filter-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px;
+  background: linear-gradient(180deg, rgba(12, 20, 15, 0.94), rgba(8, 14, 10, 0.98));
+  border: 1px solid rgba(52, 168, 83, 0.1);
+  border-radius: 14px;
+}
+
+/* Scope toggle for roles */
+.gcp-iam-scope-toggle {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.gcp-iam-scope-btn {
+  padding: 6px 14px;
+  border: 1px solid rgba(52, 168, 83, 0.14);
+  border-radius: 999px;
+  background: transparent;
+  color: #9db1c8;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.gcp-iam-scope-btn.active {
+  background: var(--accent, #34a853);
+  border-color: var(--accent, #34a853);
+  color: #fff;
+}
+
+.gcp-iam-scope-btn:hover:not(.active) {
+  background: rgba(52, 168, 83, 0.1);
+  border-color: rgba(52, 168, 83, 0.24);
+  color: #edf1f6;
+}
+
+/* Key reveal textarea */
+.gcp-iam-key-reveal {
+  padding: 12px;
+  border: 1px solid rgba(52, 168, 83, 0.24);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at top right, rgba(52, 168, 83, 0.1), transparent 40%),
+    linear-gradient(180deg, rgba(18, 35, 25, 0.94), rgba(10, 22, 15, 0.94));
+  color: #c7efcf;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gcp-iam-key-reveal strong {
+  display: block;
+  color: #edf4fb;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.gcp-iam-key-reveal textarea {
+  width: 100%;
+  min-height: 80px;
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  font-size: 11px;
+  resize: vertical;
+  background: rgba(7, 14, 24, 0.92);
+  border: 1px solid rgba(52, 168, 83, 0.16);
+  border-radius: 8px;
+  color: #edf4fb;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+/* Simulator-specific */
+.gcp-sim-permission-count {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: #a6bbcf;
+  font-size: 0.75rem;
+}
+
+/* Enable API error banner */
+.gcp-enable-error-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.gcp-enable-error-copy strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.82rem;
+}
+
+.gcp-enable-error-copy p {
+  margin: 0;
+  font-size: 0.78rem;
+  color: rgba(255, 200, 160, 0.82);
+}
+
+.gcp-enable-error-actions button {
+  padding: 8px 14px;
+  border: 1px solid rgba(245, 154, 61, 0.3);
+  border-radius: 10px;
+  background: rgba(245, 154, 61, 0.14);
+  color: #ffd082;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.gcp-enable-error-actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Responsive */
+@media (max-width: 1100px) {
+  .gcp-iam-hero {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .gcp-iam-hero {
+    padding: 12px;
+  }
+
+  .gcp-iam-hero-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .gcp-iam-tabs {
+    padding: 8px;
+  }
+}

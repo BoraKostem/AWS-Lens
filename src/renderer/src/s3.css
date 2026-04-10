@@ -5,6 +5,172 @@
   min-width: 0;
 }
 
+.gcp-storage-shell .s3-shell-hero,
+.gcp-storage-shell .s3-detail-hero {
+  background:
+    radial-gradient(circle at top left, rgba(52, 168, 83, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(129, 201, 149, 0.12), transparent 30%),
+    linear-gradient(180deg, rgba(17, 31, 25, 0.98), rgba(8, 17, 14, 0.98));
+}
+
+.gcp-storage-shell .s3-shell-stat-card-accent,
+.gcp-storage-shell .s3-status-badge.success,
+.gcp-storage-shell .s3-detail-stat-card.success {
+  border-color: rgba(52, 168, 83, 0.32);
+  background:
+    radial-gradient(circle at top right, rgba(52, 168, 83, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(24, 46, 32, 0.96), rgba(14, 30, 20, 0.96));
+}
+
+.gcp-storage-shell .s3-bucket-row {
+  background:
+    linear-gradient(180deg, rgba(18, 31, 25, 0.98), rgba(9, 18, 14, 0.98)),
+    linear-gradient(135deg, rgba(52, 168, 83, 0.08), rgba(129, 201, 149, 0.03));
+}
+
+.gcp-storage-shell .s3-bucket-row.active {
+  border-color: rgba(52, 168, 83, 0.38);
+  background:
+    radial-gradient(circle at top right, rgba(52, 168, 83, 0.18), transparent 40%),
+    linear-gradient(180deg, rgba(24, 42, 32, 0.98), rgba(13, 26, 20, 0.98));
+  box-shadow: inset 0 0 0 1px rgba(52, 168, 83, 0.1), 0 18px 42px rgba(0, 0, 0, 0.22);
+}
+
+.gcp-storage-shell .s3-bucket-row-glyph {
+  background:
+    radial-gradient(circle at top left, rgba(52, 168, 83, 0.26), transparent 58%),
+    linear-gradient(135deg, rgba(35, 66, 46, 0.98), rgba(18, 32, 23, 0.98));
+}
+
+.gcp-storage-shell .s3-tab-btn.active,
+.gcp-storage-shell .s3-detail-tabs button.active,
+.gcp-storage-shell .s3-chip.active,
+.gcp-storage-shell .s3-summary-button.active {
+  border-color: rgba(52, 168, 83, 0.3);
+  box-shadow: inset 0 0 0 1px rgba(52, 168, 83, 0.08);
+  background: rgba(52, 168, 83, 0.12);
+  color: #d9f6df;
+}
+
+.gcp-storage-shell .s3-btn-ok,
+.gcp-storage-shell .s3-btn-upload {
+  background: linear-gradient(135deg, rgba(44, 136, 72, 0.96), rgba(20, 92, 46, 0.96));
+  border-color: rgba(52, 168, 83, 0.24);
+}
+
+.gcp-storage-shell .s3-mini-badge.ok,
+.gcp-storage-shell .s3-check-enabled,
+.gcp-storage-shell .s3-check-present {
+  background: rgba(52, 168, 83, 0.18);
+  color: #9ce2ae;
+}
+
+.gcp-storage-shell .s3-summary-risk {
+  background:
+    radial-gradient(circle at top right, rgba(52, 168, 83, 0.16), transparent 42%),
+    linear-gradient(180deg, rgba(22, 35, 27, 0.96), rgba(13, 22, 17, 0.96));
+}
+
+.gcp-storage-shell .s3-bucket-focus {
+  background:
+    radial-gradient(circle at top left, rgba(52, 168, 83, 0.14), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(129, 201, 149, 0.1), transparent 30%),
+    linear-gradient(180deg, rgba(18, 31, 25, 0.98), rgba(10, 18, 14, 0.98));
+}
+
+.gcp-storage-shell .s3-inline-note {
+  color: #d8f3df;
+  border-color: rgba(52, 168, 83, 0.16);
+  background: linear-gradient(180deg, rgba(18, 33, 25, 0.94), rgba(11, 21, 16, 0.94));
+}
+
+/* ── Azure Storage — blue accent overrides ── */
+
+.azure-storage-shell .s3-shell-hero,
+.azure-storage-shell .s3-detail-hero {
+  background:
+    radial-gradient(circle at top left, rgba(0, 120, 212, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(80, 160, 230, 0.12), transparent 32%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(11, 17, 25, 0.98));
+}
+
+.azure-storage-shell .s3-shell-stat-card-accent,
+.azure-storage-shell .s3-status-badge.success,
+.azure-storage-shell .s3-detail-stat-card.success {
+  border-color: rgba(0, 120, 212, 0.32);
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.2), transparent 42%),
+    linear-gradient(180deg, rgba(20, 35, 55, 0.96), rgba(12, 22, 38, 0.96));
+}
+
+.azure-storage-shell .s3-bucket-row {
+  background:
+    linear-gradient(180deg, rgba(18, 26, 38, 0.98), rgba(10, 16, 26, 0.98)),
+    linear-gradient(135deg, rgba(0, 120, 212, 0.08), rgba(80, 160, 230, 0.03));
+}
+
+.azure-storage-shell .s3-bucket-row.active {
+  border-color: rgba(0, 120, 212, 0.38);
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.18), transparent 40%),
+    linear-gradient(180deg, rgba(20, 34, 52, 0.98), rgba(12, 22, 36, 0.98));
+  box-shadow: inset 0 0 0 1px rgba(0, 120, 212, 0.1), 0 18px 42px rgba(0, 0, 0, 0.22);
+}
+
+.azure-storage-shell .s3-bucket-row-glyph {
+  background:
+    radial-gradient(circle at top left, rgba(0, 120, 212, 0.26), transparent 58%),
+    linear-gradient(135deg, rgba(24, 46, 72, 0.98), rgba(14, 26, 42, 0.98));
+}
+
+.azure-storage-shell .s3-tab-btn.active,
+.azure-storage-shell .s3-detail-tabs button.active,
+.azure-storage-shell .s3-chip.active,
+.azure-storage-shell .s3-summary-button.active {
+  border-color: rgba(0, 120, 212, 0.3);
+  box-shadow: inset 0 0 0 1px rgba(0, 120, 212, 0.08);
+  background: rgba(0, 120, 212, 0.12);
+  color: #c8e2ff;
+}
+
+.azure-storage-shell .s3-btn-ok,
+.azure-storage-shell .s3-btn-upload {
+  background: linear-gradient(135deg, rgba(0, 100, 190, 0.96), rgba(0, 70, 140, 0.96));
+  border-color: rgba(0, 120, 212, 0.24);
+}
+
+.azure-storage-shell .s3-mini-badge.ok,
+.azure-storage-shell .s3-check-enabled,
+.azure-storage-shell .s3-check-present {
+  background: rgba(0, 120, 212, 0.18);
+  color: #a3d0ff;
+}
+
+.azure-storage-shell .s3-summary-risk {
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.16), transparent 42%),
+    linear-gradient(180deg, rgba(18, 28, 42, 0.96), rgba(10, 18, 30, 0.96));
+}
+
+.azure-storage-shell .s3-bucket-focus {
+  background:
+    radial-gradient(circle at top left, rgba(0, 120, 212, 0.14), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(80, 160, 230, 0.1), transparent 30%),
+    linear-gradient(180deg, rgba(18, 26, 38, 0.98), rgba(10, 16, 26, 0.98));
+}
+
+.azure-storage-shell .s3-inline-note {
+  color: #c8e2ff;
+  border-color: rgba(0, 120, 212, 0.16);
+  background: linear-gradient(180deg, rgba(16, 28, 44, 0.94), rgba(10, 18, 32, 0.94));
+}
+
+.azure-storage-shell .s3-btn.accent {
+  background: linear-gradient(135deg, #0078d4, #50a0e6);
+  border-color: rgba(80, 160, 230, 0.24);
+  color: #fff;
+}
+
 .s3-shell-hero,
 .s3-detail-hero {
   display: grid;
@@ -282,6 +448,10 @@
   min-height: 0;
 }
 
+.s3-layout-inventory {
+  align-items: stretch;
+}
+
 .s3-bucket-panel,
 .s3-browser-panel {
   padding: 14px;
@@ -300,6 +470,11 @@
   max-height: calc(100vh - 340px);
 }
 
+.s3-bucket-panel-inventory {
+  width: 300px;
+  min-width: 280px;
+}
+
 .s3-browser-panel {
   flex: 1;
   min-width: 0;
@@ -309,6 +484,10 @@
   background: linear-gradient(180deg, rgba(12, 18, 27, 0.94), rgba(8, 13, 20, 0.98));
   overflow-y: auto;
   max-height: calc(100vh - 340px);
+}
+
+.s3-browser-panel-inventory {
+  min-width: 0;
 }
 
 .s3-pane-head {
@@ -1030,6 +1209,96 @@
   transition: background 0.1s;
 }
 
+.s3-timeline-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.s3-timeline-head h3 {
+  margin: 4px 0 0;
+}
+
+.s3-timeline-head p {
+  margin: 8px 0 0;
+  color: #9ca7b7;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.s3-timeline-table-wrap {
+  min-height: 0;
+  max-height: min(50vh, 540px);
+}
+
+.s3-timeline-table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.s3-timeline-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 12px 14px;
+  text-align: left;
+  color: #8fa3ba;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: rgba(9, 15, 23, 0.96);
+  border-bottom: 1px solid rgba(145, 176, 207, 0.08);
+}
+
+.s3-timeline-table td {
+  padding: 14px;
+  vertical-align: top;
+  border-bottom: 1px solid rgba(145, 176, 207, 0.08);
+  color: #d0d8e2;
+}
+
+.s3-timeline-table tbody tr:hover td {
+  background: rgba(22, 35, 52, 0.68);
+}
+
+.s3-timeline-col-operation {
+  width: 34%;
+}
+
+.s3-timeline-col-status {
+  width: 13%;
+}
+
+.s3-timeline-col-caller {
+  width: 25%;
+}
+
+.s3-timeline-col-time {
+  width: 28%;
+}
+
+.s3-timeline-primary {
+  color: #edf4fb;
+  font-size: 13px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.s3-timeline-secondary {
+  margin-top: 4px;
+  color: #8fa3ba;
+  font-size: 11px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.s3-timeline-table .s3-status-badge {
+  margin-top: 1px;
+}
+
 .s3-folder-icon {
   font-size: 14px;
   vertical-align: middle;
@@ -1179,6 +1448,10 @@
     max-height: none;
   }
 
+  .s3-bucket-panel-inventory {
+    width: 100%;
+  }
+
   .s3-bucket-row-metrics,
   .s3-inline-form-stacked,
   .s3-next-action-body,
@@ -1213,5 +1486,9 @@
   .s3-shell-hero-stats,
   .s3-detail-hero-stats {
     grid-template-columns: 1fr;
+  }
+
+  .s3-timeline-table {
+    min-width: 720px;
   }
 }

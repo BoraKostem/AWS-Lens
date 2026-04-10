@@ -1,0 +1,402 @@
+.gcp-dns-console {
+  gap: 12px;
+}
+
+.gcp-dns-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.92fr);
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid rgba(145, 176, 207, 0.14);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top left, rgba(66, 133, 244, 0.14), transparent 32%),
+    radial-gradient(circle at bottom right, rgba(52, 168, 83, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(10, 16, 24, 0.98));
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+}
+
+.gcp-dns-hero-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.gcp-dns-eyebrow,
+.gcp-dns-section-kicker {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(66, 133, 244, 0.14);
+  color: #8ab4f8;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.gcp-dns-hero-copy h2,
+.gcp-dns-table-header h3,
+.gcp-dns-form-header h3,
+.gcp-dns-panel-head h3 {
+  margin: 0;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  letter-spacing: -0.04em;
+  color: #edf4fb;
+}
+
+.gcp-dns-hero-copy h2 {
+  max-width: 14ch;
+  font-size: clamp(1.6rem, 2.2vw, 2.5rem);
+  line-height: 1.02;
+}
+
+.gcp-dns-hero-copy p,
+.gcp-dns-table-header p,
+.gcp-dns-form-header p,
+.gcp-dns-panel-head p {
+  margin: 0;
+  color: #a6bbcf;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.gcp-dns-meta-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gcp-dns-meta-pill,
+.gcp-dns-stat-card,
+.gcp-dns-toolbar,
+.gcp-dns-chip {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.gcp-dns-meta-pill {
+  min-width: 148px;
+  padding: 9px 11px;
+  border-radius: 13px;
+  background: rgba(9, 14, 22, 0.5);
+  backdrop-filter: blur(12px);
+}
+
+.gcp-dns-meta-pill span,
+.gcp-dns-stat-card span {
+  display: block;
+  margin-bottom: 4px;
+  color: #8fa3ba;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.gcp-dns-meta-pill strong,
+.gcp-dns-stat-card strong {
+  color: #edf4fb;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  font-size: 0.92rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.gcp-dns-hero-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.gcp-dns-stat-card {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(9, 14, 22, 0.55);
+  backdrop-filter: blur(12px);
+}
+
+.gcp-dns-stat-card small {
+  display: block;
+  margin-top: 4px;
+  color: #7e96ad;
+  font-size: 0.66rem;
+  line-height: 1.38;
+}
+
+.gcp-dns-stat-card-accent {
+  background: linear-gradient(135deg, rgba(66, 133, 244, 0.12), rgba(9, 14, 22, 0.55));
+}
+
+.gcp-dns-toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: rgba(9, 14, 22, 0.55);
+  backdrop-filter: blur(12px);
+}
+
+.gcp-dns-toolbar-main {
+  display: flex;
+  flex: 1;
+  gap: 10px;
+  min-width: 0;
+}
+
+.gcp-dns-zone-field {
+  flex: 1;
+  min-width: 180px;
+}
+
+.gcp-dns-search-field {
+  flex: 0.55;
+  min-width: 140px;
+}
+
+.gcp-dns-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.gcp-dns-field label,
+.gcp-dns-field > span {
+  color: #8fa3ba;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.gcp-dns-toolbar-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.gcp-dns-toolbar-btn {
+  padding: 7px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #c0d0e0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.gcp-dns-toolbar-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #edf4fb;
+}
+
+.gcp-dns-toolbar-btn.accent {
+  background: rgba(66, 133, 244, 0.22);
+  border-color: rgba(66, 133, 244, 0.4);
+  color: #8ab4f8;
+}
+
+.gcp-dns-toolbar-btn.accent:hover {
+  background: rgba(66, 133, 244, 0.35);
+}
+
+.gcp-dns-toolbar-btn:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.gcp-dns-layout {
+  display: grid;
+  grid-template-columns: 1fr 370px;
+  gap: 12px;
+  min-height: 340px;
+}
+
+.gcp-dns-table-shell {
+  min-width: 0;
+}
+
+.gcp-dns-table-header {
+  padding: 14px 0 10px 0;
+}
+
+.gcp-dns-table-header-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.gcp-dns-summary-strip {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.gcp-dns-summary-pill {
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  background: rgba(9, 14, 22, 0.4);
+}
+
+.gcp-dns-summary-pill span {
+  display: block;
+  color: #8fa3ba;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.gcp-dns-summary-pill strong {
+  color: #edf4fb;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.gcp-dns-table {
+  font-size: 0.76rem;
+}
+
+.gcp-dns-table td {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gcp-dns-row-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.gcp-dns-inline-btn {
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: transparent;
+  color: #8ab4f8;
+  font-size: 0.66rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.gcp-dns-inline-btn:hover {
+  background: rgba(66, 133, 244, 0.18);
+}
+
+.gcp-dns-inline-btn.danger {
+  color: #f87171;
+}
+
+.gcp-dns-inline-btn.danger:hover {
+  background: rgba(248, 113, 113, 0.15);
+}
+
+.gcp-dns-sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+}
+
+.gcp-dns-form-shell {
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background: rgba(9, 14, 22, 0.55);
+}
+
+.gcp-dns-form-header {
+  margin-bottom: 10px;
+}
+
+.gcp-dns-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gcp-dns-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.gcp-dns-form-label {
+  color: #8fa3ba;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.gcp-dns-form-row input,
+.gcp-dns-form-row select,
+.gcp-dns-form-row textarea {
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  color: #edf4fb;
+  font-size: 0.78rem;
+  font-family: inherit;
+}
+
+.gcp-dns-form-row textarea {
+  min-height: 60px;
+  resize: vertical;
+}
+
+.gcp-dns-form-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.gcp-dns-empty {
+  padding: 24px;
+  text-align: center;
+  color: #7e96ad;
+  font-size: 0.82rem;
+}
+
+.gcp-dns-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.gcp-dns-badge-public {
+  background: rgba(66, 133, 244, 0.18);
+  color: #8ab4f8;
+}
+
+.gcp-dns-badge-private {
+  background: rgba(168, 85, 247, 0.18);
+  color: #c4a5f7;
+}
+
+.gcp-dns-badge-dnssec {
+  background: rgba(52, 168, 83, 0.18);
+  color: #81c995;
+}
+
+@media (max-width: 1120px) {
+  .gcp-dns-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .gcp-dns-layout {
+    grid-template-columns: 1fr;
+  }
+}

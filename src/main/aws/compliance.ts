@@ -21,13 +21,13 @@ import type {
   TerraformProjectListItem,
   WafWebAclSummary
 } from '@shared/types'
-import { awsClientConfig, readTags } from './client'
+import { getAwsClient, readTags } from './client'
 import { listTrails } from './cloudtrail'
 import { listKeyPairs } from './keyPairs'
 import { listLoadBalancerWorkspaces } from './loadBalancers'
 import { describeDbCluster, describeDbInstance, listDbClusters, listDbInstances } from './rds'
-import { listSecrets } from './secretsManager'
 import { listBucketGovernance } from './s3'
+import { listSecrets } from './secretsManager'
 import { listSecurityGroups } from './securityGroups'
 import { listVpcs } from './vpc'
 import { describeWebAcl, listWebAcls } from './waf'
@@ -69,15 +69,9 @@ const TERRAFORM_REGION_FALLBACK = 'global'
 const RISKY_PORTS = new Set([20, 21, 22, 23, 25, 53, 80, 110, 135, 139, 143, 389, 443, 445, 1433, 1521, 2049, 2375, 2376, 3000, 3306, 3389, 5432, 5601, 5672, 6379, 8080, 8443, 9200, 9300, 27017])
 const GOVERNANCE_TAG_KEYS = ['Name', 'Environment', 'Owner', 'Project', 'CostCenter']
 
-function createEc2Client(connection: AwsConnection): EC2Client {
-  return new EC2Client(awsClientConfig(connection))
-}
 
-function createCloudWatchClient(connection: AwsConnection): CloudWatchClient {
-  return new CloudWatchClient(awsClientConfig(connection))
-}
 
-function createSummary(findings: Array<Pick<ComplianceFinding, 'severity' | 'category'>>): ComplianceSummary {
+function createSummary(findings: ComplianceFinding[]): ComplianceSummary {
   const summary: ComplianceSummary = {
     total: findings.length,
     bySeverity: { high: 0, medium: 0, low: 0 },
@@ -157,7 +151,7 @@ async function loadSection<T>(
 }
 
 async function listEc2Inventory(connection: AwsConnection): Promise<Ec2InventoryItem[]> {
-  const client = createEc2Client(connection)
+  const client = getAwsClient(EC2Client, connection)
   const items: Ec2InventoryItem[] = []
   let nextToken: string | undefined
 
@@ -182,7 +176,7 @@ async function listEc2Inventory(connection: AwsConnection): Promise<Ec2Inventory
 }
 
 async function listAlarmInventory(connection: AwsConnection): Promise<AlarmInventory> {
-  const client = createCloudWatchClient(connection)
+  const client = getAwsClient(CloudWatchClient, connection)
   let nextToken: string | undefined
   let count = 0
 
@@ -437,6 +431,11 @@ function addTerraformGovernanceFindings(
     }
   }
 }
+function complianceScopeKey(connection: AwsConnection): string {
+  return connection.kind === 'assumed-role'
+    ? [connection.sourceProfile, connection.roleArn, connection.accountId, connection.region].join('::')
+    : [connection.profile, connection.region].join('::')
+}
 
 function buildRemediationTemplates(finding: ComplianceFindingRecord): ComplianceRemediationTemplate[] {
   const resourceId = finding.resourceId || '<resource-id>'
@@ -467,7 +466,7 @@ function buildRemediationTemplates(finding: ComplianceFindingRecord): Compliance
       return [{
         id: `${finding.id}:security-group`,
         title: 'Restrict public ingress',
-        summary: 'Inspect the security group and remove or narrow internet-facing ingress rules before keeping the finding open.',
+        summary: 'Inspect the security group and remove or narrow internet-facing ingress rules before closing the finding.',
         commands: [
           {
             label: 'Inspect group',
@@ -583,6 +582,22 @@ function buildRemediationTemplates(finding: ComplianceFindingRecord): Compliance
           }
         ]
       }]
+    case 'key-pairs':
+      return [{
+        id: `${finding.id}:key-pairs`,
+        title: 'Audit key pair ownership',
+        summary: 'Inspect key pair inventory and remove only entries that are confirmed unused by active access workflows.',
+        commands: [
+          {
+            label: 'List key pairs',
+            command: `aws ec2 describe-key-pairs --region ${region}`
+          },
+          {
+            label: 'List active instances',
+            command: `aws ec2 describe-instances --query "Reservations[].Instances[].{Id:InstanceId,Key:KeyName,State:State.Name}" --region ${region}`
+          }
+        ]
+      }]
     default:
       return [{
         id: `${finding.id}:generic`,
@@ -600,12 +615,6 @@ function buildRemediationTemplates(finding: ComplianceFindingRecord): Compliance
         ]
       }]
   }
-}
-
-function complianceScopeKey(connection: AwsConnection): string {
-  return connection.kind === 'assumed-role'
-    ? [connection.sourceProfile, connection.roleArn, connection.accountId, connection.region].join('::')
-    : [connection.profile, connection.region].join('::')
 }
 
 export async function getComplianceReport(connection: AwsConnection): Promise<ComplianceReport> {

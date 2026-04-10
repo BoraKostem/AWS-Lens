@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import './ec2.css'
 import { SvcState, variantForError } from './SvcState'
 import { FreshnessIndicator, useFreshnessState } from './freshness'
+import { useStaleGuard } from './useStaleGuard'
 
 import type {
   AwsConnection,
   BastionAmiOption,
   BastionConnectionInfo,
   CloudTrailEventSummary,
-  ConnectionPreset,
   Ec2BulkInstanceAction,
   Ec2IamAssociation,
   Ec2InstanceAction,
@@ -33,28 +33,11 @@ import type {
   SsmPortForwardPreset,
   SsmSessionSummary,
   SubnetSummary,
-  TerraformAdoptionCodegenResult,
   TerraformAdoptionDetectionResult,
-  TerraformAdoptionImportExecutionResult,
-  TerraformAdoptionMappingResult,
   TerraformAdoptionTarget,
-  TerraformAdoptionValidationResult,
-  TerraformProjectListItem,
   VaultEntrySummary
 } from '@shared/types'
-import {
-  deleteConnectionPreset,
-  getGovernanceTagDefaults,
-  listConnectionPresets,
-  listKeyPairs,
-  listSecurityGroupsForVpc,
-  listSubnets,
-  listVaultEntries,
-  lookupCloudTrailEventsByResource,
-  markConnectionPresetUsed,
-  recordVaultEntryUse,
-  saveConnectionPreset
-} from './api'
+import { getGovernanceTagDefaults, listKeyPairs, listSecurityGroupsForVpc, listSubnets, listVaultEntries, lookupCloudTrailEventsByResource, recordVaultEntryUse } from './api'
 import {
   attachEbsVolume,
   attachIamProfile,
@@ -101,7 +84,8 @@ import {
   terminateEc2Instance
 } from './ec2Api'
 import { ConfirmButton } from './ConfirmButton'
-import { detectAdoption, executeAdoptionImport, generateAdoptionCode, listProjects as listTerraformProjects, mapAdoption, reloadProject, validateAdoptionImport } from './terraformApi'
+import { TerraformAdoptionDialog } from './TerraformAdoptionDialog'
+import { detectAdoption } from './terraformApi'
 
 type MainTab = 'instances' | 'volumes' | 'snapshots'
 type SideTab = 'overview' | 'ssm' | 'timeline'
@@ -157,8 +141,8 @@ function resolveConfiguredGovernanceTags(governanceDefaults: GovernanceTagDefaul
   )
 }
 
-const BASTION_PURPOSE_TAG = 'aws-lens:purpose'
-const BASTION_TARGET_INSTANCE_TAG = 'aws-lens:bastion-target-instance-id'
+const BASTION_PURPOSE_TAG = 'infra-lens:purpose'
+const BASTION_TARGET_INSTANCE_TAG = 'infra-lens:bastion-target-instance-id'
 const GOVERNANCE_TAG_KEYS: GovernanceTagKey[] = ['Owner', 'Environment', 'Project', 'CostCenter']
 
 const SSM_COMMAND_PRESETS = [
@@ -229,118 +213,6 @@ function isWindowsPlatform(platform: string): boolean {
   return /windows/i.test(platform)
 }
 
-function terraformContextKey(connection: AwsConnection): string {
-  return connection.kind === 'profile'
-    ? `profile:${connection.profile}`
-    : `assumed-role:${connection.sessionId}`
-}
-
-function buildEc2AdoptionTarget(connection: AwsConnection, instance: Ec2InstanceDetail): TerraformAdoptionTarget {
-  return {
-    serviceId: 'ec2',
-    resourceType: 'aws_instance',
-    region: connection.region,
-    displayName: instance.name && instance.name !== '-' ? instance.name : instance.instanceId,
-    identifier: instance.instanceId,
-    arn: '',
-    name: instance.name && instance.name !== '-' ? instance.name : '',
-    tags: instance.tags,
-    resourceContext: {
-      vpcId: instance.vpcId,
-      subnetId: instance.subnetId,
-      securityGroupIds: instance.securityGroups.map((group) => group.id),
-      iamInstanceProfile: instance.iamProfile,
-      availabilityZone: instance.availabilityZone,
-      instanceType: instance.type,
-      imageId: instance.imageId
-    }
-  }
-}
-
-function adoptionConfidenceLabel(confidence: TerraformAdoptionMappingResult['confidence']): string {
-  return confidence.charAt(0).toUpperCase() + confidence.slice(1)
-}
-
-function adoptionSourceLabel(source: TerraformAdoptionMappingResult['module']['source']): string {
-  if (source === 'related-resource') return 'Related resources'
-  if (source === 'existing-resource-type') return 'Existing resources'
-  return 'Fallback'
-}
-
-function adoptionValidationTone(status: TerraformAdoptionValidationResult['status']): 'managed' | 'config' | 'unmanaged' {
-  if (status === 'passed') return 'managed'
-  if (status === 'needs-review') return 'config'
-  return 'unmanaged'
-}
-
-function adoptionValidationLabel(status: TerraformAdoptionValidationResult['status']): string {
-  if (status === 'passed') return 'Passed'
-  if (status === 'needs-review') return 'Needs review'
-  return 'Failed'
-}
-
-function adoptionPlanActionSymbol(action: string): string {
-  if (action === 'create') return '+'
-  if (action === 'delete') return '-'
-  if (action === 'update') return '~'
-  return '±'
-}
-
-type CompatibilityTone = 'match' | 'warning' | 'unknown'
-
-function normalizeCompatibilityValue(value: string): string {
-  return value.trim().toLowerCase().replace(/[\s_-]+/g, '')
-}
-
-function resolveInstanceEnvironmentTag(tags: Record<string, string>): string {
-  return tags.Environment?.trim()
-    || tags.environment?.trim()
-    || tags.env?.trim()
-    || ''
-}
-
-function projectContextLabel(connection: AwsConnection): string {
-  return connection.kind === 'profile'
-    ? connection.profile
-    : `${connection.sourceProfile} -> ${connection.roleArn.split('/').pop() ?? connection.roleArn}`
-}
-
-function projectCompatibility(
-  connection: AwsConnection,
-  instance: Ec2InstanceDetail,
-  project: TerraformProjectListItem
-): Array<{ label: string; tone: CompatibilityTone; detail: string }> {
-  const profileDetail = project.environment.connectionLabel || projectContextLabel(connection)
-  const instanceEnvironment = resolveInstanceEnvironmentTag(instance.tags)
-  const projectWorkspace = project.currentWorkspace || project.environment.workspaceName || 'default'
-  const environmentLabel = project.environment.environmentLabel || projectWorkspace
-
-  const regionTone: CompatibilityTone = !project.environment.region
-    ? 'unknown'
-    : project.environment.region === connection.region
-      ? 'match'
-      : 'warning'
-
-  const workspaceTone: CompatibilityTone = !instanceEnvironment
-    ? 'unknown'
-    : normalizeCompatibilityValue(instanceEnvironment) === normalizeCompatibilityValue(projectWorkspace)
-      || normalizeCompatibilityValue(instanceEnvironment) === normalizeCompatibilityValue(environmentLabel)
-      ? 'match'
-      : 'warning'
-
-  return [
-    { label: 'Profile', tone: 'match', detail: profileDetail },
-    { label: 'Region', tone: regionTone, detail: project.environment.region || 'No region inferred yet' },
-    {
-      label: 'Workspace',
-      tone: workspaceTone,
-      detail: instanceEnvironment
-        ? `${projectWorkspace} vs resource tag ${instanceEnvironment}`
-        : `${projectWorkspace} (${environmentLabel || 'no environment label'})`
-    }
-  ]
-}
-
 function ssmStatusTone(status: Ec2InstanceSummary['ssmStatus'] | Ec2InstanceDetail['ssmStatus'] | SsmConnectionTarget['status']): string {
   if (status === 'managed-online') return 'ssm-online'
   if (status === 'managed-offline') return 'ssm-offline'
@@ -359,14 +231,6 @@ function sleep(ms: number): Promise<void> {
 
 function formatTimestamp(value: string): string {
   return value && value !== '-' ? new Date(value).toLocaleString() : '-'
-}
-
-function defaultConnectionPresetName(instance: Pick<Ec2InstanceDetail, 'instanceId' | 'name'> | null): string {
-  if (!instance) {
-    return ''
-  }
-
-  return `${instance.name !== '-' ? instance.name : instance.instanceId} access`
 }
 
 function formatVolumeSettings(volume: EbsVolumeSummary | EbsVolumeDetail): string {
@@ -398,6 +262,35 @@ function findSshVaultEntry(entries: VaultEntrySummary[], value: string, preferre
   }
 
   return entries.find((entry) => entry.name.trim().toLowerCase() === normalizedValue) ?? null
+}
+
+function buildEc2AdoptionTarget(connection: AwsConnection, instance: Ec2InstanceDetail): TerraformAdoptionTarget {
+  const displayName = instance.name && instance.name !== '-' ? instance.name : instance.instanceId
+  return {
+    serviceId: 'ec2',
+    resourceType: 'aws_instance',
+    region: connection.region,
+    displayName,
+    identifier: instance.instanceId,
+    arn: '',
+    name: displayName,
+    tags: instance.tags,
+    resourceContext: {
+      vpcId: instance.vpcId,
+      subnetId: instance.subnetId,
+      securityGroupIds: instance.securityGroups.map((group) => group.id),
+      iamInstanceProfile: instance.iamProfile,
+      availabilityZone: instance.availabilityZone,
+      instanceType: instance.type,
+      imageId: instance.imageId
+    }
+  }
+}
+
+function terraformContextKey(connection: AwsConnection): string {
+  return connection.kind === 'profile'
+    ? `profile:${connection.profile}`
+    : `assumed-role:${connection.sessionId}`
 }
 
 function KV({ items }: { items: Array<[string, string]> }) {
@@ -538,123 +431,6 @@ async function waitForBastionRemoval(
   throw new Error(`Timed out waiting for bastion ${bastionId} to be removed.`)
 }
 
-function TerraformProjectPickerDialog({
-  connection,
-  instance,
-  projects,
-  loading,
-  error,
-  selectedProjectId,
-  onSelectProject,
-  onConfirm,
-  onClose
-}: {
-  connection: AwsConnection
-  instance: Ec2InstanceDetail
-  projects: TerraformProjectListItem[]
-  loading: boolean
-  error: string
-  selectedProjectId: string
-  onSelectProject: (projectId: string) => void
-  onConfirm: () => void
-  onClose: () => void
-}) {
-  const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null
-
-  return (
-    <div className="ec2-status-overlay" onClick={onClose}>
-      <div className="ec2-status-dialog ec2-project-picker-dialog" onClick={(event) => event.stopPropagation()}>
-        <div className="ec2-status-header">
-          <div>
-            <div className="ec2-status-eyebrow">Project Selection</div>
-            <h3>Select Terraform Project</h3>
-            <p className="ec2-sidebar-hint" style={{ marginTop: 8, marginBottom: 0 }}>
-              Choose the tracked project that should adopt <strong>{instance.name !== '-' ? instance.name : instance.instanceId}</strong>.
-            </p>
-          </div>
-          <button type="button" className="ec2-action-btn" onClick={onClose}>Close</button>
-        </div>
-
-        <div className="ec2-project-picker-summary">
-          <div className="ec2-project-picker-context">
-            <span className="ec2-adoption-label">Context</span>
-            <strong>{projectContextLabel(connection)}</strong>
-            <small>Region {connection.region}</small>
-          </div>
-          <div className="ec2-project-picker-context">
-            <span className="ec2-adoption-label config">Resource</span>
-            <strong>{instance.instanceId}</strong>
-            <small>{resolveInstanceEnvironmentTag(instance.tags) ? `Environment tag ${resolveInstanceEnvironmentTag(instance.tags)}` : 'No Environment tag on resource'}</small>
-          </div>
-        </div>
-
-        {error && <div className="ec2-adoption-error">{error}</div>}
-        {loading ? (
-          <div className="ec2-adoption-empty">Loading tracked Terraform projects...</div>
-        ) : projects.length === 0 ? (
-          <div className="ec2-adoption-empty">No tracked Terraform projects are available in this AWS context yet.</div>
-        ) : (
-          <div className="ec2-project-picker-list">
-            {projects.map((project) => {
-              const selected = project.id === selectedProjectId
-              const compatibility = projectCompatibility(connection, instance, project)
-              return (
-                <button
-                  key={project.id}
-                  type="button"
-                  className={`ec2-project-picker-card ${selected ? 'active' : ''}`}
-                  onClick={() => onSelectProject(project.id)}
-                >
-                  <div className="ec2-project-picker-head">
-                    <div>
-                      <strong>{project.name}</strong>
-                      <small>{project.rootPath}</small>
-                    </div>
-                    <span className={`ec2-adoption-pill ${compatibility.some((item) => item.tone === 'warning') ? 'config' : compatibility.some((item) => item.tone === 'unknown') ? 'unmanaged' : 'managed'}`}>
-                      {compatibility.some((item) => item.tone === 'warning')
-                        ? 'Needs review'
-                        : compatibility.some((item) => item.tone === 'unknown')
-                          ? 'Partial context'
-                          : 'Best fit'}
-                    </span>
-                  </div>
-                  <div className="ec2-project-picker-meta">
-                    <span>Workspace {project.currentWorkspace || 'default'}</span>
-                    <span>Region {project.environment.region || '-'}</span>
-                    <span>Backend {project.metadata.backendType || '-'}</span>
-                  </div>
-                  <div className="ec2-project-picker-compat">
-                    {compatibility.map((item) => (
-                      <div key={`${project.id}:${item.label}`} className={`ec2-project-picker-compat-item ${item.tone}`}>
-                        <span>{item.label}</span>
-                        <strong>{item.detail}</strong>
-                      </div>
-                    ))}
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-        )}
-
-        <div className="ec2-project-picker-actions">
-          <div className="ec2-sidebar-hint" style={{ marginBottom: 0 }}>
-            {selectedProject
-              ? `Selected project: ${selectedProject.name} (${selectedProject.currentWorkspace || 'default'})`
-              : 'Select a target project to continue.'}
-          </div>
-          <div className="ec2-btn-row">
-            <button type="button" className="ec2-action-btn" onClick={onClose}>Cancel</button>
-            <button type="button" className="ec2-action-btn terraform" onClick={onConfirm} disabled={!selectedProject}>
-              Use Project
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 export function Ec2Console({
   connection,
   refreshNonce = 0,
@@ -675,7 +451,14 @@ export function Ec2Console({
   const [mainTab, setMainTab] = useState<MainTab>('instances')
   const [sideTab, setSideTab] = useState<SideTab>('overview')
   const [loading, setLoading] = useState(false)
+  const { guard: staleGuard, nextGeneration } = useStaleGuard()
   const [msg, setMsg] = useState('')
+  const [showTerraformAdoptionDialog, setShowTerraformAdoptionDialog] = useState(false)
+  const [adoptionDetection, setAdoptionDetection] = useState<TerraformAdoptionDetectionResult | null>(null)
+  const [adoptionLoading, setAdoptionLoading] = useState(false)
+  const [adoptionError, setAdoptionError] = useState('')
+  const adoptionSectionRef = useRef<HTMLDivElement | null>(null)
+  const adoptionRequestRef = useRef(0)
 
   /* ── Filter state ──────────────────────────────────────── */
   const [stateFilter, setStateFilter] = useState('all')
@@ -716,32 +499,6 @@ export function Ec2Console({
   const [ssmCommandInput, setSsmCommandInput] = useState('uname -a\nwhoami')
   const [customRemotePort, setCustomRemotePort] = useState('8080')
   const [customLocalPort, setCustomLocalPort] = useState('18080')
-  const [adoptionDetection, setAdoptionDetection] = useState<TerraformAdoptionDetectionResult | null>(null)
-  const [adoptionLoading, setAdoptionLoading] = useState(false)
-  const [adoptionError, setAdoptionError] = useState('')
-  const adoptionSectionRef = useRef<HTMLDivElement | null>(null)
-  const adoptionRequestRef = useRef(0)
-  const [showProjectPicker, setShowProjectPicker] = useState(false)
-  const [projectPickerLoading, setProjectPickerLoading] = useState(false)
-  const [projectPickerError, setProjectPickerError] = useState('')
-  const [projectPickerProjects, setProjectPickerProjects] = useState<TerraformProjectListItem[]>([])
-  const [selectedProjectCandidateId, setSelectedProjectCandidateId] = useState('')
-  const [selectedAdoptionProject, setSelectedAdoptionProject] = useState<TerraformProjectListItem | null>(null)
-  const [adoptionMapping, setAdoptionMapping] = useState<TerraformAdoptionMappingResult | null>(null)
-  const [adoptionMappingLoading, setAdoptionMappingLoading] = useState(false)
-  const [adoptionMappingError, setAdoptionMappingError] = useState('')
-  const adoptionMappingRequestRef = useRef(0)
-  const [adoptionCodegen, setAdoptionCodegen] = useState<TerraformAdoptionCodegenResult | null>(null)
-  const [adoptionCodegenLoading, setAdoptionCodegenLoading] = useState(false)
-  const [adoptionCodegenError, setAdoptionCodegenError] = useState('')
-  const adoptionCodegenRequestRef = useRef(0)
-  const [adoptionImportRunning, setAdoptionImportRunning] = useState(false)
-  const [adoptionImportError, setAdoptionImportError] = useState('')
-  const [adoptionImportResult, setAdoptionImportResult] = useState<TerraformAdoptionImportExecutionResult | null>(null)
-  const [adoptionValidationLoading, setAdoptionValidationLoading] = useState(false)
-  const [adoptionValidationError, setAdoptionValidationError] = useState('')
-  const [adoptionValidation, setAdoptionValidation] = useState<TerraformAdoptionValidationResult | null>(null)
-  const adoptionValidationRequestRef = useRef(0)
 
   /* ── Snapshots state ─────────────────────────────────────── */
   const [snapshots, setSnapshots] = useState<Ec2SnapshotSummary[]>([])
@@ -792,9 +549,6 @@ export function Ec2Console({
   const [bastionSecurityGroups, setBastionSecurityGroups] = useState<SecurityGroupSummary[]>([])
   const [loadingBastionNetworkOptions, setLoadingBastionNetworkOptions] = useState(false)
   const [bastionLaunchStatus, setBastionLaunchStatus] = useState<BastionWorkflowStatus | null>(null)
-  const [connectionPresets, setConnectionPresets] = useState<ConnectionPreset[]>([])
-  const [selectedConnectionPresetId, setSelectedConnectionPresetId] = useState('')
-  const [connectionPresetName, setConnectionPresetName] = useState('')
 
   /* ── Timeline state ────────────────────────────────────── */
   const [timelineEvents, setTimelineEvents] = useState<CloudTrailEventSummary[]>([])
@@ -843,115 +597,6 @@ export function Ec2Console({
     }
   }
 
-  async function hydrateConnectionPresets(resourceId = selectedId): Promise<void> {
-    if (!resourceId) {
-      setConnectionPresets([])
-      setSelectedConnectionPresetId('')
-      setConnectionPresetName('')
-      return
-    }
-
-    try {
-      const presets = await listConnectionPresets({
-        kind: 'bastion-ssh',
-        profile: connection.profile,
-        region: connection.region,
-        resourceId
-      })
-      setConnectionPresets(presets)
-      setSelectedConnectionPresetId((current) => presets.some((entry) => entry.id === current) ? current : '')
-    } catch {
-      setConnectionPresets([])
-      setSelectedConnectionPresetId('')
-    }
-  }
-
-  function applyConnectionPreset(presetId: string): void {
-    setSelectedConnectionPresetId(presetId)
-    if (!presetId) {
-      setConnectionPresetName(defaultConnectionPresetName(detail))
-      return
-    }
-
-    const preset = connectionPresets.find((entry) => entry.id === presetId)
-    if (!preset) {
-      return
-    }
-
-    setConnectionPresetName(preset.name)
-    setSshUser(preset.sshUser || 'ec2-user')
-    applySshKeyInput(preset.connectInput || preset.vaultEntryName, preset.vaultEntryId)
-    setBastionAmi(preset.bastionImageId)
-    setBastionType(preset.bastionInstanceType || 't3.micro')
-    setBastionSubnet(preset.subnetId)
-    setBastionKeyPair(preset.keyName)
-    setBastionSg(preset.securityGroupId)
-
-    void markConnectionPresetUsed(preset.id)
-      .then(() => hydrateConnectionPresets(detail?.instanceId ?? selectedId))
-      .catch(() => undefined)
-  }
-
-  async function handleSaveConnectionPreset(): Promise<void> {
-    if (!detail) {
-      return
-    }
-
-    try {
-      const name = connectionPresetName.trim() || defaultConnectionPresetName(detail)
-      const saved = await saveConnectionPreset({
-        id: selectedConnectionPresetId || undefined,
-        name,
-        kind: 'bastion-ssh',
-        profile: connection.profile,
-        region: connection.region,
-        resourceKind: 'ec2-instance',
-        resourceId: detail.instanceId,
-        resourceLabel: detail.name !== '-' ? detail.name : detail.instanceId,
-        engine: 'unknown',
-        host: detail.privateIp !== '-' ? detail.privateIp : detail.publicIp,
-        port: 22,
-        databaseName: '',
-        username: '',
-        credentialSourceKind: '',
-        credentialSourceRef: '',
-        connectInput: sshKey,
-        vaultEntryId: sshVaultEntryId,
-        vaultEntryName: sshVaultEntryName,
-        sshUser,
-        bastionImageId: bastionAmi,
-        bastionInstanceType: bastionType,
-        subnetId: bastionSubnet,
-        keyName: bastionKeyPair,
-        securityGroupId: bastionSg,
-        contextName: '',
-        kubeconfigPath: '',
-        notes: ''
-      })
-      setSelectedConnectionPresetId(saved.id)
-      setConnectionPresetName(saved.name)
-      setMsg(`Connection preset saved: ${saved.name}`)
-      await hydrateConnectionPresets(detail.instanceId)
-    } catch (error) {
-      setMsg(error instanceof Error ? error.message : 'Failed to save connection preset.')
-    }
-  }
-
-  async function handleDeleteConnectionPreset(): Promise<void> {
-    if (!selectedConnectionPresetId) {
-      return
-    }
-
-    try {
-      await deleteConnectionPreset(selectedConnectionPresetId)
-      setSelectedConnectionPresetId('')
-      setMsg('Connection preset deleted.')
-      await hydrateConnectionPresets(detail?.instanceId ?? selectedId)
-    } catch (error) {
-      setMsg(error instanceof Error ? error.message : 'Failed to delete connection preset.')
-    }
-  }
-
   async function loadAdoptionDetection(nextDetail: Ec2InstanceDetail | null): Promise<void> {
     const requestId = adoptionRequestRef.current + 1
     adoptionRequestRef.current = requestId
@@ -988,219 +633,9 @@ export function Ec2Console({
     }
   }
 
-  async function loadAdoptionMapping(
-    nextDetail: Ec2InstanceDetail | null,
-    project: TerraformProjectListItem | null
-  ): Promise<void> {
-    const requestId = adoptionMappingRequestRef.current + 1
-    adoptionMappingRequestRef.current = requestId
-
-    if (!nextDetail || !project || adoptionDetection?.managedProjectCount !== 0) {
-      if (requestId === adoptionMappingRequestRef.current) {
-        setAdoptionMapping(null)
-        setAdoptionMappingError('')
-        setAdoptionMappingLoading(false)
-      }
-      return
-    }
-
-    setAdoptionMappingLoading(true)
-    setAdoptionMappingError('')
-    try {
-      const result = await mapAdoption(
-        terraformContextKey(connection),
-        project.id,
-        connection,
-        buildEc2AdoptionTarget(connection, nextDetail)
-      )
-      if (requestId === adoptionMappingRequestRef.current) {
-        setAdoptionMapping(result)
-      }
-    } catch (error) {
-      if (requestId === adoptionMappingRequestRef.current) {
-        setAdoptionMapping(null)
-        setAdoptionMappingError(error instanceof Error ? error.message : 'Terraform resource mapping failed.')
-      }
-    } finally {
-      if (requestId === adoptionMappingRequestRef.current) {
-        setAdoptionMappingLoading(false)
-      }
-    }
-  }
-
-  async function loadAdoptionCodegen(
-    nextDetail: Ec2InstanceDetail | null,
-    project: TerraformProjectListItem | null,
-    mapping: TerraformAdoptionMappingResult | null
-  ): Promise<void> {
-    const requestId = adoptionCodegenRequestRef.current + 1
-    adoptionCodegenRequestRef.current = requestId
-
-    if (!nextDetail || !project || !mapping || adoptionDetection?.managedProjectCount !== 0) {
-      if (requestId === adoptionCodegenRequestRef.current) {
-        setAdoptionCodegen(null)
-        setAdoptionCodegenError('')
-        setAdoptionCodegenLoading(false)
-      }
-      return
-    }
-
-    setAdoptionCodegenLoading(true)
-    setAdoptionCodegenError('')
-    try {
-      const result = await generateAdoptionCode(
-        terraformContextKey(connection),
-        project.id,
-        connection,
-        buildEc2AdoptionTarget(connection, nextDetail)
-      )
-      if (requestId === adoptionCodegenRequestRef.current) {
-        setAdoptionCodegen(result)
-      }
-    } catch (error) {
-      if (requestId === adoptionCodegenRequestRef.current) {
-        setAdoptionCodegen(null)
-        setAdoptionCodegenError(error instanceof Error ? error.message : 'Terraform code generation preview failed.')
-      }
-    } finally {
-      if (requestId === adoptionCodegenRequestRef.current) {
-        setAdoptionCodegenLoading(false)
-      }
-    }
-  }
-
-  async function handleExecuteAdoptionImport(): Promise<void> {
-    if (!detail || !selectedAdoptionProject || !adoptionCodegen || adoptionImportRunning) {
-      return
-    }
-
-    setAdoptionImportRunning(true)
-    setAdoptionImportError('')
-    setAdoptionImportResult(null)
-    setAdoptionValidation(null)
-    setAdoptionValidationError('')
-    adoptionValidationRequestRef.current += 1
-
-    try {
-      const result = await executeAdoptionImport(
-        terraformContextKey(connection),
-        selectedAdoptionProject.id,
-        connection,
-        buildEc2AdoptionTarget(connection, detail)
-      )
-      setAdoptionImportResult(result)
-
-      if (!result.log.success) {
-        const tail = result.log.output.split('\n').map((line) => line.trim()).filter(Boolean).slice(-1)[0] || 'see command output for details'
-        setAdoptionImportError(`Terraform import failed: ${tail}`)
-        return
-      }
-
-      const refreshedProject = await reloadProject(terraformContextKey(connection), selectedAdoptionProject.id, connection)
-      setSelectedAdoptionProject(refreshedProject)
-      setProjectPickerProjects((previous) => previous.map((project) => (
-        project.id === refreshedProject.id ? refreshedProject : project
-      )))
-      setAdoptionValidation(null)
-      setAdoptionValidationError('')
-      await loadAdoptionDetection(detail)
-      await runAdoptionValidation(detail, refreshedProject)
-      setMsg(`Terraform import completed for ${detail.instanceId}.`)
-    } catch (error) {
-      setAdoptionImportError(error instanceof Error ? error.message : 'Terraform import execution failed.')
-    } finally {
-      setAdoptionImportRunning(false)
-    }
-  }
-
-  async function runAdoptionValidation(
-    nextDetail: Ec2InstanceDetail | null = detail,
-    project: TerraformProjectListItem | null = selectedAdoptionProject
-  ): Promise<void> {
-    const requestId = adoptionValidationRequestRef.current + 1
-    adoptionValidationRequestRef.current = requestId
-
-    if (!nextDetail || !project || adoptionValidationLoading) {
-      return
-    }
-
-    setAdoptionValidationLoading(true)
-    setAdoptionValidationError('')
-    setAdoptionValidation(null)
-
-    try {
-      const result = await validateAdoptionImport(
-        terraformContextKey(connection),
-        project.id,
-        connection,
-        buildEc2AdoptionTarget(connection, nextDetail)
-      )
-      if (requestId !== adoptionValidationRequestRef.current) {
-        return
-      }
-      setAdoptionValidation(result)
-
-      const refreshedProject = await reloadProject(terraformContextKey(connection), project.id, connection)
-      if (requestId !== adoptionValidationRequestRef.current) {
-        return
-      }
-      setSelectedAdoptionProject(refreshedProject)
-      setProjectPickerProjects((previous) => previous.map((entry) => (
-        entry.id === refreshedProject.id ? refreshedProject : entry
-      )))
-    } catch (error) {
-      if (requestId === adoptionValidationRequestRef.current) {
-        setAdoptionValidationError(error instanceof Error ? error.message : 'Post-import validation failed.')
-      }
-    } finally {
-      if (requestId === adoptionValidationRequestRef.current) {
-        setAdoptionValidationLoading(false)
-      }
-    }
-  }
-
   function handleManageInTerraform(): void {
     adoptionSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    if (!detail) return
-    void openProjectPicker(detail)
-  }
-
-  async function openProjectPicker(nextDetail: Ec2InstanceDetail): Promise<void> {
-    setShowProjectPicker(true)
-    setProjectPickerLoading(true)
-    setProjectPickerError('')
-    try {
-      const projects = await listTerraformProjects(terraformContextKey(connection), connection)
-      const ranked = [...projects].sort((left, right) => {
-        const leftRegion = left.environment.region === connection.region ? 1 : 0
-        const rightRegion = right.environment.region === connection.region ? 1 : 0
-        return rightRegion - leftRegion || left.name.localeCompare(right.name)
-      })
-      setProjectPickerProjects(ranked)
-      const preferred = selectedAdoptionProject && ranked.some((project) => project.id === selectedAdoptionProject.id)
-        ? selectedAdoptionProject.id
-        : ranked[0]?.id ?? ''
-      setSelectedProjectCandidateId(preferred)
-    } catch (error) {
-      setProjectPickerProjects([])
-      setSelectedProjectCandidateId('')
-      setProjectPickerError(error instanceof Error ? error.message : 'Failed to load Terraform projects.')
-    } finally {
-      setProjectPickerLoading(false)
-    }
-  }
-
-  function handleConfirmProjectSelection(): void {
-    const selectedProject = projectPickerProjects.find((project) => project.id === selectedProjectCandidateId) ?? null
-    if (!selectedProject) return
-    setSelectedAdoptionProject(selectedProject)
-    setAdoptionImportError('')
-    setAdoptionImportResult(null)
-    setAdoptionValidation(null)
-    setAdoptionValidationError('')
-    adoptionValidationRequestRef.current += 1
-    setShowProjectPicker(false)
-    setMsg(`Terraform target project selected: ${selectedProject.name}`)
+    setShowTerraformAdoptionDialog(true)
   }
 
   useEffect(() => {
@@ -1210,35 +645,6 @@ export function Ec2Console({
   useEffect(() => {
     void loadAdoptionDetection(detail)
   }, [connection.region, connection.sessionId, detail?.instanceId, detail?.name])
-
-  useEffect(() => {
-    void loadAdoptionMapping(detail, selectedAdoptionProject)
-  }, [connection.region, connection.sessionId, detail?.instanceId, selectedAdoptionProject?.id, adoptionDetection?.managedProjectCount])
-
-  useEffect(() => {
-    void loadAdoptionCodegen(detail, selectedAdoptionProject, adoptionMapping)
-  }, [connection.region, connection.sessionId, detail?.instanceId, selectedAdoptionProject?.id, adoptionMapping?.suggestedAddress, adoptionDetection?.managedProjectCount])
-
-  useEffect(() => {
-    setSelectedAdoptionProject(null)
-    setSelectedProjectCandidateId('')
-    setShowProjectPicker(false)
-    setProjectPickerProjects([])
-    setProjectPickerError('')
-    setAdoptionMapping(null)
-    setAdoptionMappingError('')
-    setAdoptionMappingLoading(false)
-    setAdoptionCodegen(null)
-    setAdoptionCodegenError('')
-    setAdoptionCodegenLoading(false)
-    setAdoptionImportRunning(false)
-    setAdoptionImportError('')
-    setAdoptionImportResult(null)
-    setAdoptionValidationLoading(false)
-    setAdoptionValidationError('')
-    setAdoptionValidation(null)
-    adoptionValidationRequestRef.current += 1
-  }, [detail?.instanceId])
 
   /* ── Recommendations state ──────────────────────────────── */
   const [recommendations, setRecommendations] = useState<Ec2Recommendation[]>([])
@@ -1474,6 +880,7 @@ export function Ec2Console({
   }
 
   async function selectInstance(id: string, options?: { preserveExisting?: boolean; reason?: 'selection' | 'background' | 'manual' }) {
+    const gen = nextGeneration()
     setSelectedId(id)
     if ((options?.reason ?? 'selection') === 'selection') {
       setSelectedInstanceIds([id])
@@ -1488,26 +895,25 @@ export function Ec2Console({
     setSsmTarget(null)
     setSsmSessions([])
     const d = await describeEc2Instance(connection, id)
-    setDetail(d)
+    staleGuard(() => {
+      setDetail(d)
+      if (d) {
+        setResizeType(d.type)
+      }
+    }, gen)
     if (d) {
-      if ((options?.reason ?? 'selection') !== 'background' || !connectionPresetName) {
-        setConnectionPresetName(defaultConnectionPresetName(d))
-      }
-      setResizeType(d.type)
-      try { setIamAssoc(await getIamAssociation(connection, id)) } catch { setIamAssoc(null) }
+      try { const assoc = await getIamAssociation(connection, id); staleGuard(() => setIamAssoc(assoc), gen) } catch { staleGuard(() => setIamAssoc(null), gen) }
       if (d.vpcId !== '-') {
-        try { setVpcDetail(await describeVpc(connection, d.vpcId)) } catch { setVpcDetail(null) }
+        try { const vpc = await describeVpc(connection, d.vpcId); staleGuard(() => setVpcDetail(vpc), gen) } catch { staleGuard(() => setVpcDetail(null), gen) }
       }
-      try { setLinkedBastions(await findBastionConnectionsForInstance(connection, id)) } catch { setLinkedBastions([]) }
+      try { const bastions = await findBastionConnectionsForInstance(connection, id); staleGuard(() => setLinkedBastions(bastions), gen) } catch { staleGuard(() => setLinkedBastions([]), gen) }
       await loadSsmForInstance(id, options?.reason ?? 'selection')
-      await hydrateConnectionPresets(id)
     } else {
-      setLinkedBastions([])
-      setSsmTarget(null)
-      setSsmSessions([])
-      setConnectionPresets([])
-      setSelectedConnectionPresetId('')
-      setConnectionPresetName('')
+      staleGuard(() => {
+        setLinkedBastions([])
+        setSsmTarget(null)
+        setSsmSessions([])
+      }, gen)
     }
   }
 
@@ -1957,7 +1363,7 @@ export function Ec2Console({
         await selectVolume(currentVolumeId).catch(() => undefined)
       }
       if (detail?.instanceId === target) {
-        await selectInstance(detail.tags['aws-lens:source-volume-id'] || detail.instanceId).catch(() => undefined)
+        await selectInstance(detail.tags['infra-lens:source-volume-id'] || detail.instanceId).catch(() => undefined)
       }
       setMsg('Temporary inspection resources deleted')
       setVolumeWorkflowStatus((current) => current ? { ...current, stage: 'completed', message: 'Temporary inspection resources were deleted.' } : null)
@@ -2085,6 +1491,16 @@ export function Ec2Console({
     }
   }
 
+  async function doSendKey() {
+    if (!selectedId || !sshKey || !detail) return
+    await runEc2Mutation(async () => {
+      const resolvedKey = await resolveCurrentSshKeyInput()
+      await markSelectedPemUsed('ec2-instance-connect', resolvedKey.vaultEntryId)
+      const ok = await sendSshPublicKey(connection, selectedId, sshUser, resolvedKey.value, detail.availabilityZone)
+      setMsg(ok ? 'Public key sent (valid 60s)' : 'Failed to send key')
+    })
+  }
+
   async function doSshConnect() {
     if (!detail || !onRunTerminalCommand) {
       return
@@ -2092,26 +1508,13 @@ export function Ec2Console({
 
     try {
       const resolvedKey = await resolveCurrentSshKeyInput()
-      let usedEc2InstanceConnect = false
-
-      try {
-        await markSelectedPemUsed('ec2-instance-connect', resolvedKey.vaultEntryId)
-        usedEc2InstanceConnect = await sendSshPublicKey(connection, selectedId, sshUser, resolvedKey.value, detail.availabilityZone)
-      } catch {
-        usedEc2InstanceConnect = false
-      }
-
       await markSelectedPemUsed('ec2-ssh-connect', resolvedKey.vaultEntryId)
       const sshTarget = detail.publicIp !== '-' ? detail.publicIp : detail.privateIp
       onRunTerminalCommand(`ssh -i ${quoteSshArg(resolvedKey.value)} ${sshUser}@${sshTarget}`)
       setMsg(
-        usedEc2InstanceConnect
-          ? resolvedKey.vaultEntryName
-            ? `SSH command opened with temporary EC2 Instance Connect key using vault key ${resolvedKey.vaultEntryName}`
-            : 'SSH command opened with temporary EC2 Instance Connect key'
-          : resolvedKey.vaultEntryName
-            ? `SSH command opened in terminal using vault key ${resolvedKey.vaultEntryName}`
-            : 'SSH command opened in terminal'
+        resolvedKey.vaultEntryName
+          ? `SSH command opened in terminal using vault key ${resolvedKey.vaultEntryName}`
+          : 'SSH command opened in terminal'
       )
     } catch (err) {
       setMsg(err instanceof Error ? err.message : 'Failed to prepare SSH command')
@@ -2147,7 +1550,7 @@ export function Ec2Console({
       setSshVaultEntryId(selectedKey.vaultEntryId)
       setSshVaultEntryName(selectedKey.vaultEntryName)
       await loadSshVaultEntries()
-      setMsg(`Imported ${selectedKey.sourceLabel} into the encrypted vault as ${selectedKey.vaultEntryName}`)
+      setMsg(`Selected SSH key: ${selectedKey.sourceLabel} | Vault: ${selectedKey.vaultEntryName}`)
     } catch (err) {
       setMsg(err instanceof Error ? err.message : 'Failed to choose SSH key')
     }
@@ -2235,7 +1638,7 @@ export function Ec2Console({
           .split('\n')
           .map((line) => line.trim())
           .filter(Boolean),
-        comment: `${ssmCommandDocument} from AWS Lens`
+        comment: `${ssmCommandDocument} from the workspace shell`
       })
       setSsmCommandHistory((current) => ({
         ...current,
@@ -2318,9 +1721,9 @@ export function Ec2Console({
     : null
   const selectedVolumeTempSsmStatus = volumeTempSsmTarget?.status
     ?? (volumeDetail?.tempEnvironment?.ssmReady ? 'managed-online' : 'not-managed')
-  const hasManagedBastionTag = Object.keys(detail?.tags ?? {}).some((key) => key.startsWith('aws-lens-bastion/') || key.startsWith('aws-lens-bastion#'))
+  const hasManagedBastionTag = Object.keys(detail?.tags ?? {}).some((key) => key.startsWith('infra-lens-bastion/') || key.startsWith('infra-lens-bastion#'))
   const isSelectedBastion = bastions.some((instance) => instance.instanceId === selectedId)
-  const isSelectedTempInspectionInstance = detail?.tags?.['aws-lens:purpose'] === 'ebs-inspection'
+  const isSelectedTempInspectionInstance = detail?.tags?.['infra-lens:purpose'] === 'ebs-inspection'
   const bastionLaunchBusy = bastionLaunchStatus !== null && !['completed', 'failed'].includes(bastionLaunchStatus.stage)
   const volumeWorkflowBusy = volumeWorkflowStatus !== null && !['completed', 'failed'].includes(volumeWorkflowStatus.stage)
   const ssmHistory = selectedId ? (ssmCommandHistory[selectedId] ?? []) : []
@@ -2654,7 +2057,7 @@ export function Ec2Console({
                     {selectedInstanceIds.length > 1 && (
                       <div className="ec2-sidebar-hint">Bulk actions target {selectedInstanceIds.length} selected instances. Sidebar actions still apply to the primary selection only.</div>
                     )}
-                    <div className="ec2-actions-grid">
+                  <div className="ec2-actions-grid">
                       <button className="ec2-action-btn" type="button" onClick={() => void doDescribe()}>Describe</button>
                       {!isTerminatedInstance && <button className="ec2-action-btn start" type="button" onClick={() => void doAction('start')}>Start</button>}
                       {!isTerminatedInstance && <ConfirmButton className="ec2-action-btn stop" type="button" onConfirm={() => void doAction('stop')}>Stop</ConfirmButton>}
@@ -2673,7 +2076,7 @@ export function Ec2Console({
                         </ConfirmButton>
                       )}
                       {isSelectedTempInspectionInstance && detail?.instanceId && (
-                        <ConfirmButton className="ec2-action-btn remove" type="button" onConfirm={() => void doDeleteTempInspection(detail.instanceId, detail.tags['aws-lens:source-volume-id'])}>
+                        <ConfirmButton className="ec2-action-btn remove" type="button" onConfirm={() => void doDeleteTempInspection(detail.instanceId, detail.tags['infra-lens:source-volume-id'])}>
                           Delete Temp Instance
                         </ConfirmButton>
                       )}
@@ -2726,285 +2129,6 @@ export function Ec2Console({
                             {adoptionDetection.scannedProjectCount} tracked project{adoptionDetection.scannedProjectCount === 1 ? '' : 's'} scanned in {connection.region}.
                           </span>
                         </div>
-                        {selectedAdoptionProject && (
-                          <div className="ec2-adoption-selected-project">
-                            <span className="ec2-adoption-label">Selected project</span>
-                            <strong>{selectedAdoptionProject.name}</strong>
-                            <small>
-                              Workspace {selectedAdoptionProject.currentWorkspace || 'default'} | Region {selectedAdoptionProject.environment.region || '-'}
-                            </small>
-                          </div>
-                        )}
-                        {selectedAdoptionProject && adoptionDetection.managedProjectCount === 0 && (
-                          <div className="ec2-adoption-mapping">
-                            <div className="ec2-adoption-mapping-head">
-                              <div>
-                                <h4>Resource Mapping</h4>
-                                <div className="ec2-sidebar-hint">
-                                  Match this EC2 instance to a Terraform address, provider alias, and module placement before generating code.
-                                </div>
-                              </div>
-                              {adoptionMappingLoading && <span className="ec2-adoption-pill config">Mapping...</span>}
-                              {!adoptionMappingLoading && adoptionMapping && (
-                                <span className={`ec2-adoption-pill ${adoptionMapping.confidence === 'high' ? 'managed' : adoptionMapping.confidence === 'medium' ? 'config' : 'unmanaged'}`}>
-                                  {adoptionConfidenceLabel(adoptionMapping.confidence)} confidence
-                                </span>
-                              )}
-                            </div>
-                            {adoptionMappingError && <div className="ec2-sidebar-hint ec2-adoption-error">{adoptionMappingError}</div>}
-                            {adoptionMapping && (
-                              <>
-                                <div className="ec2-adoption-mapping-grid">
-                                  <div className="ec2-adoption-row">
-                                    <span className="ec2-adoption-label">Address</span>
-                                    <code>{adoptionMapping.suggestedAddress}</code>
-                                    <small>{adoptionMapping.recommendedResourceType} | import id {adoptionMapping.importId}</small>
-                                  </div>
-                                  <div className="ec2-adoption-row">
-                                    <span className="ec2-adoption-label config">Placement</span>
-                                    <code>{adoptionMapping.module.displayPath}</code>
-                                    <small>{adoptionSourceLabel(adoptionMapping.module.source)}</small>
-                                  </div>
-                                  <div className="ec2-adoption-row">
-                                    <span className="ec2-adoption-label config">Provider</span>
-                                    <code>{adoptionMapping.provider.displayName}</code>
-                                    <small>{adoptionSourceLabel(adoptionMapping.provider.source)}</small>
-                                  </div>
-                                </div>
-                                {adoptionMapping.reasons.length > 0 && (
-                                  <div className="ec2-adoption-list">
-                                    {adoptionMapping.reasons.map((reason) => (
-                                      <div key={reason} className="ec2-adoption-row">
-                                        <span className="ec2-adoption-label">Why</span>
-                                        <small>{reason}</small>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                                {adoptionMapping.relatedResources.length > 0 && (
-                                  <div className="ec2-adoption-list">
-                                    {adoptionMapping.relatedResources.map((resource) => (
-                                      <div key={`${resource.address}:${resource.matchedOn}:${resource.matchedValue}`} className="ec2-adoption-row">
-                                        <span className="ec2-adoption-label config">Related</span>
-                                        <code>{resource.address}</code>
-                                        <small>{resource.matchedOn} via {resource.modulePath === 'root' ? 'root module' : resource.modulePath}</small>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                                {adoptionMapping.warnings.length > 0 && (
-                                  <div className="ec2-adoption-list">
-                                    {adoptionMapping.warnings.map((warning) => (
-                                      <div key={warning} className="ec2-adoption-row">
-                                        <span className="ec2-adoption-label config">Review</span>
-                                        <small>{warning}</small>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        )}
-                        {selectedAdoptionProject && adoptionDetection.managedProjectCount === 0 && (
-                          <div className="ec2-adoption-codegen">
-                            <div className="ec2-adoption-mapping-head">
-                              <div>
-                                <h4>Code Generation Preview</h4>
-                                <div className="ec2-sidebar-hint">
-                                  Preview the Terraform file placement, generated HCL skeleton, and import command before applying any file changes.
-                                </div>
-                              </div>
-                              {adoptionCodegenLoading && <span className="ec2-adoption-pill config">Generating...</span>}
-                            </div>
-                            {adoptionCodegenError && <div className="ec2-sidebar-hint ec2-adoption-error">{adoptionCodegenError}</div>}
-                            {adoptionCodegen && (
-                              <>
-                                <div className="ec2-adoption-mapping-grid">
-                                  <div className="ec2-adoption-row">
-                                    <span className="ec2-adoption-label">File</span>
-                                    <code>{adoptionCodegen.filePlan.suggestedFileName}</code>
-                                    <small>{adoptionCodegen.filePlan.action === 'append' ? 'Append existing file' : 'Create new file'}</small>
-                                  </div>
-                                  <div className="ec2-adoption-row">
-                                    <span className="ec2-adoption-label config">Module</span>
-                                    <code>{adoptionCodegen.filePlan.moduleDisplayPath}</code>
-                                    <small>{adoptionCodegen.filePlan.reason}</small>
-                                  </div>
-                                  <div className="ec2-adoption-row">
-                                    <span className="ec2-adoption-label config">Import</span>
-                                    <code>{adoptionCodegen.mapping.importId}</code>
-                                    <small>Working dir {adoptionCodegen.workingDirectory}</small>
-                                  </div>
-                                </div>
-                                <div className="ec2-adoption-row">
-                                  <span className="ec2-adoption-label">Target path</span>
-                                  <code>{adoptionCodegen.filePlan.suggestedFilePath}</code>
-                                  {adoptionCodegen.filePlan.existingFiles.length > 0 && (
-                                    <small>Module files: {adoptionCodegen.filePlan.existingFiles.join(', ')}</small>
-                                  )}
-                                </div>
-                                <div className="ec2-adoption-code-preview">
-                                  <span className="ec2-adoption-label">HCL Preview</span>
-                                  <pre className="s3-preview-text">{adoptionCodegen.resourceBlock}</pre>
-                                </div>
-                                <div className="ec2-adoption-code-preview">
-                                  <span className="ec2-adoption-label config">Import Command</span>
-                                  <pre className="s3-preview-text">{adoptionCodegen.importCommand}</pre>
-                                </div>
-                                {adoptionCodegen.notes.length > 0 && (
-                                  <div className="ec2-adoption-list">
-                                    {adoptionCodegen.notes.map((note) => (
-                                      <div key={note} className="ec2-adoption-row">
-                                        <span className="ec2-adoption-label">Plan</span>
-                                        <small>{note}</small>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                                {adoptionCodegen.warnings.length > 0 && (
-                                  <div className="ec2-adoption-list">
-                                    {adoptionCodegen.warnings.map((warning) => (
-                                      <div key={warning} className="ec2-adoption-row">
-                                        <span className="ec2-adoption-label config">Review</span>
-                                        <small>{warning}</small>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        )}
-                        {selectedAdoptionProject && (adoptionCodegen || adoptionImportResult) && (
-                          <div className="ec2-adoption-codegen">
-                            <div className="ec2-adoption-mapping-head">
-                              <div>
-                                <h4>Import Execution</h4>
-                                <div className="ec2-sidebar-hint">
-                                  Write the reviewed HCL preview into the target Terraform file if needed, then run `terraform import` against the selected project.
-                                </div>
-                              </div>
-                              {adoptionImportRunning && <span className="ec2-adoption-pill config">Running...</span>}
-                              {!adoptionImportRunning && adoptionImportResult?.log.success && <span className="ec2-adoption-pill managed">Imported</span>}
-                              {!adoptionImportRunning && adoptionImportResult && adoptionImportResult.log.success === false && <span className="ec2-adoption-pill unmanaged">Failed</span>}
-                            </div>
-                            <div className="ec2-btn-row">
-                              <ConfirmButton
-                                className="ec2-action-btn terraform"
-                                disabled={adoptionImportRunning || !adoptionCodegen}
-                                confirmLabel="Review import"
-                                modalTitle="Run Terraform Import"
-                                modalBody="This will persist the generated HCL preview into the suggested Terraform file if the resource block is missing, then run terraform import for the selected resource."
-                                confirmPhrase="IMPORT"
-                                confirmButtonLabel={adoptionImportRunning ? 'Running...' : 'Write HCL and Import'}
-                                summaryItems={[
-                                  `Project: ${selectedAdoptionProject.name}`,
-                                  `Workspace: ${selectedAdoptionProject.currentWorkspace || 'default'}`,
-                                  `Address: ${(adoptionCodegen ?? adoptionImportResult?.applyResult.codegen)?.mapping.suggestedAddress ?? '-'}`,
-                                  `Import ID: ${(adoptionCodegen ?? adoptionImportResult?.applyResult.codegen)?.mapping.importId ?? '-'}`,
-                                  `File: ${(adoptionCodegen ?? adoptionImportResult?.applyResult.codegen)?.filePlan.suggestedFilePath ?? '-'}`
-                                ]}
-                                onConfirm={() => void handleExecuteAdoptionImport()}
-                              >
-                                {adoptionImportRunning ? 'Import Running...' : 'Write HCL and Run Import'}
-                              </ConfirmButton>
-                            </div>
-                            {adoptionImportError && <div className="ec2-sidebar-hint ec2-adoption-error">{adoptionImportError}</div>}
-                            {adoptionImportResult && (
-                              <>
-                                <div className="ec2-adoption-mapping-grid">
-                                  <div className="ec2-adoption-row">
-                                    <span className="ec2-adoption-label">File write</span>
-                                    <code>{adoptionImportResult.applyResult.action}</code>
-                                    <small>{adoptionImportResult.applyResult.filePath}</small>
-                                  </div>
-                                  <div className="ec2-adoption-row">
-                                    <span className="ec2-adoption-label config">Import</span>
-                                    <code>{adoptionImportResult.log.success ? 'success' : 'failed'}</code>
-                                    <small>Exit code {adoptionImportResult.log.exitCode ?? '-'}</small>
-                                  </div>
-                                  <div className="ec2-adoption-row">
-                                    <span className="ec2-adoption-label config">Bytes</span>
-                                    <code>{String(adoptionImportResult.applyResult.bytesWritten)}</code>
-                                    <small>Written before import execution</small>
-                                  </div>
-                                </div>
-                                <div className="ec2-adoption-code-preview">
-                                  <span className="ec2-adoption-label">Import Output</span>
-                                  <pre className="s3-preview-text">{adoptionImportResult.log.output || 'No Terraform output was captured.'}</pre>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        )}
-                        {selectedAdoptionProject && (adoptionImportResult?.log.success || adoptionValidationLoading || adoptionValidation || adoptionValidationError) && (
-                          <div className="ec2-adoption-codegen">
-                            <div className="ec2-adoption-mapping-head">
-                              <div>
-                                <h4>Post-Import Validation</h4>
-                                <div className="ec2-sidebar-hint">
-                                  Run a targeted `terraform plan` against the adopted address and confirm whether the imported EC2 resource is now stable in state.
-                                </div>
-                              </div>
-                              {adoptionValidationLoading && <span className="ec2-adoption-pill config">Validating...</span>}
-                              {!adoptionValidationLoading && adoptionValidation && (
-                                <span className={`ec2-adoption-pill ${adoptionValidationTone(adoptionValidation.status)}`}>
-                                  {adoptionValidationLabel(adoptionValidation.status)}
-                                </span>
-                              )}
-                            </div>
-                            <div className="ec2-btn-row">
-                              <button
-                                className="ec2-action-btn"
-                                type="button"
-                                disabled={adoptionValidationLoading || !adoptionImportResult?.log.success}
-                                onClick={() => void runAdoptionValidation()}
-                              >
-                                {adoptionValidationLoading ? 'Validating...' : 'Run Post-Import Validation'}
-                              </button>
-                            </div>
-                            {adoptionValidationError && <div className="ec2-sidebar-hint ec2-adoption-error">{adoptionValidationError}</div>}
-                            {adoptionValidation && (
-                              <>
-                                <div className="ec2-adoption-mapping-grid">
-                                  <div className="ec2-adoption-row">
-                                    <span className="ec2-adoption-label">Status</span>
-                                    <code>{adoptionValidationLabel(adoptionValidation.status)}</code>
-                                    <small>{adoptionValidation.summary}</small>
-                                  </div>
-                                  <div className="ec2-adoption-row">
-                                    <span className="ec2-adoption-label config">Address</span>
-                                    <code>{adoptionValidation.address}</code>
-                                    <small>Targeted plan in {selectedAdoptionProject.currentWorkspace || 'default'} workspace</small>
-                                  </div>
-                                  <div className="ec2-adoption-row">
-                                    <span className="ec2-adoption-label config">Plan</span>
-                                    <code>{adoptionValidation.planSummary.hasChanges ? 'changes detected' : 'clean'}</code>
-                                    <small>
-                                      {adoptionValidation.planSummary.create} create | {adoptionValidation.planSummary.update} update | {adoptionValidation.planSummary.delete} delete | {adoptionValidation.planSummary.replace} replace
-                                    </small>
-                                  </div>
-                                </div>
-                                {adoptionValidation.matchingChanges.length > 0 && (
-                                  <div className="ec2-adoption-list">
-                                    {adoptionValidation.matchingChanges.map((change) => (
-                                      <div key={`${change.address}:${change.actionLabel}`} className="ec2-adoption-row">
-                                        <span className="ec2-adoption-label config">Change</span>
-                                        <code>{change.address}</code>
-                                        <small>{adoptionPlanActionSymbol(change.actionLabel)} {change.actionLabel} | {change.type} | {change.modulePath === 'root' ? 'root module' : change.modulePath}</small>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                                <div className="ec2-adoption-code-preview">
-                                  <span className="ec2-adoption-label">Validation Output</span>
-                                  <pre className="s3-preview-text">{adoptionValidation.log.output || 'No Terraform output was captured.'}</pre>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        )}
                         {adoptionDetection.projects.length === 0 ? (
                           <div className="ec2-adoption-empty">
                             No tracked Terraform project currently claims this instance in state or config.
@@ -3220,41 +2344,6 @@ export function Ec2Console({
                         </div>
                       </div>
                       <div className="ec2-connect-row">
-                        <span className="ec2-connect-label">Preset</span>
-                        <div className="ec2-connect-field">
-                          <div className="ec2-connect-inline">
-                            <select
-                              className="ec2-connect-select"
-                              value={selectedConnectionPresetId}
-                              onChange={(event) => applyConnectionPreset(event.target.value)}
-                            >
-                              <option value="">Current form values</option>
-                              {connectionPresets.map((preset) => (
-                                <option key={preset.id} value={preset.id}>
-                                  {preset.name}
-                                </option>
-                              ))}
-                            </select>
-                            <button className="ec2-action-btn" type="button" onClick={() => void handleSaveConnectionPreset()} disabled={!detail}>
-                              {selectedConnectionPresetId ? 'Update' : 'Save'}
-                            </button>
-                            <button className="ec2-action-btn remove" type="button" onClick={() => void handleDeleteConnectionPreset()} disabled={!selectedConnectionPresetId}>
-                              Delete
-                            </button>
-                          </div>
-                          <input
-                            value={connectionPresetName}
-                            onChange={(event) => setConnectionPresetName(event.target.value)}
-                            placeholder="Preset name"
-                          />
-                          <div className="ec2-connect-note">
-                            {selectedConnectionPresetId
-                              ? `Preset scope: ${detail?.instanceId ?? '-'}${connectionPresets.find((preset) => preset.id === selectedConnectionPresetId)?.lastUsedAt ? ` | Last used ${formatTimestamp(connectionPresets.find((preset) => preset.id === selectedConnectionPresetId)?.lastUsedAt ?? '')}` : ''}`
-                              : `${connectionPresets.length} saved bastion preset${connectionPresets.length === 1 ? '' : 's'} for this instance`}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="ec2-connect-row">
                         <span className="ec2-connect-label">Username</span>
                         <input value={sshUser} onChange={e => setSshUser(e.target.value)} />
                       </div>
@@ -3326,7 +2415,6 @@ export function Ec2Console({
                         <button
                           className="ec2-action-btn ssh"
                           type="button"
-                          disabled={!onRunTerminalCommand || !sshKey}
                           onClick={() => void doSshConnect()}
                         >SSH Connect</button>
                       </div>
@@ -3798,7 +2886,7 @@ export function Ec2Console({
                         <div>{value}</div>
                         <div />
                         <div>
-                          {!key.startsWith('aws-lens:') && (
+                          {!key.startsWith('infra-lens:') && (
                             <ConfirmButton className="ec2-action-btn remove" type="button" onConfirm={() => void doUntagVolume(key)}>
                               Remove
                             </ConfirmButton>
@@ -3985,20 +3073,6 @@ export function Ec2Console({
         </div>
       )}
 
-      {showProjectPicker && detail && (
-        <TerraformProjectPickerDialog
-          connection={connection}
-          instance={detail}
-          projects={projectPickerProjects}
-          loading={projectPickerLoading}
-          error={projectPickerError}
-          selectedProjectId={selectedProjectCandidateId}
-          onSelectProject={setSelectedProjectCandidateId}
-          onConfirm={handleConfirmProjectSelection}
-          onClose={() => setShowProjectPicker(false)}
-        />
-      )}
-
       {bastionLaunchStatus && (
         <div className="ec2-status-overlay" role="dialog" aria-modal="true" aria-labelledby="bastion-status-title">
           <div className="ec2-status-dialog" onClick={(e) => e.stopPropagation()}>
@@ -4137,6 +3211,13 @@ export function Ec2Console({
           </div>
         </div>
       )}
+
+      <TerraformAdoptionDialog
+        open={showTerraformAdoptionDialog}
+        onClose={() => setShowTerraformAdoptionDialog(false)}
+        connection={connection}
+        target={detail ? buildEc2AdoptionTarget(connection, detail) : null}
+      />
     </div>
   )
 }

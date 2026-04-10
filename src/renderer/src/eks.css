@@ -610,25 +610,11 @@
 }
 
 .eks-form-grid input,
-.eks-form-grid select,
 .eks-scale-form input,
 .eks-scale-form select,
 .eks-planner-toolbar input,
 .eks-timeline-controls input[type="date"] {
   padding: 9px 10px;
-}
-
-.eks-preset-panel {
-  margin-bottom: 12px;
-}
-
-.eks-preset-panel .eks-picker-field {
-  align-items: stretch;
-}
-
-.eks-preset-panel .eks-picker-field select {
-  flex: 1;
-  min-width: 0;
 }
 
 .eks-planner-toolbar {
@@ -849,6 +835,55 @@
   border-radius: 0;
   background: transparent;
   font-family: "Cascadia Code", "Consolas", monospace;
+}
+
+/* Azure AKS Console — blue accent overrides */
+
+.azure-aks-theme .eks-shell-hero,
+.azure-aks-theme .eks-detail-hero {
+  border-color: rgba(0, 120, 212, 0.16);
+  background:
+    radial-gradient(circle at top left, rgba(0, 120, 212, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(80, 160, 230, 0.12), transparent 30%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(11, 17, 25, 0.98));
+}
+
+.azure-aks-theme .eks-shell-meta-pill,
+.azure-aks-theme .eks-detail-meta-pill,
+.azure-aks-theme .eks-status-card,
+.azure-aks-theme .eks-shell-toolbar,
+.azure-aks-theme .eks-project-table-area,
+.azure-aks-theme .eks-detail-pane,
+.azure-aks-theme .eks-section,
+.azure-aks-theme .eks-inline-panel,
+.azure-aks-theme .eks-terminal-panel,
+.azure-aks-theme .eks-modal-panel {
+  border-color: rgba(0, 120, 212, 0.14);
+}
+
+.azure-aks-theme .eks-toolbar-btn.accent,
+.azure-aks-theme .eks-action-btn.accent {
+  background: linear-gradient(135deg, #0078d4, #50a0e6);
+  border-color: rgba(80, 160, 230, 0.24);
+  color: #fff;
+}
+
+.azure-aks-theme .eks-project-row.active {
+  border-color: rgba(0, 120, 212, 0.34);
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.12), transparent 40%),
+    linear-gradient(180deg, rgba(28, 40, 55, 0.98), rgba(14, 23, 34, 0.98));
+}
+
+.azure-aks-theme .eks-detail-tabs button.active {
+  border-color: rgba(0, 120, 212, 0.28);
+  background: linear-gradient(180deg, rgba(0, 120, 212, 0.18), rgba(0, 120, 212, 0.08));
+}
+
+.azure-aks-theme .eks-data-table tbody tr.active td,
+.azure-aks-theme .eks-data-table tbody tr:hover td,
+.azure-aks-theme .eks-timeline-table tbody tr:hover td {
+  background: rgba(0, 120, 212, 0.08);
 }
 
 @media (max-width: 960px) {

@@ -51,10 +51,6 @@ function isComparisonContextInput(value: unknown): value is ComparisonContextInp
     return Boolean(sanitizeString(raw.sessionId))
   }
 
-  if (kind === 'saved-target') {
-    return Boolean(sanitizeString(raw.targetId))
-  }
-
   return false
 }
 
@@ -64,15 +60,9 @@ function contextLabel(input: ComparisonContextInput): string {
     return customLabel
   }
 
-  if (input.kind === 'profile') {
-    return input.profile
-  }
-
-  if (input.kind === 'saved-target') {
-    return input.targetId
-  }
-
-  return input.sessionId
+  return input.kind === 'profile'
+    ? input.profile
+    : input.sessionId
 }
 
 function sanitizePreset(value: unknown): ComparisonPreset | null {

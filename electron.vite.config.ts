@@ -5,7 +5,7 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 
 function readBuildHash(): string {
-  const explicit = process.env.AWS_LENS_BUILD_HASH?.trim()
+  const explicit = process.env.INFRA_LENS_BUILD_HASH?.trim()
 
   if (explicit) {
     return explicit.slice(0, 12)
@@ -19,13 +19,13 @@ function readBuildHash(): string {
 }
 
 const buildHash = readBuildHash()
-const releaseChannel = process.env.AWS_LENS_RELEASE_CHANNEL?.trim() || ''
+const releaseChannel = process.env.INFRA_LENS_RELEASE_CHANNEL?.trim() || ''
 
 export default defineConfig({
   main: {
     define: {
-      __AWS_LENS_BUILD_HASH__: JSON.stringify(buildHash),
-      __AWS_LENS_RELEASE_CHANNEL__: JSON.stringify(releaseChannel)
+      __INFRA_LENS_BUILD_HASH__: JSON.stringify(buildHash),
+      __INFRA_LENS_RELEASE_CHANNEL__: JSON.stringify(releaseChannel)
     },
     build: {
       rollupOptions: {
@@ -42,8 +42,8 @@ export default defineConfig({
   preload: {
     plugins: [externalizeDepsPlugin()],
     define: {
-      __AWS_LENS_BUILD_HASH__: JSON.stringify(buildHash),
-      __AWS_LENS_RELEASE_CHANNEL__: JSON.stringify(releaseChannel)
+      __INFRA_LENS_BUILD_HASH__: JSON.stringify(buildHash),
+      __INFRA_LENS_RELEASE_CHANNEL__: JSON.stringify(releaseChannel)
     },
     resolve: {
       alias: {
@@ -54,8 +54,8 @@ export default defineConfig({
   renderer: {
     plugins: [react()],
     define: {
-      __AWS_LENS_BUILD_HASH__: JSON.stringify(buildHash),
-      __AWS_LENS_RELEASE_CHANNEL__: JSON.stringify(releaseChannel)
+      __INFRA_LENS_BUILD_HASH__: JSON.stringify(buildHash),
+      __INFRA_LENS_RELEASE_CHANNEL__: JSON.stringify(releaseChannel)
     },
     resolve: {
       alias: {

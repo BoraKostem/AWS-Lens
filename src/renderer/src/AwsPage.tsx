@@ -1,12 +1,29 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
-import type { AwsConnection, AwsProfile, AwsRegionOption, AwsSessionSummary, AwsAssumeRoleTarget, CallerIdentity } from '@shared/types'
+import { STORAGE_NAMESPACE } from '@shared/branding'
+import {
+  toProviderConnectionDescriptor,
+  toProviderLocationDescriptor,
+  toProviderProfileDescriptor
+} from '@shared/providerAdapters'
+import type {
+  AwsConnection,
+  AwsProfile,
+  AwsRegionOption,
+  AwsSessionSummary,
+  AwsAssumeRoleTarget,
+  CallerIdentity,
+  ProviderConnectionDescriptor,
+  ProviderLocationDescriptor,
+  ProviderProfileDescriptor
+} from '@shared/types'
 import { getCallerIdentity, getSessionHubState, listProfiles, listRegions } from './api'
 
-const PROFILE_STORAGE_KEY = 'aws-lens:selected-profile'
-const REGION_STORAGE_KEY = 'aws-lens:selected-region'
-const PINNED_PROFILES_STORAGE_KEY = 'aws-lens:pinned-profiles'
-const ACTIVE_SESSION_ID_STORAGE_KEY = 'aws-lens:active-session-id'
+const PROFILE_STORAGE_KEY = `${STORAGE_NAMESPACE}:selected-profile`
+const REGION_STORAGE_KEY = `${STORAGE_NAMESPACE}:selected-region`
+const REGION_BY_PROFILE_STORAGE_KEY = `${STORAGE_NAMESPACE}:selected-region-by-profile`
+const PINNED_PROFILES_STORAGE_KEY = `${STORAGE_NAMESPACE}:pinned-profiles`
+const ACTIVE_SESSION_ID_STORAGE_KEY = `${STORAGE_NAMESPACE}:active-session-id`
 
 function readStoredValue(key: string, fallback: string): string {
   if (typeof window === 'undefined') {
@@ -37,6 +54,25 @@ function readStoredList(key: string): string[] {
   }
 }
 
+function readStoredRecord(key: string): Record<string, string> {
+  if (typeof window === 'undefined') {
+    return {}
+  }
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(key) ?? '{}')
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {}
+    }
+
+    return Object.fromEntries(
+      Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[0] === 'string' && typeof entry[1] === 'string')
+    )
+  } catch {
+    return {}
+  }
+}
+
 function writeStoredValue(key: string, value: string): void {
   if (typeof window === 'undefined') {
     return
@@ -58,6 +94,14 @@ function writeStoredList(key: string, values: string[]): void {
   window.localStorage.setItem(key, JSON.stringify(values))
 }
 
+function writeStoredRecord(key: string, values: Record<string, string>): void {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  window.localStorage.setItem(key, JSON.stringify(values))
+}
+
 export function formatDateTime(value?: string): string {
   return value ? new Date(value).toLocaleString() : '-'
 }
@@ -67,6 +111,7 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProf
   const [regions, setRegions] = useState<AwsRegionOption[]>([])
   const [profile, setProfile] = useState(() => readStoredValue(PROFILE_STORAGE_KEY, ''))
   const [region, setRegion] = useState(() => readStoredValue(REGION_STORAGE_KEY, defaultRegion))
+  const [regionByProfile, setRegionByProfile] = useState<Record<string, string>>(() => readStoredRecord(REGION_BY_PROFILE_STORAGE_KEY))
   const [pinnedProfileNames, setPinnedProfileNames] = useState<string[]>(() => readStoredList(PINNED_PROFILES_STORAGE_KEY))
   const [targets, setTargets] = useState<AwsAssumeRoleTarget[]>([])
   const [sessions, setSessions] = useState<AwsSessionSummary[]>([])
@@ -100,6 +145,10 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProf
   }, [region])
 
   useEffect(() => {
+    writeStoredRecord(REGION_BY_PROFILE_STORAGE_KEY, regionByProfile)
+  }, [regionByProfile])
+
+  useEffect(() => {
     writeStoredList(PINNED_PROFILES_STORAGE_KEY, pinnedProfileNames)
   }, [pinnedProfileNames])
 
@@ -111,10 +160,27 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProf
     setProfile(name)
     setActiveSessionId('')
     const match = profiles.find((entry) => entry.name === name)
+    const rememberedRegion = regionByProfile[name]
+    if (rememberedRegion) {
+      setRegion(rememberedRegion)
+      return
+    }
     if (match?.region) {
       setRegion(match.region)
     }
   }
+
+  useEffect(() => {
+    if (!profile || !region || activeSessionId) {
+      return
+    }
+
+    setRegionByProfile((current) => (
+      current[profile] === region
+        ? current
+        : { ...current, [profile]: region }
+    ))
+  }, [activeSessionId, profile, region])
 
   // Profile is only set by explicit user selection — no auto-select
 
@@ -172,9 +238,12 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProf
     if (!region) return null
     if (activeSession) {
       return {
+        providerId: 'aws',
         kind: 'assumed-role',
         sessionId: activeSession.id,
         label: activeSession.label,
+        profileId: activeSession.profile,
+        locationId: region,
         profile: activeSession.profile,
         sourceProfile: activeSession.sourceProfile,
         region,
@@ -188,9 +257,12 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProf
     }
     if (!profile) return null
     return {
+      providerId: 'aws',
       kind: 'profile',
       sessionId: `profile:${profile}`,
       label: profile,
+      profileId: profile,
+      locationId: region,
       profile,
       region
     }
@@ -210,6 +282,24 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProf
     const profileMap = new Map(profiles.map((entry) => [entry.name, entry]))
     return pinnedProfileNames.map((name) => profileMap.get(name)).filter((entry): entry is AwsProfile => Boolean(entry))
   }, [pinnedProfileNames, profiles])
+
+  const providerProfiles = useMemo<ProviderProfileDescriptor[]>(
+    () => profiles.map((entry) => toProviderProfileDescriptor(entry, entry.name === profile)),
+    [profile, profiles]
+  )
+
+  const providerLocations = useMemo<ProviderLocationDescriptor[]>(
+    () => regions.map((entry) => toProviderLocationDescriptor(entry)),
+    [regions]
+  )
+
+  const providerConnection = useMemo<ProviderConnectionDescriptor | null>(() => {
+    if (!connection) {
+      return null
+    }
+
+    return toProviderConnectionDescriptor(connection, selectedRegion?.name || connection.region)
+  }, [connection, selectedRegion])
 
   function togglePinnedProfile(name: string): void {
     setPinnedProfileNames((current) => {
@@ -284,8 +374,11 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProf
   }
 
   return {
+    providerId: 'aws' as const,
     profiles,
+    providerProfiles,
     regions,
+    providerLocations,
     profile,
     setProfile,
     selectProfile,
@@ -308,6 +401,7 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProf
     error,
     setError,
     connection,
+    providerConnection,
     connect,
     refreshProfiles
   }

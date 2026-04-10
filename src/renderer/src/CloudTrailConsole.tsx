@@ -2,8 +2,8 @@ import type { CSSProperties } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import './terraform.css'
 
-import type { AwsConnection, CloudTrailEventSummary, CloudTrailSummary, TokenizedFocus } from '@shared/types'
-import { listTrails, lookupCloudTrailEvents, lookupCloudTrailEventsByResource } from './api'
+import type { AwsConnection, CloudTrailEventSummary, CloudTrailSummary } from '@shared/types'
+import { listTrails, lookupCloudTrailEvents } from './api'
 import { SvcState } from './SvcState'
 
 type ColKey =
@@ -43,13 +43,7 @@ function formatTrailMode(trail: CloudTrailSummary): string {
   return `${trail.isLogging ? 'Logging' : 'Stopped'} | ${trail.isMultiRegion ? 'Multi-region' : 'Single-region'}`
 }
 
-export function CloudTrailConsole({
-  connection,
-  focus
-}: {
-  connection: AwsConnection
-  focus?: TokenizedFocus<'cloudtrail'> | null
-}) {
+export function CloudTrailConsole({ connection }: { connection: AwsConnection }) {
   const [trails, setTrails] = useState<CloudTrailSummary[]>([])
   const [events, setEvents] = useState<CloudTrailEventSummary[]>([])
   const [loading, setLoading] = useState(false)
@@ -65,8 +59,6 @@ export function CloudTrailConsole({
   const [startTime, setStartTime] = useState('00:00')
   const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [endTime, setEndTime] = useState('23:59')
-  const [resourceName, setResourceName] = useState('')
-  const [appliedFocusToken, setAppliedFocusToken] = useState(0)
 
   async function load() {
     setLoading(true)
@@ -76,9 +68,7 @@ export function CloudTrailConsole({
       const end = new Date(`${endDate}T${endTime}:59`).toISOString()
       const [trailList, eventList] = await Promise.all([
         listTrails(connection),
-        resourceName
-          ? lookupCloudTrailEventsByResource(connection, resourceName, start, end)
-          : lookupCloudTrailEvents(connection, start, end)
+        lookupCloudTrailEvents(connection, start, end)
       ])
       setTrails(trailList)
       setEvents(eventList)
@@ -93,48 +83,12 @@ export function CloudTrailConsole({
     void load()
   }, [connection.sessionId, connection.region])
 
-  useEffect(() => {
-    if (!focus || focus.token === appliedFocusToken) return
-    setAppliedFocusToken(focus.token)
-    setResourceName(focus.resourceName ?? '')
-    setFilter(focus.filter ?? focus.resourceName ?? '')
-    if (focus.startTime) {
-      const start = new Date(focus.startTime)
-      if (!Number.isNaN(start.getTime())) {
-        setStartDate(start.toISOString().slice(0, 10))
-        setStartTime(start.toISOString().slice(11, 16))
-      }
-    }
-    if (focus.endTime) {
-      const end = new Date(focus.endTime)
-      if (!Number.isNaN(end.getTime())) {
-        setEndDate(end.toISOString().slice(0, 10))
-        setEndTime(end.toISOString().slice(11, 16))
-      }
-    }
-  }, [appliedFocusToken, focus])
-
-  useEffect(() => {
-    if (appliedFocusToken === 0) return
-    void load()
-  }, [appliedFocusToken])
-
   const activeCols = useMemo(() => COLUMNS.filter((c) => visCols.has(c.key)), [visCols])
 
   const filteredEvents = useMemo(() => {
     if (!filter) return events
-    const tokens = filter
-      .toLowerCase()
-      .split(/\s+/)
-      .map((token) => token.trim())
-      .filter(Boolean)
-
-    if (tokens.length === 0) return events
-
-    return events.filter((ev) => {
-      const haystack = activeCols.map((c) => cellVal(ev, c.key).toLowerCase()).join(' ')
-      return tokens.every((token) => haystack.includes(token))
-    })
+    const q = filter.toLowerCase()
+    return events.filter((ev) => activeCols.some((c) => cellVal(ev, c.key).toLowerCase().includes(q)))
   }, [events, filter, activeCols])
 
   const stats = useMemo(() => {
@@ -185,10 +139,6 @@ export function CloudTrailConsole({
               <span>Columns</span>
               <strong>{activeCols.length} visible</strong>
             </div>
-            <div className="tf-shell-meta-pill">
-              <span>Resource focus</span>
-              <strong>{resourceName || 'All resources'}</strong>
-            </div>
           </div>
         </div>
         <div className="tf-shell-hero-stats">
@@ -220,12 +170,6 @@ export function CloudTrailConsole({
           <button className="tf-toolbar-btn accent" type="button" onClick={() => void load()} disabled={loading}>
             {loading ? 'Loading...' : 'Fetch Events'}
           </button>
-          <input
-            className="tf-toolbar-input"
-            value={resourceName}
-            onChange={(event) => setResourceName(event.target.value)}
-            placeholder="Optional resource name"
-          />
           <div className="ct-toolbar-note">
             Pull trail metadata and event history for the current time range. Existing filters and visible columns stay
             applied after refresh.

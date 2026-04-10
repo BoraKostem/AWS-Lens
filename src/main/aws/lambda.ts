@@ -10,7 +10,7 @@ import {
 } from '@aws-sdk/client-lambda'
 import AdmZip from 'adm-zip'
 
-import { awsClientConfig } from './client'
+import { getAwsClient } from './client'
 import type {
   AwsConnection,
   LambdaCodeResult,
@@ -20,12 +20,8 @@ import type {
   LambdaInvokeResult
 } from '@shared/types'
 
-function createClient(connection: AwsConnection): LambdaClient {
-  return new LambdaClient(awsClientConfig(connection))
-}
-
 export async function listLambdaFunctions(connection: AwsConnection): Promise<LambdaFunctionSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(LambdaClient, connection)
   const functions: LambdaFunctionSummary[] = []
   let marker: string | undefined
 
@@ -60,7 +56,7 @@ export async function getLambdaFunctionDetails(
   connection: AwsConnection,
   functionName: string
 ): Promise<LambdaFunctionDetail> {
-  const client = createClient(connection)
+  const client = getAwsClient(LambdaClient, connection)
   const output = await client.send(new GetFunctionCommand({ FunctionName: functionName }))
   const config = output.Configuration
 
@@ -84,7 +80,7 @@ export async function getLambdaFunctionCode(
   connection: AwsConnection,
   functionName: string
 ): Promise<LambdaCodeResult> {
-  const client = createClient(connection)
+  const client = getAwsClient(LambdaClient, connection)
   const output = await client.send(new GetFunctionCommand({ FunctionName: functionName }))
   const location = output.Code?.Location
 
@@ -145,7 +141,7 @@ export async function invokeLambdaFunction(
   functionName: string,
   payload = '{}'
 ): Promise<LambdaInvokeResult> {
-  const client = createClient(connection)
+  const client = getAwsClient(LambdaClient, connection)
   const output = await client.send(
     new InvokeCommand({
       FunctionName: functionName,
@@ -176,7 +172,7 @@ export async function createLambdaFunction(
   connection: AwsConnection,
   config: LambdaCreateConfig
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(LambdaClient, connection)
 
   // Create a zip with the code in a single file
   const zip = new AdmZip()
@@ -209,6 +205,6 @@ export async function deleteLambdaFunction(
   connection: AwsConnection,
   functionName: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(LambdaClient, connection)
   await client.send(new DeleteFunctionCommand({ FunctionName: functionName }))
 }

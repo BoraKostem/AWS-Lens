@@ -1,10 +1,12 @@
 import { promises as fs } from 'node:fs'
-import { ipcMain } from 'electron'
+import path from 'node:path'
+import { app, dialog, ipcMain, type BrowserWindow, type OpenDialogOptions } from 'electron'
 
 import type {
   AwsConnection,
   BastionLaunchConfig,
   Ec2BulkInstanceAction,
+  Ec2ChosenSshKey,
   EbsVolumeAttachRequest,
   EbsVolumeDetachRequest,
   EbsVolumeModifyRequest,
@@ -56,6 +58,8 @@ import {
   startSsmSession
 } from './aws/ssm'
 import { createHandlerWrapper } from './operations'
+import { logWarn } from './observability'
+import { importSshPrivateKeyToVault, stageVaultSshPrivateKey } from './sshKeyMaterial'
 
 type HandlerResult<T> = { ok: true; data: T } | { ok: false; error: string }
 const wrap: <T>(fn: () => Promise<T> | T, label?: string) => Promise<HandlerResult<T>> =
@@ -63,10 +67,81 @@ const wrap: <T>(fn: () => Promise<T> | T, label?: string) => Promise<HandlerResu
 
 const SSH_PUBLIC_KEY_PREFIXES = ['ssh-rsa', 'ssh-ed25519', 'ecdsa-sha2-', 'sk-ssh-', 'sk-ecdsa-']
 
+function normalizeKeyName(value: string): string {
+  return value.trim().toLowerCase().replace(/\.pem$|\.ppk$|\.key$/g, '')
+}
+
 function looksLikeInlinePublicKey(value: string): boolean {
   const trimmed = value.trim()
 
   return SSH_PUBLIC_KEY_PREFIXES.some((prefix) => trimmed.startsWith(prefix))
+}
+
+async function listLocalSshKeySuggestions(preferredKeyName = ''): Promise<Array<{
+  privateKeyPath: string
+  publicKeyPath: string
+  label: string
+  source: 'matched-key-name' | 'discovered'
+  keyNameMatch: boolean
+  hasPublicKey: boolean
+}>> {
+  const sshDir = path.join(app.getPath('home'), '.ssh')
+  const preferred = normalizeKeyName(preferredKeyName)
+
+  let entries: Array<{ isFile: () => boolean; name: string }>
+  try {
+    entries = (await fs.readdir(sshDir, { withFileTypes: true, encoding: 'utf8' })).map((entry) => ({
+      isFile: () => entry.isFile(),
+      name: entry.name
+    }))
+  } catch (error) {
+    logWarn('ec2-ipc', 'Unable to read local SSH directory for key suggestions.', { sshDir }, error)
+    return []
+  }
+
+  const ignoredNames = new Set(['authorized_keys', 'config', 'known_hosts', 'known_hosts.old'])
+  const candidates = entries
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .filter((name) => !name.endsWith('.pub'))
+    .filter((name) => !ignoredNames.has(name))
+    .filter((name) => {
+      const extension = path.extname(name).toLowerCase()
+
+      if (extension) {
+        return extension === '.pem' || extension === '.ppk' || extension === '.key'
+      }
+
+      return name.startsWith('id_') || name.includes('aws') || name.includes('ssh')
+    })
+
+  const suggestions = await Promise.all(candidates.map(async (name) => {
+    const privateKeyPath = path.join(sshDir, name)
+    const publicKeyPath = `${privateKeyPath}.pub`
+    const hasPublicKey = await fs.access(publicKeyPath).then(() => true).catch(() => false)
+    const keyNameMatch = preferred.length > 0 && normalizeKeyName(name) === preferred
+
+    return {
+      privateKeyPath,
+      publicKeyPath,
+      label: keyNameMatch ? `${name} (matches ${preferredKeyName})` : name,
+      source: keyNameMatch ? 'matched-key-name' as const : 'discovered' as const,
+      keyNameMatch,
+      hasPublicKey
+    }
+  }))
+
+  return suggestions.sort((left, right) => {
+    if (left.keyNameMatch !== right.keyNameMatch) {
+      return left.keyNameMatch ? -1 : 1
+    }
+
+    if (left.hasPublicKey !== right.hasPublicKey) {
+      return left.hasPublicKey ? -1 : 1
+    }
+
+    return left.label.localeCompare(right.label)
+  })
 }
 
 async function resolveSshPublicKey(publicKeyOrPath: string): Promise<string> {
@@ -104,7 +179,7 @@ async function resolveSshPublicKey(publicKeyOrPath: string): Promise<string> {
   }
 }
 
-export function registerEc2IpcHandlers(): void {
+export function registerEc2IpcHandlers(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('ec2:list', async (_event, connection: AwsConnection) =>
     wrap(() => listEc2Instances(connection))
   )
@@ -242,6 +317,33 @@ export function registerEc2IpcHandlers(): void {
       publicKey: string,
       availabilityZone: string
     ) => wrap(async () => sendSshPublicKey(connection, instanceId, osUser, await resolveSshPublicKey(publicKey), availabilityZone))
+  )
+  ipcMain.handle('ec2:ssh:choose-key', async (): Promise<HandlerResult<Ec2ChosenSshKey | null>> =>
+    wrap(async () => {
+      const owner = getWindow()
+      const dialogOptions: OpenDialogOptions = {
+        title: 'Select SSH private key',
+        properties: ['openFile'],
+        filters: [
+          { name: 'SSH Private Keys', extensions: ['pem', 'ppk', 'key'] },
+          { name: 'All Files', extensions: ['*'] }
+        ]
+      }
+      const result = owner
+        ? await dialog.showOpenDialog(owner, dialogOptions)
+        : await dialog.showOpenDialog(dialogOptions)
+      if (result.canceled || !result.filePaths[0]) {
+        return null
+      }
+
+      return importSshPrivateKeyToVault(result.filePaths[0])
+    })
+  )
+  ipcMain.handle('ec2:ssh:list-key-suggestions', async (_event, preferredKeyName?: string) =>
+    wrap(() => listLocalSshKeySuggestions(preferredKeyName))
+  )
+  ipcMain.handle('ec2:ssh:materialize-vault-key', async (_event, entryId: string) =>
+    wrap(() => stageVaultSshPrivateKey(entryId))
   )
   ipcMain.handle('ec2:recommendations', async (_event, connection: AwsConnection) =>
     wrap(() => getEc2Recommendations(connection))

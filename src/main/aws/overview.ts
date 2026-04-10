@@ -27,9 +27,10 @@ import {
   OrganizationsClient
 } from '@aws-sdk/client-organizations'
 
-import { awsClientConfig, readTags } from './client'
+import { getAwsClient, readTags } from './client'
 import { getAwsCapabilitySnapshot } from './capabilities'
 import { getCallerIdentity } from './sts'
+import { logWarn } from '../observability'
 import type {
   AwsConnection,
   BillingLinkedAccountSummary,
@@ -55,35 +56,14 @@ import type {
   TaggedResource
 } from '@shared/types'
 
-/* ── cost heuristics (monthly USD estimates per resource) ── */
-const COST_EC2_INSTANCE = 43.8
-const COST_LAMBDA_FUNCTION = 5.0
-const COST_EKS_CLUSTER = 73.0
-const COST_ASG_INSTANCE = 43.8
-const COST_S3_BUCKET = 2.3
-const COST_RDS_INSTANCE = 48.5
-const COST_CFN_STACK = 0
-const COST_ECR_REPO = 1.0
-const COST_ECS_CLUSTER = 36.0
-const COST_VPC = 4.5
-const COST_LOAD_BALANCER = 16.2
-const COST_ROUTE53_ZONE = 0.5
-const COST_SECURITY_GROUP = 0
-const COST_SNS_TOPIC = 0.5
-const COST_SQS_QUEUE = 0.4
-const COST_ACM_CERT = 0
-const COST_KMS_KEY = 1.0
-const COST_WAF_ACL = 5.0
-const COST_SECRET = 0.4
-const COST_KEY_PAIR = 0
-const COST_CW_ALARM = 0.1
+/* ── Cost Explorer (monthly current-month spend) ──────────── */
 const COST_EXPLORER_METRIC = 'UnblendedCost' as const
 const COST_EXPLORER_METRIC_LABEL = 'Unblended cost'
 const BILLING_HOME_REGION = 'us-east-1'
-const OWNERSHIP_TAG_KEYS: GovernanceTagKey[] = ['Owner', 'Environment', 'Project', 'CostCenter']
 const ORGANIZATIONS_HOME_REGION = 'us-east-1'
 const ORGANIZATION_TREE_DEPTH_LIMIT = 4
 const ORGANIZATION_TREE_NODE_LIMIT = 250
+const OWNERSHIP_TAG_KEYS: GovernanceTagKey[] = ['Owner', 'Environment', 'Project', 'CostCenter']
 
 /* ── helpers ──────────────────────────────────────────────── */
 
@@ -101,7 +81,7 @@ async function countEc2(connection: AwsConnection): Promise<{
     tags: Record<string, string>
   }>
 }> {
-  const client = new EC2Client(awsClientConfig(connection))
+  const client = getAwsClient(EC2Client, connection)
   const instances: Array<{
     id: string
     name: string
@@ -143,7 +123,7 @@ async function countLambda(connection: AwsConnection): Promise<{
   count: number
   functions: Array<{ name: string; runtime: string; role: string; tags: Record<string, string> }>
 }> {
-  const client = new LambdaClient(awsClientConfig(connection))
+  const client = getAwsClient(LambdaClient, connection)
   const functions: Array<{ name: string; runtime: string; role: string; tags: Record<string, string> }> = []
   let marker: string | undefined
 
@@ -167,7 +147,7 @@ async function countEks(connection: AwsConnection): Promise<{
   count: number
   clusters: Array<{ name: string; roleArn: string; vpcId: string }>
 }> {
-  const client = new EKSClient(awsClientConfig(connection))
+  const client = getAwsClient(EKSClient, connection)
   const clusters: Array<{ name: string; roleArn: string; vpcId: string }> = []
   let nextToken: string | undefined
 
@@ -191,7 +171,7 @@ async function countAsg(connection: AwsConnection): Promise<{
     tags: Record<string, string>
   }>
 }> {
-  const client = new AutoScalingClient(awsClientConfig(connection))
+  const client = getAwsClient(AutoScalingClient, connection)
   const groups: Array<{
     name: string
     instances: number
@@ -221,13 +201,13 @@ async function countAsg(connection: AwsConnection): Promise<{
 }
 
 async function countS3(connection: AwsConnection): Promise<number> {
-  const client = new S3Client(awsClientConfig(connection))
+  const client = getAwsClient(S3Client, connection)
   const output = await client.send(new ListBucketsCommand({}))
   return output.Buckets?.length ?? 0
 }
 
 async function countRds(connection: AwsConnection): Promise<number> {
-  const client = new RDSClient(awsClientConfig(connection))
+  const client = getAwsClient(RDSClient, connection)
   let count = 0
   let marker: string | undefined
   do {
@@ -239,7 +219,7 @@ async function countRds(connection: AwsConnection): Promise<number> {
 }
 
 async function countCloudFormation(connection: AwsConnection): Promise<number> {
-  const client = new CloudFormationClient(awsClientConfig(connection))
+  const client = getAwsClient(CloudFormationClient, connection)
   let count = 0
   let nextToken: string | undefined
   do {
@@ -264,7 +244,7 @@ async function countCloudFormation(connection: AwsConnection): Promise<number> {
 }
 
 async function countEcr(connection: AwsConnection): Promise<number> {
-  const client = new ECRClient(awsClientConfig(connection))
+  const client = getAwsClient(ECRClient, connection)
   let count = 0
   let nextToken: string | undefined
   do {
@@ -276,7 +256,7 @@ async function countEcr(connection: AwsConnection): Promise<number> {
 }
 
 async function countEcs(connection: AwsConnection): Promise<number> {
-  const client = new ECSClient(awsClientConfig(connection))
+  const client = getAwsClient(ECSClient, connection)
   let count = 0
   let nextToken: string | undefined
   do {
@@ -288,7 +268,7 @@ async function countEcs(connection: AwsConnection): Promise<number> {
 }
 
 async function countVpc(connection: AwsConnection): Promise<number> {
-  const client = new EC2Client(awsClientConfig(connection))
+  const client = getAwsClient(EC2Client, connection)
   let count = 0
   let nextToken: string | undefined
   do {
@@ -300,7 +280,7 @@ async function countVpc(connection: AwsConnection): Promise<number> {
 }
 
 async function countAllVpc(connection: AwsConnection): Promise<number> {
-  const client = new EC2Client(awsClientConfig(connection))
+  const client = getAwsClient(EC2Client, connection)
   let count = 0
   let nextToken: string | undefined
   do {
@@ -312,7 +292,7 @@ async function countAllVpc(connection: AwsConnection): Promise<number> {
 }
 
 async function countLoadBalancers(connection: AwsConnection): Promise<number> {
-  const client = new ElasticLoadBalancingV2Client(awsClientConfig(connection))
+  const client = getAwsClient(ElasticLoadBalancingV2Client, connection)
   let count = 0
   let marker: string | undefined
   do {
@@ -324,13 +304,13 @@ async function countLoadBalancers(connection: AwsConnection): Promise<number> {
 }
 
 async function countRoute53(connection: AwsConnection): Promise<number> {
-  const client = new Route53Client(awsClientConfig(connection))
+  const client = getAwsClient(Route53Client, connection)
   const output = await client.send(new ListHostedZonesCommand({}))
   return output.HostedZones?.length ?? 0
 }
 
 async function countSecurityGroups(connection: AwsConnection): Promise<number> {
-  const client = new EC2Client(awsClientConfig(connection))
+  const client = getAwsClient(EC2Client, connection)
   let count = 0
   let nextToken: string | undefined
   do {
@@ -342,7 +322,7 @@ async function countSecurityGroups(connection: AwsConnection): Promise<number> {
 }
 
 async function countSns(connection: AwsConnection): Promise<number> {
-  const client = new SNSClient(awsClientConfig(connection))
+  const client = getAwsClient(SNSClient, connection)
   let count = 0
   let nextToken: string | undefined
   do {
@@ -354,7 +334,7 @@ async function countSns(connection: AwsConnection): Promise<number> {
 }
 
 async function countSqs(connection: AwsConnection): Promise<number> {
-  const client = new SQSClient(awsClientConfig(connection))
+  const client = getAwsClient(SQSClient, connection)
   let count = 0
   let nextToken: string | undefined
   do {
@@ -366,7 +346,7 @@ async function countSqs(connection: AwsConnection): Promise<number> {
 }
 
 async function countAcm(connection: AwsConnection): Promise<number> {
-  const client = new ACMClient(awsClientConfig(connection))
+  const client = getAwsClient(ACMClient, connection)
   let count = 0
   let nextToken: string | undefined
   do {
@@ -378,7 +358,7 @@ async function countAcm(connection: AwsConnection): Promise<number> {
 }
 
 async function countKms(connection: AwsConnection): Promise<number> {
-  const client = new KMSClient(awsClientConfig(connection))
+  const client = getAwsClient(KMSClient, connection)
   let count = 0
   let marker: string | undefined
   do {
@@ -391,13 +371,13 @@ async function countKms(connection: AwsConnection): Promise<number> {
 }
 
 async function countWaf(connection: AwsConnection): Promise<number> {
-  const client = new WAFV2Client(awsClientConfig(connection))
+  const client = getAwsClient(WAFV2Client, connection)
   const output = await client.send(new ListWebACLsCommand({ Scope: 'REGIONAL', Limit: 100 }))
   return output.WebACLs?.length ?? 0
 }
 
 async function countSecretsManager(connection: AwsConnection): Promise<number> {
-  const client = new SecretsManagerClient(awsClientConfig(connection))
+  const client = getAwsClient(SecretsManagerClient, connection)
   let count = 0
   let nextToken: string | undefined
   do {
@@ -409,25 +389,25 @@ async function countSecretsManager(connection: AwsConnection): Promise<number> {
 }
 
 async function countKeyPairs(connection: AwsConnection): Promise<number> {
-  const client = new EC2Client(awsClientConfig(connection))
+  const client = getAwsClient(EC2Client, connection)
   const output = await client.send(new DescribeKeyPairsCommand({}))
   return output.KeyPairs?.length ?? 0
 }
 
 async function countCloudWatch(connection: AwsConnection): Promise<number> {
-  const client = new CloudWatchClient(awsClientConfig(connection))
+  const client = getAwsClient(CloudWatchClient, connection)
   const output = await client.send(new DescribeAlarmsCommand({}))
   return output.MetricAlarms?.length ?? 0
 }
 
 async function countCloudTrail(connection: AwsConnection): Promise<number> {
-  const client = new CloudTrailClient(awsClientConfig(connection))
+  const client = getAwsClient(CloudTrailClient, connection)
   const output = await client.send(new DescribeTrailsCommand({}))
   return output.trailList?.length ?? 0
 }
 
 async function countIam(connection: AwsConnection): Promise<number> {
-  const client = new IAMClient(awsClientConfig(connection))
+  const client = getAwsClient(IAMClient, connection)
   const [users, roles] = await Promise.all([
     client.send(new ListUsersCommand({})),
     client.send(new ListRolesCommand({}))
@@ -487,7 +467,7 @@ async function mapWithConcurrency<T, R>(
 }
 
 async function listTaggedLambda(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new LambdaClient(awsClientConfig(connection))
+  const client = getAwsClient(LambdaClient, connection)
   const functions: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let marker: string | undefined
 
@@ -516,7 +496,7 @@ async function listTaggedLambda(connection: AwsConnection): Promise<Array<{ id: 
 }
 
 async function listTaggedEks(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new EKSClient(awsClientConfig(connection))
+  const client = getAwsClient(EKSClient, connection)
   const clusters: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let nextToken: string | undefined
 
@@ -545,7 +525,7 @@ async function listTaggedEks(connection: AwsConnection): Promise<Array<{ id: str
 }
 
 async function listTaggedVpcs(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new EC2Client(awsClientConfig(connection))
+  const client = getAwsClient(EC2Client, connection)
   const vpcs: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let nextToken: string | undefined
 
@@ -566,7 +546,7 @@ async function listTaggedVpcs(connection: AwsConnection): Promise<Array<{ id: st
 }
 
 async function listTaggedSecurityGroups(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new EC2Client(awsClientConfig(connection))
+  const client = getAwsClient(EC2Client, connection)
   const groups: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let nextToken: string | undefined
 
@@ -587,7 +567,7 @@ async function listTaggedSecurityGroups(connection: AwsConnection): Promise<Arra
 }
 
 async function listTaggedSns(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new SNSClient(awsClientConfig(connection))
+  const client = getAwsClient(SNSClient, connection)
   const topics: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let nextToken: string | undefined
 
@@ -619,7 +599,7 @@ async function listTaggedSns(connection: AwsConnection): Promise<Array<{ id: str
 }
 
 async function listTaggedSqs(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new SQSClient(awsClientConfig(connection))
+  const client = getAwsClient(SQSClient, connection)
   const queues: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let nextToken: string | undefined
 
@@ -648,7 +628,7 @@ async function listTaggedSqs(connection: AwsConnection): Promise<Array<{ id: str
 }
 
 async function listTaggedSecrets(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new SecretsManagerClient(awsClientConfig(connection))
+  const client = getAwsClient(SecretsManagerClient, connection)
   const secrets: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let nextToken: string | undefined
 
@@ -668,7 +648,7 @@ async function listTaggedSecrets(connection: AwsConnection): Promise<Array<{ id:
 }
 
 async function listTaggedKeyPairs(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new EC2Client(awsClientConfig(connection))
+  const client = getAwsClient(EC2Client, connection)
   const output = await client.send(new DescribeKeyPairsCommand({}))
 
   return (output.KeyPairs ?? []).map((pair) => {
@@ -682,7 +662,7 @@ async function listTaggedKeyPairs(connection: AwsConnection): Promise<Array<{ id
 }
 
 async function listTaggedS3(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new S3Client(awsClientConfig(connection))
+  const client = getAwsClient(S3Client, connection)
   const output = await client.send(new ListBucketsCommand({}))
   const buckets = output.Buckets ?? []
 
@@ -704,7 +684,7 @@ async function listTaggedS3(connection: AwsConnection): Promise<Array<{ id: stri
 }
 
 async function listTaggedRds(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new RDSClient(awsClientConfig(connection))
+  const client = getAwsClient(RDSClient, connection)
   const instances: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let marker: string | undefined
 
@@ -735,7 +715,7 @@ async function listTaggedRds(connection: AwsConnection): Promise<Array<{ id: str
 }
 
 async function listTaggedCloudFormation(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new CloudFormationClient(awsClientConfig(connection))
+  const client = getAwsClient(CloudFormationClient, connection)
   const stacks: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let nextToken: string | undefined
 
@@ -755,7 +735,7 @@ async function listTaggedCloudFormation(connection: AwsConnection): Promise<Arra
 }
 
 async function listTaggedEcr(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new ECRClient(awsClientConfig(connection))
+  const client = getAwsClient(ECRClient, connection)
   const repositories: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let nextToken: string | undefined
 
@@ -788,7 +768,7 @@ async function listTaggedEcr(connection: AwsConnection): Promise<Array<{ id: str
 }
 
 async function listTaggedEcs(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new ECSClient(awsClientConfig(connection))
+  const client = getAwsClient(ECSClient, connection)
   const clusters: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let nextToken: string | undefined
 
@@ -831,7 +811,7 @@ async function listTaggedEcs(connection: AwsConnection): Promise<Array<{ id: str
 }
 
 async function listTaggedLoadBalancers(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new ElasticLoadBalancingV2Client(awsClientConfig(connection))
+  const client = getAwsClient(ElasticLoadBalancingV2Client, connection)
   const balancers: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let marker: string | undefined
 
@@ -878,7 +858,7 @@ async function listTaggedLoadBalancers(connection: AwsConnection): Promise<Array
 }
 
 async function listTaggedRoute53(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new Route53Client(awsClientConfig(connection))
+  const client = getAwsClient(Route53Client, connection)
   const output = await client.send(new ListHostedZonesCommand({}))
   const zones = output.HostedZones ?? []
   const zoneIds = zones
@@ -919,7 +899,7 @@ async function listTaggedRoute53(connection: AwsConnection): Promise<Array<{ id:
 }
 
 async function listTaggedAcm(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new ACMClient(awsClientConfig(connection))
+  const client = getAwsClient(ACMClient, connection)
   const certificates: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let nextToken: string | undefined
 
@@ -952,7 +932,7 @@ async function listTaggedAcm(connection: AwsConnection): Promise<Array<{ id: str
 }
 
 async function listTaggedKms(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new KMSClient(awsClientConfig(connection))
+  const client = getAwsClient(KMSClient, connection)
   const keys: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let marker: string | undefined
 
@@ -992,7 +972,7 @@ async function listTaggedKms(connection: AwsConnection): Promise<Array<{ id: str
 }
 
 async function listTaggedWaf(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new WAFV2Client(awsClientConfig(connection))
+  const client = getAwsClient(WAFV2Client, connection)
   const output = await client.send(new ListWebACLsCommand({ Scope: 'REGIONAL', Limit: 100 }))
 
   return mapWithConcurrency(output.WebACLs ?? [], 5, async (acl) => {
@@ -1016,7 +996,7 @@ async function listTaggedWaf(connection: AwsConnection): Promise<Array<{ id: str
 }
 
 async function listTaggedCloudWatch(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new CloudWatchClient(awsClientConfig(connection))
+  const client = getAwsClient(CloudWatchClient, connection)
   const alarms: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let nextToken: string | undefined
 
@@ -1049,7 +1029,7 @@ async function listTaggedCloudWatch(connection: AwsConnection): Promise<Array<{ 
 }
 
 async function listTaggedCloudTrail(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new CloudTrailClient(awsClientConfig(connection))
+  const client = getAwsClient(CloudTrailClient, connection)
   const output = await client.send(new DescribeTrailsCommand({}))
   const trails = output.trailList ?? []
   const resourceIds = trails.map((trail) => trail.TrailARN ?? trail.Name).filter((value): value is string => Boolean(value))
@@ -1084,7 +1064,7 @@ async function listTaggedCloudTrail(connection: AwsConnection): Promise<Array<{ 
 }
 
 async function listTaggedIam(connection: AwsConnection): Promise<Array<{ id: string; name: string; service: string; resourceType: string; tags: Record<string, string> }>> {
-  const client = new IAMClient(awsClientConfig(connection))
+  const client = getAwsClient(IAMClient, connection)
   const resources: Array<{ id: string; name: string; service: string; resourceType: string; tags: Record<string, string> }> = []
 
   let userMarker: string | undefined
@@ -1206,7 +1186,7 @@ function readCostMetricAmount(
 }
 
 function createBillingCostExplorerClient(connection: AwsConnection): CostExplorerClient {
-  return new CostExplorerClient(awsClientConfig({ ...connection, region: BILLING_HOME_REGION }))
+  return getAwsClient(CostExplorerClient, { ...connection, region: BILLING_HOME_REGION })
 }
 
 function getCurrentMonthCostExplorerWindow(): {
@@ -1224,6 +1204,41 @@ function getCurrentMonthCostExplorerWindow(): {
       Start: formatCostExplorerDate(start),
       End: formatCostExplorerDate(end)
     }
+  }
+}
+
+function createEmptyCurrentMonthCost(): { total: number; period: string } {
+  return {
+    total: 0,
+    period: getCurrentMonthCostExplorerWindow().label
+  }
+}
+
+function createRegionCostRow(region: string, totalCost = 0): RegionCostRow {
+  return {
+    region,
+    ec2Cost: 0,
+    lambdaCost: 0,
+    eksCost: 0,
+    asgCost: 0,
+    s3Cost: 0,
+    rdsCost: 0,
+    cfnCost: 0,
+    ecrCost: 0,
+    ecsCost: 0,
+    vpcCost: 0,
+    elbCost: 0,
+    r53Cost: 0,
+    sgCost: 0,
+    snsCost: 0,
+    sqsCost: 0,
+    acmCost: 0,
+    kmsCost: 0,
+    wafCost: 0,
+    smCost: 0,
+    kpCost: 0,
+    cwCost: 0,
+    totalCost: roundCurrency(totalCost)
   }
 }
 
@@ -1394,8 +1409,8 @@ async function getMonthlyCostForTag(
 }
 
 function createOrganizationsClient(connection: AwsConnection): OrganizationsClient {
-  return new OrganizationsClient({
-    ...awsClientConfig(connection),
+  return getAwsClient(OrganizationsClient, {
+    ...connection,
     region: ORGANIZATIONS_HOME_REGION
   })
 }
@@ -1486,7 +1501,10 @@ async function listAccountNodes(client: OrganizationsClient, parentId: string): 
   return accounts.filter((node) => node.id)
 }
 
-async function fetchOrganizationContext(connection: AwsConnection, currentAccountId: string): Promise<OverviewOrganizationContext | null> {
+async function fetchOrganizationContext(
+  connection: AwsConnection,
+  currentAccountId: string
+): Promise<OverviewOrganizationContext | null> {
   const client = createOrganizationsClient(connection)
 
   try {
@@ -1566,6 +1584,12 @@ async function fetchOrganizationContext(connection: AwsConnection, currentAccoun
       warning: truncated ? 'Organization tree was truncated to keep the overview responsive.' : ''
     }
   } catch (error) {
+    logWarn('overview.organizations.context', 'Failed to load AWS Organizations context for overview.', {
+      accountId: currentAccountId,
+      profile: connection.profile,
+      region: connection.region
+    }, error)
+
     const message = error instanceof Error ? error.message : String(error)
     return {
       status: /access|denied|not authorized|unauthorized/i.test(message) ? 'limited' : 'unavailable',
@@ -1693,7 +1717,12 @@ export async function getOverviewAccountContext(connection: AwsConnection): Prom
       notes,
       generatedAt
     }
-  } catch {
+  } catch (error) {
+    logWarn('overview.billing.context', 'Failed to load overview billing context.', {
+      profile: connection.profile,
+      region: connection.region
+    }, error)
+
     notes.push('Cost Explorer billing context is unavailable for these credentials. Overview remains usable, but payer rollups and ownership hints are suppressed.')
 
     return {
@@ -1718,9 +1747,10 @@ export async function getOverviewMetrics(
   connection: AwsConnection,
   regions: string[]
 ): Promise<OverviewMetrics> {
-  const monthlyCostPromise = fetchCurrentMonthCostBreakdown(connection)
-    .then((breakdown) => breakdown.total)
-    .catch(() => null)
+  const monthlyCostPromise = safeCount(
+    () => fetchCurrentMonthTotalCost(connection),
+    createEmptyCurrentMonthCost()
+  )
 
   // Global services (not region-scoped) — query once using the first region
   const globalConn = { ...connection, region: regions[0] ?? connection.region }
@@ -1731,7 +1761,7 @@ export async function getOverviewMetrics(
     safeCount(() => countCloudTrail(globalConn), 0)
   ])
 
-  const regionResults = await mapWithConcurrency(regions, 3, async (region, index) => {
+  const regionResults = await mapWithConcurrency(regions, 5, async (region, index) => {
       const regionConn = { ...connection, region }
       const [ec2, lambda, eks, asg, rds, cfn, ecr, ecs, vpc, allVpc, elb, sg, sns, sqs, acm, kms, waf, sm, kp, cw] = await Promise.all([
         safeCount(() => countEc2(regionConn), { count: 0, instances: [] }),
@@ -1794,37 +1824,7 @@ export async function getOverviewMetrics(
         totalResources
       }
 
-      const ec2Cost = ec2.count * COST_EC2_INSTANCE
-      const lambdaCost = lambda.count * COST_LAMBDA_FUNCTION
-      const eksCost = eks.count * COST_EKS_CLUSTER
-      const asgCost = asg.groups.reduce((sum, g) => sum + g.instances * COST_ASG_INSTANCE, 0)
-      const s3Cost = s3 * COST_S3_BUCKET
-      const rdsCost = rds * COST_RDS_INSTANCE
-      const cfnCost = cfn * COST_CFN_STACK
-      const ecrCost = ecr * COST_ECR_REPO
-      const ecsCost = ecs * COST_ECS_CLUSTER
-      const vpcCost = vpc * COST_VPC
-      const elbCost = elb * COST_LOAD_BALANCER
-      const r53Cost = r53 * COST_ROUTE53_ZONE
-      const sgCost = sg * COST_SECURITY_GROUP
-      const snsCost = sns * COST_SNS_TOPIC
-      const sqsCost = sqs * COST_SQS_QUEUE
-      const acmCost = acm * COST_ACM_CERT
-      const kmsCost = kms * COST_KMS_KEY
-      const wafCost = waf * COST_WAF_ACL
-      const smCost = sm * COST_SECRET
-      const kpCost = kp * COST_KEY_PAIR
-      const cwCost = cw * COST_CW_ALARM
-
-      const totalCost = ec2Cost + lambdaCost + eksCost + asgCost + s3Cost + rdsCost +
-        cfnCost + ecrCost + ecsCost + vpcCost + elbCost + r53Cost + sgCost +
-        snsCost + sqsCost + acmCost + kmsCost + wafCost + smCost + kpCost + cwCost
-
-      const cost: RegionCostRow = {
-        region, ec2Cost, lambdaCost, eksCost, asgCost, s3Cost, rdsCost, cfnCost,
-        ecrCost, ecsCost, vpcCost, elbCost, r53Cost, sgCost, snsCost, sqsCost,
-        acmCost, kmsCost, wafCost, smCost, kpCost, cwCost, totalCost
-      }
+      const cost = createRegionCostRow(region)
 
       return { metric, cost, isActive: totalResources > 0 || allVpc > 0 }
     }
@@ -1834,7 +1834,6 @@ export async function getOverviewMetrics(
   const regionCosts = regionResults.map((result) => result.cost)
 
   const totalResources = regionMetrics.reduce((s, r) => s + r.totalResources, 0)
-  const estimatedTotalCost = regionCosts.reduce((s, r) => s + r.totalCost, 0)
   const activeRegionCount = regionResults.filter((result) => result.isActive).length
   const monthlyCost = await monthlyCostPromise
 
@@ -1843,7 +1842,7 @@ export async function getOverviewMetrics(
     costs: regionCosts,
     globalTotals: {
       totalResources,
-      totalCost: monthlyCost ?? estimatedTotalCost,
+      totalCost: monthlyCost.total,
       regionCount: activeRegionCount
     }
   }
@@ -1860,7 +1859,7 @@ export async function getCostBreakdown(
 /* ── relationship-specific fetchers ───────────────────────── */
 
 async function fetchSecurityGroups(connection: AwsConnection): Promise<Array<{ id: string; name: string; vpcId: string }>> {
-  const client = new EC2Client(awsClientConfig(connection))
+  const client = getAwsClient(EC2Client, connection)
   const items: Array<{ id: string; name: string; vpcId: string }> = []
   let nextToken: string | undefined
   do {
@@ -1874,7 +1873,7 @@ async function fetchSecurityGroups(connection: AwsConnection): Promise<Array<{ i
 }
 
 async function fetchLoadBalancers(connection: AwsConnection): Promise<Array<{ arn: string; name: string; vpcId: string; type: string; securityGroups: string[] }>> {
-  const client = new ElasticLoadBalancingV2Client(awsClientConfig(connection))
+  const client = getAwsClient(ElasticLoadBalancingV2Client, connection)
   const items: Array<{ arn: string; name: string; vpcId: string; type: string; securityGroups: string[] }> = []
   let marker: string | undefined
   do {
@@ -1894,7 +1893,7 @@ async function fetchLoadBalancers(connection: AwsConnection): Promise<Array<{ ar
 }
 
 async function fetchEcsClusters(connection: AwsConnection): Promise<Array<{ name: string; services: number; tasks: number }>> {
-  const client = new ECSClient(awsClientConfig(connection))
+  const client = getAwsClient(ECSClient, connection)
   const arns: string[] = []
   let nextToken: string | undefined
   do {
@@ -1906,7 +1905,7 @@ async function fetchEcsClusters(connection: AwsConnection): Promise<Array<{ name
 }
 
 async function fetchSnsTopics(connection: AwsConnection): Promise<Array<{ arn: string; name: string }>> {
-  const client = new SNSClient(awsClientConfig(connection))
+  const client = getAwsClient(SNSClient, connection)
   const items: Array<{ arn: string; name: string }> = []
   let nextToken: string | undefined
   do {
@@ -1921,7 +1920,7 @@ async function fetchSnsTopics(connection: AwsConnection): Promise<Array<{ arn: s
 }
 
 async function fetchSqsQueues(connection: AwsConnection): Promise<Array<{ url: string; name: string }>> {
-  const client = new SQSClient(awsClientConfig(connection))
+  const client = getAwsClient(SQSClient, connection)
   const items: Array<{ url: string; name: string }> = []
   let nextToken: string | undefined
   do {
@@ -2065,15 +2064,26 @@ export async function getRelationshipMap(connection: AwsConnection): Promise<Rel
 
   // ECS → Load Balancer link (by shared VPC presence)
   // Lambda → SNS/SQS naming convention links
+  // Build name sets for O(1) exact-match lookups, then fall back to substring only for non-exact cases
+  const topicNameSet = new Set(snsTopics.map((t) => t.name))
+  const queueNameSet = new Set(sqsQueues.map((q) => q.name))
   for (const fn of lambda.functions) {
-    for (const topic of snsTopics) {
-      if (fn.name.includes(topic.name) || topic.name.includes(fn.name)) {
-        edges.push({ source: `lambda:${fn.name}`, sourceType: 'lambda', target: `sns:${topic.name}`, targetType: 'sns', relation: 'triggers' })
+    if (topicNameSet.has(fn.name)) {
+      edges.push({ source: `lambda:${fn.name}`, sourceType: 'lambda', target: `sns:${fn.name}`, targetType: 'sns', relation: 'triggers' })
+    } else {
+      for (const topic of snsTopics) {
+        if (fn.name.includes(topic.name) || topic.name.includes(fn.name)) {
+          edges.push({ source: `lambda:${fn.name}`, sourceType: 'lambda', target: `sns:${topic.name}`, targetType: 'sns', relation: 'triggers' })
+        }
       }
     }
-    for (const queue of sqsQueues) {
-      if (fn.name.includes(queue.name) || queue.name.includes(fn.name)) {
-        edges.push({ source: `sqs:${queue.name}`, sourceType: 'sqs', target: `lambda:${fn.name}`, targetType: 'lambda', relation: 'triggers' })
+    if (queueNameSet.has(fn.name)) {
+      edges.push({ source: `sqs:${fn.name}`, sourceType: 'sqs', target: `lambda:${fn.name}`, targetType: 'lambda', relation: 'triggers' })
+    } else {
+      for (const queue of sqsQueues) {
+        if (fn.name.includes(queue.name) || queue.name.includes(fn.name)) {
+          edges.push({ source: `sqs:${queue.name}`, sourceType: 'sqs', target: `lambda:${fn.name}`, targetType: 'lambda', relation: 'triggers' })
+        }
       }
     }
   }
@@ -2082,7 +2092,7 @@ export async function getRelationshipMap(connection: AwsConnection): Promise<Rel
 }
 
 export async function getOverviewStatistics(connection: AwsConnection): Promise<OverviewStatistics> {
-  const [ec2, lambda, eks, asg, s3, rds, cfn, ecr, ecs, vpc, elb, r53, sg, sns, sqs, acm, kms, waf, sm, kp, cw, ct, iam] = await Promise.all([
+  const [ec2, lambda, eks, asg, s3, rds, cfn, ecr, ecs, vpc, elb, r53, sg, sns, sqs, acm, kms, waf, sm, kp, cw, ct, iam, monthlyCost] = await Promise.all([
     safeCount(() => countEc2(connection), { count: 0, instances: [] }),
     safeCount(() => countLambda(connection), { count: 0, functions: [] }),
     safeCount(() => countEks(connection), { count: 0, clusters: [] }),
@@ -2105,7 +2115,8 @@ export async function getOverviewStatistics(connection: AwsConnection): Promise<
     safeCount(() => countKeyPairs(connection), 0),
     safeCount(() => countCloudWatch(connection), 0),
     safeCount(() => countCloudTrail(connection), 0),
-    safeCount(() => countIam(connection), 0)
+    safeCount(() => countIam(connection), 0),
+    safeCount(() => fetchCurrentMonthTotalCost(connection), createEmptyCurrentMonthCost())
   ])
 
   const runningEc2 = ec2.instances.filter((i) => i.state === 'running').length
@@ -2118,12 +2129,6 @@ export async function getOverviewStatistics(connection: AwsConnection): Promise<
   const allResourceTotal = ec2.count + lambda.count + eks.count + asg.count +
     s3 + rds + cfn + ecr + ecs + vpc + elb + r53 + sg + sns + sqs +
     acm + kms + waf + sm + kp + cw + ct + iam
-
-  const totalCost =
-    ec2.count * COST_EC2_INSTANCE +
-    lambda.count * COST_LAMBDA_FUNCTION +
-    eks.count * COST_EKS_CLUSTER +
-    totalAsgInstances * COST_ASG_INSTANCE
 
   const stats: OverviewStat[] = [
     { label: 'EC2 Instances', value: String(ec2.count), detail: `${runningEc2} running, ${stoppedEc2} stopped`, trend: runningEc2 > 0 ? 'up' : 'neutral' },
@@ -2150,7 +2155,12 @@ export async function getOverviewStatistics(connection: AwsConnection): Promise<
     { label: 'CloudTrail Trails', value: String(ct), detail: 'Audit logging trails', trend: ct > 0 ? 'up' : 'neutral' },
     { label: 'IAM Users & Roles', value: String(iam), detail: 'Global identity count', trend: 'neutral' },
     { label: 'Total Resources', value: String(allResourceTotal), detail: 'Across all discovered services', trend: 'neutral' },
-    { label: 'Est. Monthly Cost', value: `$${totalCost.toFixed(0)}`, detail: 'Based on compute resource heuristics', trend: 'neutral' }
+    {
+      label: 'Monthly Cost',
+      value: `$${monthlyCost.total.toFixed(2)}`,
+      detail: `Current month (${monthlyCost.period}) from Cost Explorer using ${COST_EXPLORER_METRIC_LABEL}`,
+      trend: 'neutral'
+    }
   ]
 
   // ── Insights ──────────────────────────────────────────────
@@ -2311,10 +2321,24 @@ export async function getOverviewStatistics(connection: AwsConnection): Promise<
   }
 
   // Cost signals
-  if (totalCost > 500) {
-    signals.push({ severity: 'high', region, title: 'Elevated regional spend detected', description: `Estimated monthly cost in ${region} is $${totalCost.toFixed(0)}, driven primarily by ${ec2.count > 0 ? 'EC2' : eks.count > 0 ? 'EKS' : 'compute'} resources.`, nextStep: 'Review resource utilization and consider right-sizing or reserved instances for cost optimization.', category: 'cost' })
-  } else if (totalCost > 200) {
-    signals.push({ severity: 'medium', region, title: 'Moderate regional spend', description: `Estimated monthly cost in ${region} is $${totalCost.toFixed(0)} across ${allResourceTotal} resources.`, nextStep: 'Monitor spend trends and review resource allocation periodically.', category: 'cost' })
+  if (monthlyCost.total > 500) {
+    signals.push({
+      severity: 'high',
+      region,
+      title: 'Elevated monthly spend detected',
+      description: `Current month spend visible to these credentials is $${monthlyCost.total.toFixed(0)} from Cost Explorer (${COST_EXPLORER_METRIC_LABEL}).`,
+      nextStep: 'Review top services in the cost breakdown and right-size the highest-cost workloads.',
+      category: 'cost'
+    })
+  } else if (monthlyCost.total > 200) {
+    signals.push({
+      severity: 'medium',
+      region,
+      title: 'Moderate monthly spend',
+      description: `Current month spend visible to these credentials is $${monthlyCost.total.toFixed(0)} from Cost Explorer across ${allResourceTotal} discovered resources.`,
+      nextStep: 'Monitor cost trends and review the highest-spend services for optimization opportunities.',
+      category: 'cost'
+    })
   }
 
   // Large Lambda fleet signal

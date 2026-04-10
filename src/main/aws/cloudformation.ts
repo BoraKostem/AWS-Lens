@@ -23,14 +23,10 @@ import type {
   CloudFormationStackDriftSummary,
   CloudFormationStackSummary
 } from '@shared/types'
-import { awsClientConfig } from './client'
-
-function createClient(connection: AwsConnection): CloudFormationClient {
-  return new CloudFormationClient(awsClientConfig(connection))
-}
+import { getAwsClient } from './client'
 
 export async function listStacks(connection: AwsConnection): Promise<CloudFormationStackSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(CloudFormationClient, connection)
   const stacks: CloudFormationStackSummary[] = []
   let nextToken: string | undefined
 
@@ -70,7 +66,7 @@ export async function listStackResources(
   connection: AwsConnection,
   stackName: string
 ): Promise<CloudFormationResourceSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(CloudFormationClient, connection)
   const output = await client.send(new DescribeStackResourcesCommand({ StackName: stackName }))
 
   return (output.StackResources ?? []).map((item) => ({
@@ -115,7 +111,7 @@ export async function listChangeSets(
   connection: AwsConnection,
   stackName: string
 ): Promise<CloudFormationChangeSetSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(CloudFormationClient, connection)
   const summaries: CloudFormationChangeSetSummary[] = []
   let nextToken: string | undefined
 
@@ -140,7 +136,7 @@ export async function getChangeSetDetail(
   stackName: string,
   changeSetName: string
 ): Promise<CloudFormationChangeSetDetail> {
-  const client = createClient(connection)
+  const client = getAwsClient(CloudFormationClient, connection)
   const output = await client.send(new DescribeChangeSetCommand({
     StackName: stackName,
     ChangeSetName: changeSetName
@@ -201,7 +197,7 @@ export async function createChangeSet(
     }>
   }
 ): Promise<CloudFormationChangeSetSummary> {
-  const client = createClient(connection)
+  const client = getAwsClient(CloudFormationClient, connection)
   const output = await client.send(new CreateChangeSetCommand({
     StackName: input.stackName,
     ChangeSetName: input.changeSetName,
@@ -237,7 +233,7 @@ export async function executeChangeSet(
   stackName: string,
   changeSetName: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(CloudFormationClient, connection)
   await client.send(new ExecuteChangeSetCommand({
     StackName: stackName,
     ChangeSetName: changeSetName
@@ -249,7 +245,7 @@ export async function deleteChangeSet(
   stackName: string,
   changeSetName: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(CloudFormationClient, connection)
   await client.send(new DeleteChangeSetCommand({
     StackName: stackName,
     ChangeSetName: changeSetName
@@ -283,7 +279,7 @@ export async function getStackDriftSummary(
   connection: AwsConnection,
   stackName: string
 ): Promise<CloudFormationStackDriftSummary> {
-  const client = createClient(connection)
+  const client = getAwsClient(CloudFormationClient, connection)
   const output = await client.send(new DescribeStacksCommand({ StackName: stackName }))
   const stack = output.Stacks?.[0]
   return mapStackDriftSummary(stack ?? {}, stackName)
@@ -293,7 +289,7 @@ export async function startStackDriftDetection(
   connection: AwsConnection,
   stackName: string
 ): Promise<string> {
-  const client = createClient(connection)
+  const client = getAwsClient(CloudFormationClient, connection)
   const output = await client.send(new DetectStackDriftCommand({ StackName: stackName }))
   return output.StackDriftDetectionId ?? ''
 }
@@ -444,7 +440,7 @@ export async function getStackDriftDetectionStatus(
   stackName: string,
   driftDetectionId: string
 ): Promise<{ summary: CloudFormationStackDriftSummary; rows: CloudFormationDriftedResourceRow[] }> {
-  const client = createClient(connection)
+  const client = getAwsClient(CloudFormationClient, connection)
   const output = await client.send(new DescribeStackDriftDetectionStatusCommand({
     StackDriftDetectionId: driftDetectionId
   }))

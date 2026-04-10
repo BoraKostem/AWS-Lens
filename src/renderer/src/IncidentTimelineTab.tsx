@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import type {
@@ -14,16 +14,24 @@ import type {
   TerraformRunRecord
 } from '@shared/types'
 
-import { listCloudWatchInvestigationHistory, listCloudWatchQueryHistory, listEnterpriseAuditEvents, lookupCloudTrailEvents } from './api'
+import {
+  listCloudWatchInvestigationHistory,
+  listCloudWatchQueryHistory,
+  listEnterpriseAuditEvents,
+  lookupCloudTrailEvents
+} from './api'
 import './incident-workbench.css'
 import { SvcState } from './SvcState'
 import { getDrift, getProject, getSelectedProjectId, listRunHistory } from './terraformApi'
 
 type TimelineWindowMode = '30m' | '1h' | 'custom'
-type TimelineSource = 'terraform' | 'cloudtrail' | 'cloudwatch' | 'drift'
+type TimelineSource = 'terraform' | 'cloudtrail' | 'cloudwatch' | 'drift' | 'audit'
 type TimelineTone = 'info' | 'success' | 'warning' | 'danger'
 type IncidentTimelineScope = 'terraform' | 'overview'
 type IncidentViewMode = 'grouped' | 'signals'
+type TimelineSourceFilter = 'all' | TimelineSource
+type TimelineToneFilter = 'all' | TimelineTone
+type CorrelationConfidence = 'low' | 'medium' | 'high'
 
 type TimelineWindow = {
   startIso: string
@@ -39,17 +47,13 @@ type TimelineItem = {
   title: string
   summary: string
   detail: string
+  serviceHint?: ServiceId | ''
   resourceName?: string
   logGroupNames?: string[]
-  serviceHint?: ServiceId | ''
   terminalCommand?: string
   terraformRunId?: string
   terraformDriftKey?: string
 }
-
-type TimelineSourceFilter = 'all' | TimelineSource
-type TimelineToneFilter = 'all' | TimelineTone
-type CorrelationConfidence = 'low' | 'medium' | 'high'
 
 type CorrelationCluster = {
   id: string
@@ -70,6 +74,11 @@ type AssumeRoleUsage = {
   concentration: 'normal' | 'elevated' | 'unexpected'
 }
 
+type AssumeRoleSummary = {
+  total: number
+  roles: AssumeRoleUsage[]
+}
+
 type RiskyActionEntry = {
   id: string
   title: string
@@ -79,11 +88,7 @@ type RiskyActionEntry = {
   tone: TimelineTone
   serviceId: ServiceId | ''
   resourceId: string
-}
-
-type AssumeRoleSummary = {
-  total: number
-  roles: AssumeRoleUsage[]
+  terminalCommand?: string
 }
 
 type TerraformGuardrailSummary = {
@@ -91,7 +96,6 @@ type TerraformGuardrailSummary = {
   driftedCount: number
   missingCount: number
   unmanagedCount: number
-  topTypes: Array<{ resourceType: string; count: number }>
   remediationItems: TerraformDriftItem[]
   latestScanLabel: string
 }
@@ -118,20 +122,12 @@ function resolveWindow(mode: TimelineWindowMode, customStart: string, customEnd:
   const now = new Date()
   if (mode === '30m') {
     const start = new Date(now.getTime() - (30 * 60_000))
-    return {
-      startIso: start.toISOString(),
-      endIso: now.toISOString(),
-      label: 'Last 30 minutes'
-    }
+    return { startIso: start.toISOString(), endIso: now.toISOString(), label: 'Last 30 minutes' }
   }
 
   if (mode === '1h') {
     const start = new Date(now.getTime() - (60 * 60_000))
-    return {
-      startIso: start.toISOString(),
-      endIso: now.toISOString(),
-      label: 'Last 1 hour'
-    }
+    return { startIso: start.toISOString(), endIso: now.toISOString(), label: 'Last 1 hour' }
   }
 
   const parsedStart = parseLocalInputValue(customStart) ?? new Date(now.getTime() - (30 * 60_000))
@@ -152,57 +148,17 @@ function isWithinWindow(value: string, window: TimelineWindow): boolean {
   return timestamp >= new Date(window.startIso).getTime() && timestamp <= new Date(window.endIso).getTime()
 }
 
-function classifyCloudTrailTone(event: CloudTrailEventSummary): TimelineTone {
-  const normalized = `${event.eventSource}:${event.eventName}`.toLowerCase()
-  if (/delete|detach|remove|destroy|terminate|revoke/.test(normalized)) return 'danger'
-  if (/assumerole|attach|put|update|create|passrole|set/.test(normalized)) return 'warning'
-  return 'info'
-}
-
-function summarizeTerraformRun(record: TerraformRunRecord): { tone: TimelineTone; summary: string } {
-  if (record.success === null) {
-    return {
-      tone: 'info',
-      summary: `${record.command} is still running in workspace ${record.workspace}.`
-    }
+function toneRank(tone: TimelineTone): number {
+  switch (tone) {
+    case 'danger':
+      return 4
+    case 'warning':
+      return 3
+    case 'success':
+      return 2
+    default:
+      return 1
   }
-
-  if (!record.success) {
-    return {
-      tone: 'danger',
-      summary: `${record.command} failed in workspace ${record.workspace}.`
-    }
-  }
-
-  if (record.command === 'plan' && record.planSummary?.hasDestructiveChanges) {
-    return {
-      tone: 'warning',
-      summary: `plan succeeded with destructive changes in workspace ${record.workspace}.`
-    }
-  }
-
-  if (record.command === 'apply' || record.command === 'destroy' || record.command === 'import') {
-    return {
-      tone: 'warning',
-      summary: `${record.command} completed successfully in workspace ${record.workspace}.`
-    }
-  }
-
-  return {
-    tone: 'success',
-    summary: `${record.command} completed successfully in workspace ${record.workspace}.`
-  }
-}
-
-function buildTerraformTerminalCommand(record: TerraformRunRecord, project: TerraformProject | null): string {
-  const args = [record.command, ...record.args].join(' ').trim()
-  if (!args) return ''
-  if (!project?.rootPath) return `terraform ${args}`.trim()
-  return `cd "${project.rootPath}" && terraform ${args}`.trim()
-}
-
-function driftItemKey(item: TerraformDriftItem): string {
-  return `${item.terraformAddress}|${item.resourceType}|${item.cloudIdentifier}|${item.logicalName}|${item.status}`
 }
 
 function serviceIdFromCloudTrailEvent(event: CloudTrailEventSummary): ServiceId | '' {
@@ -223,361 +179,230 @@ function serviceIdFromCloudTrailEvent(event: CloudTrailEventSummary): ServiceId 
   if (source === 'secretsmanager.amazonaws.com') return 'secrets-manager'
   if (source === 'wafv2.amazonaws.com' || source === 'waf.amazonaws.com') return 'waf'
   if (source === 'logs.amazonaws.com' || source === 'cloudwatch.amazonaws.com') return 'cloudwatch'
-  if (source === 'sts.amazonaws.com') return 'session-hub'
+  if (source === 'sts.amazonaws.com') return 'sts'
   return ''
 }
 
-function buildTerraformTimelineItems(records: TerraformRunRecord[], window: TimelineWindow, project: TerraformProject | null): TimelineItem[] {
-  return records
+function classifyCloudTrailTone(event: CloudTrailEventSummary): TimelineTone {
+  const normalized = `${event.eventSource}:${event.eventName}`.toLowerCase()
+  if (/delete|detach|remove|destroy|terminate|revoke/.test(normalized)) return 'danger'
+  if (/assumerole|attach|put|update|create|passrole|set|modify/.test(normalized)) return 'warning'
+  return 'info'
+}
+
+function driftItemKey(item: TerraformDriftItem): string {
+  return `${item.terraformAddress}|${item.resourceType}|${item.cloudIdentifier}|${item.logicalName}|${item.status}`
+}
+
+function summarizeTerraformRun(record: TerraformRunRecord): { tone: TimelineTone; summary: string } {
+  if (record.success === null) return { tone: 'info', summary: `${record.command} is still running in workspace ${record.workspace}.` }
+  if (!record.success) return { tone: 'danger', summary: `${record.command} failed in workspace ${record.workspace}.` }
+  if (record.command === 'plan' && record.planSummary?.hasDestructiveChanges) {
+    return { tone: 'warning', summary: `plan succeeded with destructive changes in workspace ${record.workspace}.` }
+  }
+  if (record.command === 'apply' || record.command === 'destroy' || record.command === 'import') {
+    return { tone: 'warning', summary: `${record.command} completed successfully in workspace ${record.workspace}.` }
+  }
+  return { tone: 'success', summary: `${record.command} completed successfully in workspace ${record.workspace}.` }
+}
+
+function buildTerraformTerminalCommand(record: TerraformRunRecord, project: TerraformProject | null): string {
+  const args = [record.command, ...record.args].join(' ').trim()
+  if (!args) return ''
+  if (!project?.rootPath) return `terraform ${args}`.trim()
+  return `cd "${project.rootPath}" && terraform ${args}`.trim()
+}
+
+function buildTimelineItems(
+  window: TimelineWindow,
+  project: TerraformProject | null,
+  driftReport: TerraformDriftReport | null,
+  terraformHistory: TerraformRunRecord[],
+  cloudTrailEvents: CloudTrailEventSummary[],
+  cloudWatchInvestigations: CloudWatchInvestigationHistoryEntry[],
+  cloudWatchQueries: CloudWatchQueryHistoryEntry[],
+  auditEvents: EnterpriseAuditEvent[]
+): TimelineItem[] {
+  const terraformItems = terraformHistory
     .filter((record) => isWithinWindow(record.finishedAt || record.startedAt, window))
     .map((record) => {
       const outcome = summarizeTerraformRun(record)
       const planSummary = record.planSummary
         ? `${record.planSummary.create} create, ${record.planSummary.update} update, ${record.planSummary.delete} delete, ${record.planSummary.replace} replace`
         : record.stateOperationSummary || 'No structured plan summary captured.'
-
       return {
         id: `terraform:${record.id}`,
-        source: 'terraform',
+        source: 'terraform' as const,
         tone: outcome.tone,
         occurredAt: record.finishedAt || record.startedAt,
-        serviceHint: 'terraform',
-        terminalCommand: buildTerraformTerminalCommand(record, project),
-        terraformRunId: record.id,
         title: `${record.command.toUpperCase()} • ${record.projectName}`,
         summary: outcome.summary,
-        detail: `${planSummary} Region: ${record.region || '-'} • Connection: ${record.connectionLabel || '-'}`
+        detail: `${planSummary} Region: ${record.region || '-'} • Connection: ${record.connectionLabel || '-'}`,
+        serviceHint: 'terraform' as ServiceId,
+        terminalCommand: buildTerraformTerminalCommand(record, project),
+        terraformRunId: record.id
       }
     })
-}
 
-function buildCloudTrailTimelineItems(events: CloudTrailEventSummary[]): TimelineItem[] {
-  return events
+  const cloudTrailItems = cloudTrailEvents
     .filter((event) => !event.readOnly)
     .map((event) => ({
       id: `cloudtrail:${event.eventId}`,
-      source: 'cloudtrail',
+      source: 'cloudtrail' as const,
       tone: classifyCloudTrailTone(event),
       occurredAt: event.eventTime,
-      title: `${event.eventName} • ${event.eventSource}`,
-      summary: `${event.username || 'Unknown actor'} from ${event.sourceIpAddress || 'unknown IP'} touched ${event.resourceName || event.resourceType || 'an AWS resource'}.`,
-      detail: `Region: ${event.awsRegion || '-'} • Resource type: ${event.resourceType || '-'} • Read only: ${event.readOnly ? 'Yes' : 'No'}`,
+      title: `${event.eventName} • ${event.eventSource.replace('.amazonaws.com', '')}`,
+      summary: event.resourceName ? `${event.username || 'Unknown actor'} changed ${event.resourceName}.` : `${event.username || 'Unknown actor'} invoked ${event.eventName}.`,
+      detail: `Source IP: ${event.sourceIpAddress || '-'} • Region: ${event.awsRegion || '-'} • Resource type: ${event.resourceType || '-'}`,
       serviceHint: serviceIdFromCloudTrailEvent(event),
-      resourceName: event.resourceName || undefined
+      resourceName: event.resourceName
     }))
-}
 
-function buildCloudTrailFocusFilter(item: TimelineItem): string {
-  const candidates = [
-    item.title.split(' • ')[0],
-    item.resourceName,
-    item.serviceHint
-  ].filter(Boolean)
-  return candidates.join(' ')
-}
-
-function buildCloudWatchTimelineItems(entries: CloudWatchInvestigationHistoryEntry[], window: TimelineWindow): TimelineItem[] {
-  return entries
+  const cloudWatchInvestigationItems = cloudWatchInvestigations
     .filter((entry) => isWithinWindow(entry.occurredAt, window))
     .map((entry) => ({
       id: `cloudwatch:${entry.id}`,
-      source: 'cloudwatch',
-      tone: entry.severity === 'error' ? 'danger' : entry.severity === 'warning' ? 'warning' : entry.severity === 'success' ? 'success' : 'info',
+      source: 'cloudwatch' as const,
+      tone: (entry.severity === 'error' ? 'danger' : entry.severity === 'warning' ? 'warning' : entry.severity === 'success' ? 'success' : 'info') as TimelineTone,
       occurredAt: entry.occurredAt,
       title: `${entry.kind.replace(/-/g, ' ')} • CloudWatch`,
       summary: entry.title,
-      detail: `${entry.detail}${entry.logGroupNames.length > 0 ? ` • Log groups: ${entry.logGroupNames.join(', ')}` : ''}`,
-      logGroupNames: entry.logGroupNames,
-      serviceHint: entry.serviceHint
+      detail: `${entry.detail}${entry.logGroupNames.length ? ` • Log groups: ${entry.logGroupNames.join(', ')}` : ''}`,
+      serviceHint: entry.serviceHint,
+      logGroupNames: entry.logGroupNames
     }))
-}
 
-function buildCloudWatchQueryTimelineItems(entries: CloudWatchQueryHistoryEntry[], window: TimelineWindow): TimelineItem[] {
-  return entries
+  const cloudWatchQueryItems = cloudWatchQueries
     .filter((entry) => isWithinWindow(entry.executedAt, window))
     .map((entry) => ({
       id: `cloudwatch-query:${entry.id}`,
-      source: 'cloudwatch',
-      tone: entry.status === 'failed' ? 'danger' : 'info',
+      source: 'cloudwatch' as const,
+      tone: (entry.status === 'failed' ? 'danger' : 'info') as TimelineTone,
       occurredAt: entry.executedAt,
       title: `Query run • ${entry.serviceHint || 'cloudwatch'}`,
       summary: entry.resultSummary || (entry.status === 'failed' ? 'CloudWatch query failed.' : 'CloudWatch query completed.'),
-      detail: `${entry.queryString.split('\n')[0] || 'Query'}${entry.logGroupNames.length > 0 ? ` • Log groups: ${entry.logGroupNames.join(', ')}` : ''}`,
-      logGroupNames: entry.logGroupNames,
-      serviceHint: entry.serviceHint
+      detail: `${entry.queryString.split('\n')[0] || 'Query'}${entry.logGroupNames.length ? ` • Log groups: ${entry.logGroupNames.join(', ')}` : ''}`,
+      serviceHint: entry.serviceHint,
+      logGroupNames: entry.logGroupNames
     }))
-}
 
-function buildDriftTimelineItems(report: TerraformDriftReport | null, window: TimelineWindow): TimelineItem[] {
-  if (!report?.history.snapshots.length) return []
-  const latest = report.history.snapshots[0]
-  if (!isWithinWindow(latest.scannedAt, window)) return []
-  const topActionableItem = report.items.find((item) => item.status !== 'in_sync' && item.status !== 'unsupported')
+  const auditItems = auditEvents
+    .filter((event) => isWithinWindow(event.happenedAt, window))
+    .map((event) => ({
+      id: `audit:${event.id}`,
+      source: 'audit' as const,
+      tone: (event.outcome === 'failed' || event.outcome === 'blocked' ? 'danger' : 'info') as TimelineTone,
+      occurredAt: event.happenedAt,
+      title: `${event.action} • ${event.channel}`,
+      summary: event.summary,
+      detail: `${event.actorLabel || 'Unknown actor'} • ${event.accountId || '-'} • ${event.region || '-'}`,
+      serviceHint: event.serviceId,
+      resourceName: event.resourceId
+    }))
 
-  const actionableCount = latest.summary.statusCounts.drifted
-    + latest.summary.statusCounts.missing_in_aws
-    + latest.summary.statusCounts.unmanaged_in_aws
+  const driftItems = (driftReport?.items ?? [])
+    .filter((item) => item.status !== 'in_sync')
+    .slice(0, 24)
+    .map((item) => ({
+      id: `drift:${driftItemKey(item)}`,
+      source: 'drift' as const,
+      tone: (item.status === 'missing_in_aws' || item.status === 'unmanaged_in_aws' ? 'danger' : 'warning') as TimelineTone,
+      occurredAt: driftReport?.history.latestScanAt || new Date().toISOString(),
+      title: `${item.status.replace(/_/g, ' ')} • ${item.logicalName}`,
+      summary: item.explanation,
+      detail: `${item.resourceType} • ${item.cloudIdentifier || 'No cloud identifier'}`,
+      serviceHint: 'terraform' as ServiceId,
+      resourceName: item.cloudIdentifier,
+      terminalCommand: item.terminalCommand,
+      terraformDriftKey: driftItemKey(item)
+    }))
 
-  return [{
-    id: `drift:${latest.id}`,
-    source: 'drift',
-    tone: actionableCount > 0 ? 'warning' : 'success',
-    occurredAt: latest.scannedAt,
-    serviceHint: 'terraform',
-    terminalCommand: topActionableItem?.terminalCommand,
-    terraformDriftKey: topActionableItem ? driftItemKey(topActionableItem) : undefined,
-    title: 'Drift snapshot updated',
-    summary: actionableCount > 0
-      ? `${actionableCount} actionable drift signals are visible in the latest snapshot.`
-      : 'Latest drift snapshot is currently clean.',
-    detail: `${latest.summary.statusCounts.drifted} drifted • ${latest.summary.statusCounts.missing_in_aws} missing • ${latest.summary.statusCounts.unmanaged_in_aws} unmanaged • ${latest.summary.statusCounts.in_sync} in sync`
-  }]
-}
-
-function sourceLabel(source: TimelineSource): string {
-  if (source === 'cloudtrail') return 'CloudTrail'
-  if (source === 'cloudwatch') return 'CloudWatch'
-  if (source === 'drift') return 'Drift'
-  return 'Terraform'
-}
-
-function headlineForWindow(mode: TimelineWindowMode): string {
-  if (mode === '1h') return 'What changed in the last 1 hour?'
-  if (mode === 'custom') return 'What changed in this time window?'
-  return 'What changed in the last 30 minutes?'
-}
-
-function normalizeLabel(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9:/._-]+/g, ' ').replace(/\s+/g, ' ').trim()
-}
-
-function clusterLabel(item: TimelineItem): string {
-  if (item.resourceName && item.resourceName !== '-') return item.resourceName
-  if (item.serviceHint) return item.serviceHint
-  if (/assumerole/i.test(item.title)) return 'AssumeRole'
-  if (/iam\.amazonaws\.com/i.test(item.title) || /\biam\b/i.test(item.detail)) return 'IAM'
-  return item.title.split(' • ')[0]
-}
-
-function toneWeight(tone: TimelineTone): number {
-  if (tone === 'danger') return 4
-  if (tone === 'warning') return 3
-  if (tone === 'success') return 2
-  return 1
-}
-
-function deriveClusterTone(items: TimelineItem[]): TimelineTone {
-  return [...items]
-    .sort((left, right) => toneWeight(right.tone) - toneWeight(left.tone))[0]?.tone ?? 'info'
-}
-
-function deriveConfidence(items: TimelineItem[], sources: TimelineSource[]): CorrelationConfidence {
-  const hasRuntime = items.some((item) => item.source === 'cloudwatch')
-  const hasControlPlane = items.some((item) => item.source === 'cloudtrail' || item.source === 'terraform' || item.source === 'drift')
-  if (sources.length >= 3 || (hasRuntime && hasControlPlane && items.length >= 3)) return 'high'
-  if (sources.length >= 2 || items.length >= 4) return 'medium'
-  return 'low'
-}
-
-function buildCorrelationTitle(items: TimelineItem[], label: string): string {
-  const eventHeads = [...new Set(items.map((item) => item.title.split(' • ')[0]))]
-  const hasAssumeRole = items.some((item) => /assumerole/i.test(item.title))
-  if (hasAssumeRole) return 'AssumeRole activity'
-  const hasIam = items.some((item) => /iam\.amazonaws\.com/i.test(item.title) || /\biam\b/i.test(item.detail))
-  if (hasIam) return 'IAM change activity'
-  if (eventHeads.length === 1) return `${eventHeads[0]} activity`
-  if (label && label !== '-') return `${label} activity`
-  return 'Recent grouped signals'
-}
-
-function buildCorrelationSummary(items: TimelineItem[], sources: TimelineSource[]): string {
-  const sourceSummary = sources.map((source) => sourceLabel(source)).join(', ')
-  const windowStart = formatIsoDate(items[items.length - 1]?.occurredAt || '')
-  const windowEnd = formatIsoDate(items[0]?.occurredAt || '')
-  const eventHeads = [...new Set(items.map((item) => item.title.split(' • ')[0]))]
-
-  if (sources.length === 1 && eventHeads.length === 1) {
-    return `${items.length} repeated ${sourceSummary} signals in the same window. ${windowStart} to ${windowEnd}.`
-  }
-
-  return `${items.length} signals across ${sourceSummary}. Window: ${windowStart} to ${windowEnd}.`
+  return [...terraformItems, ...cloudTrailItems, ...cloudWatchInvestigationItems, ...cloudWatchQueryItems, ...auditItems, ...driftItems]
+    .sort((left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime())
 }
 
 function buildCorrelationClusters(items: TimelineItem[]): CorrelationCluster[] {
-  const grouped = new Map<string, TimelineItem[]>()
+  if (!items.length) return []
+  const sorted = [...items].sort((left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime())
+  const clusters: CorrelationCluster[] = []
+  let current: TimelineItem[] = []
 
-  for (const item of items) {
-    const timestamp = new Date(item.occurredAt).getTime()
-    if (Number.isNaN(timestamp)) continue
-    const bucket = Math.floor(timestamp / (15 * 60_000))
-    const label = clusterLabel(item)
-    const key = `${bucket}:${normalizeLabel(label)}`
-    const existing = grouped.get(key)
-    if (existing) {
-      existing.push(item)
-    } else {
-      grouped.set(key, [item])
+  const flush = () => {
+    if (!current.length) return
+    const first = current[0]
+    const last = current[current.length - 1]
+    const tone = current.reduce<TimelineTone>((best, item) => toneRank(item.tone) > toneRank(best) ? item.tone : best, 'info')
+    const sources = [...new Set(current.map((item) => item.source))]
+    const confidence: CorrelationConfidence = current.length >= 4 || sources.length >= 3 ? 'high' : current.length >= 2 ? 'medium' : 'low'
+    clusters.push({
+      id: current.map((item) => item.id).join('|'),
+      title: first.resourceName || first.title,
+      summary: `${current.length} related signals across ${sources.length} source${sources.length === 1 ? '' : 's'}.`,
+      tone,
+      confidence,
+      items: current,
+      sources,
+      timeRangeLabel: `${formatIsoDate(last.occurredAt)} to ${formatIsoDate(first.occurredAt)}`
+    })
+    current = []
+  }
+
+  for (const item of sorted) {
+    const previous = current[current.length - 1]
+    if (!previous) {
+      current.push(item)
+      continue
+    }
+    const deltaMs = Math.abs(new Date(previous.occurredAt).getTime() - new Date(item.occurredAt).getTime())
+    const sharesResource = Boolean(item.resourceName && previous.resourceName && item.resourceName === previous.resourceName)
+    const sharesService = Boolean(item.serviceHint && previous.serviceHint && item.serviceHint === previous.serviceHint)
+    if (deltaMs <= 10 * 60_000 && (sharesResource || sharesService || current.length < 2)) {
+      current.push(item)
+      continue
+    }
+    flush()
+    current.push(item)
+  }
+
+  flush()
+  return clusters.slice(0, 12)
+}
+
+function summarizeGuardrails(report: TerraformDriftReport | null): TerraformGuardrailSummary {
+  if (!report) {
+    return {
+      actionableCount: 0,
+      driftedCount: 0,
+      missingCount: 0,
+      unmanagedCount: 0,
+      remediationItems: [],
+      latestScanLabel: 'No drift snapshot loaded'
     }
   }
 
-  return [...grouped.entries()]
-    .map(([key, groupedItems]) => {
-      const sortedItems = [...groupedItems].sort((left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime())
-      const sources = [...new Set(sortedItems.map((item) => item.source))]
-      const label = clusterLabel(sortedItems[0])
-      const uniqueTitles = new Set(sortedItems.map((item) => item.title.split(' • ')[0].toLowerCase()))
-      return {
-        id: key,
-        title: buildCorrelationTitle(sortedItems, label),
-        summary: buildCorrelationSummary(sortedItems, sources),
-        tone: deriveClusterTone(sortedItems),
-        confidence: deriveConfidence(sortedItems, sources),
-        items: sortedItems,
-        sources,
-        timeRangeLabel: `${formatIsoDate(sortedItems[sortedItems.length - 1]?.occurredAt || '')} to ${formatIsoDate(sortedItems[0]?.occurredAt || '')}`,
-        uniqueTitles
-      }
-    })
-    .filter((cluster) => cluster.sources.length >= 2 || cluster.items.length >= 3 || cluster.uniqueTitles.size === 1)
-    .sort((left, right) => new Date(right.items[0]?.occurredAt || 0).getTime() - new Date(left.items[0]?.occurredAt || 0).getTime())
-    .map(({ uniqueTitles: _uniqueTitles, ...cluster }) => cluster)
+  return {
+    actionableCount: report.items.filter((item) => item.status !== 'in_sync').length,
+    driftedCount: report.summary.statusCounts.drifted,
+    missingCount: report.summary.statusCounts.missing_in_aws,
+    unmanagedCount: report.summary.statusCounts.unmanaged_in_aws,
+    remediationItems: report.items.filter((item) => item.status !== 'in_sync').slice(0, 6),
+    latestScanLabel: formatIsoDate(report.history.latestScanAt)
+  }
 }
 
-function summaryCardTone(count: number): TimelineTone {
-  if (count >= 5) return 'warning'
-  if (count > 0) return 'info'
-  return 'success'
+function headlineForWindow(mode: TimelineWindowMode): string {
+  if (mode === '30m') return 'Recent incident timeline'
+  if (mode === '1h') return 'Last hour of changes'
+  return 'Custom incident window'
 }
 
-function buildScopeHint(scope: IncidentTimelineScope, linkedProject: TerraformProject | null): string {
+function buildScopeHint(scope: IncidentTimelineScope, project: TerraformProject | null): string {
   if (scope === 'overview') {
-    return linkedProject
-      ? 'Scoped to the active AWS account and region. CloudTrail and CloudWatch are connection-wide; Terraform is attached from the currently selected project.'
-      : 'Scoped to the active AWS account and region. CloudTrail and CloudWatch are connection-wide; no Terraform project is currently attached.'
+    return project
+      ? `AWS activity for ${project.name} is correlated with Terraform history when available.`
+      : 'AWS activity is shown immediately; Terraform guardrails appear after a project is linked.'
   }
-
-  return 'Scoped to the active AWS account/region and the selected Terraform workspace. Terraform signals are workspace-specific; CloudTrail and CloudWatch signals are connection-wide within the same window.'
-}
-
-function terraformContextKey(connection: AwsConnection): string {
-  return connection.kind === 'profile'
-    ? `profile:${connection.profile}`
-    : `assumed-role:${connection.sessionId}`
-}
-
-function normalizeRoleLabel(value: string): string {
-  const trimmed = value.trim()
-  if (!trimmed || trimmed === '-') return 'Unknown role'
-  const arnSlice = trimmed.split('/').pop()?.trim()
-  return arnSlice || trimmed
-}
-
-function humanizeAuditLabel(value: string): string {
-  return value
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/[._/]+/g, ' ')
-    .replace(/:/g, ' / ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function matchesAuditConnection(event: EnterpriseAuditEvent, connection: AwsConnection): boolean {
-  if (event.region && event.region !== connection.region) return false
-  if (connection.kind === 'assumed-role' && event.accountId && event.accountId !== connection.accountId) return false
-  return true
-}
-
-function deriveAuditServiceId(event: EnterpriseAuditEvent): ServiceId | '' {
-  if (event.serviceId) return event.serviceId
-  if (event.channel.startsWith('terraform:')) return 'terraform'
-  if (event.channel.startsWith('terminal:')) return 'session-hub'
-  return ''
-}
-
-function classifyRiskyAuditTone(event: EnterpriseAuditEvent): TimelineTone {
-  const haystack = `${event.action} ${event.channel} ${event.summary} ${event.details.join(' ')}`.toLowerCase()
-  const destructive = /delete|destroy|terminate|detach|revoke|remove|force-unlock|state-rm|purge|drop/.test(haystack)
-  const privileged = /assume-role|apply|import|attach|policy|trust|access-key|login-profile|run-command|open-aws|terminal|update/.test(haystack)
-
-  if (destructive && event.outcome === 'success') return 'danger'
-  if (destructive || privileged) return 'warning'
-  if (event.outcome !== 'success') return 'info'
-  return 'info'
-}
-
-function isRiskyAuditEvent(event: EnterpriseAuditEvent): boolean {
-  const haystack = `${event.action} ${event.channel} ${event.summary} ${event.details.join(' ')}`.toLowerCase()
-  if (event.channel.startsWith('terraform:') || event.channel.startsWith('terminal:')) return true
-  return /assume-role|delete|destroy|terminate|detach|revoke|remove|force-unlock|state-rm|apply|import|attach|policy|trust|access-key|login-profile|run-command|console|purge|rotate/.test(haystack)
-}
-
-function buildAssumeRoleSummary(events: CloudTrailEventSummary[], connection: AwsConnection, window: TimelineWindow): AssumeRoleSummary {
-  const grouped = new Map<string, { count: number; lastSeen: string; actorLabels: Set<string> }>()
-
-  for (const event of events) {
-    if (!isWithinWindow(event.eventTime, window)) continue
-    if (event.awsRegion && event.awsRegion !== connection.region) continue
-    if (event.eventName.toLowerCase() !== 'assumerole') continue
-
-    const roleLabel = normalizeRoleLabel(event.resourceName || event.resourceType || 'Unknown role')
-    const existing = grouped.get(roleLabel) ?? {
-      count: 0,
-      lastSeen: event.eventTime,
-      actorLabels: new Set<string>()
-    }
-
-    existing.count += 1
-    if (new Date(event.eventTime).getTime() > new Date(existing.lastSeen).getTime()) {
-      existing.lastSeen = event.eventTime
-    }
-    if (event.username) {
-      existing.actorLabels.add(event.username)
-    }
-    grouped.set(roleLabel, existing)
-  }
-
-  const total = [...grouped.values()].reduce((sum, entry) => sum + entry.count, 0)
-  const roles = [...grouped.entries()]
-    .map(([roleLabel, entry]) => {
-      const share = total > 0 ? entry.count / total : 0
-      return {
-        roleLabel,
-        count: entry.count,
-        lastSeen: entry.lastSeen,
-        actorLabels: [...entry.actorLabels].sort(),
-        concentration: share >= 0.6 && entry.count >= 3 ? 'unexpected' : share >= 0.35 && entry.count >= 2 ? 'elevated' : 'normal'
-      } satisfies AssumeRoleUsage
-    })
-    .sort((left, right) => right.count - left.count || new Date(right.lastSeen).getTime() - new Date(left.lastSeen).getTime())
-    .slice(0, 4)
-
-  return { total, roles }
-}
-
-function buildRiskyActions(events: EnterpriseAuditEvent[], connection: AwsConnection, window: TimelineWindow): RiskyActionEntry[] {
-  return events
-    .filter((event) => isWithinWindow(event.happenedAt, window))
-    .filter((event) => matchesAuditConnection(event, connection))
-    .filter(isRiskyAuditEvent)
-    .sort((left, right) => new Date(right.happenedAt).getTime() - new Date(left.happenedAt).getTime())
-    .slice(0, 6)
-    .map((event) => ({
-      id: event.id,
-      title: humanizeAuditLabel(event.action || event.channel),
-      summary: `${event.actorLabel || 'Unknown actor'} - ${event.summary}`,
-      detail: `${humanizeAuditLabel(event.channel)} - ${event.outcome}${event.resourceId ? ` - ${event.resourceId}` : ''}`,
-      occurredAt: event.happenedAt,
-      tone: classifyRiskyAuditTone(event),
-      serviceId: deriveAuditServiceId(event),
-      resourceId: event.resourceId
-    }))
-}
-
-function driftRiskWeight(item: TerraformDriftItem): number {
-  if (item.status === 'missing_in_aws' || item.status === 'unmanaged_in_aws') return 3
-  if (item.status === 'drifted') return 2
-  if (item.status === 'unsupported') return 1
-  return 0
+  return project ? `Timeline is scoped around ${project.name}.` : 'Terraform-only mode requires a linked project.'
 }
 
 export function IncidentTimelineTab({
@@ -611,437 +436,154 @@ export function IncidentTimelineTab({
   const [customEnd, setCustomEnd] = useState(() => toLocalInputValue(new Date()))
   const [items, setItems] = useState<TimelineItem[]>([])
   const [cloudTrailEvents, setCloudTrailEvents] = useState<CloudTrailEventSummary[]>([])
-  const [auditEvents, setAuditEvents] = useState<EnterpriseAuditEvent[]>([])
   const [loading, setLoading] = useState(false)
-  const [sourceWarnings, setSourceWarnings] = useState<string[]>([])
+  const [warnings, setWarnings] = useState<string[]>([])
   const [sourceFilter, setSourceFilter] = useState<TimelineSourceFilter>('all')
   const [toneFilter, setToneFilter] = useState<TimelineToneFilter>('all')
   const [query, setQuery] = useState('')
   const [linkedProject, setLinkedProject] = useState<TerraformProject | null>(project ?? null)
   const [linkedDriftReport, setLinkedDriftReport] = useState<TerraformDriftReport | null>(driftReport ?? null)
-  const [terraformContextStatus, setTerraformContextStatus] = useState<'idle' | 'loading' | 'ready' | 'empty' | 'error'>(
-    scope === 'overview' ? 'loading' : project ? 'ready' : 'idle'
-  )
   const [terraformContextMessage, setTerraformContextMessage] = useState('')
+  const loadTokenRef = useRef(0)
 
-  const activeWindow = useMemo(
-    () => resolveWindow(windowMode, customStart, customEnd),
-    [customEnd, customStart, windowMode]
-  )
-
-  useEffect(() => {
-    setViewMode(scope === 'overview' ? 'grouped' : 'signals')
-  }, [scope])
+  useEffect(() => setLinkedProject(project ?? null), [project])
+  useEffect(() => setLinkedDriftReport(driftReport ?? null), [driftReport])
 
   useEffect(() => {
-    if (scope !== 'overview') {
-      setLinkedProject(project ?? null)
-      setLinkedDriftReport(driftReport ?? null)
-      setTerraformContextStatus(project ? 'ready' : 'idle')
-      setTerraformContextMessage('')
-      return
-    }
-
+    if (scope !== 'overview' || project) return
     let cancelled = false
-
-    async function loadSelectedTerraformContext() {
-      setTerraformContextStatus('loading')
-      setTerraformContextMessage('')
-
+    setTerraformContextMessage('')
+    void (async () => {
       try {
-        const selectedProjectId = await getSelectedProjectId(terraformContextKey(connection)).catch(() => '')
+        const selectedProjectId = await getSelectedProjectId(connection.profile)
         if (!selectedProjectId) {
-          if (!cancelled) {
-            setLinkedProject(null)
-            setLinkedDriftReport(null)
-            setTerraformContextStatus('empty')
-            setTerraformContextMessage('No Terraform project is selected, so the incident feed is currently AWS-only.')
-          }
+          if (!cancelled) setTerraformContextMessage('No Terraform project is currently linked to this profile.')
           return
         }
-
-        const nextProject = await getProject(terraformContextKey(connection), selectedProjectId, connection)
-        let nextDriftReport: TerraformDriftReport | null = null
+        const nextProject = await getProject(connection.profile, selectedProjectId, connection)
+        setLinkedProject(nextProject)
         try {
-          nextDriftReport = await getDrift(terraformContextKey(connection), selectedProjectId, {
-            profile: connection.profile,
-            region: connection.region
-          })
-        } catch {
-          nextDriftReport = null
-        }
-
-        if (!cancelled) {
-          setLinkedProject(nextProject)
-          setLinkedDriftReport(nextDriftReport)
-          setTerraformContextStatus('ready')
+          const nextDrift = await getDrift(connection.profile, nextProject.id, connection, { forceRefresh: false })
+          if (!cancelled) setLinkedDriftReport(nextDrift)
+        } catch (driftError) {
+          console.warn('Failed to load drift report for incident timeline:', driftError)
         }
       } catch (error) {
-        if (!cancelled) {
-          setLinkedProject(null)
-          setLinkedDriftReport(null)
-          setTerraformContextStatus('error')
-          setTerraformContextMessage(error instanceof Error ? error.message : String(error))
-        }
+        if (!cancelled) setTerraformContextMessage(error instanceof Error ? error.message : String(error))
       }
-    }
-
-    void loadSelectedTerraformContext()
-
+    })()
     return () => {
       cancelled = true
     }
-  }, [connection, driftReport, project, scope])
+  }, [connection, project, scope])
 
-  const loadTimeline = useCallback(async () => {
-    setLoading(true)
-    const nextWarnings: string[] = []
-
-    try {
-      const [runHistoryResult, cloudWatchResult, cloudTrailResult, auditResult] = await Promise.allSettled([
-        linkedProject ? listRunHistory({ projectId: linkedProject.id }) : Promise.resolve(null),
-        Promise.all([
-          listCloudWatchInvestigationHistory({
-            profile: connection.profile,
-            region: connection.region,
-            limit: 100
-          }),
-          listCloudWatchQueryHistory({
-            profile: connection.profile,
-            region: connection.region,
-            limit: 100
-          })
-        ]),
-        lookupCloudTrailEvents(connection, activeWindow.startIso, activeWindow.endIso),
-        listEnterpriseAuditEvents()
-      ])
-
-      const terraformHistory = linkedProject && runHistoryResult.status === 'fulfilled' && Array.isArray(runHistoryResult.value)
-        ? buildTerraformTimelineItems(runHistoryResult.value as TerraformRunRecord[], activeWindow, linkedProject)
-        : []
-      if (linkedProject && runHistoryResult.status === 'rejected') {
-        nextWarnings.push(`Terraform history: ${runHistoryResult.reason instanceof Error ? runHistoryResult.reason.message : String(runHistoryResult.reason)}`)
-      }
-
-      const cloudWatchHistory = cloudWatchResult?.status === 'fulfilled'
-        ? [
-            ...buildCloudWatchTimelineItems((cloudWatchResult.value as [CloudWatchInvestigationHistoryEntry[], CloudWatchQueryHistoryEntry[]])[0], activeWindow),
-            ...buildCloudWatchQueryTimelineItems((cloudWatchResult.value as [CloudWatchInvestigationHistoryEntry[], CloudWatchQueryHistoryEntry[]])[1], activeWindow)
-          ]
-        : []
-      if (cloudWatchResult?.status === 'rejected') {
-        nextWarnings.push(`CloudWatch investigation history: ${cloudWatchResult.reason instanceof Error ? cloudWatchResult.reason.message : String(cloudWatchResult.reason)}`)
-      }
-
-      const nextCloudTrailEvents = cloudTrailResult?.status === 'fulfilled'
-        ? (cloudTrailResult.value as CloudTrailEventSummary[])
-        : []
-      const cloudTrailHistory = cloudTrailResult?.status === 'fulfilled'
-        ? buildCloudTrailTimelineItems(nextCloudTrailEvents)
-        : []
-      if (cloudTrailResult?.status === 'rejected') {
-        nextWarnings.push(`CloudTrail lookup: ${cloudTrailResult.reason instanceof Error ? cloudTrailResult.reason.message : String(cloudTrailResult.reason)}`)
-      }
-
-      const nextAuditEvents = auditResult?.status === 'fulfilled'
-        ? (auditResult.value as EnterpriseAuditEvent[])
-        : []
-      if (auditResult?.status === 'rejected') {
-        nextWarnings.push(`Operator audit log: ${auditResult.reason instanceof Error ? auditResult.reason.message : String(auditResult.reason)}`)
-      }
-
-      if (terraformContextStatus === 'error' && terraformContextMessage) {
-        nextWarnings.push(`Terraform context: ${terraformContextMessage}`)
-      } else if (terraformContextStatus === 'empty' && terraformContextMessage) {
-        nextWarnings.push(terraformContextMessage)
-      }
-
-      const nextItems = [
-        ...buildDriftTimelineItems(linkedDriftReport, activeWindow),
-        ...terraformHistory,
-        ...cloudWatchHistory,
-        ...cloudTrailHistory
-      ].sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime())
-
-      setCloudTrailEvents(nextCloudTrailEvents)
-      setAuditEvents(nextAuditEvents)
-      setItems(nextItems)
-      setSourceWarnings(nextWarnings)
-    } finally {
-      setLoading(false)
-    }
-  }, [activeWindow, connection, linkedDriftReport, linkedProject, terraformContextMessage, terraformContextStatus])
+  const activeWindow = useMemo(() => resolveWindow(windowMode, customStart, customEnd), [customEnd, customStart, windowMode])
 
   useEffect(() => {
-    void loadTimeline()
-  }, [loadTimeline])
+    const loadToken = loadTokenRef.current + 1
+    loadTokenRef.current = loadToken
+    setLoading(true)
+    void (async () => {
+      const cloudWatchPromise = Promise.all([
+        listCloudWatchInvestigationHistory({ profile: connection.profile, region: connection.region, limit: 100 }),
+        listCloudWatchQueryHistory({ profile: connection.profile, region: connection.region, limit: 100 })
+      ])
+      const cloudTrailPromise = lookupCloudTrailEvents(connection, activeWindow.startIso, activeWindow.endIso)
+      const auditPromise = listEnterpriseAuditEvents()
+      const terraformPromise = linkedProject ? listRunHistory({ projectId: linkedProject.id }) : Promise.resolve([] as TerraformRunRecord[])
+      const [cloudWatchResult, cloudTrailResult, auditResult, terraformResult] = await Promise.allSettled([
+        cloudWatchPromise,
+        cloudTrailPromise,
+        auditPromise,
+        terraformPromise
+      ])
 
-  const summary = useMemo(() => ({
-    total: items.length,
-    terraform: items.filter((item) => item.source === 'terraform').length,
-    cloudtrail: items.filter((item) => item.source === 'cloudtrail').length,
-    cloudwatch: items.filter((item) => item.source === 'cloudwatch').length,
-    drift: items.filter((item) => item.source === 'drift').length
-  }), [items])
+      if (loadTokenRef.current !== loadToken) return
+
+      const nextWarnings: string[] = []
+      const cloudWatchInvestigations = cloudWatchResult.status === 'fulfilled' ? cloudWatchResult.value[0] : []
+      const cloudWatchQueries = cloudWatchResult.status === 'fulfilled' ? cloudWatchResult.value[1] : []
+      const nextCloudTrailEvents = cloudTrailResult.status === 'fulfilled' ? cloudTrailResult.value : []
+      const auditEvents = auditResult.status === 'fulfilled' ? auditResult.value : []
+      const terraformHistory = terraformResult.status === 'fulfilled' ? terraformResult.value : []
+
+      if (cloudWatchResult.status === 'rejected') nextWarnings.push(`CloudWatch history: ${cloudWatchResult.reason instanceof Error ? cloudWatchResult.reason.message : String(cloudWatchResult.reason)}`)
+      if (cloudTrailResult.status === 'rejected') nextWarnings.push(`CloudTrail: ${cloudTrailResult.reason instanceof Error ? cloudTrailResult.reason.message : String(cloudTrailResult.reason)}`)
+      if (auditResult.status === 'rejected') nextWarnings.push(`Enterprise audit: ${auditResult.reason instanceof Error ? auditResult.reason.message : String(auditResult.reason)}`)
+      if (terraformResult.status === 'rejected') nextWarnings.push(`Terraform history: ${terraformResult.reason instanceof Error ? terraformResult.reason.message : String(terraformResult.reason)}`)
+
+      setCloudTrailEvents(nextCloudTrailEvents)
+      setItems(buildTimelineItems(activeWindow, linkedProject, linkedDriftReport, terraformHistory, nextCloudTrailEvents, cloudWatchInvestigations, cloudWatchQueries, auditEvents))
+      setWarnings(nextWarnings)
+      setLoading(false)
+    })()
+  }, [activeWindow, connection, linkedDriftReport, linkedProject])
 
   const filteredItems = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase()
+    const needle = query.trim().toLowerCase()
     return items.filter((item) => {
       if (sourceFilter !== 'all' && item.source !== sourceFilter) return false
       if (toneFilter !== 'all' && item.tone !== toneFilter) return false
-      if (!normalizedQuery) return true
-
-      return [
-        item.title,
-        item.summary,
-        item.detail,
-        item.resourceName,
-        item.serviceHint
-      ].join(' ').toLowerCase().includes(normalizedQuery)
+      if (!needle) return true
+      return [item.title, item.summary, item.detail, item.resourceName, item.serviceHint].some((value) =>
+        String(value || '').toLowerCase().includes(needle)
+      )
     })
   }, [items, query, sourceFilter, toneFilter])
 
-  const groupedItems = useMemo(
-    () => buildCorrelationClusters(filteredItems).slice(0, 8),
-    [filteredItems]
-  )
-
-  const assumeRoleSummary = useMemo(
-    () => buildAssumeRoleSummary(cloudTrailEvents, connection, activeWindow),
-    [activeWindow, cloudTrailEvents, connection]
-  )
-
-  const recentRiskyActions = useMemo(
-    () => buildRiskyActions(auditEvents, connection, activeWindow),
-    [activeWindow, auditEvents, connection]
-  )
-
-  const terraformGuardrail = useMemo<TerraformGuardrailSummary | null>(() => {
-    if (!linkedProject || !linkedDriftReport) return null
-
-    const actionableCount = linkedDriftReport.summary.statusCounts.drifted
-      + linkedDriftReport.summary.statusCounts.missing_in_aws
-      + linkedDriftReport.summary.statusCounts.unmanaged_in_aws
-
-    return {
-      actionableCount,
-      driftedCount: linkedDriftReport.summary.statusCounts.drifted,
-      missingCount: linkedDriftReport.summary.statusCounts.missing_in_aws,
-      unmanagedCount: linkedDriftReport.summary.statusCounts.unmanaged_in_aws,
-      topTypes: linkedDriftReport.summary.resourceTypeCounts
-        .filter((entry) => entry.count > 0)
-        .sort((left, right) => right.count - left.count)
-        .slice(0, 3),
-      remediationItems: [...linkedDriftReport.items]
-        .filter((item) => item.status !== 'in_sync' && item.status !== 'unsupported')
-        .sort((left, right) => driftRiskWeight(right) - driftRiskWeight(left) || right.differences.length - left.differences.length)
-        .slice(0, 3),
-      latestScanLabel: linkedDriftReport.history.latestScanAt || linkedDriftReport.summary.scannedAt
+  const groupedItems = useMemo(() => buildCorrelationClusters(filteredItems), [filteredItems])
+  const guardrails = useMemo(() => summarizeGuardrails(linkedDriftReport), [linkedDriftReport])
+  const assumeRoleSummary = useMemo(() => {
+    const relevant = cloudTrailEvents.filter((event) => isWithinWindow(event.eventTime, activeWindow) && (event.eventName.toLowerCase() === 'assumerole' || event.eventSource.toLowerCase() === 'sts.amazonaws.com'))
+    const byRole = new Map<string, { count: number; lastSeen: string; actors: Set<string> }>()
+    for (const event of relevant) {
+      const roleLabel = event.resourceName || event.resourceType || 'AssumeRole target'
+      const bucket = byRole.get(roleLabel) ?? { count: 0, lastSeen: event.eventTime, actors: new Set<string>() }
+      bucket.count += 1
+      if (event.eventTime > bucket.lastSeen) bucket.lastSeen = event.eventTime
+      if (event.username) bucket.actors.add(event.username)
+      byRole.set(roleLabel, bucket)
     }
-  }, [linkedDriftReport, linkedProject])
+    return {
+      total: relevant.length,
+      roles: [...byRole.entries()].map(([roleLabel, bucket]) => ({
+        roleLabel,
+        count: bucket.count,
+        lastSeen: bucket.lastSeen,
+        actorLabels: [...bucket.actors].sort(),
+        concentration: (bucket.count >= 6 ? 'unexpected' : bucket.count >= 3 ? 'elevated' : 'normal') as AssumeRoleUsage['concentration']
+      })).sort((left, right) => right.count - left.count).slice(0, 6)
+    } satisfies AssumeRoleSummary
+  }, [activeWindow, cloudTrailEvents])
+  const riskyActions = useMemo(() => filteredItems.filter((item) => item.tone !== 'info').slice(0, 10).map((item) => ({
+    id: item.id,
+    title: item.title,
+    summary: item.summary,
+    detail: item.detail,
+    occurredAt: item.occurredAt,
+    tone: item.tone,
+    serviceId: item.serviceHint || '',
+    resourceId: item.resourceName || '',
+    terminalCommand: item.terminalCommand
+  } satisfies RiskyActionEntry)), [filteredItems])
 
-  function handleOpenTerraformSignal(focus?: { detailTab?: 'operations' | 'actions' | 'state' | 'resources' | 'drift' | 'lab' | 'history'; runId?: string; driftItemKey?: string }): void {
+  function handleTerraformOpen(focus?: { detailTab?: 'operations' | 'actions' | 'state' | 'resources' | 'drift' | 'lab' | 'history'; runId?: string; driftItemKey?: string }): void {
     if (!focus?.detailTab && !focus?.runId && !focus?.driftItemKey && onOpenHistory) {
       onOpenHistory()
       return
     }
-
-    if (onNavigateTerraform) {
-      onNavigateTerraform({
-        projectId: linkedProject?.id,
-        ...focus
-      })
-    }
+    onNavigateTerraform?.({ projectId: linkedProject?.id, ...focus })
   }
 
-  function handleRunTerminalCommand(command?: string): void {
-    if (!command || !onRunTerminalCommand) return
-    onRunTerminalCommand(command)
-  }
-
-  function relatedServiceForItems(clusterItems: TimelineItem[]): { serviceId: ServiceId; resourceId?: string } | null {
-    const first = clusterItems.find((item) => item.serviceHint && item.serviceHint !== 'terraform' && item.serviceHint !== 'cloudwatch' && item.serviceHint !== 'cloudtrail')
-    if (!first?.serviceHint) return null
-    return {
-      serviceId: first.serviceHint,
-      resourceId: first.resourceName
-    }
-  }
-
-  function handleOpenRiskyAction(entry: RiskyActionEntry): void {
-    if (entry.serviceId === 'terraform') {
-      onNavigateTerraform?.({
-        projectId: linkedProject?.id,
-        detailTab: 'history'
-      })
-      return
-    }
-
-    if (entry.serviceId && onNavigateService) {
-      onNavigateService(entry.serviceId, entry.resourceId || undefined)
-    }
-  }
-
-  function renderRiskyActionButton(entry: RiskyActionEntry): ReactNode {
-    if (entry.serviceId === 'terraform' && onNavigateTerraform) {
-      return (
-        <button type="button" className="tf-toolbar-btn" onClick={() => handleOpenRiskyAction(entry)}>
-          Open Terraform
-        </button>
-      )
-    }
-
-    if (entry.serviceId && onNavigateService) {
-      return (
-        <button type="button" className="tf-toolbar-btn" onClick={() => handleOpenRiskyAction(entry)}>
-          Open Service
-        </button>
-      )
-    }
-
-    return null
-  }
-
-  function renderClusterActions(cluster: CorrelationCluster): ReactNode {
-    const relatedService = relatedServiceForItems(cluster.items)
-    const firstTerraform = cluster.items.find((item) => item.source === 'terraform')
-    const firstDrift = cluster.items.find((item) => item.source === 'drift')
-    const terminalCandidate = cluster.items.find((item) => item.terminalCommand)
-
+  function handleSignalActions(item: TimelineItem): ReactNode {
     return (
       <div className="tf-incident-actions">
-        {cluster.items.some((item) => item.source === 'terraform') && (
-          <button type="button" className="tf-toolbar-btn" onClick={() => handleOpenTerraformSignal({
-            detailTab: firstTerraform?.terraformRunId ? 'history' : 'operations',
-            runId: firstTerraform?.terraformRunId
-          })}>Open Terraform</button>
-        )}
-        {cluster.items.some((item) => item.source === 'drift') && (onOpenDrift || onNavigateTerraform) && (
-          <button type="button" className="tf-toolbar-btn" onClick={() => {
-            if (firstDrift?.terraformDriftKey && onNavigateTerraform) {
-              handleOpenTerraformSignal({ detailTab: 'drift', driftItemKey: firstDrift.terraformDriftKey })
-              return
-            }
-            ;(onOpenDrift ?? onNavigateTerraform)?.()
-          }}>Open Drift</button>
-        )}
-        {cluster.items.some((item) => item.source === 'cloudwatch') && onNavigateCloudWatch && (
-          <button
-            type="button"
-            className="tf-toolbar-btn"
-            onClick={() => {
-              const firstCloudWatch = cluster.items.find((item) => item.source === 'cloudwatch')
-              if (!firstCloudWatch) return
-              onNavigateCloudWatch({
-                logGroupNames: firstCloudWatch.logGroupNames,
-                sourceLabel: firstCloudWatch.title,
-                serviceHint: firstCloudWatch.serviceHint
-              })
-            }}
-          >
-            Open CloudWatch
-          </button>
-        )}
-        {cluster.items.some((item) => item.source === 'cloudtrail') && onNavigateCloudTrail && (
-          <button
-            type="button"
-            className="tf-toolbar-btn"
-            onClick={() => {
-              const firstCloudTrail = cluster.items.find((item) => item.source === 'cloudtrail')
-              if (!firstCloudTrail) return
-              onNavigateCloudTrail({
-                resourceName: firstCloudTrail.resourceName,
-                startTime: activeWindow.startIso,
-                endTime: activeWindow.endIso,
-                filter: buildCloudTrailFocusFilter(firstCloudTrail)
-              })
-            }}
-          >
-            Open CloudTrail
-          </button>
-        )}
-        {relatedService && onNavigateService && (
-          <button type="button" className="tf-toolbar-btn" onClick={() => onNavigateService(relatedService.serviceId, relatedService.resourceId)}>
-            Open Service
-          </button>
-        )}
-        {terminalCandidate?.terminalCommand && onRunTerminalCommand && (
-          <button type="button" className="tf-toolbar-btn" onClick={() => handleRunTerminalCommand(terminalCandidate.terminalCommand)}>
-            Run in Terminal
-          </button>
-        )}
-      </div>
-    )
-  }
-
-  function renderSignalActions(item: TimelineItem): ReactNode {
-    return (
-      <div className="tf-incident-actions">
-        {item.source === 'terraform' && (onOpenHistory || onNavigateTerraform) && (
-          <button type="button" className="tf-toolbar-btn" onClick={() => handleOpenTerraformSignal({
-            detailTab: item.terraformRunId ? 'history' : 'operations',
-            runId: item.terraformRunId
-          })}>Open Terraform</button>
-        )}
-        {item.source === 'drift' && (onOpenDrift || onNavigateTerraform) && (
-          <button type="button" className="tf-toolbar-btn" onClick={() => {
-            if (item.terraformDriftKey && onNavigateTerraform) {
-              handleOpenTerraformSignal({ detailTab: 'drift', driftItemKey: item.terraformDriftKey })
-              return
-            }
-            ;(onOpenDrift ?? onNavigateTerraform)?.()
-          }}>Open Drift</button>
-        )}
-        {item.source === 'cloudtrail' && onNavigateCloudTrail && (
-          <button
-            type="button"
-            className="tf-toolbar-btn"
-            onClick={() => onNavigateCloudTrail({
-              resourceName: item.resourceName,
-              startTime: activeWindow.startIso,
-              endTime: activeWindow.endIso,
-              filter: buildCloudTrailFocusFilter(item)
-            })}
-          >
-            Open CloudTrail
-          </button>
-        )}
-        {item.source === 'cloudtrail' && !onNavigateCloudTrail && onNavigateService && (
-          <button type="button" className="tf-toolbar-btn" onClick={() => onNavigateService('cloudtrail', item.resourceName)}>
-            Open CloudTrail
-          </button>
-        )}
-        {item.source === 'cloudwatch' && (
-          <>
-            {onNavigateCloudWatch ? (
-              <button
-                type="button"
-                className="tf-toolbar-btn"
-                onClick={() => onNavigateCloudWatch({
-                  logGroupNames: item.logGroupNames,
-                  sourceLabel: item.title,
-                  serviceHint: item.serviceHint
-                })}
-              >
-                Open CloudWatch
-              </button>
-            ) : onNavigateService && (
-              <button type="button" className="tf-toolbar-btn" onClick={() => onNavigateService('cloudwatch')}>
-                Open CloudWatch
-              </button>
-            )}
-          </>
-        )}
-        {item.serviceHint && item.serviceHint !== 'terraform' && item.serviceHint !== 'cloudtrail' && item.serviceHint !== 'cloudwatch' && onNavigateService && (
-          <button type="button" className="tf-toolbar-btn" onClick={() => onNavigateService(item.serviceHint as ServiceId, item.resourceName)}>
-            Open Service
-          </button>
-        )}
-        {item.terminalCommand && onRunTerminalCommand && (
-          <button type="button" className="tf-toolbar-btn" onClick={() => handleRunTerminalCommand(item.terminalCommand)}>
-            Run in Terminal
-          </button>
-        )}
+        {item.source === 'terraform' && (onOpenHistory || onNavigateTerraform) && <button type="button" className="tf-toolbar-btn" onClick={() => handleTerraformOpen({ detailTab: 'history', runId: item.terraformRunId })}>Open Terraform</button>}
+        {item.source === 'drift' && (onOpenDrift || onNavigateTerraform) && <button type="button" className="tf-toolbar-btn" onClick={() => item.terraformDriftKey && onNavigateTerraform ? handleTerraformOpen({ detailTab: 'drift', driftItemKey: item.terraformDriftKey }) : (onOpenDrift ?? onNavigateTerraform)?.()}>Open Drift</button>}
+        {item.source === 'cloudtrail' && onNavigateCloudTrail && <button type="button" className="tf-toolbar-btn" onClick={() => onNavigateCloudTrail({ resourceName: item.resourceName, startTime: activeWindow.startIso, endTime: activeWindow.endIso, filter: item.resourceName || item.title })}>Open CloudTrail</button>}
+        {item.source === 'cloudwatch' && onNavigateCloudWatch && <button type="button" className="tf-toolbar-btn" onClick={() => onNavigateCloudWatch({ logGroupNames: item.logGroupNames, sourceLabel: item.title, serviceHint: item.serviceHint })}>Open CloudWatch</button>}
+        {item.serviceHint && item.serviceHint !== 'terraform' && item.serviceHint !== 'cloudtrail' && item.serviceHint !== 'cloudwatch' && onNavigateService && <button type="button" className="tf-toolbar-btn" onClick={() => onNavigateService(item.serviceHint as ServiceId, item.resourceName)}>Open Service</button>}
+        {item.terminalCommand && onRunTerminalCommand && <button type="button" className="tf-toolbar-btn" onClick={() => onRunTerminalCommand(item.terminalCommand!)}>Run in Terminal</button>}
       </div>
     )
   }
@@ -1055,349 +597,36 @@ export function IncidentTimelineTab({
         <div className="tf-section-head">
           <div>
             <h3>{headlineForWindow(windowMode)}</h3>
-            <div className="tf-section-hint">
-              {buildScopeHint(scope, linkedProject)}
-            </div>
+            <div className="tf-section-hint">{buildScopeHint(scope, linkedProject)}</div>
           </div>
-          <button type="button" className="tf-toolbar-btn accent" onClick={() => void loadTimeline()} disabled={loading}>
-            {loading ? 'Refreshing...' : 'Refresh Timeline'}
-          </button>
-        </div>
-
-        <div className="tf-incident-toolbar">
-          <div className="tf-incident-toolbar-group">
-            <div className="tf-incident-window-buttons">
-              <button type="button" className={windowMode === '30m' ? 'active' : ''} onClick={() => setWindowMode('30m')}>30m</button>
-              <button type="button" className={windowMode === '1h' ? 'active' : ''} onClick={() => setWindowMode('1h')}>1h</button>
-              <button type="button" className={windowMode === 'custom' ? 'active' : ''} onClick={() => setWindowMode('custom')}>Custom</button>
-            </div>
-            <div className="tf-incident-view-buttons">
-              <button type="button" className={viewMode === 'grouped' ? 'active' : ''} onClick={() => setViewMode('grouped')}>Grouped</button>
-              <button type="button" className={viewMode === 'signals' ? 'active' : ''} onClick={() => setViewMode('signals')}>Signals</button>
-            </div>
+          <div className="tf-incident-toolbar">
+            <div className="tf-incident-window-buttons">{(['30m', '1h', 'custom'] as TimelineWindowMode[]).map((mode) => <button key={mode} type="button" className={windowMode === mode ? 'active' : ''} onClick={() => setWindowMode(mode)}>{mode === 'custom' ? 'Custom' : mode}</button>)}</div>
+            <div className="tf-incident-view-buttons">{(['grouped', 'signals'] as IncidentViewMode[]).map((mode) => <button key={mode} type="button" className={viewMode === mode ? 'active' : ''} onClick={() => setViewMode(mode)}>{mode === 'grouped' ? 'Correlations' : 'Signals'}</button>)}</div>
           </div>
-          {windowMode === 'custom' && (
-            <div className="tf-incident-custom-range">
-              <label className="tf-history-filter-group">
-                <span>Start</span>
-                <input type="datetime-local" value={customStart} onChange={(event) => setCustomStart(event.target.value)} />
-              </label>
-              <label className="tf-history-filter-group">
-                <span>End</span>
-                <input type="datetime-local" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} />
-              </label>
-            </div>
-          )}
         </div>
-
+        {windowMode === 'custom' && <div className="tf-incident-custom-range"><label className="field"><span>Start</span><input type="datetime-local" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label className="field"><span>End</span><input type="datetime-local" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label></div>}
         <div className="tf-incident-filters">
-          <label className="tf-history-filter-group">
-            <span>Source</span>
-            <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as TimelineSourceFilter)}>
-              <option value="all">All sources</option>
-              <option value="terraform">Terraform</option>
-              <option value="cloudtrail">CloudTrail</option>
-              <option value="cloudwatch">CloudWatch</option>
-              <option value="drift">Drift</option>
-            </select>
-          </label>
-          <label className="tf-history-filter-group">
-            <span>Tone</span>
-            <select value={toneFilter} onChange={(event) => setToneFilter(event.target.value as TimelineToneFilter)}>
-              <option value="all">All tones</option>
-              <option value="danger">Danger</option>
-              <option value="warning">Warning</option>
-              <option value="success">Success</option>
-              <option value="info">Info</option>
-            </select>
-          </label>
-          <label className="tf-history-filter-group tf-resource-search">
-            <span>Search</span>
-            <input
-              type="text"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Event, actor, resource, detail"
-            />
-          </label>
+          <label className="field"><span>Window</span><input value={activeWindow.label} readOnly /></label>
+          <label className="field"><span>Source</span><select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as TimelineSourceFilter)}><option value="all">All sources</option><option value="terraform">Terraform</option><option value="cloudtrail">CloudTrail</option><option value="cloudwatch">CloudWatch</option><option value="drift">Drift</option><option value="audit">Audit</option></select></label>
+          <label className="field"><span>Tone</span><select value={toneFilter} onChange={(event) => setToneFilter(event.target.value as TimelineToneFilter)}><option value="all">All severities</option><option value="danger">Danger</option><option value="warning">Warning</option><option value="success">Success</option><option value="info">Info</option></select></label>
+          <label className="field tf-incident-filter-span"><span>Search</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Resource, actor, service" /></label>
         </div>
-
-        <div className="tf-overview-card-grid">
-          <div className="tf-overview-card info">
-            <span>Window</span>
-            <strong>{activeWindow.label}</strong>
-            <span>{summary.total} recent signals</span>
-          </div>
-          <div className="tf-overview-card success">
-            <span>AWS context</span>
-            <strong>{connection.region}</strong>
-            <span>{connection.label} • {connection.profile}</span>
-          </div>
-          <div className={`tf-overview-card ${summaryCardTone(summary.cloudtrail)}`}>
-            <span>CloudTrail writes</span>
-            <strong>{summary.cloudtrail}</strong>
-            <span>Management-plane write activity in the same window</span>
-          </div>
-          <div className={`tf-overview-card ${summary.terraform + summary.drift > 0 ? 'warning' : 'info'}`}>
-            <span>Terraform signals</span>
-            <strong>{summary.terraform + summary.drift}</strong>
-            <span>
-              {linkedProject
-                ? `${linkedProject.name} • ${linkedProject.currentWorkspace}`
-                : 'No selected Terraform project attached'}
-            </span>
-          </div>
-        </div>
-
-        <div className="tf-guardrail-grid">
-          <section className={`tf-guardrail-card ${terraformGuardrail?.actionableCount ? 'warning' : 'success'}`}>
-            <div className="tf-guardrail-head">
-              <div>
-                <span className="tf-guardrail-kicker">Terraform guardrails</span>
-                <h4>Current project posture</h4>
-              </div>
-              <strong>{terraformGuardrail ? `${terraformGuardrail.actionableCount} actionable` : linkedProject ? 'No drift snapshot' : 'No project linked'}</strong>
-            </div>
-            {terraformGuardrail ? (
-              <>
-                <p className="tf-guardrail-copy">
-                  {linkedProject?.name} on {linkedProject?.currentWorkspace}. Latest scan {formatIsoDate(terraformGuardrail.latestScanLabel)}.
-                </p>
-                <div className="tf-guardrail-metrics">
-                  <span>Drifted {terraformGuardrail.driftedCount}</span>
-                  <span>Missing {terraformGuardrail.missingCount}</span>
-                  <span>Unmanaged {terraformGuardrail.unmanagedCount}</span>
-                </div>
-                <div className="tf-guardrail-list">
-                  {terraformGuardrail.topTypes.length > 0 ? terraformGuardrail.topTypes.map((entry) => (
-                    <div key={entry.resourceType} className="tf-guardrail-row">
-                      <div>
-                        <strong>{entry.resourceType}</strong>
-                        <span>High-volume drift type</span>
-                      </div>
-                      <span>{entry.count}</span>
-                    </div>
-                  )) : (
-                    <div className="tf-guardrail-empty">No drift-heavy resource type is currently standing out.</div>
-                  )}
-                </div>
-                <div className="tf-guardrail-subtitle">Direct remediation entries</div>
-                <div className="tf-guardrail-list compact">
-                  {terraformGuardrail.remediationItems.length > 0 ? terraformGuardrail.remediationItems.map((item) => (
-                    <div key={item.terraformAddress} className="tf-guardrail-row stacked">
-                      <div>
-                        <strong>{item.terraformAddress}</strong>
-                        <span>{item.suggestedNextStep}</span>
-                      </div>
-                      <div className="tf-guardrail-row-side">
-                        <span>{item.status.replace(/_/g, ' ')}</span>
-                        <div className="tf-incident-actions">
-                          {onNavigateTerraform && (
-                            <button type="button" className="tf-toolbar-btn" onClick={() => handleOpenTerraformSignal({ detailTab: 'drift', driftItemKey: driftItemKey(item) })}>
-                              Open Drift
-                            </button>
-                          )}
-                          {item.terminalCommand && onRunTerminalCommand && (
-                            <button type="button" className="tf-toolbar-btn" onClick={() => handleRunTerminalCommand(item.terminalCommand)}>
-                              Run in Terminal
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )) : (
-                    <div className="tf-guardrail-empty">No remediation entry is currently needed.</div>
-                  )}
-                </div>
-              </>
-            ) : (
-              <p className="tf-guardrail-copy">
-                {linkedProject
-                  ? 'A Terraform project is linked, but there is no cached drift snapshot yet.'
-                  : 'Overview is currently AWS-only. Select a Terraform project to pull in drift guardrails.'}
-              </p>
-            )}
-            <div className="tf-incident-actions">
-              {(onOpenDrift || onNavigateTerraform) && (
-                <button type="button" className="tf-toolbar-btn" onClick={() => {
-                  if (onNavigateTerraform) {
-                    handleOpenTerraformSignal({ detailTab: 'drift' })
-                    return
-                  }
-                  onOpenDrift?.()
-                }}>
-                  Open Drift
-                </button>
-              )}
-              {onNavigateTerraform && (
-                <button type="button" className="tf-toolbar-btn" onClick={() => onNavigateTerraform({ projectId: linkedProject?.id, detailTab: 'operations' })}>
-                  Open Terraform
-                </button>
-              )}
-            </div>
-          </section>
-
-          <section className={`tf-guardrail-card ${assumeRoleSummary.roles[0]?.concentration === 'unexpected' ? 'danger' : assumeRoleSummary.total > 0 ? 'warning' : 'success'}`}>
-            <div className="tf-guardrail-head">
-              <div>
-                <span className="tf-guardrail-kicker">Operator guardrails</span>
-                <h4>AssumeRole concentration</h4>
-              </div>
-              <strong>{assumeRoleSummary.total} events</strong>
-            </div>
-            <p className="tf-guardrail-copy">
-              Most frequently assumed IAM roles in the active window. Elevated or unexpected concentration hints at operator focus narrowing onto one role.
-            </p>
-            <div className="tf-guardrail-list">
-              {assumeRoleSummary.roles.length > 0 ? assumeRoleSummary.roles.map((entry) => (
-                <div key={entry.roleLabel} className="tf-guardrail-row stacked">
-                  <div>
-                    <strong>{entry.roleLabel}</strong>
-                    <span>
-                      {entry.actorLabels.slice(0, 3).join(', ') || 'Unknown actor'} - last seen {formatIsoDate(entry.lastSeen)}
-                    </span>
-                  </div>
-                  <span className={`tf-guardrail-pill ${entry.concentration}`}>{entry.count} - {entry.concentration}</span>
-                </div>
-              )) : (
-                <div className="tf-guardrail-empty">No AssumeRole activity was captured in the selected time window.</div>
-              )}
-            </div>
-            {onNavigateCloudTrail && (
-              <div className="tf-incident-actions">
-                <button
-                  type="button"
-                  className="tf-toolbar-btn"
-                  onClick={() => onNavigateCloudTrail({
-                    startTime: activeWindow.startIso,
-                    endTime: activeWindow.endIso,
-                    filter: 'AssumeRole'
-                  })}
-                >
-                  Open CloudTrail
-                </button>
-              </div>
-            )}
-          </section>
-
-          <section className={`tf-guardrail-card ${recentRiskyActions.some((entry) => entry.tone === 'danger') ? 'danger' : recentRiskyActions.length > 0 ? 'warning' : 'success'}`}>
-            <div className="tf-guardrail-head">
-              <div>
-                <span className="tf-guardrail-kicker">Risk log</span>
-                <h4>Recent risky actions</h4>
-              </div>
-              <strong>{recentRiskyActions.length} entries</strong>
-            </div>
-            <p className="tf-guardrail-copy">
-              Blunt operator activity pulled from terminal, service-console, and Terraform audit flows for this account and region.
-            </p>
-            <div className="tf-guardrail-list compact">
-              {recentRiskyActions.length > 0 ? recentRiskyActions.map((entry) => (
-                <div key={entry.id} className="tf-guardrail-row stacked">
-                  <div>
-                    <strong>{entry.title}</strong>
-                    <span>{entry.summary}</span>
-                    <span>{entry.detail}</span>
-                  </div>
-                  <div className="tf-guardrail-row-side">
-                    <span className={`tf-guardrail-pill ${entry.tone}`}>{formatIsoDate(entry.occurredAt)}</span>
-                    {renderRiskyActionButton(entry)}
-                  </div>
-                </div>
-              )) : (
-                <div className="tf-guardrail-empty">No risky operator action was captured in the selected time window.</div>
-              )}
-            </div>
-          </section>
-        </div>
-
-        {sourceWarnings.length > 0 && (
-          <div className="tf-incident-warning-list">
-            {sourceWarnings.map((warning) => (
-              <div key={warning} className="tf-inline-warning">{warning}</div>
-            ))}
-          </div>
-        )}
+        {terraformContextMessage && <div className="overview-note-item">{terraformContextMessage}</div>}
+        {warnings.length > 0 && <div className="tf-incident-warning-list">{warnings.map((warning) => <div key={warning} className="overview-note-item">{warning}</div>)}</div>}
       </div>
 
-      {loading && items.length === 0 && (
-        <div className="tf-section">
-          <SvcState variant="loading" resourceName="incident timeline" />
-        </div>
-      )}
+      {loading && !items.length ? <SvcState variant="loading" resourceName="incident timeline" compact /> : (
+        <>
+          {showGroupedView && <section className="tf-section"><div className="tf-section-head"><div><h3>Correlation clusters</h3><div className="tf-section-hint">Grouped signals help isolate one storyline across CloudTrail, CloudWatch, and Terraform.</div></div></div>{groupedItems.length ? <div className="tf-correlation-grid">{groupedItems.map((cluster) => <article key={cluster.id} className={`tf-correlation-card ${cluster.tone}`}><div className="tf-correlation-card-head"><div><h4>{cluster.title}</h4><p>{cluster.summary}</p></div><span className={`tf-correlation-confidence ${cluster.confidence}`}>{cluster.confidence}</span></div><div className="tf-correlation-sources">{cluster.sources.map((source) => <span key={source} className={`tf-incident-source ${source}`}>{source}</span>)}</div><div className="tf-correlation-meta"><span>{cluster.timeRangeLabel}</span><span>{cluster.items.length} items</span></div><div className="tf-correlation-list">{cluster.items.slice(0, 4).map((item) => <div key={item.id} className="tf-correlation-item"><strong>{item.title}</strong><span>{item.summary}</span></div>)}</div></article>)}</div> : <SvcState variant="empty" message="No correlation clusters were formed for this window." compact />}</section>}
+          {showSignalsView && <section className="tf-section"><div className="tf-section-head"><div><h3>Signals</h3><div className="tf-section-hint">Raw timeline entries remain available when you need exact event ordering.</div></div></div>{filteredItems.length ? <div className="tf-incident-list">{filteredItems.map((item) => <article key={item.id} className={`tf-incident-card ${item.tone}`}><div className="tf-incident-card-head"><div><div className="tf-incident-badges"><span className={`tf-incident-source ${item.source}`}>{item.source}</span><span className="tf-incident-time">{formatIsoDate(item.occurredAt)}</span></div><h4>{item.title}</h4></div></div><p>{item.summary}</p><div className="tf-incident-detail">{item.detail}</div>{handleSignalActions(item)}</article>)}</div> : <SvcState variant="empty" message="No timeline signals matched the current filters." compact />}</section>}
 
-      {!loading && items.length === 0 && (
-        <div className="tf-section">
-          <SvcState variant="empty" message="No recent change signals were found for the selected window." />
-        </div>
-      )}
+          <section className="tf-guardrail-grid">
+            <section className={`tf-guardrail-card ${guardrails.actionableCount > 0 ? 'warning' : 'success'}`}><div className="tf-guardrail-head"><div><span className="tf-guardrail-kicker">Terraform guardrails</span><h4>Drift posture</h4></div><strong>{guardrails.actionableCount}</strong></div><p className="tf-guardrail-copy">Latest drift snapshot: {guardrails.latestScanLabel}.</p><div className="tf-guardrail-metrics"><div><span>Drifted</span><strong>{guardrails.driftedCount}</strong></div><div><span>Missing</span><strong>{guardrails.missingCount}</strong></div><div><span>Unmanaged</span><strong>{guardrails.unmanagedCount}</strong></div></div><div className="tf-guardrail-list">{guardrails.remediationItems.length ? guardrails.remediationItems.map((item) => <div key={driftItemKey(item)} className="tf-guardrail-row stacked"><div><strong>{item.logicalName}</strong><span>{item.explanation}</span></div><div className="tf-incident-actions">{(onOpenDrift || onNavigateTerraform) && <button type="button" className="tf-toolbar-btn" onClick={() => onNavigateTerraform ? handleTerraformOpen({ detailTab: 'drift', driftItemKey: driftItemKey(item) }) : (onOpenDrift ?? onNavigateTerraform)?.()}>Open Drift</button>}{item.terminalCommand && onRunTerminalCommand && <button type="button" className="tf-toolbar-btn" onClick={() => onRunTerminalCommand(item.terminalCommand)}>Run in Terminal</button>}</div></div>) : <div className="tf-guardrail-empty">No remediation entry is currently needed.</div>}</div></section>
+            <section className={`tf-guardrail-card ${assumeRoleSummary.roles[0]?.concentration === 'unexpected' ? 'danger' : assumeRoleSummary.total > 0 ? 'warning' : 'success'}`}><div className="tf-guardrail-head"><div><span className="tf-guardrail-kicker">Operator guardrails</span><h4>AssumeRole concentration</h4></div><strong>{assumeRoleSummary.total} events</strong></div><p className="tf-guardrail-copy">Most frequently assumed IAM roles in the active window.</p><div className="tf-guardrail-list">{assumeRoleSummary.roles.length ? assumeRoleSummary.roles.map((entry) => <div key={entry.roleLabel} className="tf-guardrail-row stacked"><div><strong>{entry.roleLabel}</strong><span>{entry.count} events • last seen {formatIsoDate(entry.lastSeen)}</span></div><div className="tf-correlation-meta"><span>{entry.actorLabels.join(', ') || 'Unknown actor'}</span><span>{entry.concentration}</span></div></div>) : <div className="tf-guardrail-empty">No AssumeRole concentration was detected in this window.</div>}</div>{onNavigateCloudTrail && <div className="tf-incident-actions"><button type="button" className="tf-toolbar-btn" onClick={() => onNavigateCloudTrail({ startTime: activeWindow.startIso, endTime: activeWindow.endIso, filter: 'AssumeRole' })}>Open CloudTrail</button></div>}</section>
+          </section>
 
-      {items.length > 0 && filteredItems.length === 0 && (
-        <div className="tf-section">
-          <SvcState variant="no-filter-matches" resourceName="timeline signals" />
-        </div>
-      )}
-
-      {filteredItems.length > 0 && (
-        <div className="tf-section">
-          <div className="tf-section-hint">
-            Showing {filteredItems.length} of {items.length} signals for this window.
-          </div>
-          {showGroupedView && (
-            <div className="tf-correlation-grid">
-              {groupedItems.map((cluster) => (
-                <article key={cluster.id} className={`tf-correlation-card ${cluster.tone}`}>
-                  <div className="tf-correlation-card-head">
-                    <div>
-                      <h4>{cluster.title}</h4>
-                      <div className="tf-correlation-meta">
-                        <span>{cluster.timeRangeLabel}</span>
-                        <span>{cluster.items.length} signals</span>
-                      </div>
-                    </div>
-                    <span className={`tf-correlation-confidence ${cluster.confidence}`}>{cluster.confidence} confidence</span>
-                  </div>
-                  <p>{cluster.summary}</p>
-                  <div className="tf-correlation-sources">
-                    {cluster.sources.map((source) => (
-                      <span key={`${cluster.id}:${source}`} className={`tf-incident-source ${source}`}>{sourceLabel(source)}</span>
-                    ))}
-                  </div>
-                  <div className="tf-correlation-list">
-                    {cluster.items.slice(0, 3).map((item) => (
-                      <div key={item.id} className="tf-correlation-item">
-                        <strong>{item.title}</strong>
-                        <span>{item.summary}</span>
-                      </div>
-                    ))}
-                  </div>
-                  {renderClusterActions(cluster)}
-                </article>
-              ))}
-            </div>
-          )}
-
-          {showSignalsView && (
-            <div className="tf-incident-list">
-              {filteredItems.map((item) => (
-                <article key={item.id} className={`tf-incident-card ${item.tone}`}>
-                  <div className="tf-incident-card-head">
-                    <div>
-                      <div className="tf-incident-badges">
-                        <span className={`tf-incident-source ${item.source}`}>{sourceLabel(item.source)}</span>
-                        <span className="tf-incident-time">{formatIsoDate(item.occurredAt)}</span>
-                      </div>
-                      <h4>{item.title}</h4>
-                    </div>
-                  </div>
-                  <p>{item.summary}</p>
-                  <div className="tf-incident-detail">{item.detail}</div>
-                  {renderSignalActions(item)}
-                </article>
-              ))}
-            </div>
-          )}
-        </div>
+          <section className={`tf-guardrail-card ${riskyActions.some((entry) => entry.tone === 'danger') ? 'danger' : riskyActions.length > 0 ? 'warning' : 'success'}`}><div className="tf-guardrail-head"><div><span className="tf-guardrail-kicker">Risk log</span><h4>Recent risky actions</h4></div><strong>{riskyActions.length} entries</strong></div><p className="tf-guardrail-copy">Mutating actions and drift mismatches are promoted here for quick triage.</p><div className="tf-guardrail-list">{riskyActions.length ? riskyActions.map((entry) => <div key={entry.id} className="tf-guardrail-row stacked"><div><strong>{entry.title}</strong><span>{entry.summary}</span><div className="tf-incident-detail">{entry.detail}</div></div><div className="tf-incident-actions">{entry.serviceId === 'terraform' && (onOpenHistory || onNavigateTerraform) && <button type="button" className="tf-toolbar-btn" onClick={() => handleTerraformOpen({ detailTab: 'history' })}>Open Terraform</button>}{entry.serviceId && entry.serviceId !== 'terraform' && onNavigateService && <button type="button" className="tf-toolbar-btn" onClick={() => onNavigateService(entry.serviceId as ServiceId, entry.resourceId || undefined)}>Open Service</button>}{entry.terminalCommand && onRunTerminalCommand && <button type="button" className="tf-toolbar-btn" onClick={() => onRunTerminalCommand(entry.terminalCommand!)}>Run in Terminal</button>}</div></div>) : <div className="tf-guardrail-empty">No elevated-risk actions were detected in this window.</div>}</div></section>
+        </>
       )}
     </>
   )

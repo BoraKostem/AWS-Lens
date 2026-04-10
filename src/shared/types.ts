@@ -1,16 +1,69 @@
 /* ── AWS ──────────────────────────────────────────────────── */
 
-export type AwsProfile = {
-  name: string
-  source: 'config' | 'credentials'
-  region: string
+export type ProviderProfileSource = string
+
+export type ProviderProfileState = 'available' | 'connected' | 'expired'
+
+export type ProviderProfileRecord<TSource extends ProviderProfileSource = ProviderProfileSource> = {
+  providerId: CloudProviderId
+  id: string
+  label: string
+  source: TSource
+  defaultLocationId: string
   managedByApp: boolean
 }
 
-export type AwsRegionOption = {
+export type ProviderLocationOption<TKind extends ProviderLocationKind = ProviderLocationKind> = {
+  providerId: CloudProviderId
   id: string
   name: string
+  kind: TKind
 }
+
+export type ProviderIdentity = {
+  providerId: CloudProviderId
+  accountId: string
+  principalArn: string
+  principalId: string
+}
+
+export type NormalizedActorScopeKind = 'account' | 'project' | 'subscription' | 'tenant'
+
+export type NormalizedActorIdentity = {
+  providerId: CloudProviderId
+  scopeKind: NormalizedActorScopeKind
+  scopeId: string
+  principalId: string
+  principalArn: string
+  displayName: string
+}
+
+export type NormalizedResourceIdentity = {
+  providerId: CloudProviderId
+  serviceId: ServiceId | ''
+  resourceType: string
+  canonicalType: string
+  identityKey: string
+  displayName: string
+  locationId: string
+  scopeId: string
+}
+
+export type ProviderScopedConnection<TKind extends ProviderConnectionKind = ProviderConnectionKind> = {
+  providerId: CloudProviderId
+  kind: TKind
+  sessionId: string
+  label: string
+  profileId: string
+  locationId: string
+}
+
+export type AwsProfile = ProviderProfileRecord<'config' | 'credentials'> & {
+  name: string
+  region: string
+}
+
+export type AwsRegionOption = ProviderLocationOption<'region'>
 
 export type AwsCredentialSnapshot = {
   accessKeyId: string
@@ -35,18 +88,12 @@ export type AwsAssumeRoleTarget = {
   updatedAt: string
 }
 
-export type AwsBaseConnection = {
-  kind: 'profile'
-  sessionId: string
-  label: string
+export type AwsBaseConnection = ProviderScopedConnection<'profile'> & {
   profile: string
   region: string
 }
 
-export type AwsAssumedRoleConnection = {
-  kind: 'assumed-role'
-  sessionId: string
-  label: string
+export type AwsAssumedRoleConnection = ProviderScopedConnection<'assumed-role'> & {
   profile: string
   sourceProfile: string
   region: string
@@ -59,6 +106,77 @@ export type AwsAssumedRoleConnection = {
 }
 
 export type AwsConnection = AwsBaseConnection | AwsAssumedRoleConnection
+
+export type CloudProviderId = 'aws' | 'gcp' | 'azure'
+
+export type ProviderAvailability = 'available' | 'planned'
+
+export type ProviderWorkspaceKind = 'shared' | 'provider'
+
+export type ProviderConnectionKind =
+  | 'profile'
+  | 'assumed-role'
+  | 'application-default'
+  | 'service-account'
+  | 'subscription'
+  | 'tenant'
+
+export type ProviderLocationKind =
+  | 'global'
+  | 'region'
+  | 'zone'
+  | 'project'
+  | 'subscription'
+  | 'tenant'
+
+export type ProviderDescriptor = {
+  id: CloudProviderId
+  label: string
+  shortLabel: string
+  availability: ProviderAvailability
+  profileLabel: string
+  locationLabel: string
+  connectionLabel: string
+}
+
+export type ProviderCliStatusEntry = {
+  installed: boolean
+  cliName: string
+  version: string
+  path: string
+}
+
+export type ProviderCliStatus = Record<CloudProviderId, ProviderCliStatusEntry>
+
+export type ProviderProfileDescriptor = {
+  providerId: CloudProviderId
+  id: string
+  label: string
+  source: string
+  defaultLocationId: string
+  state: ProviderProfileState
+}
+
+export type ProviderLocationDescriptor = {
+  providerId: CloudProviderId
+  id: string
+  label: string
+  kind: ProviderLocationKind
+  parentId?: string
+}
+
+export type ProviderConnectionDescriptor = {
+  providerId: CloudProviderId
+  kind: ProviderConnectionKind
+  sessionId: string
+  label: string
+  profileId: string
+  profileLabel: string
+  sourceProfileId?: string
+  locationId: string
+  locationLabel: string
+  accountId?: string
+}
 
 export type AwsSessionStatus = 'active' | 'expired'
 
@@ -102,12 +220,6 @@ export type ComparisonContextInput =
       region: string
       label?: string
     }
-  | {
-      kind: 'saved-target'
-      targetId: string
-      region: string
-      label?: string
-    }
 
 export type ComparisonContextDescriptor = {
   kind: ComparisonContextInput['kind']
@@ -119,6 +231,7 @@ export type ComparisonContextDescriptor = {
   accountId: string
   roleArn: string
   arn: string
+  normalizedIdentity: NormalizedActorIdentity
 }
 
 export type ComparisonRequest = {
@@ -165,9 +278,11 @@ export type ComparisonDetailField = {
 }
 
 export type ComparisonNavigationTarget = {
+  providerId: CloudProviderId
   serviceId: ServiceId
   region: string
   resourceLabel: string
+  identity?: NormalizedResourceIdentity
 }
 
 export type ComparisonDiffRow = {
@@ -181,6 +296,7 @@ export type ComparisonDiffRow = {
   serviceId: ServiceId
   resourceType: string
   identityKey: string
+  normalizedIdentity: NormalizedResourceIdentity
   focusModes: ComparisonFocusMode[]
   rationale: string
   left: ComparisonMetricSide
@@ -284,7 +400,7 @@ export type AssumeRoleRequest = {
   region?: string
 }
 
-export type CallerIdentity = {
+export type CallerIdentity = ProviderIdentity & {
   account: string
   arn: string
   userId: string
@@ -360,8 +476,17 @@ export type AppSettingsRefreshMode = 'manual' | 'automatic'
 export type AppSettingsReleaseChannelPreference = 'system' | 'stable' | 'preview'
 
 export type AppSettingsGeneral = {
+  defaultProviderId: CloudProviderId
   defaultProfileName: string
   defaultRegion: string
+  gcpDefaultModeId: string
+  gcpDefaultProjectId: string
+  gcpDefaultLocation: string
+  azureDefaultModeId: string
+  azureDefaultSubscriptionId: string
+  azureDefaultSubscriptionLabel: string
+  azureDefaultTenantId: string
+  azureDefaultLocation: string
   launchScreen: AppSettingsLaunchScreen
 }
 
@@ -382,6 +507,8 @@ export type AppSettingsToolchain = {
   terraformPathOverride: string
   opentofuPathOverride: string
   awsCliPathOverride: string
+  gcloudPathOverride: string
+  azureCliPathOverride: string
   kubectlPathOverride: string
   dockerPathOverride: string
 }
@@ -391,7 +518,26 @@ export type AppSettingsUpdates = {
   autoDownload: boolean
 }
 
-export type AppFeatureFlagId = 'labs.observability' | `service.${ServiceId}`
+export type AppFeatureFlagId =
+  | 'labs.observability'
+  | 'service.iam'
+  | 'service.identity-center'
+  | 'service.kms'
+  | 'service.sns'
+  | 'service.sqs'
+  | 'service.waf'
+  | 'service.gcp-iam'
+  | 'service.gcp-pubsub'
+  | 'service.gcp-scc'
+  | 'service.gcp-cloud-dns'
+  | 'service.gcp-memorystore'
+  | 'service.gcp-firebase'
+  | 'service.azure-rbac'
+  | 'service.azure-key-vault'
+  | 'service.azure-event-hub'
+  | 'service.azure-event-grid'
+  | 'service.azure-firewall'
+  | 'service.azure-dns'
 
 export type AppSettingsFeatures = {
   registry: Partial<Record<AppFeatureFlagId, boolean>>
@@ -418,6 +564,8 @@ export type AppSecuritySummary = {
 
 export type EnvironmentToolId =
   | 'aws-cli'
+  | 'gcloud-cli'
+  | 'azure-cli'
   | 'session-manager-plugin'
   | 'terraform'
   | 'opentofu'
@@ -454,6 +602,1998 @@ export type EnvironmentHealthReport = {
   summary: string
   tools: EnvironmentToolCheck[]
   permissions: EnvironmentPermissionCheck[]
+}
+
+export type GcpCliConfiguration = {
+  name: string
+  isActive: boolean
+  account: string
+  projectId: string
+  region: string
+  zone: string
+}
+
+export type GcpCliProject = {
+  projectId: string
+  name: string
+  projectNumber: string
+  lifecycleState: string
+}
+
+export type GcpCliContext = {
+  detected: boolean
+  cliPath: string
+  activeConfigurationName: string
+  activeAccount: string
+  activeProjectId: string
+  activeRegion: string
+  activeZone: string
+  configurations: GcpCliConfiguration[]
+  projects: GcpCliProject[]
+  locations: string[]
+}
+
+export type AzureAuthStatus =
+  | 'signed-out'
+  | 'starting'
+  | 'waiting-for-device-code'
+  | 'authenticating'
+  | 'authenticated'
+  | 'error'
+
+export type AzureContextDiagnosticSeverity = 'info' | 'warning' | 'error'
+
+export type AzureContextDiagnosticCode =
+  | 'missing-auth'
+  | 'expired-auth'
+  | 'missing-subscription'
+  | 'insufficient-access'
+  | 'provider-registration'
+  | 'cli-guidance'
+  | 'read-only-mode'
+
+export type AzureTenantSummary = {
+  tenantId: string
+  displayName: string
+  defaultDomain: string
+  countryCode: string
+  tenantCategory: string
+}
+
+export type AzureSubscriptionSummary = {
+  id?: string
+  subscriptionId: string
+  displayName: string
+  tenantId: string
+  state: string
+  authorizationSource: string
+  managedByTenants?: string[]
+  spendingLimit?: string
+  quotaId?: string
+  locationCount?: number
+  locations?: string[]
+  managementGroupHints?: string[]
+}
+
+export type AzureLocationSummary = {
+  id: string
+  name: string
+  regionalDisplayName: string
+  pairedRegionIds: string[]
+}
+
+export type AzureProviderRegistrationSummary = {
+  namespace: string
+  registrationState: string
+}
+
+export type AzureContextDiagnostic = {
+  code: AzureContextDiagnosticCode
+  severity: AzureContextDiagnosticSeverity
+  title: string
+  detail: string
+  remediation: string
+}
+
+export type AzureDeviceCodePrompt = {
+  message: string
+  userCode: string
+  verificationUri: string
+}
+
+export type AzureAuthSessionState = {
+  status: AzureAuthStatus
+  message: string
+  prompt: AzureDeviceCodePrompt | null
+  signedInAt: string
+  lastError: string
+}
+
+export type AzureProviderContextSnapshot = {
+  loadedAt: string
+  auth: AzureAuthSessionState
+  cloudName: string
+  cliPath: string
+  activeTenantId: string
+  activeSubscriptionId: string
+  activeLocation: string
+  activeAccountLabel: string
+  tenants: AzureTenantSummary[]
+  subscriptions: AzureSubscriptionSummary[]
+  locations: AzureLocationSummary[]
+  recentSubscriptionIds: string[]
+  recentSubscriptions: AzureSubscriptionSummary[]
+  providerRegistrations: AzureProviderRegistrationSummary[]
+  diagnostics: AzureContextDiagnostic[]
+}
+
+export type AzureRoleAssignmentSummary = {
+  id: string
+  principalId: string
+  principalType: string
+  roleName: string
+  scope: string
+  scopeKind: 'subscription' | 'resourceGroup' | 'resource'
+  inherited: boolean
+  risky: boolean
+  condition: string
+}
+
+export type AzureRbacOverview = {
+  subscriptionId: string
+  assignmentCount: number
+  principalCount: number
+  roleCount: number
+  riskyAssignmentCount: number
+  inheritedAssignmentCount: number
+  assignments: AzureRoleAssignmentSummary[]
+  notes: string[]
+}
+
+export type AzureRoleDefinitionSummary = {
+  id: string
+  roleName: string
+  description: string
+  roleType: 'BuiltInRole' | 'CustomRole'
+  actions: string[]
+  notActions: string[]
+  dataActions: string[]
+  notDataActions: string[]
+  assignableScopes: string[]
+}
+
+export type AzureVirtualMachineSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  vmSize: string
+  powerState: string
+  provisioningState: string
+  osType: string
+  identityType: string
+  privateIp: string
+  publicIp: string
+  hasPublicIp: boolean
+  subnetName: string
+  networkInterfaceCount: number
+  diagnosticsState: string
+  tagCount: number
+}
+
+export type AzureVmAction = 'start' | 'powerOff' | 'restart' | 'deallocate'
+
+export type AzureVmActionResult = {
+  action: AzureVmAction
+  vmName: string
+  resourceGroup: string
+  accepted: boolean
+  error?: string
+}
+
+export type AzureVirtualMachineDetail = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  vmSize: string
+  powerState: string
+  provisioningState: string
+  osType: string
+  osDiskName: string
+  osDiskSizeGiB: number
+  osDiskType: string
+  dataDisks: Array<{ name: string; sizeGiB: number; lun: number; type: string }>
+  identityType: string
+  privateIp: string
+  publicIp: string
+  hasPublicIp: boolean
+  subnetName: string
+  subnetId: string
+  vnetName: string
+  networkInterfaceCount: number
+  networkSecurityGroup: string
+  diagnosticsState: string
+  tags: Record<string, string>
+  imageReference: string
+  computerName: string
+  adminUsername: string
+  availabilityZone: string
+  platform: string
+}
+
+export type AzureAksClusterSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  kubernetesVersion: string
+  provisioningState: string
+  powerState: string
+  nodePoolCount: number
+  nodeCount: number
+  privateCluster: boolean
+  identityType: string
+  workloadIdentityEnabled: boolean
+  oidcIssuerEnabled: boolean
+  networkPlugin: string
+  ingressProfile: string
+  agentPoolNames: string[]
+  notes: string[]
+}
+
+export type AzureAksClusterDetail = {
+  name: string
+  resourceGroup: string
+  location: string
+  kubernetesVersion: string
+  provisioningState: string
+  powerState: string
+  fqdn: string
+  privateFqdn: string
+  privateCluster: boolean
+  identityType: string
+  workloadIdentityEnabled: boolean
+  oidcIssuerEnabled: boolean
+  oidcIssuerUrl: string
+  networkPlugin: string
+  networkPolicy: string
+  serviceCidr: string
+  dnsServiceIp: string
+  podCidr: string
+  loadBalancerSku: string
+  outboundType: string
+  nodeResourceGroup: string
+  dnsPrefix: string
+  enableRbac: boolean
+  createdAt: string
+  nodePoolCount: number
+  nodeCount: number
+  tags: Record<string, string>
+  loggingEnabled: string[]
+  healthIssues: string[]
+}
+
+export type AzureAksNodePoolSummary = {
+  name: string
+  status: string
+  mode: string
+  vmSize: string
+  osType: string
+  osSku: string
+  kubernetesVersion: string
+  min: number | string
+  desired: number | string
+  max: number | string
+  enableAutoScaling: boolean
+  availabilityZones: string[]
+  maxPods: number
+  osDiskSizeGb: number
+  osDiskType: string
+  powerState: string
+  nodeLabels: Record<string, string>
+  nodeTaints: string[]
+}
+
+/* ── Azure Network types ─────────────────────────────────── */
+
+export type AzureVNetSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  addressPrefixes: string[]
+  subnetCount: number
+  provisioningState: string
+  enableDdosProtection: boolean
+  dnsServers: string[]
+  peeringCount: number
+  tagCount: number
+}
+
+export type AzureSubnetSummary = {
+  id: string
+  name: string
+  addressPrefix: string
+  provisioningState: string
+  nsgName: string
+  routeTableName: string
+  delegations: string[]
+  privateEndpointCount: number
+  natGatewayName: string
+}
+
+export type AzureNsgSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  securityRuleCount: number
+  defaultRuleCount: number
+  associatedSubnetCount: number
+  associatedNicCount: number
+  provisioningState: string
+}
+
+export type AzureNsgRuleSummary = {
+  name: string
+  priority: number
+  direction: 'Inbound' | 'Outbound'
+  access: 'Allow' | 'Deny'
+  protocol: string
+  sourceAddressPrefix: string
+  sourcePortRange: string
+  destinationAddressPrefix: string
+  destinationPortRange: string
+}
+
+export type AzurePublicIpSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  ipAddress: string
+  allocationMethod: string
+  sku: string
+  associatedResourceName: string
+  provisioningState: string
+  dnsLabel: string
+  fqdn: string
+}
+
+export type AzureNetworkInterfaceSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  privateIp: string
+  publicIp: string
+  subnetName: string
+  vnetName: string
+  nsgName: string
+  macAddress: string
+  attachedVmName: string
+  provisioningState: string
+  enableAcceleratedNetworking: boolean
+}
+
+export type AzureNetworkOverview = {
+  vnets: AzureVNetSummary[]
+  nsgs: AzureNsgSummary[]
+  publicIps: AzurePublicIpSummary[]
+  networkInterfaces: AzureNetworkInterfaceSummary[]
+  routeTables: AzureRouteTableSummary[]
+  natGateways: AzureNatGatewaySummary[]
+  loadBalancers: AzureLoadBalancerSummary[]
+  privateEndpoints: AzurePrivateEndpointSummary[]
+}
+
+/* ── Azure VMSS types ────────────────────────────────────── */
+
+export type AzureVmssSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  skuName: string
+  skuCapacity: number
+  provisioningState: string
+  orchestrationMode: string
+  upgradePolicy: string
+  platformFaultDomainCount: number
+  overprovision: boolean
+  singlePlacementGroup: boolean
+  identityType: string
+  tagCount: number
+  zones: string[]
+}
+
+export type AzureVmssInstanceSummary = {
+  instanceId: string
+  name: string
+  provisioningState: string
+  powerState: string
+  latestModelApplied: boolean
+  vmSize: string
+  protectionFromScaleIn: boolean
+  zone: string
+}
+
+export type AzureVmssActionResult = {
+  action: string
+  vmssName: string
+  resourceGroup: string
+  accepted: boolean
+  error?: string
+}
+
+/* ── Azure Application Insights types ───────────────────── */
+
+export type AzureAppInsightsSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  instrumentationKey: string
+  applicationId: string
+  applicationType: string
+  kind: string
+  ingestionMode: string
+  retentionInDays: number
+  publicNetworkAccessForIngestion: string
+  publicNetworkAccessForQuery: string
+  provisioningState: string
+  connectionString: string
+  workspaceResourceId: string
+  tagCount: number
+}
+
+/* ── Azure Key Vault types ──────────────────────────────── */
+
+export type AzureKeyVaultSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  vaultUri: string
+  skuName: string
+  tenantId: string
+  enableSoftDelete: boolean
+  softDeleteRetentionInDays: number
+  enablePurgeProtection: boolean
+  enableRbacAuthorization: boolean
+  publicNetworkAccess: string
+  provisioningState: string
+  tagCount: number
+}
+
+export type AzureKeyVaultSecretSummary = {
+  id: string
+  name: string
+  enabled: boolean
+  contentType: string
+  managed: boolean
+  created: string
+  updated: string
+}
+
+export type AzureKeyVaultKeySummary = {
+  id: string
+  name: string
+  enabled: boolean
+  keyType: string
+  keyOps: string[]
+  created: string
+  updated: string
+}
+
+/* ── Azure Event Hub types ──────────────────────────────── */
+
+export type AzureEventHubNamespaceSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  skuName: string
+  skuTier: string
+  skuCapacity: number
+  isAutoInflateEnabled: boolean
+  maximumThroughputUnits: number
+  kafkaEnabled: boolean
+  zoneRedundant: boolean
+  publicNetworkAccess: string
+  provisioningState: string
+  status: string
+  serviceBusEndpoint: string
+  tagCount: number
+}
+
+export type AzureEventHubSummary = {
+  id: string
+  name: string
+  partitionCount: number
+  messageRetentionInDays: number
+  status: string
+  createdAt: string
+  updatedAt: string
+  partitionIds: string[]
+}
+
+export type AzureEventHubConsumerGroupSummary = {
+  id: string
+  name: string
+  userMetadata: string
+  createdAt: string
+  updatedAt: string
+}
+
+/* ── Azure App Service types ────────────────────────────── */
+
+export type AzureAppServicePlanSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  skuName: string
+  skuTier: string
+  skuCapacity: number
+  kind: string
+  numberOfWorkers: number
+  numberOfSites: number
+  status: string
+  reserved: boolean
+  zoneRedundant: boolean
+  provisioningState: string
+  tagCount: number
+}
+
+export type AzureWebAppSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  kind: string
+  state: string
+  defaultHostName: string
+  httpsOnly: boolean
+  enabled: boolean
+  appServicePlanName: string
+  runtimeStack: string
+  ftpsState: string
+  http20Enabled: boolean
+  minTlsVersion: string
+  publicNetworkAccess: string
+  provisioningState: string
+  lastModifiedTimeUtc: string
+  tagCount: number
+}
+
+export type AzureWebAppSlotSummary = {
+  id: string
+  name: string
+  slotName: string
+  state: string
+  hostName: string
+  enabled: boolean
+  httpsOnly: boolean
+  lastModifiedTimeUtc: string
+}
+
+export type AzureWebAppDeploymentSummary = {
+  id: string
+  deploymentId: string
+  status: number
+  message: string
+  author: string
+  deployer: string
+  startTime: string
+  endTime: string
+  active: boolean
+}
+
+export type AzureStorageAccountSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  kind: string
+  skuName: string
+  accessTier: string
+  publicNetworkAccess: string
+  defaultNetworkAction: string
+  minimumTlsVersion: string
+  allowBlobPublicAccess: boolean
+  allowSharedKeyAccess: boolean
+  httpsOnly: boolean
+  versioningEnabled: boolean
+  changeFeedEnabled: boolean
+  blobDeleteRetentionDays: number
+  containerDeleteRetentionDays: number
+  primaryBlobEndpoint: string
+  primaryFileEndpoint: string
+  primaryQueueEndpoint: string
+  primaryTableEndpoint: string
+  containerCount: number
+  tagCount: number
+  notes: string[]
+}
+
+export type AzureStorageContainerSummary = {
+  name: string
+  publicAccess: string
+  metadataCount: number
+  leaseStatus: string
+  lastModified: string
+  hasImmutabilityPolicy: boolean
+  hasLegalHold: boolean
+  defaultEncryptionScope: string
+  denyEncryptionScopeOverride: boolean
+}
+
+export type AzureStorageBlobSummary = {
+  key: string
+  size: number
+  lastModified: string
+  contentType: string
+  accessTier: string
+  isFolder: boolean
+}
+
+export type AzureStorageBlobContent = {
+  body: string
+  contentType: string
+}
+
+export type AzureSqlServerSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  version: string
+  fullyQualifiedDomainName: string
+  publicNetworkAccess: string
+  minimalTlsVersion: string
+  administratorType: string
+  outboundNetworkRestriction: string
+  databaseCount: number
+  elasticPoolCount: number
+  tagCount: number
+  notes: string[]
+}
+
+export type AzureSqlDatabaseSummary = {
+  id: string
+  name: string
+  serverName: string
+  resourceGroup: string
+  location: string
+  status: string
+  skuName: string
+  edition: string
+  maxSizeGb: number
+  zoneRedundant: boolean
+  readScale: string
+  autoPauseDelayMinutes: number
+  backupStorageRedundancy: string
+}
+
+export type AzureSqlEstateOverview = {
+  subscriptionId: string
+  serverCount: number
+  databaseCount: number
+  publicServerCount: number
+  servers: AzureSqlServerSummary[]
+  databases: AzureSqlDatabaseSummary[]
+  notes: string[]
+}
+
+export type AzureSqlOperationalTone = 'good' | 'warning' | 'risk' | 'info' | 'neutral'
+
+export type AzureSqlPostureBadge = {
+  id: string
+  label: string
+  value: string
+  tone: AzureSqlOperationalTone
+}
+
+export type AzureSqlSummaryTile = {
+  id: string
+  label: string
+  value: string
+  tone: AzureSqlOperationalTone
+}
+
+export type AzureSqlFinding = {
+  id: string
+  severity: 'info' | 'warning' | 'risk'
+  title: string
+  message: string
+  recommendation: string
+}
+
+export type AzureSqlFirewallRule = {
+  name: string
+  startIpAddress: string
+  endIpAddress: string
+}
+
+export type AzureSqlServerDetail = {
+  server: AzureSqlServerSummary
+  databases: AzureSqlDatabaseSummary[]
+  firewallRules: AzureSqlFirewallRule[]
+  badges: AzureSqlPostureBadge[]
+  summaryTiles: AzureSqlSummaryTile[]
+  findings: AzureSqlFinding[]
+  recommendations: string[]
+  connectionDetails: Array<{ label: string; value: string }>
+}
+
+export type AzurePostgreSqlServerSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  version: string
+  fullyQualifiedDomainName: string
+  publicNetworkAccess: string
+  state: string
+  skuName: string
+  skuTier: string
+  storageSizeGb: number
+  haEnabled: boolean
+  haState: string
+  backupRetentionDays: number
+  geoRedundantBackup: boolean
+  availabilityZone: string
+  databaseCount: number
+  tagCount: number
+  notes: string[]
+}
+
+export type AzurePostgreSqlDatabaseSummary = {
+  id: string
+  name: string
+  serverName: string
+  resourceGroup: string
+  charset: string
+  collation: string
+}
+
+export type AzurePostgreSqlEstateOverview = {
+  subscriptionId: string
+  serverCount: number
+  databaseCount: number
+  publicServerCount: number
+  servers: AzurePostgreSqlServerSummary[]
+  databases: AzurePostgreSqlDatabaseSummary[]
+  notes: string[]
+}
+
+export type AzurePostgreSqlFirewallRule = {
+  name: string
+  startIpAddress: string
+  endIpAddress: string
+}
+
+export type AzurePostgreSqlOperationalTone = 'good' | 'warning' | 'risk' | 'info' | 'neutral'
+
+export type AzurePostgreSqlPostureBadge = {
+  id: string
+  label: string
+  value: string
+  tone: AzurePostgreSqlOperationalTone
+}
+
+export type AzurePostgreSqlSummaryTile = {
+  id: string
+  label: string
+  value: string
+  tone: AzurePostgreSqlOperationalTone
+}
+
+export type AzurePostgreSqlFinding = {
+  id: string
+  severity: 'info' | 'warning' | 'risk'
+  title: string
+  message: string
+  recommendation: string
+}
+
+export type AzurePostgreSqlServerDetail = {
+  server: AzurePostgreSqlServerSummary
+  databases: AzurePostgreSqlDatabaseSummary[]
+  firewallRules: AzurePostgreSqlFirewallRule[]
+  badges: AzurePostgreSqlPostureBadge[]
+  summaryTiles: AzurePostgreSqlSummaryTile[]
+  findings: AzurePostgreSqlFinding[]
+  recommendations: string[]
+  connectionDetails: Array<{ label: string; value: string }>
+}
+
+export type AzureMonitorFacetCount = {
+  label: string
+  count: number
+}
+
+export type AzureMonitorActivityEvent = {
+  id: string
+  timestamp: string
+  level: string
+  status: string
+  resourceGroup: string
+  resourceType: string
+  operationName: string
+  resourceId: string
+  caller: string
+  correlationId: string
+  summary: string
+}
+
+export type AzureMonitorActivityResult = {
+  query: string
+  events: AzureMonitorActivityEvent[]
+  statusCounts: AzureMonitorFacetCount[]
+  resourceTypeCounts: AzureMonitorFacetCount[]
+  notes: string[]
+}
+
+export type AzureCostBreakdownEntry = {
+  label: string
+  amount: number
+  currency: string
+  sharePercent: number
+}
+
+export type AzureCostDailyEntry = {
+  date: string
+  amount: number
+  currency: string
+}
+
+export type AzureCostOverview = {
+  subscriptionId: string
+  timeframeLabel: string
+  totalAmount: number
+  currency: string
+  dailyAverage: number
+  topServiceName: string
+  topServiceAmount: number
+  serviceCount: number
+  resourceGroupCount: number
+  topServices: AzureCostBreakdownEntry[]
+  topResourceGroups: AzureCostBreakdownEntry[]
+  dailyCosts: AzureCostDailyEntry[]
+  notes: string[]
+}
+
+export type GcpProjectLabelSummary = {
+  key: string
+  value: string
+}
+
+export type GcpEnabledApiSummary = {
+  name: string
+  title: string
+}
+
+export type GcpProjectCapabilityHint = {
+  id: string
+  subject: string
+  severity: 'info' | 'warning' | 'error'
+  title: string
+  summary: string
+  recommendedAction: string
+}
+
+export type GcpProjectOverview = {
+  projectId: string
+  projectNumber: string
+  displayName: string
+  lifecycleState: string
+  parentType: string
+  parentId: string
+  createTime: string
+  labels: GcpProjectLabelSummary[]
+  enabledApis: GcpEnabledApiSummary[]
+  enabledApiCount: number
+  capabilityHints: GcpProjectCapabilityHint[]
+  notes: string[]
+}
+
+export type GcpIamBindingSummary = {
+  role: string
+  memberCount: number
+  risky: boolean
+  publicAccess: boolean
+  conditionTitle: string
+  members: string[]
+}
+
+export type GcpIamPrincipalSummary = {
+  principal: string
+  bindingCount: number
+  highPrivilegeRoleCount: number
+  sampleRoles: string[]
+}
+
+export type GcpServiceAccountSummary = {
+  email: string
+  displayName: string
+  uniqueId: string
+  description: string
+  disabled: boolean
+}
+
+export type GcpServiceAccountKeySummary = {
+  name: string
+  keyId: string
+  keyType: string
+  keyOrigin: string
+  validAfterTime: string
+  validBeforeTime: string
+  disabled: boolean
+}
+
+export type GcpIamRoleSummary = {
+  name: string
+  title: string
+  description: string
+  stage: string
+  isCustom: boolean
+  permissionCount: number
+  includedPermissions: string[]
+}
+
+export type GcpIamTestPermissionsResult = {
+  permission: string
+  allowed: boolean
+}
+
+export type GcpIamCapabilityHint = {
+  id: string
+  subject: string
+  severity: 'info' | 'warning' | 'error'
+  title: string
+  summary: string
+  recommendedAction: string
+}
+
+export type GcpIamOverview = {
+  projectId: string
+  bindingCount: number
+  principalCount: number
+  riskyBindingCount: number
+  publicPrincipalCount: number
+  bindings: GcpIamBindingSummary[]
+  principals: GcpIamPrincipalSummary[]
+  serviceAccounts: GcpServiceAccountSummary[]
+  capabilityHints: GcpIamCapabilityHint[]
+  notes: string[]
+}
+
+export type GcpComputeInstanceSummary = {
+  name: string
+  zone: string
+  status: string
+  machineType: string
+  internalIp: string
+  externalIp: string
+}
+
+export type GcpLabelEntry = {
+  key: string
+  value: string
+}
+
+export type GcpMetadataEntry = {
+  key: string
+  value: string
+}
+
+export type GcpComputeNetworkInterfaceSummary = {
+  name: string
+  network: string
+  subnetwork: string
+  internalIp: string
+  externalIp: string
+  stackType: string
+}
+
+export type GcpComputeDiskSummary = {
+  deviceName: string
+  type: string
+  sizeGb: string
+  status: string
+  mode: string
+  interface: string
+  boot: boolean
+  autoDelete: boolean
+}
+
+export type GcpComputeServiceAccountDetail = {
+  email: string
+  scopes: string[]
+}
+
+export type GcpComputeInstanceDetail = {
+  id: string
+  name: string
+  zone: string
+  status: string
+  machineType: string
+  cpuPlatform: string
+  internalIp: string
+  externalIp: string
+  canIpForward: boolean
+  deletionProtection: boolean
+  creationTimestamp: string
+  lastStartTimestamp: string
+  lastStopTimestamp: string
+  scheduling: string
+  tags: string[]
+  labels: GcpLabelEntry[]
+  metadata: GcpMetadataEntry[]
+  networks: GcpComputeNetworkInterfaceSummary[]
+  disks: GcpComputeDiskSummary[]
+  serviceAccounts: GcpComputeServiceAccountDetail[]
+  shieldedIntegrityMonitoring: boolean
+  shieldedSecureBoot: boolean
+  shieldedVtpm: boolean
+}
+
+export type GcpComputeMachineTypeOption = {
+  name: string
+  guestCpus: number
+  memoryMb: number
+  description: string
+  isSharedCpu: boolean
+}
+
+export type GcpComputeSerialOutput = {
+  contents: string
+  nextStart: number
+  port: number
+}
+
+export type GcpComputeInstanceAction = 'start' | 'stop' | 'reset' | 'resume' | 'suspend'
+
+export type GcpComputeOperationResult = {
+  operationName: string
+  completed: boolean
+  status: string
+  summary: string
+}
+
+export type GcpGkeClusterSummary = {
+  name: string
+  location: string
+  status: string
+  masterVersion: string
+  nodeCount: string
+  releaseChannel: string
+  endpoint: string
+}
+
+export type GcpGkeClusterDetail = {
+  name: string
+  location: string
+  status: string
+  endpoint: string
+  masterVersion: string
+  nodeVersion: string
+  releaseChannel: string
+  autopilotEnabled: boolean
+  privateClusterEnabled: boolean
+  shieldedNodesEnabled: boolean
+  verticalPodAutoscalingEnabled: boolean
+  currentNodeCount: number
+  nodePoolCount: number
+  workloadIdentityPool: string
+  network: string
+  subnetwork: string
+  clusterIpv4Cidr: string
+  servicesIpv4Cidr: string
+  controlPlaneIpv4Cidr: string
+  loggingService: string
+  monitoringService: string
+  maintenanceWindow: string
+  maintenanceExclusions: string[]
+  resourceLabels: Record<string, string>
+}
+
+export type GcpGkeNodePoolSummary = {
+  name: string
+  status: string
+  version: string
+  nodeCount: number
+  minNodeCount: number
+  maxNodeCount: number
+  machineType: string
+  imageType: string
+  diskSizeGb: string
+  autoscaling: string
+  autoUpgradeEnabled: boolean
+  autoRepairEnabled: boolean
+  spotEnabled: boolean
+  preemptible: boolean
+  locations: string[]
+}
+
+export type GcpGkeOperationSummary = {
+  id: string
+  type: string
+  status: string
+  detail: string
+  target: string
+  location: string
+  startedAt: string
+  endedAt: string
+}
+
+export type GcpGkeOperationResult = {
+  operationName: string
+  completed: boolean
+  status: string
+  summary: string
+}
+
+export type GcpGkeClusterCredentials = {
+  clusterName: string
+  location: string
+  endpoint: string
+  contextName: string
+  kubeconfigPath: string
+  authProvider: string
+  tokenPreview: string
+  tokenExpiresAt: string
+  certificateAuthorityData: string
+  bearerToken: string
+  kubeconfigYaml: string
+}
+
+export type GcpStorageBucketSummary = {
+  name: string
+  location: string
+  locationType: string
+  storageClass: string
+  publicAccessPrevention: string
+  versioningEnabled: boolean
+  uniformBucketLevelAccessEnabled: boolean
+  labelCount: number
+}
+
+export type GcpStorageObjectSummary = {
+  key: string
+  size: number
+  lastModified: string
+  storageClass: string
+  isFolder: boolean
+}
+
+export type GcpStorageObjectContent = {
+  body: string
+  contentType: string
+}
+
+export type GcpSqlInstanceSummary = {
+  name: string
+  region: string
+  zone: string
+  state: string
+  databaseVersion: string
+  availabilityType: string
+  primaryAddress: string
+  privateAddress: string
+  storageAutoResizeEnabled: boolean
+  diskSizeGb: string
+  deletionProtectionEnabled: boolean
+  maintenanceWindow: string
+}
+
+export type GcpSqlInstanceDetail = {
+  name: string
+  region: string
+  zone: string
+  state: string
+  databaseVersion: string
+  availabilityType: string
+  primaryAddress: string
+  privateAddress: string
+  diskSizeGb: string
+  storageAutoResizeEnabled: boolean
+  deletionProtectionEnabled: boolean
+  maintenanceWindow: string
+  activationPolicy: string
+  pricingPlan: string
+  diskType: string
+  connectorEnforcement: string
+  sslMode: string
+  backupEnabled: boolean
+  binaryLogEnabled: boolean
+  pointInTimeRecoveryEnabled: boolean
+  authorizedNetworks: string[]
+}
+
+export type GcpSqlDatabaseSummary = {
+  name: string
+  charset: string
+  collation: string
+}
+
+export type GcpSqlOperationSummary = {
+  id: string
+  operationType: string
+  status: string
+  targetId: string
+  targetProject: string
+  user: string
+  insertTime: string
+  endTime: string
+  error: string
+}
+
+export type GcpLogEntryDetail = {
+  label: string
+  value: string
+}
+
+export type GcpLogEntrySummary = {
+  insertId: string
+  timestamp: string
+  severity: string
+  resourceType: string
+  logName: string
+  summary: string
+  details: GcpLogEntryDetail[]
+}
+
+export type GcpLogFacetCount = {
+  label: string
+  count: number
+}
+
+export type GcpLogQueryResult = {
+  query: string
+  entries: GcpLogEntrySummary[]
+  severityCounts: GcpLogFacetCount[]
+  resourceTypeCounts: GcpLogFacetCount[]
+}
+
+export type GcpBillingLinkedProjectSummary = {
+  projectId: string
+  name: string
+  projectNumber: string
+  lifecycleState: string
+  labelCount: number
+  billingEnabled: boolean
+}
+
+export type GcpBillingCapabilityHint = {
+  id: string
+  subject: string
+  severity: 'info' | 'warning' | 'error'
+  title: string
+  summary: string
+  recommendedAction: string
+}
+
+export type GcpBillingOwnershipValue = {
+  value: string
+  projectCount: number
+  sharePercent: number
+}
+
+export type GcpBillingOwnershipHint = {
+  key: string
+  coveragePercent: number
+  labeledProjects: number
+  unlabeledProjects: number
+  topValues: GcpBillingOwnershipValue[]
+}
+
+export type GcpBillingVisibility = 'full' | 'billing-account-only' | 'project-only'
+
+export type GcpBillingSpendTelemetryStatus =
+  | 'available'
+  | 'billing-disabled'
+  | 'missing-export'
+  | 'access-limited'
+  | 'error'
+
+export type GcpBillingSpendBreakdownEntry = {
+  service: string
+  amount: number
+  currency: string
+  sharePercent: number
+}
+
+export type GcpBillingSpendTelemetry = {
+  status: GcpBillingSpendTelemetryStatus
+  source: 'bigquery-export' | 'metadata-only'
+  periodLabel: string
+  periodStart: string
+  periodEnd: string
+  totalAmount: number
+  currency: string
+  serviceBreakdown: GcpBillingSpendBreakdownEntry[]
+  exportProjectId: string
+  exportDatasetId: string
+  exportTableId: string
+  message: string
+  lastUpdatedAt: string
+}
+
+export type GcpBillingOverview = {
+  projectId: string
+  projectNumber: string
+  projectName: string
+  billingEnabled: boolean
+  billingAccountName: string
+  billingAccountDisplayName: string
+  billingAccountOpen: boolean
+  accessibleProjectCount: number
+  linkedProjects: GcpBillingLinkedProjectSummary[]
+  capabilityHints: GcpBillingCapabilityHint[]
+  ownershipHints: GcpBillingOwnershipHint[]
+  spendTelemetry: GcpBillingSpendTelemetry
+  notes: string[]
+  projectLabelCount: number
+  linkedProjectLabelCoveragePercent: number
+  visibility: GcpBillingVisibility
+  lastUpdatedAt: string
+}
+
+export type GcpBigQueryDatasetSummary = {
+  datasetId: string
+  projectId: string
+  location: string
+  friendlyName: string
+  description: string
+  creationTime: string
+  lastModifiedTime: string
+  tableCount: number
+}
+
+export type GcpBigQueryTableSummary = {
+  tableId: string
+  datasetId: string
+  projectId: string
+  type: string
+  creationTime: string
+  expirationTime: string
+  rowCount: string
+  sizeBytes: string
+  description: string
+}
+
+export type GcpBigQuerySchemaFieldSummary = {
+  name: string
+  type: string
+  mode: string
+  description: string
+  fields: GcpBigQuerySchemaFieldSummary[]
+}
+
+export type GcpBigQueryTableDetail = {
+  tableId: string
+  datasetId: string
+  projectId: string
+  type: string
+  schema: GcpBigQuerySchemaFieldSummary[]
+  rowCount: string
+  sizeBytes: string
+  creationTime: string
+  lastModifiedTime: string
+  description: string
+  location: string
+}
+
+export type GcpBigQueryQueryResult = {
+  columns: string[]
+  rows: string[][]
+  totalRows: string
+  jobComplete: boolean
+  cacheHit: boolean
+}
+
+export type GcpMonitoringAlertPolicySummary = {
+  name: string
+  displayName: string
+  enabled: boolean
+  conditionCount: number
+  notificationChannelCount: number
+  combiner: string
+  creationTime: string
+  mutationTime: string
+}
+
+export type GcpMonitoringUptimeCheckSummary = {
+  name: string
+  displayName: string
+  monitoredResource: string
+  protocol: string
+  period: string
+  timeout: string
+  selectedRegions: string[]
+  isInternal: boolean
+}
+
+export type GcpMonitoringMetricDescriptorSummary = {
+  type: string
+  displayName: string
+  description: string
+  metricKind: string
+  valueType: string
+  unit: string
+  launchStage: string
+}
+
+export type GcpMonitoringTimeSeriesPoint = {
+  timestamp: string
+  value: number
+}
+
+export type GcpMonitoringTimeSeriesResult = {
+  metric: string
+  resource: string
+  points: GcpMonitoringTimeSeriesPoint[]
+}
+
+export type GcpSccFindingSummary = {
+  name: string
+  category: string
+  state: string
+  severity: string
+  resourceName: string
+  resourceType: string
+  sourceDisplayName: string
+  eventTime: string
+  createTime: string
+  description: string
+  externalUri: string
+}
+
+export type GcpSccSourceSummary = {
+  name: string
+  displayName: string
+  description: string
+}
+
+export type GcpSccFindingDetail = {
+  name: string
+  category: string
+  state: string
+  severity: string
+  resourceName: string
+  resourceType: string
+  sourceDisplayName: string
+  sourceProperties: Record<string, string>
+  eventTime: string
+  createTime: string
+  description: string
+  nextSteps: string
+  externalUri: string
+  mute: string
+}
+
+export type GcpSccSeverityBreakdown = {
+  critical: number
+  high: number
+  medium: number
+  low: number
+  unspecified: number
+}
+
+export type GcpFirestoreDatabaseSummary = {
+  name: string
+  uid: string
+  locationId: string
+  type: string
+  concurrencyMode: string
+  deleteProtectionState: string
+  earliestVersionTime: string
+}
+
+export type GcpFirestoreCollectionSummary = {
+  collectionId: string
+  documentCount: number
+}
+
+export type GcpFirestoreDocumentSummary = {
+  name: string
+  documentId: string
+  createTime: string
+  updateTime: string
+  fieldCount: number
+}
+
+export type GcpFirestoreDocumentDetail = {
+  name: string
+  documentId: string
+  createTime: string
+  updateTime: string
+  fields: Record<string, unknown>
+}
+
+export type GcpPubSubTopicSummary = {
+  name: string
+  topicId: string
+  labels: Record<string, string>
+  messageRetentionDuration: string
+  kmsKeyName: string
+  schemaSettings: string
+}
+
+export type GcpPubSubSubscriptionSummary = {
+  name: string
+  subscriptionId: string
+  topic: string
+  topicId: string
+  ackDeadlineSeconds: number
+  messageRetentionDuration: string
+  pushEndpoint: string
+  deliveryType: string
+  filter: string
+  enableExactlyOnceDelivery: boolean
+  state: string
+  detached: boolean
+}
+
+export type GcpPubSubTopicDetail = {
+  name: string
+  topicId: string
+  labels: Record<string, string>
+  messageRetentionDuration: string
+  kmsKeyName: string
+  schemaSettings: string
+  subscriptionCount: number
+}
+
+export type GcpPubSubSubscriptionDetail = {
+  name: string
+  subscriptionId: string
+  topic: string
+  ackDeadlineSeconds: number
+  messageRetentionDuration: string
+  retainAckedMessages: boolean
+  pushConfig: { pushEndpoint: string; attributes: Record<string, string> } | null
+  deadLetterPolicy: { deadLetterTopic: string; maxDeliveryAttempts: number } | null
+  retryPolicy: { minimumBackoff: string; maximumBackoff: string } | null
+  filter: string
+  enableExactlyOnceDelivery: boolean
+  state: string
+  expirationTtl: string
+}
+
+/* ── Cloud Run ───────────────────────────────────── */
+
+export type GcpCloudRunServiceSummary = {
+  name: string
+  serviceId: string
+  description: string
+  uri: string
+  creator: string
+  lastModifier: string
+  createTime: string
+  updateTime: string
+  ingressSetting: string
+  launchStage: string
+  latestReadyRevision: string
+  latestCreatedRevision: string
+  trafficStatuses: GcpCloudRunTrafficStatus[]
+  containerImage: string
+  containerPort: number
+  serviceAccountEmail: string
+  vpcConnector: string
+  executionEnvironment: string
+  cpuLimit: string
+  memoryLimit: string
+  maxInstanceRequestConcurrency: number
+  timeout: string
+  conditions: GcpCloudRunCondition[]
+}
+
+export type GcpCloudRunTrafficStatus = {
+  type: string
+  revisionName: string
+  percent: number
+  tag: string
+  uri: string
+}
+
+export type GcpCloudRunCondition = {
+  type: string
+  state: string
+  message: string
+  lastTransitionTime: string
+  severity: string
+}
+
+export type GcpCloudRunRevisionSummary = {
+  name: string
+  revisionId: string
+  generation: string
+  createTime: string
+  updateTime: string
+  launchStage: string
+  containerImage: string
+  cpuLimit: string
+  memoryLimit: string
+  maxInstanceRequestConcurrency: number
+  timeout: string
+  serviceAccountEmail: string
+  scaling: { minInstanceCount: number; maxInstanceCount: number }
+  conditions: GcpCloudRunCondition[]
+  logUri: string
+}
+
+export type GcpCloudRunJobSummary = {
+  name: string
+  jobId: string
+  createTime: string
+  updateTime: string
+  creator: string
+  lastModifier: string
+  launchStage: string
+  containerImage: string
+  taskCount: number
+  maxRetries: number
+  timeout: string
+  cpuLimit: string
+  memoryLimit: string
+  serviceAccountEmail: string
+  executionCount: number
+  latestExecution: string
+  conditions: GcpCloudRunCondition[]
+}
+
+export type GcpCloudRunExecutionSummary = {
+  name: string
+  executionId: string
+  createTime: string
+  startTime: string
+  completionTime: string
+  runningCount: number
+  succeededCount: number
+  failedCount: number
+  cancelledCount: number
+  taskCount: number
+  logUri: string
+  conditions: GcpCloudRunCondition[]
+}
+
+export type GcpCloudRunDomainMappingSummary = {
+  name: string
+  routeName: string
+  createTime: string
+  conditions: GcpCloudRunCondition[]
+  mappedRouteName: string
+  records: { type: string; rrdata: string }[]
+}
+
+/* ── Firebase ────────────────────────────────────── */
+
+export type GcpFirebaseProjectSummary = {
+  projectId: string
+  projectNumber: string
+  displayName: string
+  state: string
+  resources: {
+    hostingSite: string
+    storageBucket: string
+    locationId: string
+    realtimeDatabaseInstance: string
+  }
+}
+
+export type GcpFirebaseWebAppSummary = {
+  name: string
+  appId: string
+  displayName: string
+  projectId: string
+  appUrls: string[]
+  state: string
+  apiKeyId: string
+}
+
+export type GcpFirebaseAndroidAppSummary = {
+  name: string
+  appId: string
+  displayName: string
+  projectId: string
+  packageName: string
+  state: string
+  sha1Hashes: string[]
+  sha256Hashes: string[]
+}
+
+export type GcpFirebaseIosAppSummary = {
+  name: string
+  appId: string
+  displayName: string
+  projectId: string
+  bundleId: string
+  appStoreId: string
+  state: string
+  teamId: string
+}
+
+export type GcpFirebaseHostingSiteSummary = {
+  name: string
+  siteId: string
+  defaultUrl: string
+  appId: string
+  type: string
+  labels: Record<string, string>
+}
+
+export type GcpFirebaseHostingReleaseSummary = {
+  name: string
+  version: string
+  type: string
+  message: string
+  releaseTime: string
+  releaseUser: { email: string; imageUrl: string }
+  status: string
+  fileCount: number
+  versionBytes: string
+}
+
+export type GcpFirebaseHostingDomainSummary = {
+  domainName: string
+  site: string
+  updateTime: string
+  status: string
+  provisioning: string
+  domainRedirect: { domainName: string; type: string } | null
+}
+
+export type GcpFirebaseHostingChannelSummary = {
+  name: string
+  channelId: string
+  url: string
+  expireTime: string
+  retainedReleaseCount: number
+  createTime: string
+  updateTime: string
+  labels: Record<string, string>
+}
+
+export type GcpFirewallRuleSummary = {
+  name: string
+  network: string
+  direction: string
+  priority: string
+}
+
+export type GcpNetworkSummary = {
+  name: string
+  autoCreateSubnetworks: boolean
+  routingMode: string
+}
+
+export type GcpSubnetworkSummary = {
+  name: string
+  region: string
+  network: string
+  ipCidrRange: string
+  privateIpGoogleAccess: boolean
+}
+
+export type GcpRouterSummary = {
+  name: string
+  region: string
+  network: string
+}
+
+export type GcpRouterNatSummary = {
+  name: string
+  region: string
+  router: string
+  natIpAllocateOption: string
+}
+
+export type GcpGlobalAddressSummary = {
+  name: string
+  address: string
+  addressType: string
+  purpose: string
+  network: string
+  prefixLength: string
+}
+
+export type GcpServiceNetworkingConnectionSummary = {
+  network: string
+  service: string
+  peering: string
+  reservedPeeringRanges: string[]
+}
+
+/* ── GCP Memorystore (Redis) ──────────────────────────────── */
+
+export type GcpMemorystoreInstanceSummary = {
+  name: string
+  instanceId: string
+  displayName: string
+  state: string
+  tier: string
+  memorySizeGb: number
+  host: string
+  port: number
+  redisVersion: string
+  createTime: string
+  currentLocationId: string
+  connectMode: string
+  authEnabled: boolean
+  transitEncryptionMode: string
+  replicaCount: number
+  readEndpoint: string
+  readEndpointPort: number
+  locationId: string
+  alternativeLocationId: string
+  labels: Record<string, string>
+}
+
+export type GcpMemorystoreInstanceDetail = {
+  name: string
+  instanceId: string
+  displayName: string
+  state: string
+  tier: string
+  memorySizeGb: number
+  host: string
+  port: number
+  redisVersion: string
+  createTime: string
+  currentLocationId: string
+  connectMode: string
+  authEnabled: boolean
+  transitEncryptionMode: string
+  replicaCount: number
+  readEndpoint: string
+  readEndpointPort: number
+  locationId: string
+  alternativeLocationId: string
+  labels: Record<string, string>
+  redisConfigs: Record<string, string>
+  persistenceConfig: {
+    persistenceMode: string
+    rdbSnapshotPeriod: string
+    rdbSnapshotStartTime: string
+  }
+  maintenancePolicy: {
+    weeklyMaintenanceWindow: Array<{
+      day: string
+      startTime: string
+      duration: string
+    }>
+  } | null
+  maintenanceSchedule: {
+    startTime: string
+    endTime: string
+    scheduleDeadlineTime: string
+  } | null
+  nodes: Array<{
+    id: string
+    zone: string
+  }>
+  authorizedNetwork: string
+  reservedIpRange: string
+}
+
+/* ── GCP Load Balancer + Cloud Armor ─────────────────────── */
+
+export type GcpUrlMapSummary = {
+  name: string
+  description: string
+  selfLink: string
+  defaultService: string
+  hostRuleCount: number
+  pathMatcherCount: number
+  creationTimestamp: string
+  region: string
+  fingerprint: string
+}
+
+export type GcpUrlMapDetail = {
+  name: string
+  description: string
+  selfLink: string
+  defaultService: string
+  hostRules: Array<{
+    hosts: string[]
+    pathMatcher: string
+  }>
+  pathMatchers: Array<{
+    name: string
+    defaultService: string
+    pathRules: Array<{
+      paths: string[]
+      service: string
+    }>
+  }>
+  creationTimestamp: string
+  fingerprint: string
+}
+
+export type GcpBackendServiceSummary = {
+  name: string
+  description: string
+  selfLink: string
+  protocol: string
+  port: number
+  portName: string
+  timeoutSec: number
+  healthChecks: string[]
+  backendsCount: number
+  loadBalancingScheme: string
+  sessionAffinity: string
+  region: string
+  creationTimestamp: string
+  securityPolicy: string
+}
+
+export type GcpForwardingRuleSummary = {
+  name: string
+  description: string
+  selfLink: string
+  IPAddress: string
+  IPProtocol: string
+  portRange: string
+  target: string
+  loadBalancingScheme: string
+  network: string
+  region: string
+  creationTimestamp: string
+}
+
+export type GcpHealthCheckSummary = {
+  name: string
+  description: string
+  selfLink: string
+  type: string
+  checkIntervalSec: number
+  timeoutSec: number
+  unhealthyThreshold: number
+  healthyThreshold: number
+  creationTimestamp: string
+}
+
+export type GcpSecurityPolicySummary = {
+  name: string
+  description: string
+  selfLink: string
+  type: string
+  ruleCount: number
+  adaptiveProtection: boolean
+  creationTimestamp: string
+  fingerprint: string
+}
+
+export type GcpSecurityPolicyDetail = {
+  name: string
+  description: string
+  selfLink: string
+  type: string
+  rules: Array<{
+    priority: number
+    action: string
+    description: string
+    match: {
+      versionedExpr: string
+      config: {
+        srcIpRanges: string[]
+      }
+    } | null
+    preview: boolean
+  }>
+  adaptiveProtectionConfig: {
+    enabled: boolean
+    layer7DdosDefenseConfig: { enable: boolean; ruleVisibility: string } | null
+  } | null
+  ddosProtectionConfig: string
+  fingerprint: string
+  creationTimestamp: string
 }
 
 export type Ec2SsmStatus = 'managed-online' | 'managed-offline' | 'not-managed'
@@ -1112,6 +3252,47 @@ export type ServiceId =
   | 'sts'
   | 'kms'
   | 'waf'
+  | 'gcp-projects'
+  | 'gcp-iam'
+  | 'gcp-compute-engine'
+  | 'gcp-vpc'
+  | 'gcp-gke'
+  | 'gcp-cloud-storage'
+  | 'gcp-cloud-sql'
+  | 'gcp-logging'
+  | 'gcp-billing'
+  | 'gcp-bigquery'
+  | 'gcp-monitoring'
+  | 'gcp-scc'
+  | 'gcp-firestore'
+  | 'gcp-pubsub'
+  | 'gcp-cloud-run'
+  | 'gcp-firebase'
+  | 'gcp-cloud-dns'
+  | 'gcp-memorystore'
+  | 'gcp-load-balancer'
+  | 'azure-subscriptions'
+  | 'azure-rbac'
+  | 'azure-virtual-machines'
+  | 'azure-aks'
+  | 'azure-storage-accounts'
+  | 'azure-sql'
+  | 'azure-postgresql'
+  | 'azure-monitor'
+  | 'azure-cost'
+  | 'azure-network'
+  | 'azure-vmss'
+  | 'azure-app-insights'
+  | 'azure-key-vault'
+  | 'azure-event-hub'
+  | 'azure-app-service'
+  | 'azure-mysql'
+  | 'azure-cosmos-db'
+  | 'azure-log-analytics'
+  | 'azure-event-grid'
+  | 'azure-firewall'
+  | 'azure-load-balancers'
+  | 'azure-dns'
 
 export type GovernanceTagKey = 'Owner' | 'Environment' | 'Project' | 'CostCenter'
 
@@ -1150,6 +3331,30 @@ export type CloudWatchQueryFilter = {
   limit?: number
 }
 
+export type CloudWatchInvestigationEventKind =
+  | 'focus'
+  | 'open-log-group'
+  | 'investigate-log-group'
+  | 'run-query'
+  | 'save-query'
+
+export type CloudWatchInvestigationEventSeverity = 'info' | 'success' | 'warning' | 'error'
+
+export type CloudWatchInvestigationHistoryEntry = {
+  id: string
+  profile: string
+  region: string
+  serviceHint: ServiceId | ''
+  logGroupNames: string[]
+  kind: CloudWatchInvestigationEventKind
+  title: string
+  detail: string
+  severity: CloudWatchInvestigationEventSeverity
+  occurredAt: string
+}
+
+export type CloudWatchInvestigationHistoryInput = Omit<CloudWatchInvestigationHistoryEntry, 'id' | 'occurredAt'>
+
 export type CloudWatchSavedQuery = {
   id: string
   name: string
@@ -1185,30 +3390,6 @@ export type CloudWatchQueryHistoryEntry = {
 }
 
 export type CloudWatchQueryHistoryInput = Omit<CloudWatchQueryHistoryEntry, 'id' | 'executedAt'>
-
-export type CloudWatchInvestigationEventKind =
-  | 'focus'
-  | 'open-log-group'
-  | 'investigate-log-group'
-  | 'run-query'
-  | 'save-query'
-
-export type CloudWatchInvestigationEventSeverity = 'info' | 'success' | 'warning' | 'error'
-
-export type CloudWatchInvestigationHistoryEntry = {
-  id: string
-  profile: string
-  region: string
-  serviceHint: ServiceId | ''
-  logGroupNames: string[]
-  kind: CloudWatchInvestigationEventKind
-  title: string
-  detail: string
-  severity: CloudWatchInvestigationEventSeverity
-  occurredAt: string
-}
-
-export type CloudWatchInvestigationHistoryInput = Omit<CloudWatchInvestigationHistoryEntry, 'id' | 'occurredAt'>
 
 export type CloudWatchQueryExecutionInput = {
   queryString: string
@@ -1271,8 +3452,10 @@ export type VaultEntryKind =
 export type VaultOrigin =
   | 'manual'
   | 'imported'
+  | 'imported-file'
   | 'aws-secrets-manager'
   | 'aws-ssm'
+  | 'aws-iam'
   | 'generated'
   | 'unknown'
 
@@ -1285,25 +3468,6 @@ export type VaultEntryUsage = {
   region: string
   resourceId: string
   resourceLabel: string
-}
-
-export type VaultSshKeyInspectionSource =
-  | 'metadata-inline'
-  | 'metadata-path'
-  | 'source-path'
-  | 'legacy-staged-path'
-  | 'derived-from-private-key'
-  | 'unavailable'
-
-export type VaultSshKeyInspection = {
-  entryId: string
-  entryName: string
-  kind: Extract<VaultEntryKind, 'pem' | 'ssh-key'>
-  keyNameHints: string[]
-  fingerprintSha256: string
-  fingerprintMd5: string
-  publicKeySource: VaultSshKeyInspectionSource
-  publicKeyAvailable: boolean
 }
 
 export type VaultEntrySummary = {
@@ -1357,6 +3521,25 @@ export type VaultImportSelection = {
   suggestedKind: VaultEntryKind
 }
 
+export type VaultSshKeyInspectionSource =
+  | 'metadata-inline'
+  | 'metadata-path'
+  | 'source-path'
+  | 'legacy-staged-path'
+  | 'derived-from-private-key'
+  | 'unavailable'
+
+export type VaultSshKeyInspection = {
+  entryId: string
+  entryName: string
+  kind: Extract<VaultEntryKind, 'pem' | 'ssh-key'>
+  keyNameHints: string[]
+  fingerprintSha256: string
+  fingerprintMd5: string
+  publicKeySource: VaultSshKeyInspectionSource
+  publicKeyAvailable: boolean
+}
+
 export type DbVaultCredentialSummary = {
   name: string
   engine: DbConnectionEngine
@@ -1405,54 +3588,6 @@ export type DbConnectionPresetInput = Omit<DbConnectionPreset, 'id' | 'createdAt
   id?: string
 }
 
-export type ConnectionPresetKind = 'rds' | 'bastion-ssh' | 'eks'
-
-export type ConnectionPresetResourceKind = DbConnectionResourceKind | 'ec2-instance' | 'eks-cluster' | 'manual'
-
-export type ConnectionPresetFilter = {
-  kind?: ConnectionPresetKind
-  profile?: string
-  region?: string
-  resourceId?: string
-}
-
-export type ConnectionPreset = {
-  id: string
-  name: string
-  kind: ConnectionPresetKind
-  profile: string
-  region: string
-  resourceKind: ConnectionPresetResourceKind
-  resourceId: string
-  resourceLabel: string
-  engine: DbConnectionEngine
-  host: string
-  port: number
-  databaseName: string
-  username: string
-  credentialSourceKind: DbConnectionCredentialSourceKind | ''
-  credentialSourceRef: string
-  connectInput: string
-  vaultEntryId: string
-  vaultEntryName: string
-  sshUser: string
-  bastionImageId: string
-  bastionInstanceType: string
-  subnetId: string
-  keyName: string
-  securityGroupId: string
-  contextName: string
-  kubeconfigPath: string
-  notes: string
-  createdAt: string
-  updatedAt: string
-  lastUsedAt: string
-}
-
-export type ConnectionPresetInput = Omit<ConnectionPreset, 'id' | 'createdAt' | 'updatedAt' | 'lastUsedAt'> & {
-  id?: string
-}
-
 export type DbConnectionResolveInput = {
   presetId?: string
   resourceKind: DbConnectionResourceKind
@@ -1475,11 +3610,6 @@ export type DbConnectionHelperSnippet = {
   sensitive: boolean
 }
 
-export type DbConnectionSecretHandling =
-  | 'persisted-local-vault'
-  | 'runtime-secrets-manager'
-  | 'ephemeral-manual'
-
 export type DbConnectionResolutionResult = {
   presetId: string
   displayName: string
@@ -1494,8 +3624,6 @@ export type DbConnectionResolutionResult = {
   credentialSourceKind: DbConnectionCredentialSourceKind
   credentialSourceRef: string
   sourceSummary: string
-  secretHandling: DbConnectionSecretHandling
-  secretHandlingSummary: string
   warnings: string[]
   snippets: DbConnectionHelperSnippet[]
   terminalCommand: string
@@ -1541,7 +3669,7 @@ export type AppFeatureFlagDefinition = {
   id: AppFeatureFlagId
   label: string
   description: string
-  maturity: Extract<ServiceMaturity, 'beta' | 'experimental'>
+  maturity: ServiceMaturity
   surface: AppFeatureFlagSurface
   serviceId?: ServiceId
   defaultEnabled: boolean
@@ -1553,6 +3681,26 @@ export type ServiceDescriptor = {
   category: string
   migrated: boolean
   maturity: ServiceMaturity
+  providerId: CloudProviderId | 'shared'
+  providerLabel: string
+  workspaceKind: ProviderWorkspaceKind
+  supports: CloudProviderId[]
+  requiresConnection: boolean
+}
+
+export type WorkspaceCatalogSection = {
+  id: string
+  label: string
+  providerId: CloudProviderId | 'shared'
+  workspaceKind: ProviderWorkspaceKind
+  items: ServiceDescriptor[]
+}
+
+export type WorkspaceCatalog = {
+  providerId: CloudProviderId
+  sharedWorkspaces: WorkspaceCatalogSection[]
+  providerWorkspaces: WorkspaceCatalogSection[]
+  allServices: ServiceDescriptor[]
 }
 
 export type EnterpriseAccessMode = 'read-only' | 'operator'
@@ -1586,84 +3734,80 @@ export type EnterpriseAuditExportResult = {
   rangeDays?: 1 | 7
 }
 
+export type AppDiagnosticsSnapshot = {
+  generatedAt: string
+  activeProviderId: CloudProviderId
+  activeScreen: string
+  selectedServiceId: ServiceId | ''
+  accessMode: EnterpriseAccessMode
+  terminalOpen: boolean
+  terminalContextReady: boolean
+  selectedPreviewModeId: string
+  selectedPreviewModeLabel: string
+  aws?: {
+    connected: boolean
+    profile: string
+    region: string
+    activeSessionId: string
+    activeSessionLabel: string
+  }
+  gcp?: {
+    cliDetected: boolean
+    cliError: string
+    activeConfigurationName: string
+    activeAccount: string
+    activeProjectId: string
+    activeRegion: string
+    activeZone: string
+    selectedProjectId: string
+    selectedLocation: string
+    recentProjectIds: string[]
+    catalogProjectCount: number
+    configurationCount: number
+    locationCount: number
+  }
+  azure?: {
+    modeId: string
+    modeLabel: string
+    selectedSubscriptionId?: string
+    selectedLocation?: string
+    catalogSubscriptionCount?: number
+    catalogError?: string
+    cliDetected: boolean
+    cliPath: string
+    activeContextLabel: string
+    activeContextDetail: string
+    terraformContextKey: string
+    terminalReady: boolean
+    sharedWorkspaceCount: number
+    providerWorkspaceCount: number
+  }
+}
+
+export type AppDiagnosticsActiveContext = AppDiagnosticsSnapshot
+
+export type AppDiagnosticsFailureInput = {
+  action: string
+  message: string
+  rawMessage: string
+  providerId: CloudProviderId | ''
+  serviceId: ServiceId | ''
+}
+
 export type AppDiagnosticsExportResult = {
   path: string
   bundleEntries: number
   generatedAt: string
 }
 
-export type AppDiagnosticsScreen = 'profiles' | 'settings' | 'direct-access' | ServiceId
-
-export type AppDiagnosticsConnectionSummary = {
-  status: 'connected' | 'disconnected'
-  kind: AwsConnection['kind'] | ''
-  label: string
-  profile: string
-  sourceProfile: string
-  region: string
-  sessionId: string
-  accountId: string
-  roleArn: string
-  assumedRoleArn: string
-}
-
-export type AppDiagnosticsFocusSummary = {
-  service: NavigationFocus['service']
-  resourceId: string
-  summary: string
-}
-
-export type AppDiagnosticsActiveContext = {
-  capturedAt: string
-  screen: AppDiagnosticsScreen
-  screenLabel: string
-  connection: AppDiagnosticsConnectionSummary
-  focus: AppDiagnosticsFocusSummary | null
-}
-
-export type AppDiagnosticsFailureInput = {
-  method: string
-  action: string
-  serviceId: ServiceId | ''
-  connection: AppDiagnosticsConnectionSummary | null
-  errorTitle: string
-  errorMessage: string
-  rawError: string
-}
-
-export type AppDiagnosticsFailedAction = AppDiagnosticsFailureInput & {
-  capturedAt: string
-  activeContext: AppDiagnosticsActiveContext | null
-}
-
-export type AppDiagnosticsSnapshot = {
-  updatedAt: string
-  activeContext: AppDiagnosticsActiveContext | null
-  lastFailedAction: AppDiagnosticsFailedAction | null
-}
-
 /* ── Navigation Focus ────────────────────────────────────── */
 
-export type NavigationFocus =
+export type NavigationFocus = (
   | { service: 'route53'; record: Route53RecordChange }
   | { service: 'load-balancers'; loadBalancerArn: string }
   | { service: 'lambda'; functionName: string }
   | { service: 'ecs'; clusterArn: string; serviceName: string }
   | { service: 'eks'; clusterName: string }
-  | {
-      service: 'terraform'
-      projectId?: string
-      detailTab?: 'operations' | 'actions' | 'state' | 'resources' | 'drift' | 'lab' | 'history'
-      runId?: string
-      driftItemKey?: string
-    }
-  | {
-      service: 'cloudtrail'
-      resourceName?: string
-      startTime?: string
-      endTime?: string
-      filter?: string
-    }
   | { service: 'ec2'; instanceId?: string; volumeId?: string; tab?: 'instances' | 'volumes' | 'snapshots' }
   | {
       service: 'cloudwatch'
@@ -1674,8 +3818,13 @@ export type NavigationFocus =
       serviceHint?: ServiceId | ''
     }
   | { service: 'vpc'; vpcId: string }
+  | { service: 'gcp-vpc'; networkName: string }
   | { service: 'security-groups'; securityGroupId: string }
   | { service: 'waf'; webAclName: string }
+  ) & {
+    providerId?: CloudProviderId
+    locationId?: string
+  }
 
 export type DirectAccessServiceTarget =
   | 's3'
@@ -1984,6 +4133,65 @@ export type Route53RecordChange = {
   aliasHostedZoneId: string
   evaluateTargetHealth: boolean
   setIdentifier: string
+}
+
+/* ── Azure DNS ─────────────────────────────────────────────── */
+
+export type AzureDnsZoneSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  numberOfRecordSets: number
+  maxNumberOfRecordSets: number
+  nameServers: string[]
+  zoneType: string
+  tags: Record<string, string>
+}
+
+export type AzureDnsRecordSummary = {
+  id: string
+  name: string
+  fqdn: string
+  type: string
+  ttl: number
+  values: string[]
+  metadata: Record<string, string>
+}
+
+export type AzureDnsRecordUpsertInput = {
+  name: string
+  type: string
+  ttl: number
+  values: string[]
+}
+
+/* ── GCP Cloud DNS ─────────────────────────────────────────── */
+
+export type GcpDnsManagedZoneSummary = {
+  name: string
+  dnsName: string
+  description: string
+  id: string
+  visibility: string
+  dnssecState: string
+  nameServers: string[]
+  creationTime: string
+}
+
+export type GcpDnsResourceRecordSetSummary = {
+  name: string
+  type: string
+  ttl: number
+  rrdatas: string[]
+  signatureRrdatas: string[]
+}
+
+export type GcpDnsRecordUpsertInput = {
+  name: string
+  type: string
+  ttl: number
+  rrdatas: string[]
 }
 
 /* ── Overview ─────────────────────────────────────────────── */
@@ -2972,8 +5180,6 @@ export type ObservabilityRecommendation = {
   expectedBenefit: string
   risk: string
   rollback: string
-  owner?: string
-  verificationStep?: string
   prerequisiteLevel: PrerequisiteLevel
   setupEffort: SetupEffort
   labels: string[]
@@ -3006,22 +5212,6 @@ export type ResilienceExperimentSuggestion = {
   artifact?: GeneratedArtifact
 }
 
-export type InvestigationPackStep = {
-  id: string
-  title: string
-  detail: string
-  artifact?: GeneratedArtifact
-}
-
-export type InvestigationPack = {
-  id: string
-  title: string
-  summary: string
-  problem: string
-  labels: string[]
-  steps: InvestigationPackStep[]
-}
-
 export type ObservabilityPostureArea = {
   id: string
   label: string
@@ -3044,7 +5234,6 @@ export type ObservabilityPostureReport = {
   summary: ObservabilityPostureArea[]
   findings: ObservabilityFinding[]
   recommendations: ObservabilityRecommendation[]
-  investigationPacks: InvestigationPack[]
   experiments: ResilienceExperimentSuggestion[]
   artifacts: GeneratedArtifact[]
   safetyNotes: Array<{
@@ -3448,16 +5637,6 @@ export type TerraformStateLockInfo = {
   infoPath: string
   message: string
   canUnlock: boolean
-}
-
-export type TerraformBackendHealthStatus = 'healthy' | 'warning' | 'limited' | 'error'
-
-export type TerraformBackendHealth = {
-  status: TerraformBackendHealthStatus
-  summary: string
-  details: string[]
-  lockVisibility: 'detected' | 'not_detected' | 'limited' | 'parse_error'
-  lockSummary: string
 }
 
 export type TerraformProjectEnvironmentMetadata = {
@@ -3901,7 +6080,6 @@ export type TerraformProject = {
   stateSource: string
   stateBackups: TerraformStateBackupSummary[]
   latestStateBackup: TerraformStateBackupSummary | null
-  backendHealth: TerraformBackendHealth
   stateLockInfo: TerraformStateLockInfo | null
   hasSavedPlan: boolean
   savedPlanMetadata: TerraformSavedPlanMetadata | null
@@ -4372,8 +6550,10 @@ export type AssumeRoleResult = {
   assumedRoleId: string
   accountId: string
   accessKeyId: string
-  secretAccessKey: string
-  sessionToken: string
+  /** Not returned over IPC. Retrieve via the dedicated `aws:sts:get-session-credentials` channel. */
+  secretAccessKey?: string
+  /** Not returned over IPC. Retrieve via the dedicated `aws:sts:get-session-credentials` channel. */
+  sessionToken?: string
   expiration: string
   packedPolicySize: number
   region: string
@@ -4474,4 +6654,538 @@ export type WafCreateWebAclInput = {
   description: string
   scope: WafScope
   defaultAction: 'Allow' | 'Block'
+}
+
+/* ── Azure Managed Disks & Snapshots ──────────────────────── */
+
+export type AzureManagedDiskSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  skuName: string
+  diskSizeGb: number
+  diskState: string
+  osType: string
+  timeCreated: string
+  managedBy: string
+  zones: string[]
+  networkAccessPolicy: string
+  provisioningState: string
+  tagCount: number
+}
+
+export type AzureDiskSnapshotSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  skuName: string
+  diskSizeGb: number
+  timeCreated: string
+  sourceResourceId: string
+  incremental: boolean
+  provisioningState: string
+  tagCount: number
+}
+
+/* ── Azure VNet Peering, Route Tables, NAT GW, Load Balancers, Private Endpoints ── */
+
+export type AzureVNetPeeringSummary = {
+  id: string
+  name: string
+  peeringState: string
+  remoteVNetId: string
+  remoteVNetName: string
+  allowVirtualNetworkAccess: boolean
+  allowForwardedTraffic: boolean
+  allowGatewayTransit: boolean
+  useRemoteGateways: boolean
+  provisioningState: string
+}
+
+export type AzureRouteTableSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  disableBgpRoutePropagation: boolean
+  routes: AzureRouteSummary[]
+  provisioningState: string
+  subnetCount: number
+}
+
+export type AzureRouteSummary = {
+  name: string
+  addressPrefix: string
+  nextHopType: string
+  nextHopIpAddress: string
+  provisioningState: string
+}
+
+export type AzureNatGatewaySummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  skuName: string
+  idleTimeoutInMinutes: number
+  publicIpCount: number
+  subnetCount: number
+  provisioningState: string
+  zones: string[]
+}
+
+export type AzureLoadBalancerSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  skuName: string
+  skuTier: string
+  frontendIpCount: number
+  backendPoolCount: number
+  ruleCount: number
+  probeCount: number
+  provisioningState: string
+}
+
+export type AzureLoadBalancerFrontendIp = {
+  name: string
+  privateIPAddress: string
+  privateIPAllocationMethod: string
+  publicIPAddressId: string
+  subnetId: string
+  provisioningState: string
+  zones: string[]
+}
+
+export type AzureLoadBalancerBackendPool = {
+  name: string
+  backendAddressCount: number
+  provisioningState: string
+}
+
+export type AzureLoadBalancerRule = {
+  name: string
+  protocol: string
+  frontendPort: number
+  backendPort: number
+  frontendIPConfigurationName: string
+  backendAddressPoolName: string
+  probeName: string
+  enableFloatingIP: boolean
+  idleTimeoutInMinutes: number
+  loadDistribution: string
+  provisioningState: string
+}
+
+export type AzureLoadBalancerProbe = {
+  name: string
+  protocol: string
+  port: number
+  intervalInSeconds: number
+  numberOfProbes: number
+  requestPath: string
+  provisioningState: string
+}
+
+export type AzureLoadBalancerInboundNatRule = {
+  name: string
+  protocol: string
+  frontendPort: number
+  backendPort: number
+  frontendIPConfigurationName: string
+  enableFloatingIP: boolean
+  idleTimeoutInMinutes: number
+  provisioningState: string
+}
+
+export type AzureLoadBalancerDetail = {
+  summary: AzureLoadBalancerSummary
+  frontendIpConfigurations: AzureLoadBalancerFrontendIp[]
+  backendPools: AzureLoadBalancerBackendPool[]
+  rules: AzureLoadBalancerRule[]
+  probes: AzureLoadBalancerProbe[]
+  inboundNatRules: AzureLoadBalancerInboundNatRule[]
+}
+
+export type AzurePrivateEndpointSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  privateLinkServiceId: string
+  groupIds: string[]
+  provisioningState: string
+  customDnsConfigs: Array<{ fqdn: string; ipAddresses: string[] }>
+}
+
+/* ── Azure Storage enrichment types ───────────────────────── */
+
+export type AzureStorageFileShareSummary = {
+  name: string
+  quota: number
+  accessTier: string
+  enabledProtocols: string
+  leaseStatus: string
+  lastModified: string
+  usedCapacityBytes: number
+}
+
+export type AzureStorageFileItem = {
+  name: string
+  isDirectory: boolean
+  contentLength: number
+  lastModified: string
+  path: string
+}
+
+export type AzureStorageQueueSummary = {
+  name: string
+  approximateMessageCount: number
+  metadata: Record<string, string>
+}
+
+export type AzureStorageQueueMessage = {
+  messageId: string
+  insertionTime: string
+  expirationTime: string
+  dequeueCount: number
+  messageText: string
+}
+
+export type AzureStorageTableSummary = {
+  name: string
+}
+
+/* ── Azure MySQL types ────────────────────────────────────── */
+
+export type AzureMySqlOperationalTone = 'good' | 'warning' | 'risk' | 'info' | 'neutral'
+
+export type AzureMySqlServerSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  version: string
+  fullyQualifiedDomainName: string
+  publicNetworkAccess: string
+  state: string
+  skuName: string
+  skuTier: string
+  storageSizeGb: number
+  haEnabled: boolean
+  haState: string
+  backupRetentionDays: number
+  geoRedundantBackup: string
+  availabilityZone: string
+  databaseCount: number
+  tagCount: number
+  notes: string[]
+}
+
+export type AzureMySqlDatabaseSummary = {
+  id: string
+  name: string
+  serverName: string
+  resourceGroup: string
+  charset: string
+  collation: string
+}
+
+export type AzureMySqlFirewallRule = {
+  name: string
+  startIpAddress: string
+  endIpAddress: string
+}
+
+export type AzureMySqlPostureBadge = {
+  id: string
+  label: string
+  value: string
+  tone: AzureMySqlOperationalTone
+}
+
+export type AzureMySqlSummaryTile = {
+  id: string
+  label: string
+  value: string
+  tone: AzureMySqlOperationalTone
+}
+
+export type AzureMySqlFinding = {
+  id: string
+  severity: string
+  title: string
+  message: string
+  recommendation: string
+}
+
+export type AzureMySqlEstateOverview = {
+  subscriptionId: string
+  serverCount: number
+  databaseCount: number
+  publicServerCount: number
+  servers: AzureMySqlServerSummary[]
+  databases: AzureMySqlDatabaseSummary[]
+  notes: string[]
+}
+
+export type AzureMySqlServerDetail = {
+  server: AzureMySqlServerSummary
+  databases: AzureMySqlDatabaseSummary[]
+  firewallRules: AzureMySqlFirewallRule[]
+  badges: AzureMySqlPostureBadge[]
+  summaryTiles: AzureMySqlSummaryTile[]
+  findings: AzureMySqlFinding[]
+}
+
+/* ── Azure Cosmos DB types ────────────────────────────────── */
+
+export type AzureCosmosDbAccountSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  kind: string
+  databaseAccountOfferType: string
+  consistencyLevel: string
+  enableAutomaticFailover: boolean
+  enableMultipleWriteLocations: boolean
+  publicNetworkAccess: string
+  isVirtualNetworkFilterEnabled: boolean
+  readLocations: string[]
+  writeLocations: string[]
+  provisioningState: string
+  documentEndpoint: string
+  tagCount: number
+}
+
+export type AzureCosmosDbDatabaseSummary = {
+  id: string
+  name: string
+  accountName: string
+  resourceGroup: string
+}
+
+export type AzureCosmosDbContainerSummary = {
+  id: string
+  name: string
+  databaseName: string
+  partitionKeyPath: string
+  defaultTtl: number
+  indexingMode: string
+  analyticalStorageTtl: number
+}
+
+export type AzureCosmosDbEstateOverview = {
+  subscriptionId: string
+  accountCount: number
+  databaseCount: number
+  containerCount: number
+  accounts: AzureCosmosDbAccountSummary[]
+  notes: string[]
+}
+
+export type AzureCosmosDbAccountDetail = {
+  account: AzureCosmosDbAccountSummary
+  databases: AzureCosmosDbDatabaseSummary[]
+  containers: AzureCosmosDbContainerSummary[]
+}
+
+/* ── Azure App Service / Functions enrichment types ───────── */
+
+export type AzureFunctionAppSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  kind: string
+  state: string
+  defaultHostName: string
+  httpsOnly: boolean
+  enabled: boolean
+  appServicePlanName: string
+  runtimeStack: string
+  publicNetworkAccess: string
+  provisioningState: string
+  lastModifiedTimeUtc: string
+  tagCount: number
+}
+
+export type AzureFunctionSummary = {
+  name: string
+  scriptHref: string
+  configHref: string
+  isDisabled: boolean
+  language: string
+  bindingCount: number
+}
+
+export type AzureWebAppConfigSummary = {
+  appSettings: Array<{ name: string; value: string; slotSetting: boolean }>
+  connectionStrings: Array<{ name: string; type: string; slotSetting: boolean }>
+  linuxFxVersion: string
+  netFrameworkVersion: string
+  phpVersion: string
+  pythonVersion: string
+  nodeVersion: string
+  javaVersion: string
+  http20Enabled: boolean
+  minTlsVersion: string
+  ftpsState: string
+  alwaysOn: boolean
+}
+
+export type AzureWebAppAction = 'start' | 'stop' | 'restart'
+
+export type AzureWebAppActionResult = {
+  action: string
+  siteName: string
+  resourceGroup: string
+  accepted: boolean
+  error?: string
+}
+
+/* ── Azure Log Analytics types ────────────────────────────── */
+
+export type AzureLogAnalyticsWorkspaceSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  skuName: string
+  retentionInDays: number
+  dailyQuotaGb: number
+  workspaceId: string
+  customerId: string
+  provisioningState: string
+  publicNetworkAccessForIngestion: string
+  publicNetworkAccessForQuery: string
+  tagCount: number
+}
+
+export type AzureLogAnalyticsQueryResult = {
+  tables: Array<{
+    name: string
+    columns: Array<{ name: string; type: string }>
+    rows: unknown[][]
+  }>
+  statistics?: { query?: { executionTime?: number } }
+  error?: string
+}
+
+export type AzureLogAnalyticsSavedSearch = {
+  id: string
+  name: string
+  category: string
+  displayName: string
+  query: string
+  functionAlias: string
+  functionParameters: string
+}
+
+export type AzureLogAnalyticsLinkedService = {
+  id: string
+  name: string
+  resourceId: string
+  provisioningState: string
+}
+
+/* ── Azure Event Grid types ───────────────────────────────── */
+
+export type AzureEventGridTopicSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  provisioningState: string
+  endpoint: string
+  inputSchema: string
+  publicNetworkAccess: string
+  tagCount: number
+}
+
+export type AzureEventGridSystemTopicSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  source: string
+  topicType: string
+  provisioningState: string
+  metricResourceId: string
+}
+
+export type AzureEventGridEventSubscriptionSummary = {
+  id: string
+  name: string
+  topicName: string
+  destinationType: string
+  destinationEndpoint: string
+  provisioningState: string
+  eventDeliverySchema: string
+  retryMaxDeliveryAttempts: number
+  eventTimeToLiveInMinutes: number
+  labels: string[]
+}
+
+export type AzureEventGridDomainSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  provisioningState: string
+  endpoint: string
+  inputSchema: string
+  publicNetworkAccess: string
+  tagCount: number
+}
+
+export type AzureEventGridDomainTopicSummary = {
+  id: string
+  name: string
+  provisioningState: string
+}
+
+/* ── Azure Firewall types ────────────────────────────────── */
+
+export type AzureFirewallSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  skuName: string
+  skuTier: string
+  threatIntelMode: string
+  provisioningState: string
+  firewallPolicyId: string
+  ipConfigurationCount: number
+  networkRuleCollectionCount: number
+  applicationRuleCollectionCount: number
+  natRuleCollectionCount: number
+}
+
+export type AzureFirewallIpConfiguration = {
+  name: string
+  privateIPAddress: string
+  publicIPAddressId: string
+  subnetId: string
+  provisioningState: string
+}
+
+export type AzureFirewallRuleCollection = {
+  name: string
+  kind: string
+  priority: number
+  action: string
+  ruleCount: number
+  provisioningState: string
+}
+
+export type AzureFirewallDetail = {
+  summary: AzureFirewallSummary
+  ipConfigurations: AzureFirewallIpConfiguration[]
+  ruleCollections: AzureFirewallRuleCollection[]
 }

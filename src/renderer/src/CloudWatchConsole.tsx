@@ -3,8 +3,6 @@ import type { ReactNode } from 'react'
 
 import type {
   AwsConnection,
-  CloudTrailEventSummary,
-  CloudWatchInvestigationHistoryEntry,
   CloudWatchDatapoint,
   CloudWatchLogEventSummary,
   CloudWatchLogGroupSummary,
@@ -19,20 +17,16 @@ import type {
   TokenizedFocus
 } from '@shared/types'
 import {
-  clearCloudWatchInvestigationHistory,
   clearCloudWatchQueryHistory,
   deleteCloudWatchSavedQuery,
   getEc2AllMetricSeries,
   getMetricStatistics,
-  listCloudWatchInvestigationHistory,
   listCloudWatchLogGroups,
   listCloudWatchMetrics,
   listCloudWatchQueryHistory,
   listCloudWatchRecentEvents,
   listCloudWatchSavedQueries,
   listEc2InstanceMetrics,
-  lookupCloudTrailEventsByResource,
-  recordCloudWatchInvestigationHistory,
   recordCloudWatchQueryHistory,
   runCloudWatchQuery,
   saveCloudWatchSavedQuery
@@ -41,26 +35,9 @@ import { formatDateTime } from './AwsPage'
 import './cloudwatch.css'
 
 type TimeRange = 1 | 3 | 12 | 24 | 72 | 168
-type OpenTab = { type: 'overview' } | { type: 'investigation' } | { type: 'log-group'; name: string }
+type OpenTab = { type: 'overview' } | { type: 'log-group'; name: string }
 type CloudWatchFocus = TokenizedFocus<'cloudwatch'> | null | undefined
 type QueryPreset = { id: string; label: string; queryString: string }
-type InvestigationTimelineItem = {
-  id: string
-  title: string
-  detail: string
-  timestamp: string
-  tone: 'info' | 'success' | 'warning' | 'error'
-  actionLabel: string
-}
-type CorrelationSignal = {
-  id: string
-  source: 'metric' | 'log' | 'cloudtrail'
-  title: string
-  detail: string
-  timestamp: string
-  tone: 'info' | 'success' | 'warning' | 'error'
-  meta: string
-}
 
 const TIME_RANGE_OPTIONS: { value: TimeRange; label: string }[] = [
   { value: 1, label: '1 hour' },
@@ -97,11 +74,9 @@ function formatCompactNumber(value: number): string {
 function serviceHintLabel(serviceHint: ServiceId | ''): string {
   if (serviceHint === 'lambda') return 'Lambda'
   if (serviceHint === 'ecs') return 'ECS'
-  if (serviceHint === 'eks') return 'EKS'
   if (serviceHint === 'rds') return 'RDS'
   if (serviceHint === 'ec2') return 'EC2'
-  if (serviceHint === 'terraform') return 'Terraform'
-  return 'AWS context'
+  return 'Current context'
 }
 
 function escapeRegex(value: string): string {
@@ -114,10 +89,6 @@ function defaultQuery(serviceHint: ServiceId | '', sourceLabel: string): string 
     ? 'deadlock|fail|timeout'
     : serviceHint === 'ecs'
       ? 'unhealthy|throttle|error'
-      : serviceHint === 'eks'
-        ? 'failed|error|throttle|evicted'
-        : serviceHint === 'terraform'
-          ? 'error|failed|drift|alarm'
       : serviceHint === 'lambda'
         ? 'request|error|timeout'
         : 'error|exception|timeout'
@@ -136,55 +107,6 @@ function severity(message: string): string {
   if (lower.includes('warn')) return 'warn'
   if (lower.includes('debug') || lower.includes('trace')) return 'debug'
   return 'info'
-}
-
-function timelineTone(value: string): 'info' | 'success' | 'warning' | 'error' {
-  if (value === 'error') return 'error'
-  if (value === 'warn') return 'warning'
-  if (value === 'debug') return 'info'
-  return 'info'
-}
-
-function metricNamespacesForService(serviceHint: ServiceId | ''): string[] {
-  if (serviceHint === 'eks') return ['ContainerInsights', 'AWS/EKS']
-  if (serviceHint === 'ecs') return ['ECS/ContainerInsights', 'AWS/ECS']
-  if (serviceHint === 'terraform') return ['AWS/Events', 'AWS/CloudWatch']
-  if (serviceHint === 'ec2') return ['AWS/EC2']
-  if (serviceHint === 'rds') return ['AWS/RDS']
-  return []
-}
-
-function compactText(value: string, maxLength = 180): string {
-  const normalized = value.replace(/\s+/g, ' ').trim()
-  if (normalized.length <= maxLength) return normalized
-  return `${normalized.slice(0, Math.max(0, maxLength - 3))}...`
-}
-
-function compactLogMessage(message: string): string {
-  if (!message.trim()) return 'No message payload'
-  try {
-    const parsed = JSON.parse(message) as Record<string, unknown>
-    const summaryParts = [
-      typeof parsed.Type === 'string' ? parsed.Type : '',
-      typeof parsed.ClusterName === 'string' ? parsed.ClusterName : '',
-      typeof parsed.ServiceName === 'string' ? parsed.ServiceName : '',
-      typeof parsed.ContainerName === 'string' ? parsed.ContainerName : '',
-      typeof parsed.KnownStatus === 'string' ? parsed.KnownStatus : '',
-      typeof parsed.LastStatus === 'string' ? parsed.LastStatus : ''
-    ].filter(Boolean)
-    if (summaryParts.length > 0) {
-      return compactText(summaryParts.join(' | '), 120)
-    }
-  } catch {
-    // Fallback to raw text summary.
-  }
-
-  return compactText(message, 120)
-}
-
-function compactTrailTitle(event: CloudTrailEventSummary): string {
-  const resource = event.resourceName && event.resourceName !== '-' ? ` | ${event.resourceName}` : ''
-  return compactText(`${event.eventName}${resource}`, 64)
 }
 
 function matchesEc2LogGroup(group: CloudWatchLogGroupSummary, instanceId: string): boolean {
@@ -327,7 +249,7 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
   const [logGroups, setLogGroups] = useState<CloudWatchLogGroupSummary[]>([])
   const [metricStats, setMetricStats] = useState<CloudWatchMetricStatistic[]>([])
   const [ec2Series, setEc2Series] = useState<CloudWatchMetricSeries[]>([])
-  const [tabs, setTabs] = useState<OpenTab[]>([{ type: 'overview' }, { type: 'investigation' }])
+  const [tabs, setTabs] = useState<OpenTab[]>([{ type: 'overview' }])
   const [activeTabIndex, setActiveTabIndex] = useState(0)
   const [appliedFocusToken, setAppliedFocusToken] = useState(0)
   const [ec2InstanceId, setEc2InstanceId] = useState<string | undefined>(focusEc2Instance?.ec2InstanceId)
@@ -338,11 +260,6 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
   const [logGroupToAdd, setLogGroupToAdd] = useState('')
   const [savedQueries, setSavedQueries] = useState<CloudWatchSavedQuery[]>([])
   const [queryHistory, setQueryHistory] = useState<CloudWatchQueryHistoryEntry[]>([])
-  const [investigationHistory, setInvestigationHistory] = useState<CloudWatchInvestigationHistoryEntry[]>([])
-  const [correlationLogs, setCorrelationLogs] = useState<CloudWatchLogEventSummary[]>([])
-  const [correlationTrailEvents, setCorrelationTrailEvents] = useState<CloudTrailEventSummary[]>([])
-  const [correlationLoading, setCorrelationLoading] = useState(false)
-  const [correlationError, setCorrelationError] = useState('')
   const [queryResult, setQueryResult] = useState<CloudWatchQueryExecutionResult | null>(null)
   const [queryBusy, setQueryBusy] = useState(false)
   const [queryFeedback, setQueryFeedback] = useState('')
@@ -352,7 +269,6 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
 
   const isEc2Mode = !!ec2InstanceId
   const activeTab = tabs[activeTabIndex]
-  const investigationTabIndex = tabs.findIndex((tab) => tab.type === 'investigation')
 
   useEffect(() => {
     if (!focusEc2Instance || focusEc2Instance.token === appliedFocusToken) return
@@ -365,18 +281,23 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
       focusEc2Instance.serviceHint ?? (focusEc2Instance.ec2InstanceId ? 'ec2' : ''),
       focusEc2Instance.sourceLabel ?? focusEc2Instance.ec2InstanceId ?? 'current context'
     ))
-    setActiveTabIndex(investigationTabIndex >= 0 ? investigationTabIndex : 0)
-    void recordCloudWatchInvestigationHistory({
-      profile: connection.profile,
-      region: connection.region,
-      serviceHint: focusEc2Instance.serviceHint ?? (focusEc2Instance.ec2InstanceId ? 'ec2' : ''),
-      logGroupNames: focusEc2Instance.logGroupNames ?? [],
-      kind: 'focus',
-      title: 'Focused investigation context',
-      detail: `Opened CloudWatch from ${focusEc2Instance.sourceLabel ?? focusEc2Instance.ec2InstanceId ?? 'current context'}.`,
-      severity: 'info'
-    }).then(() => refreshQueryLibrary()).catch(() => {})
-  }, [appliedFocusToken, focusEc2Instance, investigationTabIndex])
+    setActiveTabIndex(0)
+  }, [appliedFocusToken, focusEc2Instance])
+
+  useEffect(() => {
+    if (focusEc2Instance || !ec2InstanceId) {
+      return
+    }
+
+    setAppliedFocusToken(0)
+    setTabs([{ type: 'overview' }])
+    setActiveTabIndex(0)
+    setEc2InstanceId(undefined)
+    setQueryServiceHint('')
+    setQuerySourceLabel('current context')
+    setSelectedQueryLogGroups([])
+    setQueryDraft(defaultQuery('', 'current context'))
+  }, [ec2InstanceId, focusEc2Instance])
 
   useEffect(() => {
     setLoading(true)
@@ -407,12 +328,10 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
   useEffect(() => {
     void Promise.all([
       listCloudWatchSavedQueries({ profile: connection.profile, region: connection.region, limit: 8 }),
-      listCloudWatchQueryHistory({ profile: connection.profile, region: connection.region, limit: 8 }),
-      listCloudWatchInvestigationHistory({ profile: connection.profile, region: connection.region, limit: 16 })
-    ]).then(([nextSaved, nextHistory, nextInvestigation]) => {
+      listCloudWatchQueryHistory({ profile: connection.profile, region: connection.region, limit: 8 })
+    ]).then(([nextSaved, nextHistory]) => {
       setSavedQueries(nextSaved)
       setQueryHistory(nextHistory)
-      setInvestigationHistory(nextInvestigation)
     }).catch(() => {
       // Keep the screen usable if query history hydration fails.
     })
@@ -429,66 +348,10 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
     setLogGroupToAdd(logGroups[0]?.name ?? '')
   }, [isEc2Mode, logGroups])
 
-  useEffect(() => {
-    if (activeTab.type !== 'investigation') {
-      setCorrelationLoading(false)
-      setCorrelationError('')
-      return
-    }
-
-    const scopedLogGroups = selectedQueryLogGroups.slice(0, 2)
-    const resourceName = querySourceLabel && querySourceLabel !== 'current context' ? querySourceLabel : ''
-    if (scopedLogGroups.length === 0) {
-      setCorrelationLogs([])
-      setCorrelationTrailEvents([])
-      setCorrelationError('')
-      return
-    }
-
-    setCorrelationLoading(true)
-    setCorrelationError('')
-    const endTime = new Date()
-    const startTime = new Date(endTime.getTime() - timeRange * 60 * 60 * 1000)
-
-    void (async () => {
-      try {
-        const nextLogs = await listCloudWatchRecentEvents(connection, scopedLogGroups[0], timeRange)
-        setCorrelationLogs(nextLogs.slice(0, 4))
-
-        if (resourceName) {
-          const nextTrailEvents = await lookupCloudTrailEventsByResource(
-            connection,
-            resourceName,
-            startTime.toISOString(),
-            endTime.toISOString()
-          )
-          setCorrelationTrailEvents(nextTrailEvents.slice(0, 4))
-        } else {
-          setCorrelationTrailEvents([])
-        }
-      } catch (err) {
-        setCorrelationError(err instanceof Error ? err.message : String(err))
-        setCorrelationLogs([])
-        setCorrelationTrailEvents([])
-      } finally {
-        setCorrelationLoading(false)
-      }
-    })()
-  }, [activeTab.type, connection, querySourceLabel, selectedQueryLogGroups, timeRange])
-
   const filteredStats = useMemo(() => namespaceFilter === 'all' ? metricStats : metricStats.filter((item) => item.namespace === namespaceFilter), [metricStats, namespaceFilter])
   const totalStoredBytes = useMemo(() => logGroups.reduce((sum, group) => sum + group.storedBytes, 0), [logGroups])
   const latestMetricTimestamp = useMemo(() => ec2Series.flatMap((series) => series.points.map((point) => point.timestamp)).sort().at(-1) ?? '', [ec2Series])
   const topLogGroups = useMemo(() => [...logGroups].sort((left, right) => right.storedBytes - left.storedBytes).slice(0, 8), [logGroups])
-  const correlationMetricSignals = useMemo(() => {
-    const namespaceHints = metricNamespacesForService(queryServiceHint)
-    const candidates = filteredStats
-      .filter((item) => namespaceHints.length === 0 || namespaceHints.some((hint) => item.namespace.includes(hint)))
-      .sort((left, right) => Math.abs((right.latest ?? right.max ?? 0)) - Math.abs((left.latest ?? left.max ?? 0)))
-      .slice(0, 6)
-
-    return candidates
-  }, [filteredStats, queryServiceHint])
   const quickQueries = useMemo<QueryPreset[]>(() => [
     { id: 'recent', label: 'Recent', queryString: defaultQuery(queryServiceHint, querySourceLabel) },
     { id: 'errors', label: 'Errors', queryString: ['fields @timestamp, @logStream, @message', '| filter @message like /(?i)(error|exception|fail|timeout)/', '| sort @timestamp desc', '| limit 50'].join('\n') },
@@ -505,27 +368,15 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
     const nextTabs = [...tabs, { type: 'log-group' as const, name: group.name }]
     setTabs(nextTabs)
     setActiveTabIndex(nextTabs.length - 1)
-    void recordCloudWatchInvestigationHistory({
-      profile: connection.profile,
-      region: connection.region,
-      serviceHint: queryServiceHint,
-      logGroupNames: [group.name],
-      kind: 'open-log-group',
-      title: 'Opened log group stream',
-      detail: `Drilled into ${group.name} from the investigation workspace.`,
-      severity: 'info'
-    }).then(() => refreshQueryLibrary()).catch(() => {})
   }
 
   function refreshQueryLibrary(): Promise<void> {
     return Promise.all([
       listCloudWatchSavedQueries({ profile: connection.profile, region: connection.region, limit: 8 }),
-      listCloudWatchQueryHistory({ profile: connection.profile, region: connection.region, limit: 8 }),
-      listCloudWatchInvestigationHistory({ profile: connection.profile, region: connection.region, limit: 16 })
-    ]).then(([nextSaved, nextHistory, nextInvestigation]) => {
+      listCloudWatchQueryHistory({ profile: connection.profile, region: connection.region, limit: 8 })
+    ]).then(([nextSaved, nextHistory]) => {
       setSavedQueries(nextSaved)
       setQueryHistory(nextHistory)
-      setInvestigationHistory(nextInvestigation)
     })
   }
 
@@ -578,16 +429,6 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
         durationMs: Date.now() - started,
         resultSummary: summarizeResult(result)
       })
-      await recordCloudWatchInvestigationHistory({
-        profile: connection.profile,
-        region: connection.region,
-        serviceHint,
-        logGroupNames,
-        kind: 'run-query',
-        title: 'Query run succeeded',
-        detail: `${sourceLabel} -> ${summarizeResult(result)}`,
-        severity: 'success'
-      })
       await refreshQueryLibrary()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -602,16 +443,6 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
         status: 'failed',
         durationMs: Date.now() - started,
         resultSummary: message
-      }).catch(() => {})
-      await recordCloudWatchInvestigationHistory({
-        profile: connection.profile,
-        region: connection.region,
-        serviceHint,
-        logGroupNames,
-        kind: 'run-query',
-        title: 'Query run failed',
-        detail: `${sourceLabel} -> ${message}`,
-        severity: 'error'
       }).catch(() => {})
       await refreshQueryLibrary().catch(() => {})
     } finally {
@@ -633,81 +464,8 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
     setSaveName('')
     setSaveDescription('')
     setQueryFeedback('Saved query stored.')
-    await recordCloudWatchInvestigationHistory({
-      profile: connection.profile,
-      region: connection.region,
-      serviceHint: queryServiceHint,
-      logGroupNames: selectedQueryLogGroups,
-      kind: 'save-query',
-      title: 'Saved reusable query',
-      detail: `${saveName.trim()} stored for ${selectedQueryLogGroups.length} log group(s).`,
-      severity: 'info'
-    }).catch(() => {})
     await refreshQueryLibrary()
   }
-
-  function clearQueryResults() {
-    setQueryResult(null)
-    setQueryFeedback('')
-    setQueryError('')
-  }
-
-  const incidentTimeline = useMemo<InvestigationTimelineItem[]>(() => {
-    const queryEvents: InvestigationTimelineItem[] = queryHistory.map((entry) => ({
-      id: `query-${entry.id}`,
-      title: entry.status === 'success' ? 'Query run' : 'Query failure',
-      detail: `${entry.resultSummary || entry.queryString} (${entry.logGroupNames.join(', ') || 'no log group'})`,
-      timestamp: entry.executedAt,
-      tone: entry.status === 'success' ? 'success' : 'error',
-      actionLabel: `${entry.durationMs} ms`
-    }))
-    const investigationEvents: InvestigationTimelineItem[] = investigationHistory.map((entry) => ({
-      id: `investigation-${entry.id}`,
-      title: entry.title,
-      detail: entry.detail,
-      timestamp: entry.occurredAt,
-      tone: entry.severity,
-      actionLabel: entry.kind
-    }))
-
-    return [...investigationEvents, ...queryEvents]
-      .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
-      .slice(0, 16)
-  }, [investigationHistory, queryHistory])
-
-  const correlationSignals = useMemo<CorrelationSignal[]>(() => {
-    const metricSignals: CorrelationSignal[] = correlationMetricSignals.map((metric) => ({
-      id: `metric-${metric.namespace}-${metric.metricName}`,
-      source: 'metric',
-      title: `${metric.namespace} / ${metric.metricName}`,
-      detail: `Latest ${formatMetricValue(metric.latest, metric.unit)} | Max ${formatMetricValue(metric.max, metric.unit)}`,
-      timestamp: latestMetricTimestamp || new Date().toISOString(),
-      tone: 'info',
-      meta: metric.dimensions.join(', ') || metric.unit
-    }))
-    const logSignals: CorrelationSignal[] = correlationLogs.map((event) => ({
-      id: `log-${event.eventId}`,
-      source: 'log',
-      title: event.logStreamName,
-      detail: event.message,
-      timestamp: event.timestamp,
-      tone: timelineTone(severity(event.message)),
-      meta: 'CloudWatch Logs'
-    }))
-    const trailSignals: CorrelationSignal[] = correlationTrailEvents.map((event) => ({
-      id: `trail-${event.eventId}`,
-      source: 'cloudtrail',
-      title: `${event.eventSource} / ${event.eventName}`,
-      detail: `${event.username || 'Unknown'} from ${event.sourceIpAddress || '-'} on ${event.resourceName || 'resource'}`,
-      timestamp: event.eventTime,
-      tone: event.readOnly ? 'info' : 'warning',
-      meta: event.readOnly ? 'Read-only' : 'Write event'
-    }))
-
-    return [...trailSignals, ...logSignals, ...metricSignals]
-      .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
-      .slice(0, 12)
-  }, [correlationLogs, correlationMetricSignals, correlationTrailEvents, latestMetricTimestamp])
 
   return (
     <div className="cw-console">
@@ -734,7 +492,7 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
 
       <div className="cw-shell-toolbar">
         <div className="cw-tabs" role="tablist" aria-label="CloudWatch tabs">
-          {tabs.map((tab, index) => <button key={index} type="button" className={`cw-tab ${index === activeTabIndex ? 'active' : ''}`} onClick={() => setActiveTabIndex(index)}><span>{tab.type === 'overview' ? 'Overview' : tab.type === 'investigation' ? 'Investigation' : tab.name}</span></button>)}
+          {tabs.map((tab, index) => <button key={index} type="button" className={`cw-tab ${index === activeTabIndex ? 'active' : ''}`} onClick={() => setActiveTabIndex(index)}><span>{tab.type === 'overview' ? 'Overview' : tab.name}</span></button>)}
         </div>
         <div className="cw-toolbar">
           <div className="cw-toolbar-group">
@@ -760,7 +518,7 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
         <>
           <div className="cw-section">
             <div className="cw-section-head">
-              <div><h3>Logs Query Workspace</h3><p className="cw-section-subtitle">Query active log groups, save working searches, and rerun recent investigations.</p></div>
+              <div><h3>Investigation Workspace</h3><p className="cw-section-subtitle">Query active log groups, save working searches, and rerun recent investigations.</p></div>
               <div className="cw-query-headline"><span className="cw-toolbar-pill">{selectedQueryLogGroups.length} targets</span><span className="cw-toolbar-pill">{serviceHintLabel(queryServiceHint)}</span></div>
             </div>
             <div className="cw-query-layout">
@@ -778,35 +536,30 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
                   <input className="cw-table-filter" placeholder="Saved query name" value={saveName} onChange={(event) => setSaveName(event.target.value)} />
                   <input className="cw-table-filter" placeholder="Description" value={saveDescription} onChange={(event) => setSaveDescription(event.target.value)} />
                   <button type="button" className="cw-expand-btn" onClick={() => void saveCurrentQuery()}>Save Query</button>
-                  <button
-                    type="button"
-                    className="cw-toggle"
-                    disabled={queryHistory.length === 0 && investigationHistory.length === 0}
-                    onClick={() => void Promise.all([
-                      clearCloudWatchQueryHistory({ profile: connection.profile, region: connection.region }),
-                      clearCloudWatchInvestigationHistory({ profile: connection.profile, region: connection.region })
-                    ]).then(() => refreshQueryLibrary())}
-                  >
-                    Clear History
-                  </button>
+                  <button type="button" className="cw-toggle" disabled={queryHistory.length === 0} onClick={() => void clearCloudWatchQueryHistory({ profile: connection.profile, region: connection.region }).then(() => refreshQueryLibrary())}>Clear History</button>
                 </div>
                 {queryFeedback && <div className="cw-query-feedback success">{queryFeedback}</div>}
                 {queryError && <div className="cw-query-feedback error">{queryError}</div>}
                 {queryResult && (
                   <div className="cw-query-results">
-                    <div className="cw-section-head"><div><h3>Query Results</h3><p className="cw-section-subtitle">{queryResult.status} - {summarizeResult(queryResult)}</p></div><div className="cw-query-headline"><button type="button" className="cw-toggle" onClick={clearQueryResults}>Clear Results</button><span className="cw-toolbar-pill">{formatCompactNumber(queryResult.statistics.recordsMatched)} matched</span><span className="cw-toolbar-pill">{formatCompactNumber(queryResult.statistics.recordsScanned)} scanned</span></div></div>
+                    <div className="cw-section-head"><div><h3>Query Results</h3><p className="cw-section-subtitle">{queryResult.status} - {summarizeResult(queryResult)}</p></div><div className="cw-query-headline"><span className="cw-toolbar-pill">{formatCompactNumber(queryResult.statistics.recordsMatched)} matched</span><span className="cw-toolbar-pill">{formatCompactNumber(queryResult.statistics.recordsScanned)} scanned</span></div></div>
                     <div className="cw-table-scroll"><table className="cw-table"><thead><tr>{queryResult.fields.map((field) => <th key={field}>{field}</th>)}</tr></thead><tbody>{queryResult.rows.length === 0 ? <tr><td className="cw-empty" colSpan={Math.max(1, queryResult.fields.length)}>No results returned.</td></tr> : queryResult.rows.map((row, index) => <tr key={`${queryResult.queryId}-${index}`}>{queryResult.fields.map((field) => <td key={field}><span className="cw-query-cell">{row[field] || '-'}</span></td>)}</tr>)}</tbody></table></div>
                   </div>
                 )}
               </div>
               <div className="cw-query-sidebar">
                 <div className="cw-query-card">
-                  <div className="cw-panel-head"><div><h3>Saved Queries</h3><p className="cw-chart-subtitle">One-click reruns from the current AWS context.</p></div></div>
+                  <div className="cw-panel-head"><div><h3>Saved Queries</h3><p className="cw-chart-subtitle">One-click reruns from the current active context.</p></div></div>
                   {savedQueries.length === 0 ? <div className="cw-table-hint">No saved queries yet.</div> : <div className="cw-query-list">{savedQueries.map((saved) => <div key={saved.id} className="cw-query-list-item"><div><strong>{saved.name}</strong><span>{saved.description || saved.logGroupNames.join(', ')}</span><small>Last run {saved.lastRunAt ? formatDateTime(saved.lastRunAt) : 'never'}</small></div><div className="cw-query-list-actions"><button type="button" className="cw-toggle" onClick={() => { setQueryDraft(saved.queryString); setSelectedQueryLogGroups(saved.logGroupNames); setQueryServiceHint(saved.serviceHint); setQuerySourceLabel(saved.name) }}>Load</button><button type="button" className="cw-expand-btn" onClick={() => void runQuery({ queryString: saved.queryString, logGroupNames: saved.logGroupNames, savedQueryId: saved.id, serviceHint: saved.serviceHint, sourceLabel: saved.name })}>Run</button><button type="button" className="cw-toggle" onClick={() => void deleteCloudWatchSavedQuery(saved.id).then(() => refreshQueryLibrary())}>Delete</button></div></div>)}</div>}
+                </div>
+                <div className="cw-query-card">
+                  <div className="cw-panel-head"><div><h3>Recent Runs</h3><p className="cw-chart-subtitle">Quick rerun for recent investigations.</p></div></div>
+                  {queryHistory.length === 0 ? <div className="cw-table-hint">No query history yet.</div> : <div className="cw-query-list">{queryHistory.map((entry) => <div key={entry.id} className="cw-query-list-item"><div><strong>{entry.status === 'success' ? 'Successful run' : 'Failed run'}</strong><span>{entry.resultSummary}</span><small>{formatDateTime(entry.executedAt)} - {entry.durationMs} ms</small></div><div className="cw-query-list-actions"><button type="button" className="cw-expand-btn" onClick={() => void runQuery({ queryString: entry.queryString, logGroupNames: entry.logGroupNames, savedQueryId: entry.savedQueryId, serviceHint: entry.serviceHint, sourceLabel: querySourceLabel })}>Rerun</button></div></div>)}</div>}
                 </div>
               </div>
             </div>
           </div>
+
           <div className="cw-charts-row">
             <div className="cw-chart-panel"><div className="cw-panel-head"><div><h3>Metric Namespaces</h3><p className="cw-chart-subtitle">Observed metric families ordered by discovered volume.</p></div></div><div className="cw-bar-chart">{namespaces.map((ns) => <div key={ns.namespace} className="cw-bar-row"><div className="cw-bar-fill" style={{ width: `${Math.max((ns.metricCount / Math.max(...namespaces.map((item) => item.metricCount), 1)) * 100, 2)}%` }} /><span className="cw-bar-label">{ns.namespace}</span></div>)}</div></div>
             <div className="cw-chart-panel"><div className="cw-panel-head"><div><h3>Top Log Group Storage</h3><p className="cw-chart-subtitle">Largest retained groups in the current scope.</p></div></div><div className="cw-bar-chart">{topLogGroups.map((group) => <div key={group.name} className="cw-bar-row"><div className="cw-bar-fill" style={{ width: `${Math.max((group.storedBytes / Math.max(...topLogGroups.map((item) => item.storedBytes), 1)) * 100, 2)}%` }} /><span className="cw-bar-label">{group.name}</span></div>)}</div></div>
@@ -829,59 +582,8 @@ export function CloudWatchConsole({ connection, focusEc2Instance }: { connection
             <FilterableTable columns={[{ key: 'name', label: 'Name' }, { key: 'retentionInDays', label: 'Retention', render: (row: CloudWatchLogGroupSummary) => row.retentionInDays !== null ? `${row.retentionInDays} days` : 'Never expire' }, { key: 'storedBytes', label: 'Stored', render: (row: CloudWatchLogGroupSummary) => formatBytes(row.storedBytes) }, { key: 'logClass', label: 'Class' }]} data={logGroups} onDoubleClick={(row) => openLogGroupTab(row as unknown as CloudWatchLogGroupSummary)} hint="Double-click to inspect the recent event stream." />
           </div>
         </>
-      ) : activeTab.type === 'investigation' ? (
-        <div className="cw-section">
-          <div className="cw-section-head">
-            <div><h3>Investigation Workspace</h3><p className="cw-section-subtitle">Query active log groups, save working searches, and rerun recent investigations.</p></div>
-            <div className="cw-query-headline"><span className="cw-toolbar-pill">{selectedQueryLogGroups.length} targets</span><span className="cw-toolbar-pill">{serviceHintLabel(queryServiceHint)}</span></div>
-          </div>
-          <div className="cw-query-card">
-            <div className="cw-panel-head">
-              <div><h3>Correlation Panel</h3><p className="cw-chart-subtitle">Logs, metrics, and CloudTrail events aligned in one investigation surface.</p></div>
-              <div className="cw-query-headline"><span className="cw-toolbar-pill">{correlationSignals.length} signals</span><span className="cw-toolbar-pill">{querySourceLabel}</span></div>
-            </div>
-            {correlationError && <div className="cw-query-feedback error">{correlationError}</div>}
-            <div className="cw-correlation-grid">
-              <div className="cw-query-card">
-                <div className="cw-panel-head"><div><h3>Metric Signals</h3><p className="cw-chart-subtitle">Top metrics in the current service context.</p></div></div>
-                {correlationMetricSignals.length === 0 ? <div className="cw-table-hint">{correlationLoading ? 'Loading metric signals...' : 'No scoped metrics yet.'}</div> : <div className="cw-query-list">{correlationMetricSignals.map((metric) => <div key={`${metric.namespace}-${metric.metricName}`} className="cw-query-list-item"><div className="cw-correlation-copy"><strong>{compactText(metric.metricName, 48)}</strong><span>{compactText(metric.namespace, 48)}</span><small>Latest {formatMetricValue(metric.latest, metric.unit)} | Max {formatMetricValue(metric.max, metric.unit)}</small></div><div className="cw-query-list-actions"><span className="cw-toolbar-pill">{metric.unit}</span></div></div>)}</div>}
-              </div>
-              <div className="cw-query-card">
-                <div className="cw-panel-head"><div><h3>Recent Log Events</h3><p className="cw-chart-subtitle">Newest messages across selected log groups.</p></div></div>
-                {correlationLogs.length === 0 ? <div className="cw-table-hint">{correlationLoading ? 'Loading log events...' : 'No recent log events in scope.'}</div> : <div className="cw-query-list">{correlationLogs.map((event) => <div key={event.eventId} className="cw-query-list-item"><div className="cw-correlation-copy"><strong>{compactText(event.logStreamName, 48)}</strong><span>{compactLogMessage(event.message)}</span><small>{formatDateTime(event.timestamp)}</small></div><div className="cw-query-list-actions"><span className="cw-toolbar-pill">log</span></div></div>)}</div>}
-              </div>
-              <div className="cw-query-card">
-                <div className="cw-panel-head"><div><h3>CloudTrail Activity</h3><p className="cw-chart-subtitle">Resource-scoped audit events around the same window.</p></div></div>
-                {correlationTrailEvents.length === 0 ? <div className="cw-table-hint">{correlationLoading ? 'Loading CloudTrail events...' : 'No CloudTrail events for this resource scope.'}</div> : <div className="cw-query-list">{correlationTrailEvents.map((event) => <div key={event.eventId} className="cw-query-list-item"><div className="cw-correlation-copy"><strong>{compactTrailTitle(event)}</strong><span>{compactText(event.eventSource, 48)}</span><small>{formatDateTime(event.eventTime)} | {compactText(event.username || 'unknown', 28)}</small></div><div className="cw-query-list-actions"><span className="cw-toolbar-pill">{event.readOnly ? 'read' : 'write'}</span></div></div>)}</div>}
-              </div>
-            </div>
-            <div className="cw-query-card">
-              <div className="cw-panel-head"><div><h3>Unified Signal Timeline</h3><p className="cw-chart-subtitle">Merged operational sequence from metrics, logs, and CloudTrail.</p></div></div>
-              {correlationSignals.length === 0 ? <div className="cw-table-hint">{correlationLoading ? 'Building signal timeline...' : 'No correlated signals yet.'}</div> : <div className="cw-query-list">{correlationSignals.map((signal) => <div key={signal.id} className="cw-query-list-item"><div className="cw-correlation-copy"><strong>{compactText(signal.title, 56)}</strong><span>{compactText(signal.detail, 120)}</span><small>{formatDateTime(signal.timestamp)} | {compactText(signal.meta, 48)}</small></div><div className="cw-query-list-actions"><span className={`cw-toolbar-pill cw-timeline-pill-${signal.tone}`}>{signal.source}</span></div></div>)}</div>}
-            </div>
-          </div>
-          <div className="cw-query-card">
-            <div className="cw-panel-head"><div><h3>Incident Timeline</h3><p className="cw-chart-subtitle">Profile and region scoped investigation history with query runs inline.</p></div></div>
-            {incidentTimeline.length === 0 ? <div className="cw-table-hint">No investigation history yet.</div> : <div className="cw-query-list">{incidentTimeline.map((entry) => <div key={entry.id} className="cw-query-list-item"><div><strong>{entry.title}</strong><span>{entry.detail}</span><small>{formatDateTime(entry.timestamp)} - {entry.actionLabel}</small></div><div className="cw-query-list-actions">{entry.id.startsWith('query-') ? <button type="button" className="cw-expand-btn" onClick={() => { const queryEntry = queryHistory.find((candidate) => `query-${candidate.id}` === entry.id); if (!queryEntry) return; void runQuery({ queryString: queryEntry.queryString, logGroupNames: queryEntry.logGroupNames, savedQueryId: queryEntry.savedQueryId, serviceHint: queryEntry.serviceHint, sourceLabel: querySourceLabel }) }}>Rerun</button> : <span className={`cw-toolbar-pill cw-timeline-pill-${entry.tone}`}>{entry.tone}</span>}</div></div>)}</div>}
-          </div>
-        </div>
       ) : (
-        <LogGroupViewer connection={connection} logGroupName={activeTab.name} timeRange={timeRange} onInvestigate={(logGroupName) => {
-          setSelectedQueryLogGroups([logGroupName])
-          setQuerySourceLabel(logGroupName)
-          setQueryDraft(defaultQuery(queryServiceHint, logGroupName))
-          setActiveTabIndex(investigationTabIndex >= 0 ? investigationTabIndex : 0)
-          void recordCloudWatchInvestigationHistory({
-            profile: connection.profile,
-            region: connection.region,
-            serviceHint: queryServiceHint,
-            logGroupNames: [logGroupName],
-            kind: 'investigate-log-group',
-            title: 'Pivoted log stream into query workspace',
-            detail: `Moved ${logGroupName} into the main investigation timeline.`,
-            severity: 'info'
-          }).then(() => refreshQueryLibrary()).catch(() => {})
-        }} />
+        <LogGroupViewer connection={connection} logGroupName={activeTab.name} timeRange={timeRange} onInvestigate={(logGroupName) => { setSelectedQueryLogGroups([logGroupName]); setQuerySourceLabel(logGroupName); setQueryDraft(defaultQuery(queryServiceHint, logGroupName)); setActiveTabIndex(0) }} />
       )}
     </div>
   )

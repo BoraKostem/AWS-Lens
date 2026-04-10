@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { app } from 'electron'
 
+import { PRODUCT_BRAND_NAME } from '@shared/branding'
 import type { AwsProfile } from '@shared/types'
 import { deleteAwsProfileVaultSecret, getAwsProfileVaultSecret, listAwsProfileVaultSecrets, setAwsProfileVaultSecret } from '../localVault'
 import { readSecureJsonFile, writeSecureJsonFile } from '../secureJson'
@@ -16,20 +17,28 @@ function appProfileRegistryPath(): string {
   return path.join(app.getPath('userData'), 'profile-registry.json')
 }
 
+let cachedProfileRegistry: ProfileRegistry | null = null
+
 function readProfileRegistry(): ProfileRegistry {
+  if (cachedProfileRegistry) {
+    return cachedProfileRegistry
+  }
+
   const parsed = readSecureJsonFile<Partial<ProfileRegistry>>(appProfileRegistryPath(), {
     fallback: { manualProfiles: [] },
     fileLabel: 'AWS profile registry'
   })
-  return {
+  cachedProfileRegistry = {
     manualProfiles: Array.isArray(parsed.manualProfiles)
       ? parsed.manualProfiles.filter((entry): entry is string => typeof entry === 'string')
       : []
   }
+  return cachedProfileRegistry
 }
 
 function writeProfileRegistry(registry: ProfileRegistry): void {
   writeSecureJsonFile(appProfileRegistryPath(), registry, 'AWS profile registry')
+  cachedProfileRegistry = registry
 }
 
 function markProfileAsManual(profileName: string): void {
@@ -182,7 +191,7 @@ function migrateLegacyManualProfilesToVault(): void {
       continue
     }
 
-    setAwsProfileVaultSecret(profileName, { accessKeyId, secretAccessKey }, { origin: 'imported' })
+    setAwsProfileVaultSecret(profileName, { accessKeyId, secretAccessKey }, { origin: 'imported-file' })
     mutated = true
   }
 
@@ -273,7 +282,7 @@ export function deleteAwsProfile(profileName: string): void {
     throw new Error('Profile name is required.')
   }
   if (!isManualProfile(trimmed)) {
-    throw new Error('Only profiles created manually in AWS Lens can be deleted from the catalog.')
+      throw new Error(`Only profiles created manually in ${PRODUCT_BRAND_NAME} can be deleted from the catalog.`)
   }
 
   const awsDir = path.join(os.homedir(), '.aws')
@@ -383,8 +392,12 @@ export function listAwsProfiles(): AwsProfile[] {
 
   for (const name of configProfiles) {
     merged.set(name, {
+      providerId: 'aws',
+      id: name,
+      label: name,
       name,
       source: 'config',
+      defaultLocationId: regions.get(name) ?? 'us-east-1',
       region: regions.get(name) ?? 'us-east-1',
       managedByApp: manualProfiles.has(name)
     })
@@ -393,8 +406,12 @@ export function listAwsProfiles(): AwsProfile[] {
   for (const name of credentialProfiles) {
     if (!merged.has(name)) {
       merged.set(name, {
+        providerId: 'aws',
+        id: name,
+        label: name,
         name,
         source: 'credentials',
+        defaultLocationId: regions.get(name) ?? 'us-east-1',
         region: regions.get(name) ?? 'us-east-1',
         managedByApp: manualProfiles.has(name)
       })
@@ -412,8 +429,12 @@ export function listAwsProfiles(): AwsProfile[] {
   for (const name of vaultProfiles) {
     const existing = merged.get(name)
     merged.set(name, {
+      providerId: 'aws',
+      id: name,
+      label: name,
       name,
       source: existing?.source ?? 'credentials',
+      defaultLocationId: regions.get(name) ?? existing?.region ?? 'us-east-1',
       region: regions.get(name) ?? existing?.region ?? 'us-east-1',
       managedByApp: true
     })

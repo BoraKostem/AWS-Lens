@@ -2,8 +2,8 @@
 
 import type {
   AwsCapabilitySubject,
-  AppDiagnosticsActiveContext,
   AppDiagnosticsFailureInput,
+  AppDiagnosticsSnapshot,
   AppSettings,
   ComparisonBaselineInput,
   ComparisonPresetInput,
@@ -11,19 +11,21 @@ import type {
   AssumeRoleRequest,
   AwsAssumeRoleTarget,
   AwsConnection,
-  BastionLaunchConfig,
+  AzureProviderContextSnapshot,
+  CloudProviderId,
   CloudWatchInvestigationHistoryInput,
+  BastionLaunchConfig,
   CloudWatchQueryFilter,
   CloudWatchQueryExecutionInput,
   CloudWatchQueryHistoryInput,
   CloudWatchSavedQueryInput,
-  ConnectionPresetFilter,
-  ConnectionPresetInput,
   EksUpgradePlannerRequest,
   DbConnectionResolveInput,
   DbConnectionPresetFilter,
   DbConnectionPresetInput,
   DbVaultCredentialInput,
+  AzureVmAction,
+  GcpComputeInstanceAction,
   Ec2BulkInstanceAction,
   Ec2InstanceAction,
   EbsTempInspectionProgress,
@@ -58,26 +60,25 @@ declare global {
       assumeRoleSession: (request: AssumeRoleRequest) => Promise<unknown>
       refreshAssumedSession: (sessionId: string) => Promise<unknown>
       assumeSavedRoleTarget: (targetId: string) => Promise<unknown>
-      listServices: () => Promise<unknown>
+      getAssumedSessionCredentials: (sessionId: string) => Promise<unknown>
+      listProviders: () => Promise<unknown>
+      getWorkspaceCatalog: (providerId?: CloudProviderId) => Promise<unknown>
+      listServices: (providerId?: CloudProviderId) => Promise<unknown>
       getGovernanceTagDefaults: () => Promise<unknown>
       updateGovernanceTagDefaults: (update: unknown) => Promise<unknown>
       listCloudWatchSavedQueries: (filter?: CloudWatchQueryFilter) => Promise<unknown>
       saveCloudWatchSavedQuery: (input: CloudWatchSavedQueryInput) => Promise<unknown>
       deleteCloudWatchSavedQuery: (id: string) => Promise<unknown>
-      listCloudWatchQueryHistory: (filter?: CloudWatchQueryFilter) => Promise<unknown>
-      recordCloudWatchQueryHistory: (input: CloudWatchQueryHistoryInput) => Promise<unknown>
-      clearCloudWatchQueryHistory: (filter?: CloudWatchQueryFilter) => Promise<unknown>
       listCloudWatchInvestigationHistory: (filter?: CloudWatchQueryFilter) => Promise<unknown>
       recordCloudWatchInvestigationHistory: (input: CloudWatchInvestigationHistoryInput) => Promise<unknown>
       clearCloudWatchInvestigationHistory: (filter?: CloudWatchQueryFilter) => Promise<unknown>
+      listCloudWatchQueryHistory: (filter?: CloudWatchQueryFilter) => Promise<unknown>
+      recordCloudWatchQueryHistory: (input: CloudWatchQueryHistoryInput) => Promise<unknown>
+      clearCloudWatchQueryHistory: (filter?: CloudWatchQueryFilter) => Promise<unknown>
       listDbConnectionPresets: (filter?: DbConnectionPresetFilter) => Promise<unknown>
-      listConnectionPresets: (filter?: ConnectionPresetFilter) => Promise<unknown>
       saveDbConnectionPreset: (input: DbConnectionPresetInput) => Promise<unknown>
-      saveConnectionPreset: (input: ConnectionPresetInput) => Promise<unknown>
       deleteDbConnectionPreset: (id: string) => Promise<unknown>
-      deleteConnectionPreset: (id: string) => Promise<unknown>
       markDbConnectionPresetUsed: (id: string) => Promise<unknown>
-      markConnectionPresetUsed: (id: string) => Promise<unknown>
       listDbVaultCredentials: () => Promise<unknown>
       saveDbVaultCredential: (input: DbVaultCredentialInput) => Promise<unknown>
       deleteDbVaultCredential: (name: string) => Promise<unknown>
@@ -88,7 +89,6 @@ declare global {
       deleteVaultEntry: (entryId: string) => Promise<unknown>
       revealVaultEntrySecret: (entryId: string) => Promise<unknown>
       recordVaultEntryUse: (input: VaultEntryUsageInput) => Promise<unknown>
-      inspectVaultSshKey: (entryId: string) => Promise<unknown>
       listComparisonBaselines: () => Promise<unknown>
       listComparisonPresets: () => Promise<unknown>
       getComparisonBaseline: (baselineId: string) => Promise<unknown>
@@ -105,12 +105,204 @@ declare global {
       resetAppSettings: () => Promise<unknown>
       getAppSecuritySummary: () => Promise<unknown>
       getEnvironmentHealth: () => Promise<unknown>
+      getProviderCliStatus: () => Promise<unknown>
+      getAzureProviderContext: () => Promise<AzureProviderContextSnapshot>
+      startAzureDeviceCodeSignIn: () => Promise<AzureProviderContextSnapshot>
+      signOutAzureProvider: () => Promise<AzureProviderContextSnapshot>
+      setAzureActiveTenant: (tenantId: string) => Promise<AzureProviderContextSnapshot>
+      setAzureActiveSubscription: (subscriptionId: string) => Promise<AzureProviderContextSnapshot>
+      setAzureActiveLocation: (location: string) => Promise<AzureProviderContextSnapshot>
+      getGcpCliContext: () => Promise<unknown>
+      listGcpProjects: () => Promise<unknown>
+      getGcpProjectOverview: (projectId: string) => Promise<unknown>
+      getGcpIamOverview: (projectId: string) => Promise<unknown>
+      addGcpIamBinding: (projectId: string, role: string, member: string) => Promise<unknown>
+      removeGcpIamBinding: (projectId: string, role: string, member: string) => Promise<unknown>
+      createGcpServiceAccount: (projectId: string, accountId: string, displayName: string, description: string) => Promise<unknown>
+      deleteGcpServiceAccount: (projectId: string, email: string) => Promise<unknown>
+      disableGcpServiceAccount: (projectId: string, email: string, disable: boolean) => Promise<unknown>
+      listGcpServiceAccountKeys: (projectId: string, email: string) => Promise<unknown>
+      createGcpServiceAccountKey: (projectId: string, email: string) => Promise<unknown>
+      deleteGcpServiceAccountKey: (projectId: string, email: string, keyId: string) => Promise<unknown>
+      listGcpRoles: (projectId: string, scope: 'custom' | 'all') => Promise<unknown>
+      createGcpCustomRole: (projectId: string, roleId: string, title: string, description: string, permissions: string[]) => Promise<unknown>
+      deleteGcpCustomRole: (projectId: string, roleName: string) => Promise<unknown>
+      testGcpIamPermissions: (projectId: string, permissions: string[]) => Promise<unknown>
+      listGcpComputeInstances: (projectId: string, location: string) => Promise<unknown>
+      getGcpComputeInstanceDetail: (projectId: string, zone: string, instanceName: string) => Promise<unknown>
+      listGcpComputeMachineTypes: (projectId: string, zone: string) => Promise<unknown>
+      runGcpComputeInstanceAction: (projectId: string, zone: string, instanceName: string, action: GcpComputeInstanceAction) => Promise<unknown>
+      resizeGcpComputeInstance: (projectId: string, zone: string, instanceName: string, machineType: string) => Promise<unknown>
+      updateGcpComputeInstanceLabels: (projectId: string, zone: string, instanceName: string, labels: Record<string, string>) => Promise<unknown>
+      deleteGcpComputeInstance: (projectId: string, zone: string, instanceName: string) => Promise<unknown>
+      getGcpComputeSerialOutput: (projectId: string, zone: string, instanceName: string, port?: number, start?: number) => Promise<unknown>
+      listGcpNetworks: (projectId: string) => Promise<unknown>
+      listGcpSubnetworks: (projectId: string, location: string) => Promise<unknown>
+      listGcpFirewallRules: (projectId: string) => Promise<unknown>
+      listGcpRouters: (projectId: string, location: string) => Promise<unknown>
+      listGcpGlobalAddresses: (projectId: string) => Promise<unknown>
+      listGcpServiceNetworkingConnections: (projectId: string, networkNames: string[]) => Promise<unknown>
+      listGcpDnsManagedZones: (projectId: string) => Promise<unknown>
+      listGcpDnsResourceRecordSets: (projectId: string, managedZone: string) => Promise<unknown>
+      createGcpDnsResourceRecordSet: (projectId: string, managedZone: string, input: unknown) => Promise<unknown>
+      updateGcpDnsResourceRecordSet: (projectId: string, managedZone: string, input: unknown) => Promise<unknown>
+      deleteGcpDnsResourceRecordSet: (projectId: string, managedZone: string, name: string, type: string) => Promise<unknown>
+      listGcpMemorystoreInstances: (projectId: string, location: string) => Promise<unknown>
+      getGcpMemorystoreInstanceDetail: (projectId: string, instanceName: string) => Promise<unknown>
+      listGcpUrlMaps: (projectId: string) => Promise<unknown>
+      getGcpUrlMapDetail: (projectId: string, urlMapName: string, region?: string) => Promise<unknown>
+      listGcpBackendServices: (projectId: string) => Promise<unknown>
+      listGcpForwardingRules: (projectId: string) => Promise<unknown>
+      listGcpHealthChecks: (projectId: string) => Promise<unknown>
+      listGcpSecurityPolicies: (projectId: string) => Promise<unknown>
+      getGcpSecurityPolicyDetail: (projectId: string, policyName: string) => Promise<unknown>
+      listGcpGkeClusters: (projectId: string, location: string) => Promise<unknown>
+      getGcpGkeClusterDetail: (projectId: string, location: string, clusterName: string) => Promise<unknown>
+      listGcpGkeNodePools: (projectId: string, location: string, clusterName: string) => Promise<unknown>
+      getGcpGkeClusterCredentials: (projectId: string, location: string, clusterName: string, contextName?: string, kubeconfigPath?: string) => Promise<unknown>
+      listGcpGkeOperations: (projectId: string, location: string, clusterName: string) => Promise<unknown>
+      updateGcpGkeNodePoolScaling: (projectId: string, location: string, clusterName: string, nodePoolName: string, minimum: number, desired: number, maximum: number) => Promise<unknown>
+      listGcpStorageBuckets: (projectId: string, location: string) => Promise<unknown>
+      listGcpStorageObjects: (projectId: string, bucketName: string, prefix: string) => Promise<unknown>
+      getGcpStorageObjectContent: (projectId: string, bucketName: string, key: string) => Promise<unknown>
+      putGcpStorageObjectContent: (projectId: string, bucketName: string, key: string, content: string) => Promise<unknown>
+      uploadGcpStorageObject: (projectId: string, bucketName: string, key: string, localPath: string) => Promise<unknown>
+      downloadGcpStorageObjectToPath: (projectId: string, bucketName: string, key: string) => Promise<unknown>
+      deleteGcpStorageObject: (projectId: string, bucketName: string, key: string) => Promise<unknown>
+      listGcpLogEntries: (projectId: string, location: string, query: string, windowHours?: number) => Promise<unknown>
+      listGcpSqlInstances: (projectId: string, location: string) => Promise<unknown>
+      getGcpSqlInstanceDetail: (projectId: string, instanceName: string) => Promise<unknown>
+      listGcpSqlDatabases: (projectId: string, instanceName: string) => Promise<unknown>
+      listGcpSqlOperations: (projectId: string, instanceName: string) => Promise<unknown>
+      getGcpBillingOverview: (projectId: string, catalogProjectIds: string[]) => Promise<unknown>
+      listGcpPubSubTopics: (projectId: string) => Promise<unknown>
+      listGcpPubSubSubscriptions: (projectId: string) => Promise<unknown>
+      getGcpPubSubTopicDetail: (projectId: string, topicId: string) => Promise<unknown>
+      getGcpPubSubSubscriptionDetail: (projectId: string, subscriptionId: string) => Promise<unknown>
+      listGcpBigQueryDatasets: (projectId: string) => Promise<unknown>
+      listGcpBigQueryTables: (projectId: string, datasetId: string) => Promise<unknown>
+      getGcpBigQueryTableDetail: (projectId: string, datasetId: string, tableId: string) => Promise<unknown>
+      runGcpBigQueryQuery: (projectId: string, queryText: string, maxResults?: number) => Promise<unknown>
+      listGcpMonitoringAlertPolicies: (projectId: string) => Promise<unknown>
+      listGcpMonitoringUptimeChecks: (projectId: string) => Promise<unknown>
+      listGcpMonitoringMetricDescriptors: (projectId: string, filter?: string) => Promise<unknown>
+      queryGcpMonitoringTimeSeries: (projectId: string, metricType: string, intervalMinutes: number) => Promise<unknown>
+      listGcpSccFindings: (projectId: string, location?: string, filter?: string) => Promise<unknown>
+      listGcpSccSources: (projectId: string, location?: string) => Promise<unknown>
+      getGcpSccFindingDetail: (projectId: string, findingName: string, location?: string) => Promise<unknown>
+      getGcpSccSeverityBreakdown: (projectId: string, location?: string) => Promise<unknown>
+      listGcpFirestoreDatabases: (projectId: string) => Promise<unknown>
+      listGcpFirestoreCollections: (projectId: string, databaseId: string, parentPath?: string) => Promise<unknown>
+      listGcpFirestoreDocuments: (projectId: string, databaseId: string, collectionId: string, pageSize?: number) => Promise<unknown>
+      getGcpFirestoreDocumentDetail: (projectId: string, databaseId: string, documentPath: string) => Promise<unknown>
+      listGcpCloudRunServices: (projectId: string, location: string) => Promise<unknown>
+      listGcpCloudRunRevisions: (projectId: string, location: string, serviceId: string) => Promise<unknown>
+      listGcpCloudRunJobs: (projectId: string, location: string) => Promise<unknown>
+      listGcpCloudRunExecutions: (projectId: string, location: string, jobId: string) => Promise<unknown>
+      listGcpCloudRunDomainMappings: (projectId: string, location: string) => Promise<unknown>
+      getGcpFirebaseProject: (projectId: string) => Promise<unknown>
+      listGcpFirebaseWebApps: (projectId: string) => Promise<unknown>
+      listGcpFirebaseAndroidApps: (projectId: string) => Promise<unknown>
+      listGcpFirebaseIosApps: (projectId: string) => Promise<unknown>
+      listGcpFirebaseHostingSites: (projectId: string) => Promise<unknown>
+      listGcpFirebaseHostingReleases: (projectId: string, siteId: string) => Promise<unknown>
+      listGcpFirebaseHostingDomains: (projectId: string, siteId: string) => Promise<unknown>
+      listGcpFirebaseHostingChannels: (projectId: string, siteId: string) => Promise<unknown>
+      listAzureSubscriptions: () => Promise<unknown>
+      getAzureRbacOverview: (subscriptionId: string) => Promise<unknown>
+      listAzureRoleAssignments: (subscriptionId: string) => Promise<unknown>
+      listAzureRoleDefinitions: (subscriptionId: string) => Promise<unknown>
+      createAzureRoleAssignment: (subscriptionId: string, principalId: string, roleDefinitionId: string, scope: string) => Promise<unknown>
+      deleteAzureRoleAssignment: (assignmentId: string) => Promise<unknown>
+      listAzureVirtualMachines: (subscriptionId: string, location: string) => Promise<unknown>
+      describeAzureVirtualMachine: (subscriptionId: string, resourceGroup: string, vmName: string) => Promise<unknown>
+      runAzureVmAction: (subscriptionId: string, resourceGroup: string, vmName: string, action: AzureVmAction) => Promise<unknown>
+      listAzureAksClusters: (subscriptionId: string, location: string) => Promise<unknown>
+      describeAzureAksCluster: (subscriptionId: string, resourceGroup: string, clusterName: string) => Promise<unknown>
+      listAzureAksNodePools: (subscriptionId: string, resourceGroup: string, clusterName: string) => Promise<unknown>
+      updateAzureAksNodePoolScaling: (subscriptionId: string, resourceGroup: string, clusterName: string, nodePoolName: string, min: number, desired: number, max: number) => Promise<unknown>
+      toggleAzureAksNodePoolAutoscaling: (subscriptionId: string, resourceGroup: string, clusterName: string, nodePoolName: string, enable: boolean, minCount?: number, maxCount?: number) => Promise<unknown>
+      addAksToKubeconfig: (subscriptionId: string, resourceGroup: string, clusterName: string, contextName: string, kubeconfigPath: string) => Promise<unknown>
+      chooseAksKubeconfigPath: (currentPath?: string) => Promise<unknown>
+      listAzureStorageAccounts: (subscriptionId: string, location: string) => Promise<unknown>
+      listAzureStorageContainers: (subscriptionId: string, resourceGroup: string, accountName: string, blobEndpoint?: string) => Promise<unknown>
+      listAzureStorageBlobs: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, prefix: string, blobEndpoint?: string) => Promise<unknown>
+      getAzureStorageBlobContent: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) => Promise<unknown>
+      putAzureStorageBlobContent: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, content: string, blobEndpoint?: string) => Promise<unknown>
+      uploadAzureStorageBlob: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, localPath: string, blobEndpoint?: string) => Promise<unknown>
+      downloadAzureStorageBlobToPath: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) => Promise<unknown>
+      deleteAzureStorageBlob: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) => Promise<unknown>
+      createAzureStorageContainer: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, blobEndpoint?: string) => Promise<unknown>
+      openAzureStorageBlob: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) => Promise<unknown>
+      openAzureStorageBlobInVSCode: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) => Promise<unknown>
+      getAzureStorageBlobSasUrl: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) => Promise<unknown>
+      getAzureSqlEstate: (subscriptionId: string, location: string) => Promise<unknown>
+      describeAzureSqlServer: (subscriptionId: string, resourceGroup: string, serverName: string) => Promise<unknown>
+      getAzurePostgreSqlEstate: (subscriptionId: string, location: string) => Promise<unknown>
+      describeAzurePostgreSqlServer: (subscriptionId: string, resourceGroup: string, serverName: string) => Promise<unknown>
+      getAzureMySqlEstate: (subscriptionId: string, location: string) => Promise<unknown>
+      describeAzureMySqlServer: (subscriptionId: string, resourceGroup: string, serverName: string) => Promise<unknown>
+      getAzureCosmosDbEstate: (subscriptionId: string, location: string) => Promise<unknown>
+      describeAzureCosmosDbAccount: (subscriptionId: string, resourceGroup: string, accountName: string) => Promise<unknown>
+      listAzureMonitorActivity: (subscriptionId: string, location: string, query: string, windowHours?: number) => Promise<unknown>
+      getAzureCostOverview: (subscriptionId: string) => Promise<unknown>
+      getAzureNetworkOverview: (subscriptionId: string, location: string) => Promise<unknown>
+      listAzureVNetSubnets: (subscriptionId: string, resourceGroup: string, vnetName: string) => Promise<unknown>
+      listAzureNsgRules: (subscriptionId: string, resourceGroup: string, nsgName: string) => Promise<unknown>
+      listAzureVmss: (subscriptionId: string, location: string) => Promise<unknown>
+      listAzureVmssInstances: (subscriptionId: string, resourceGroup: string, vmssName: string) => Promise<unknown>
+      updateAzureVmssCapacity: (subscriptionId: string, resourceGroup: string, vmssName: string, capacity: number) => Promise<unknown>
+      runAzureVmssInstanceAction: (subscriptionId: string, resourceGroup: string, vmssName: string, instanceId: string, action: string) => Promise<unknown>
+      listAzureEventGridTopics: (subscriptionId: string, location: string) => Promise<unknown>
+      listAzureEventGridSystemTopics: (subscriptionId: string, location: string) => Promise<unknown>
+      listAzureEventGridEventSubscriptions: (subscriptionId: string) => Promise<unknown>
+      listAzureEventGridDomains: (subscriptionId: string, location: string) => Promise<unknown>
+      listAzureEventGridDomainTopics: (subscriptionId: string, resourceGroup: string, domainName: string) => Promise<unknown>
+      listAzureAppInsightsComponents: (subscriptionId: string, location: string) => Promise<unknown>
+      listAzureKeyVaults: (subscriptionId: string, location: string) => Promise<unknown>
+      describeAzureKeyVault: (subscriptionId: string, resourceGroup: string, vaultName: string) => Promise<unknown>
+      listAzureKeyVaultSecrets: (subscriptionId: string, resourceGroup: string, vaultName: string) => Promise<unknown>
+      listAzureKeyVaultKeys: (subscriptionId: string, resourceGroup: string, vaultName: string) => Promise<unknown>
+      listAzureEventHubNamespaces: (subscriptionId: string, location: string) => Promise<unknown>
+      listAzureEventHubs: (subscriptionId: string, resourceGroup: string, namespaceName: string) => Promise<unknown>
+      listAzureEventHubConsumerGroups: (subscriptionId: string, resourceGroup: string, namespaceName: string, eventHubName: string) => Promise<unknown>
+      listAzureAppServicePlans: (subscriptionId: string, location: string) => Promise<unknown>
+      listAzureWebApps: (subscriptionId: string, location: string) => Promise<unknown>
+      describeAzureWebApp: (subscriptionId: string, resourceGroup: string, siteName: string) => Promise<unknown>
+      listAzureWebAppSlots: (subscriptionId: string, resourceGroup: string, siteName: string) => Promise<unknown>
+      listAzureWebAppDeployments: (subscriptionId: string, resourceGroup: string, siteName: string) => Promise<unknown>
+      listAzureManagedDisks: (subscriptionId: string, location: string) => Promise<unknown>
+      listAzureDiskSnapshots: (subscriptionId: string, location: string) => Promise<unknown>
+      listAzureVNetPeerings: (subscriptionId: string, resourceGroup: string, vnetName: string) => Promise<unknown>
+      listAzureRouteTables: (subscriptionId: string, location: string) => Promise<unknown>
+      listAzureNatGateways: (subscriptionId: string, location: string) => Promise<unknown>
+      listAzureLoadBalancers: (subscriptionId: string, location: string) => Promise<unknown>
+      listAzurePrivateEndpoints: (subscriptionId: string, location: string) => Promise<unknown>
+      listAzureFirewalls: (subscriptionId: string, location: string) => Promise<unknown>
+      describeAzureFirewall: (subscriptionId: string, resourceGroup: string, firewallName: string) => Promise<unknown>
+      describeAzureLoadBalancer: (subscriptionId: string, resourceGroup: string, lbName: string) => Promise<unknown>
+      listAzureDnsZones: (subscriptionId: string, location: string) => Promise<unknown>
+      listAzureDnsRecordSets: (subscriptionId: string, resourceGroup: string, zoneName: string) => Promise<unknown>
+      upsertAzureDnsRecord: (subscriptionId: string, resourceGroup: string, zoneName: string, input: unknown) => Promise<unknown>
+      deleteAzureDnsRecord: (subscriptionId: string, resourceGroup: string, zoneName: string, recordType: string, recordName: string) => Promise<unknown>
+      createAzureDnsZone: (subscriptionId: string, resourceGroup: string, zoneName: string, zoneType: string) => Promise<unknown>
+      listAzureStorageFileShares: (subscriptionId: string, resourceGroup: string, accountName: string) => Promise<unknown>
+      listAzureStorageQueues: (subscriptionId: string, resourceGroup: string, accountName: string) => Promise<unknown>
+      listAzureStorageTables: (subscriptionId: string, resourceGroup: string, accountName: string) => Promise<unknown>
+      listAzureFunctionApps: (subscriptionId: string, location: string) => Promise<unknown>
+      listAzureFunctions: (subscriptionId: string, resourceGroup: string, siteName: string) => Promise<unknown>
+      getAzureWebAppConfiguration: (subscriptionId: string, resourceGroup: string, siteName: string) => Promise<unknown>
+      runAzureWebAppAction: (subscriptionId: string, resourceGroup: string, siteName: string, action: string) => Promise<unknown>
+      listAzureLogAnalyticsWorkspaces: (subscriptionId: string, location: string) => Promise<unknown>
+      queryAzureLogAnalytics: (workspaceId: string, query: string, timespan?: string) => Promise<unknown>
+      listAzureLogAnalyticsSavedSearches: (subscriptionId: string, resourceGroup: string, workspaceName: string) => Promise<unknown>
+      listAzureLogAnalyticsLinkedServices: (subscriptionId: string, resourceGroup: string, workspaceName: string) => Promise<unknown>
       checkForAppUpdates: () => Promise<unknown>
       downloadAppUpdate: () => Promise<unknown>
       installAppUpdate: () => Promise<unknown>
-      exportDiagnosticsBundle: () => Promise<unknown>
-      updateDiagnosticsActiveContext: (context: AppDiagnosticsActiveContext) => Promise<unknown>
-      recordDiagnosticsFailure: (input: AppDiagnosticsFailureInput) => Promise<unknown>
+      setAppDiagnosticsActiveContext: (snapshot: AppDiagnosticsSnapshot) => Promise<unknown>
+      recordAppDiagnosticsFailure: (input: AppDiagnosticsFailureInput) => Promise<unknown>
+      exportDiagnosticsBundle: (snapshot?: AppDiagnosticsSnapshot) => Promise<unknown>
       getCallerIdentity: (connection: AwsConnection) => Promise<unknown>
       listEc2Instances: (connection: AwsConnection) => Promise<unknown>
       listEbsVolumes: (connection: AwsConnection) => Promise<unknown>
@@ -380,6 +572,15 @@ declare global {
       disassociateWebAcl: (connection: AwsConnection, resourceArn: string) => Promise<unknown>
       openAwsTerminal: (sessionId: string, connection: AwsConnection, initialCommand?: string) => Promise<unknown>
       updateAwsTerminalContext: (sessionId: string, connection: AwsConnection) => Promise<unknown>
+      openProviderTerminal: (
+        sessionId: string,
+        target: { providerId: 'gcp' | 'azure'; label: string; modeId: string; modeLabel: string; env: Record<string, string> },
+        initialCommand?: string
+      ) => Promise<unknown>
+      updateProviderTerminalContext: (
+        sessionId: string,
+        target: { providerId: 'gcp' | 'azure'; label: string; modeId: string; modeLabel: string; env: Record<string, string> }
+      ) => Promise<unknown>
       sendTerminalInput: (sessionId: string, input: string) => Promise<unknown>
       runTerminalCommand: (sessionId: string, command: string) => Promise<unknown>
       resizeTerminal: (sessionId: string, cols: number, rows: number) => Promise<unknown>
@@ -446,10 +647,30 @@ declare global {
       getDrift: (profileName: string, projectId: string, connection: AwsConnection, options?: { forceRefresh?: boolean }) => Promise<unknown>
       getObservabilityReport: (profileName: string, projectId: string, connection: AwsConnection) => Promise<unknown>
       detectAdoption: (profileName: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget) => Promise<unknown>
-      mapAdoption: (profileName: string, projectId: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget) => Promise<unknown>
-      generateAdoptionCode: (profileName: string, projectId: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget) => Promise<unknown>
-      executeAdoptionImport: (profileName: string, projectId: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget) => Promise<unknown>
-      validateAdoptionImport: (profileName: string, projectId: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget) => Promise<unknown>
+      mapAdoption: (
+        profileName: string,
+        projectId: string,
+        connection: AwsConnection | undefined,
+        target: TerraformAdoptionTarget
+      ) => Promise<unknown>
+      generateAdoptionCode: (
+        profileName: string,
+        projectId: string,
+        connection: AwsConnection | undefined,
+        target: TerraformAdoptionTarget
+      ) => Promise<unknown>
+      executeAdoptionImport: (
+        profileName: string,
+        projectId: string,
+        connection: AwsConnection | undefined,
+        target: TerraformAdoptionTarget
+      ) => Promise<unknown>
+      validateAdoptionImport: (
+        profileName: string,
+        projectId: string,
+        connection: AwsConnection | undefined,
+        target: TerraformAdoptionTarget
+      ) => Promise<unknown>
       chooseProjectDirectory: () => Promise<unknown>
       addProject: (profileName: string, rootPath: string, connection?: AwsConnection) => Promise<unknown>
       renameProject: (profileName: string, projectId: string, name: string) => Promise<unknown>
@@ -464,6 +685,7 @@ declare global {
       validateProjectInputs: (profileName: string, projectId: string, connection?: AwsConnection) => Promise<TerraformInputValidationResult>
       listCommandLogs: (projectId: string) => Promise<unknown>
       runCommand: (request: TerraformCommandRequest) => Promise<unknown>
+      cancelCommand: (projectId: string) => Promise<unknown>
       subscribe: (listener: (event: unknown) => void) => void
       unsubscribe: (listener: (event: unknown) => void) => void
     }

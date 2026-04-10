@@ -19,7 +19,7 @@ import {
   UpdateNodegroupConfigCommand
 } from '@aws-sdk/client-eks'
 
-import { awsClientConfig } from './client'
+import { getAwsClient } from './client'
 import { readTags } from './client'
 import type {
   AwsConnection,
@@ -76,12 +76,8 @@ export type EksAddonVersionCompatibility = {
   defaultVersion: string
 }
 
-function createClient(connection: AwsConnection): EKSClient {
-  return new EKSClient(awsClientConfig(connection))
-}
-
 export async function listEksClusters(connection: AwsConnection): Promise<EksClusterSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EKSClient, connection)
   const clusters: EksClusterSummary[] = []
   let nextToken: string | undefined
 
@@ -109,7 +105,7 @@ export async function listEksClusters(connection: AwsConnection): Promise<EksClu
 }
 
 async function describeEksClusterRaw(connection: AwsConnection, clusterName: string) {
-  const client = createClient(connection)
+  const client = getAwsClient(EKSClient, connection)
   const output = await client.send(new DescribeClusterCommand({ name: clusterName }))
   return output.cluster ?? null
 }
@@ -158,7 +154,7 @@ export async function listEksNodegroups(
   connection: AwsConnection,
   clusterName: string
 ): Promise<EksNodegroupSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EKSClient, connection)
   const output = await client.send(new ListNodegroupsCommand({ clusterName }))
   const nodegroups: EksNodegroupSummary[] = []
 
@@ -195,7 +191,7 @@ export async function updateEksNodegroupScaling(
   desired: number,
   maximum: number
 ) {
-  const client = createClient(connection)
+  const client = getAwsClient(EKSClient, connection)
   const output = await client.send(
     new UpdateNodegroupConfigCommand({
       clusterName,
@@ -215,7 +211,7 @@ export async function listEksUpdates(
   connection: AwsConnection,
   clusterName: string
 ): Promise<EksUpdateEvent[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EKSClient, connection)
   const listOutput = await client.send(new ListUpdatesCommand({ name: clusterName }))
   const events: EksUpdateEvent[] = []
 
@@ -247,7 +243,7 @@ export async function listEksAddons(
   connection: AwsConnection,
   clusterName: string
 ): Promise<EksManagedAddonSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EKSClient, connection)
   const output = await client.send(new ListAddonsCommand({ clusterName }))
   const addons: EksManagedAddonSummary[] = []
 
@@ -268,7 +264,7 @@ export async function getEksAddonVersionCompatibility(
   addonName: string,
   kubernetesVersion: string
 ): Promise<EksAddonVersionCompatibility> {
-  const client = createClient(connection)
+  const client = getAwsClient(EKSClient, connection)
   const output = await client.send(
     new DescribeAddonVersionsCommand({
       addonName,
@@ -296,7 +292,7 @@ export async function getEksAddonVersionCompatibility(
 }
 
 export async function deleteEksCluster(connection: AwsConnection, clusterName: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EKSClient, connection)
   await client.send(new DeleteClusterCommand({ name: clusterName }))
 }
 

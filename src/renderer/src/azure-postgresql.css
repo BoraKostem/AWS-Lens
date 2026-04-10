@@ -1,0 +1,52 @@
+/* Azure PostgreSQL Console — teal/green accent overrides */
+
+.azure-postgresql-theme .rds-shell-hero,
+.azure-postgresql-theme .rds-detail-hero {
+  background:
+    radial-gradient(circle at top left, rgba(0, 150, 136, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(38, 166, 154, 0.12), transparent 32%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(11, 17, 25, 0.98));
+}
+
+.azure-postgresql-theme .rds-shell-stat-card-accent,
+.azure-postgresql-theme .rds-detail-stat-card.success {
+  border-color: rgba(0, 150, 136, 0.32);
+  background:
+    radial-gradient(circle at top right, rgba(0, 150, 136, 0.2), transparent 42%),
+    linear-gradient(180deg, rgba(20, 40, 38, 0.96), rgba(12, 28, 26, 0.96));
+}
+
+.azure-postgresql-theme .rds-toolbar-btn.active {
+  border-color: rgba(0, 150, 136, 0.36);
+  background: linear-gradient(180deg, rgba(0, 150, 136, 0.18), rgba(0, 150, 136, 0.08));
+  color: #b2dfdb;
+}
+
+.azure-postgresql-theme .rds-toolbar-btn.accent {
+  background: linear-gradient(135deg, #00897b, #26a69a);
+  border-color: rgba(38, 166, 154, 0.24);
+  color: #fff;
+}
+
+.azure-postgresql-theme .rds-side-tabs button:hover {
+  color: #edf1f6;
+  border-color: rgba(0, 150, 136, 0.24);
+  background: rgba(0, 150, 136, 0.1);
+}
+
+.azure-postgresql-theme .rds-side-tabs button.active {
+  color: #edf1f6;
+  border-color: rgba(0, 150, 136, 0.32);
+  background: linear-gradient(180deg, rgba(0, 150, 136, 0.18), rgba(0, 150, 136, 0.08));
+}
+
+.azure-postgresql-theme .rds-data-table tbody tr.active {
+  background:
+    radial-gradient(circle at top right, rgba(0, 150, 136, 0.1), transparent 40%),
+    rgba(50, 57, 71, 0.88);
+}
+
+.azure-postgresql-theme .rds-shell-meta-pill,
+.azure-postgresql-theme .rds-detail-meta-pill {
+  border-color: rgba(0, 150, 136, 0.14);
+}

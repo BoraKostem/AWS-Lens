@@ -61,6 +61,21 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, name: stri
   })
 }
 
+const SENSITIVE_CONTEXT_KEYS = new Set([
+  'password', 'secret', 'token', 'key', 'apiKey', 'api_key',
+  'accessKey', 'access_key', 'secretKey', 'secret_key',
+  'credential', 'credentials', 'authorization', 'auth'
+])
+
+function sanitizeContext(context?: Record<string, unknown>): Record<string, unknown> {
+  if (!context) return {}
+  const result: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(context)) {
+    result[k] = SENSITIVE_CONTEXT_KEYS.has(k.toLowerCase()) ? '[redacted]' : v
+  }
+  return result
+}
+
 export async function executeOperation<T>(
   name: string,
   fn: () => Promise<T>,
@@ -68,6 +83,7 @@ export async function executeOperation<T>(
 ): Promise<T> {
   const retries = Math.max(0, options.retries ?? 0)
   const retryDelayMs = Math.max(0, options.retryDelayMs ?? 400)
+  const safeCtx = sanitizeContext(options.context)
   let attempt = 0
 
   while (true) {
@@ -78,7 +94,7 @@ export async function executeOperation<T>(
       operation: name,
       attempt,
       retries,
-      ...options.context
+      ...safeCtx
     })
 
     try {
@@ -90,7 +106,7 @@ export async function executeOperation<T>(
         operation: name,
         attempt,
         durationMs: Date.now() - startedAt,
-        ...options.context
+        ...safeCtx
       })
 
       return result
@@ -102,14 +118,17 @@ export async function executeOperation<T>(
         attempt,
         durationMs: Date.now() - startedAt,
         willRetry: canRetry,
-        ...options.context
+        ...safeCtx
       }, error)
 
       if (!canRetry) {
         throw error
       }
 
-      await delay(retryDelayMs * attempt)
+      // Exponential backoff with ±25% jitter to reduce retry storms
+      const baseDelay = retryDelayMs * Math.pow(2, attempt - 1)
+      const jitter = baseDelay * 0.25 * (Math.random() * 2 - 1)
+      await delay(Math.max(0, Math.round(baseDelay + jitter)))
     }
   }
 }

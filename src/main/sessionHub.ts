@@ -61,20 +61,19 @@ function sessionHubPath(): string {
   return path.join(app.getPath('userData'), 'session-hub.json')
 }
 
-function readPersistedState(): PersistedState {
-  const parsed = readSecureJsonFile<Partial<PersistedState>>(sessionHubPath(), {
-    fallback: { targets: [] },
-    fileLabel: 'Session Hub state'
-  })
-  return {
-    targets: Array.isArray(parsed.targets)
-      ? parsed.targets.map(sanitizeAssumeRoleTarget).filter((target): target is AwsAssumeRoleTarget => target !== null)
-      : []
-  }
+function normalizeCriticalAccessLevel(value: unknown): AwsAssumeRoleTarget['criticalAccessLevel'] {
+  return value === 'medium' || value === 'high' || value === 'critical' ? value : 'low'
 }
 
-function writePersistedState(state: PersistedState): void {
-  writeSecureJsonFile(sessionHubPath(), state, 'Session Hub state')
+function normalizeTags(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return [...new Set(value.filter((tag): tag is string => typeof tag === 'string').map((tag) => tag.trim()).filter(Boolean))].slice(
+    0,
+    8
+  )
 }
 
 function isAssumeRoleTarget(value: unknown): value is AwsAssumeRoleTarget {
@@ -104,21 +103,6 @@ function isAssumeRoleTarget(value: unknown): value is AwsAssumeRoleTarget {
   )
 }
 
-function normalizeCriticalAccessLevel(value: unknown): AwsAssumeRoleTarget['criticalAccessLevel'] {
-  return value === 'medium' || value === 'high' || value === 'critical' ? value : 'low'
-}
-
-function normalizeTags(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return []
-  }
-
-  return [...new Set(value.filter((tag): tag is string => typeof tag === 'string').map((tag) => tag.trim()).filter(Boolean))].slice(
-    0,
-    8
-  )
-}
-
 function sanitizeAssumeRoleTarget(value: unknown): AwsAssumeRoleTarget | null {
   if (!value || typeof value !== 'object') {
     return null
@@ -143,6 +127,22 @@ function sanitizeAssumeRoleTarget(value: unknown): AwsAssumeRoleTarget | null {
   }
 
   return isAssumeRoleTarget(nextTarget) ? nextTarget : null
+}
+
+function readPersistedState(): PersistedState {
+  const parsed = readSecureJsonFile<Partial<PersistedState>>(sessionHubPath(), {
+    fallback: { targets: [] },
+    fileLabel: 'Session Hub state'
+  })
+  return {
+    targets: Array.isArray(parsed.targets)
+      ? parsed.targets.map(sanitizeAssumeRoleTarget).filter((target): target is AwsAssumeRoleTarget => target !== null)
+      : []
+  }
+}
+
+function writePersistedState(state: PersistedState): void {
+  writeSecureJsonFile(sessionHubPath(), state, 'Session Hub state')
 }
 
 function sortTargets(targets: AwsAssumeRoleTarget[]): AwsAssumeRoleTarget[] {
@@ -209,9 +209,12 @@ function createBaseCredentials(profile: string) {
 
 export function createBaseConnection(profile: string, region: string): AwsConnection {
   return {
+    providerId: 'aws',
     kind: 'profile',
     sessionId: `profile:${profile}`,
     label: profile,
+    profileId: profile,
+    locationId: normalizeRegion(region),
     profile,
     region: normalizeRegion(region)
   }
@@ -369,9 +372,12 @@ export function createConnectionFromSession(sessionId: string, region?: string):
   }
 
   return {
+    providerId: 'aws',
     kind: 'assumed-role',
     sessionId: session.id,
     label: session.label,
+    profileId: session.sourceProfile,
+    locationId: normalizeRegion(region ?? session.region),
     profile: session.sourceProfile,
     sourceProfile: session.sourceProfile,
     region: normalizeRegion(region ?? session.region),
@@ -401,6 +407,11 @@ export async function assumeRoleSession(request: AssumeRoleRequest): Promise<Ass
 
   if (!roleArn || !sessionName || !sourceProfile) {
     throw new Error('Role ARN, source profile, and session name are required.')
+  }
+
+  // Validate ARN format before sending to STS to surface clear errors early
+  if (!/^arn:[a-zA-Z0-9-]+:iam::[0-9]{12}:role\/[\w+=,.@/-]{1,512}$/.test(roleArn)) {
+    throw new Error(`Invalid role ARN format: "${roleArn}". Expected format: arn:aws:iam::123456789012:role/RoleName`)
   }
 
   const client = new STSClient({
@@ -469,12 +480,26 @@ export async function assumeRoleSession(request: AssumeRoleRequest): Promise<Ass
     assumedRoleId: assumedSession.assumedRoleId,
     accountId: assumedSession.accountId,
     accessKeyId,
-    secretAccessKey,
-    sessionToken,
     expiration,
     packedPolicySize: assumeOutput.PackedPolicySize ?? 0,
     region,
     externalId: assumedSession.externalId
+  }
+}
+
+/**
+ * Returns the sensitive credential pair for a session — only call this from a
+ * dedicated display channel.  Raw secrets should not flow through the generic
+ * IPC layer.
+ */
+export function getAssumedSessionCredentials(sessionId: string): { secretAccessKey: string; sessionToken: string } {
+  const session = sessionStore.get(sessionId)
+  if (!session) {
+    throw new Error('Assumed session was not found.')
+  }
+  return {
+    secretAccessKey: session.credentials.secretAccessKey,
+    sessionToken: session.credentials.sessionToken
   }
 }
 

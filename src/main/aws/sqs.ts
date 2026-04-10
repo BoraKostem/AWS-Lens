@@ -15,7 +15,7 @@ import {
   UntagQueueCommand
 } from '@aws-sdk/client-sqs'
 
-import { awsClientConfig } from './client'
+import { getAwsClient } from './client'
 import type {
   AwsConnection,
   SqsMessage,
@@ -24,12 +24,8 @@ import type {
   SqsTimelineEvent
 } from '@shared/types'
 
-function createClient(connection: AwsConnection): SQSClient {
-  return new SQSClient(awsClientConfig(connection))
-}
-
 export async function listQueues(connection: AwsConnection): Promise<SqsQueueSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(SQSClient, connection)
   const queues: SqsQueueSummary[] = []
   let nextToken: string | undefined
 
@@ -46,7 +42,7 @@ export async function listQueues(connection: AwsConnection): Promise<SqsQueueSum
 }
 
 export async function getQueueDetail(connection: AwsConnection, queueUrl: string): Promise<SqsQueueSummary> {
-  const client = createClient(connection)
+  const client = getAwsClient(SQSClient, connection)
   const attrs = await client.send(new GetQueueAttributesCommand({
     QueueUrl: queueUrl,
     AttributeNames: ['All']
@@ -97,7 +93,7 @@ export async function createQueue(
   fifo: boolean,
   attributes?: Record<string, string>
 ): Promise<string> {
-  const client = createClient(connection)
+  const client = getAwsClient(SQSClient, connection)
   const name = fifo && !queueName.endsWith('.fifo') ? `${queueName}.fifo` : queueName
   const attrs: Record<string, string> = { ...(attributes ?? {}) }
   if (fifo) attrs.FifoQueue = 'true'
@@ -107,12 +103,12 @@ export async function createQueue(
 }
 
 export async function deleteQueue(connection: AwsConnection, queueUrl: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(SQSClient, connection)
   await client.send(new DeleteQueueCommand({ QueueUrl: queueUrl }))
 }
 
 export async function purgeQueue(connection: AwsConnection, queueUrl: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(SQSClient, connection)
   await client.send(new PurgeQueueCommand({ QueueUrl: queueUrl }))
 }
 
@@ -121,7 +117,7 @@ export async function setQueueAttributes(
   queueUrl: string,
   attributes: Record<string, string>
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(SQSClient, connection)
   await client.send(new SetQueueAttributesCommand({ QueueUrl: queueUrl, Attributes: attributes }))
 }
 
@@ -133,7 +129,7 @@ export async function sendMessage(
   messageGroupId?: string,
   messageDeduplicationId?: string
 ): Promise<SqsSendResult> {
-  const client = createClient(connection)
+  const client = getAwsClient(SQSClient, connection)
   const output = await client.send(new SendMessageCommand({
     QueueUrl: queueUrl,
     MessageBody: body,
@@ -154,7 +150,7 @@ export async function receiveMessages(
   maxMessages: number,
   waitTimeSeconds: number
 ): Promise<SqsMessage[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(SQSClient, connection)
   const output = await client.send(new ReceiveMessageCommand({
     QueueUrl: queueUrl,
     MaxNumberOfMessages: Math.min(maxMessages, 10),
@@ -190,7 +186,7 @@ export async function deleteMessage(
   queueUrl: string,
   receiptHandle: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(SQSClient, connection)
   await client.send(new DeleteMessageCommand({ QueueUrl: queueUrl, ReceiptHandle: receiptHandle }))
 }
 
@@ -200,7 +196,7 @@ export async function changeMessageVisibility(
   receiptHandle: string,
   visibilityTimeout: number
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(SQSClient, connection)
   await client.send(new ChangeMessageVisibilityCommand({
     QueueUrl: queueUrl,
     ReceiptHandle: receiptHandle,
@@ -209,12 +205,12 @@ export async function changeMessageVisibility(
 }
 
 export async function tagQueue(connection: AwsConnection, queueUrl: string, tags: Record<string, string>): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(SQSClient, connection)
   await client.send(new TagQueueCommand({ QueueUrl: queueUrl, Tags: tags }))
 }
 
 export async function untagQueue(connection: AwsConnection, queueUrl: string, tagKeys: string[]): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(SQSClient, connection)
   await client.send(new UntagQueueCommand({ QueueUrl: queueUrl, TagKeys: tagKeys }))
 }
 

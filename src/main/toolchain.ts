@@ -5,6 +5,8 @@ export type ToolchainOverrideId =
   | 'terraform'
   | 'opentofu'
   | 'aws-cli'
+  | 'gcloud-cli'
+  | 'azure-cli'
   | 'kubectl'
   | 'docker'
 
@@ -12,12 +14,23 @@ const TOOLCHAIN_OVERRIDE_KEYS: Record<ToolchainOverrideId, keyof AppSettingsTool
   terraform: 'terraformPathOverride',
   opentofu: 'opentofuPathOverride',
   'aws-cli': 'awsCliPathOverride',
+  'gcloud-cli': 'gcloudPathOverride',
+  'azure-cli': 'azureCliPathOverride',
   kubectl: 'kubectlPathOverride',
   docker: 'dockerPathOverride'
 }
 
 function normalizeOverridePath(value: string): string {
-  return value.trim()
+  const trimmed = value.trim()
+
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"'))
+    || (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).trim()
+  }
+
+  return trimmed
 }
 
 export function getToolPathOverride(toolId: ToolchainOverrideId): string {

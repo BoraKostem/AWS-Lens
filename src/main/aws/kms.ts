@@ -1,18 +1,14 @@
 import { DecryptCommand, DescribeKeyCommand, KMSClient, ListAliasesCommand, ListKeysCommand } from '@aws-sdk/client-kms'
 
 import type { AwsConnection, KmsDecryptResult, KmsKeyDetail, KmsKeySummary } from '@shared/types'
-import { awsClientConfig } from './client'
-
-function createClient(connection: AwsConnection): KMSClient {
-  return new KMSClient(awsClientConfig(connection))
-}
+import { getAwsClient } from './client'
 
 function toIso(value: Date | undefined): string {
   return value ? value.toISOString() : ''
 }
 
 async function listAliasesByKey(connection: AwsConnection): Promise<Map<string, string[]>> {
-  const client = createClient(connection)
+  const client = getAwsClient(KMSClient, connection)
   const aliasMap = new Map<string, string[]>()
   let marker: string | undefined
 
@@ -31,7 +27,7 @@ async function listAliasesByKey(connection: AwsConnection): Promise<Map<string, 
 }
 
 export async function listKmsKeys(connection: AwsConnection): Promise<KmsKeySummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(KMSClient, connection)
   const aliases = await listAliasesByKey(connection)
   const keys: KmsKeySummary[] = []
   let marker: string | undefined
@@ -62,7 +58,7 @@ export async function listKmsKeys(connection: AwsConnection): Promise<KmsKeySumm
 }
 
 export async function describeKmsKey(connection: AwsConnection, keyId: string): Promise<KmsKeyDetail> {
-  const client = createClient(connection)
+  const client = getAwsClient(KMSClient, connection)
   const [detail, aliases] = await Promise.all([
     client.send(new DescribeKeyCommand({ KeyId: keyId })),
     listAliasesByKey(connection)
@@ -93,7 +89,7 @@ export async function describeKmsKey(connection: AwsConnection, keyId: string): 
 }
 
 export async function decryptCiphertext(connection: AwsConnection, ciphertext: string): Promise<KmsDecryptResult> {
-  const client = createClient(connection)
+  const client = getAwsClient(KMSClient, connection)
   const blob = Uint8Array.from(Buffer.from(ciphertext.trim(), 'base64'))
   const response = await client.send(new DecryptCommand({ CiphertextBlob: blob }))
   const plaintextBuffer = Buffer.from(response.Plaintext ?? new Uint8Array())

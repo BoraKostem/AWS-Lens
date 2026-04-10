@@ -8,22 +8,16 @@ import type {
   ComparisonDiffRow,
   ComparisonDiffStatus,
   ComparisonFocusMode,
-  ComparisonPreset,
-  ComparisonPresetSummary,
   ComparisonRequest,
   ComparisonResult,
   ServiceId
 } from '@shared/types'
 import {
   deleteComparisonBaseline,
-  deleteComparisonPreset,
   getComparisonBaseline,
-  getComparisonPreset,
   listComparisonBaselines,
-  listComparisonPresets,
   runComparison,
-  saveComparisonBaseline,
-  saveComparisonPreset
+  saveComparisonBaseline
 } from './api'
 import type { useAwsPageConnection } from './AwsPage'
 
@@ -38,7 +32,6 @@ type SelectorOption = {
   requestBase:
     | { kind: 'profile'; profile: string; label?: string }
     | { kind: 'assumed-role'; sessionId: string; label?: string }
-    | { kind: 'saved-target'; targetId: string; label?: string }
 }
 
 type CompareViewMode = 'flat' | 'grouped'
@@ -83,14 +76,10 @@ function defaultRightKey(leftKey: string, options: SelectorOption[]): string {
 function requestKey(request: ComparisonRequest): string {
   const left = request.left.kind === 'profile'
     ? `profile:${request.left.profile}:${request.left.region}`
-    : request.left.kind === 'saved-target'
-      ? `target:${request.left.targetId}:${request.left.region}`
-      : `session:${request.left.sessionId}:${request.left.region}`
+    : `session:${request.left.sessionId}:${request.left.region}`
   const right = request.right.kind === 'profile'
     ? `profile:${request.right.profile}:${request.right.region}`
-    : request.right.kind === 'saved-target'
-      ? `target:${request.right.targetId}:${request.right.region}`
-      : `session:${request.right.sessionId}:${request.right.region}`
+    : `session:${request.right.sessionId}:${request.right.region}`
   return `${left}=>${right}`
 }
 
@@ -149,11 +138,6 @@ export function CompareWorkspace({
       label: `Profile: ${profile.name}`,
       requestBase: { kind: 'profile' as const, profile: profile.name, label: profile.name }
     }))
-    const targetOptions = connectionState.targets.map((target) => ({
-      key: `target:${target.id}`,
-      label: `Saved target: ${target.label} (${target.sourceProfile})`,
-      requestBase: { kind: 'saved-target' as const, targetId: target.id, label: target.label }
-    }))
     const sessionOptions = connectionState.sessions
       .filter((session) => session.status === 'active')
       .map((session) => ({
@@ -162,8 +146,8 @@ export function CompareWorkspace({
         requestBase: { kind: 'assumed-role' as const, sessionId: session.id, label: session.label }
       }))
 
-    return [...profileOptions, ...targetOptions, ...sessionOptions]
-  }, [connectionState.profiles, connectionState.sessions, connectionState.targets])
+    return [...profileOptions, ...sessionOptions]
+  }, [connectionState.profiles, connectionState.sessions])
 
   const [leftKey, setLeftKey] = useState('')
   const [rightKey, setRightKey] = useState('')
@@ -181,15 +165,6 @@ export function CompareWorkspace({
   const [baselines, setBaselines] = useState<ComparisonBaselineSummary[]>([])
   const [selectedBaselineId, setSelectedBaselineId] = useState('')
   const [loadedBaseline, setLoadedBaseline] = useState<ComparisonBaseline | null>(null)
-  const [presets, setPresets] = useState<ComparisonPresetSummary[]>([])
-  const [selectedPresetId, setSelectedPresetId] = useState('')
-  const [loadedPreset, setLoadedPreset] = useState<ComparisonPreset | null>(null)
-  const [presetLoading, setPresetLoading] = useState(false)
-  const [presetSaving, setPresetSaving] = useState(false)
-  const [presetDeleting, setPresetDeleting] = useState(false)
-  const [presetName, setPresetName] = useState('')
-  const [presetDescription, setPresetDescription] = useState('')
-  const [presetMessage, setPresetMessage] = useState('')
   const [baselineLoading, setBaselineLoading] = useState(false)
   const [baselineSaving, setBaselineSaving] = useState(false)
   const [baselineDeleting, setBaselineDeleting] = useState(false)
@@ -220,13 +195,9 @@ export function CompareWorkspace({
 
     const nextLeftKey = seed.request.left.kind === 'profile'
       ? `profile:${seed.request.left.profile}`
-      : seed.request.left.kind === 'saved-target'
-        ? `target:${seed.request.left.targetId}`
       : `session:${seed.request.left.sessionId}`
     const nextRightKey = seed.request.right.kind === 'profile'
       ? `profile:${seed.request.right.profile}`
-      : seed.request.right.kind === 'saved-target'
-        ? `target:${seed.request.right.targetId}`
       : `session:${seed.request.right.sessionId}`
 
     setLeftKey(nextLeftKey)
@@ -252,23 +223,6 @@ export function CompareWorkspace({
 
   useEffect(() => {
     void refreshBaselines()
-  }, [])
-
-  async function refreshPresets(): Promise<void> {
-    try {
-      const next = await listComparisonPresets()
-      setPresets(next)
-      setSelectedPresetId((current) => {
-        if (current && next.some((preset) => preset.id === current)) return current
-        return next[0]?.id ?? ''
-      })
-    } catch (presetError) {
-      setPresetMessage(presetError instanceof Error ? presetError.message : String(presetError))
-    }
-  }
-
-  useEffect(() => {
-    void refreshPresets()
   }, [])
 
   const selectedRow = useMemo(() => {
@@ -307,6 +261,10 @@ export function CompareWorkspace({
   const rightOnlyRows = useMemo(() => result?.groups.reduce((sum, group) => sum + group.rows.filter((row) => row.status === 'right-only').length, 0) ?? 0, [result])
   const sameRows = useMemo(() => result?.groups.reduce((sum, group) => sum + group.rows.filter((row) => row.status === 'same').length, 0) ?? 0, [result])
   const baselineDelta = useMemo(() => computeBaselineDelta(result, loadedBaseline), [loadedBaseline, result])
+  const baselineMatchesCurrent = useMemo(() => {
+    if (!activeRequest || !loadedBaseline) return false
+    return requestKey(activeRequest) === requestKey(loadedBaseline.request)
+  }, [activeRequest, loadedBaseline])
 
   function buildRequest(): ComparisonRequest | null {
     const left = options.find((option) => option.key === leftKey)
@@ -346,97 +304,10 @@ export function CompareWorkspace({
   }
 
   function applyRequestToSelectors(request: ComparisonRequest): void {
-    setLeftKey(
-      request.left.kind === 'profile'
-        ? `profile:${request.left.profile}`
-        : request.left.kind === 'saved-target'
-          ? `target:${request.left.targetId}`
-          : `session:${request.left.sessionId}`
-    )
-    setRightKey(
-      request.right.kind === 'profile'
-        ? `profile:${request.right.profile}`
-        : request.right.kind === 'saved-target'
-          ? `target:${request.right.targetId}`
-          : `session:${request.right.sessionId}`
-    )
+    setLeftKey(request.left.kind === 'profile' ? `profile:${request.left.profile}` : `session:${request.left.sessionId}`)
+    setRightKey(request.right.kind === 'profile' ? `profile:${request.right.profile}` : `session:${request.right.sessionId}`)
     setLeftRegion(request.left.region)
     setRightRegion(request.right.region)
-  }
-
-  async function handleLoadPreset(): Promise<void> {
-    if (!selectedPresetId) return
-    setPresetLoading(true)
-    setPresetMessage('')
-    try {
-      const preset = await getComparisonPreset(selectedPresetId)
-      if (!preset) {
-        setLoadedPreset(null)
-        setPresetMessage('Selected compare preset no longer exists.')
-        await refreshPresets()
-        return
-      }
-      setLoadedPreset(preset)
-      applyRequestToSelectors(preset.request)
-      setPresetName(preset.name)
-      setPresetDescription(preset.description)
-      setPresetMessage(`Loaded compare preset "${preset.name}".`)
-    } catch (presetError) {
-      setPresetMessage(presetError instanceof Error ? presetError.message : String(presetError))
-    } finally {
-      setPresetLoading(false)
-    }
-  }
-
-  async function handleSavePreset(): Promise<void> {
-    const request = buildRequest()
-    if (!request) {
-      setPresetMessage('Choose two contexts before saving a compare preset.')
-      return
-    }
-    if (!presetName.trim()) {
-      setPresetMessage('Enter a compare preset name.')
-      return
-    }
-
-    setPresetSaving(true)
-    setPresetMessage('')
-    try {
-      const summary = await saveComparisonPreset({
-        id: loadedPreset?.id,
-        name: presetName.trim(),
-        description: presetDescription.trim(),
-        request
-      })
-      await refreshPresets()
-      setSelectedPresetId(summary.id)
-      setLoadedPreset(await getComparisonPreset(summary.id))
-      setPresetMessage(`Saved compare preset "${summary.name}".`)
-    } catch (presetError) {
-      setPresetMessage(presetError instanceof Error ? presetError.message : String(presetError))
-    } finally {
-      setPresetSaving(false)
-    }
-  }
-
-  async function handleDeletePreset(): Promise<void> {
-    if (!selectedPresetId) return
-    setPresetDeleting(true)
-    setPresetMessage('')
-    try {
-      await deleteComparisonPreset(selectedPresetId)
-      if (loadedPreset?.id === selectedPresetId) {
-        setLoadedPreset(null)
-      }
-      setPresetName('')
-      setPresetDescription('')
-      await refreshPresets()
-      setPresetMessage('Compare preset deleted.')
-    } catch (presetError) {
-      setPresetMessage(presetError instanceof Error ? presetError.message : String(presetError))
-    } finally {
-      setPresetDeleting(false)
-    }
   }
 
   async function handleLoadBaseline(): Promise<void> {
@@ -675,116 +546,74 @@ export function CompareWorkspace({
         </div>
       </section>
 
-      <div className="compare-management-grid">
-        <section className="compare-baseline-panel compare-baseline-panel-compact">
-          <div className="compare-pane-head">
-            <div>
-              <span className="compare-pane-kicker">Presets</span>
-              <h3>Saved context pairs</h3>
-            </div>
-            <span className="compare-pane-summary">{presets.length} saved</span>
+      <section className="compare-baseline-panel">
+        <div className="compare-pane-head">
+          <div>
+            <span className="compare-pane-kicker">Baseline snapshots</span>
+            <h3>Save, load, and inspect local compare baselines</h3>
           </div>
-          <div className="compare-inline-summary">
-            <span>{loadedPreset ? `Loaded: ${loadedPreset.name}` : 'No preset loaded'}</span>
+          <span className="compare-pane-summary">{baselines.length} saved</span>
+        </div>
+        <div className="compare-baseline-grid">
+          <label className="field">
+            <span>Saved baselines</span>
+            <select value={selectedBaselineId} onChange={(event) => setSelectedBaselineId(event.target.value)}>
+              <option value="">Select a baseline</option>
+              {baselines.map((baseline) => (
+                <option key={baseline.id} value={baseline.id}>
+                  {baseline.name} ({baseline.leftLabel} vs {baseline.rightLabel})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Baseline name</span>
+            <input
+              value={baselineName}
+              onChange={(event) => setBaselineName(event.target.value)}
+              placeholder="Production weekly snapshot"
+            />
+          </label>
+          <label className="field compare-baseline-description">
+            <span>Description</span>
+            <input
+              value={baselineDescription}
+              onChange={(event) => setBaselineDescription(event.target.value)}
+              placeholder="Optional note about why this snapshot was captured"
+            />
+          </label>
+        </div>
+        <div className="compare-baseline-actions">
+          <button type="button" className="tf-toolbar-btn" disabled={!selectedBaselineId || baselineLoading} onClick={() => void handleLoadBaseline()}>
+            {baselineLoading ? 'Loading...' : 'Load baseline'}
+          </button>
+          <button type="button" className="tf-toolbar-btn accent" disabled={baselineSaving || !result} onClick={() => void handleSaveBaseline()}>
+            {baselineSaving ? 'Saving...' : (loadedBaseline ? 'Update baseline' : 'Save current as baseline')}
+          </button>
+          <button type="button" className="tf-toolbar-btn" disabled={!selectedBaselineId || baselineDeleting} onClick={() => void handleDeleteBaseline()}>
+            {baselineDeleting ? 'Deleting...' : 'Delete baseline'}
+          </button>
+        </div>
+        <div className="compare-baseline-meta">
+          <div className="compare-shell-meta-pill">
+            <span>Loaded baseline</span>
+            <strong>{loadedBaseline?.name ?? 'None'}</strong>
           </div>
-          <div className="compare-baseline-grid compare-baseline-grid-compact">
-            <label className="field">
-              <span>Preset</span>
-              <select value={selectedPresetId} onChange={(event) => setSelectedPresetId(event.target.value)}>
-                <option value="">Select a preset</option>
-                {presets.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.name} ({preset.leftLabel} vs {preset.rightLabel})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span>Name</span>
-              <input
-                value={presetName}
-                onChange={(event) => setPresetName(event.target.value)}
-                placeholder="Prod vs staging roles"
-              />
-            </label>
-            <label className="field compare-baseline-description">
-              <span>Description</span>
-              <input
-                value={presetDescription}
-                onChange={(event) => setPresetDescription(event.target.value)}
-                placeholder="Optional note"
-              />
-            </label>
+          <div className="compare-shell-meta-pill">
+            <span>Baseline request</span>
+            <strong>{loadedBaseline ? `${loadedBaseline.leftLabel} vs ${loadedBaseline.rightLabel}` : 'No baseline selected'}</strong>
           </div>
-          <div className="compare-baseline-actions compare-baseline-actions-compact">
-            <button type="button" className="tf-toolbar-btn" disabled={!selectedPresetId || presetLoading} onClick={() => void handleLoadPreset()}>
-              {presetLoading ? 'Loading...' : 'Load'}
-            </button>
-            <button type="button" className="tf-toolbar-btn accent" disabled={presetSaving} onClick={() => void handleSavePreset()}>
-              {presetSaving ? 'Saving...' : loadedPreset ? 'Update' : 'Save'}
-            </button>
-            <button type="button" className="tf-toolbar-btn" disabled={!selectedPresetId || presetDeleting} onClick={() => void handleDeletePreset()}>
-              {presetDeleting ? 'Deleting...' : 'Delete'}
-            </button>
+          <div className="compare-shell-meta-pill">
+            <span>Live match</span>
+            <strong>{loadedBaseline ? (baselineMatchesCurrent ? 'Current selectors match' : 'Selectors differ') : 'Not applicable'}</strong>
           </div>
-          {presetMessage && <div className="compare-baseline-message">{presetMessage}</div>}
-        </section>
-
-        <section className="compare-baseline-panel compare-baseline-panel-compact">
-          <div className="compare-pane-head">
-            <div>
-              <span className="compare-pane-kicker">Baselines</span>
-              <h3>Saved diff snapshots</h3>
-            </div>
-            <span className="compare-pane-summary">{baselines.length} saved</span>
+          <div className="compare-shell-meta-pill">
+            <span>Baseline delta</span>
+            <strong>{baselineDelta ? `${baselineDelta.added} added, ${baselineDelta.changed} changed, ${baselineDelta.resolved} resolved` : 'Load baseline and run diff'}</strong>
           </div>
-          <div className="compare-inline-summary">
-            <span>{loadedBaseline ? `Loaded: ${loadedBaseline.name}` : 'No baseline loaded'}</span>
-            {baselineDelta && <span>{`${baselineDelta.added} added, ${baselineDelta.changed} changed, ${baselineDelta.resolved} resolved`}</span>}
-          </div>
-          <div className="compare-baseline-grid compare-baseline-grid-compact">
-            <label className="field">
-              <span>Baseline</span>
-              <select value={selectedBaselineId} onChange={(event) => setSelectedBaselineId(event.target.value)}>
-                <option value="">Select a baseline</option>
-                {baselines.map((baseline) => (
-                  <option key={baseline.id} value={baseline.id}>
-                    {baseline.name} ({baseline.leftLabel} vs {baseline.rightLabel})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span>Name</span>
-              <input
-                value={baselineName}
-                onChange={(event) => setBaselineName(event.target.value)}
-                placeholder="Production weekly snapshot"
-              />
-            </label>
-            <label className="field compare-baseline-description">
-              <span>Description</span>
-              <input
-                value={baselineDescription}
-                onChange={(event) => setBaselineDescription(event.target.value)}
-                placeholder="Optional note"
-              />
-            </label>
-          </div>
-          <div className="compare-baseline-actions compare-baseline-actions-compact">
-            <button type="button" className="tf-toolbar-btn" disabled={!selectedBaselineId || baselineLoading} onClick={() => void handleLoadBaseline()}>
-              {baselineLoading ? 'Loading...' : 'Load'}
-            </button>
-            <button type="button" className="tf-toolbar-btn accent" disabled={baselineSaving || !result} onClick={() => void handleSaveBaseline()}>
-              {baselineSaving ? 'Saving...' : loadedBaseline ? 'Update' : 'Save'}
-            </button>
-            <button type="button" className="tf-toolbar-btn" disabled={!selectedBaselineId || baselineDeleting} onClick={() => void handleDeleteBaseline()}>
-              {baselineDeleting ? 'Deleting...' : 'Delete'}
-            </button>
-          </div>
-          {baselineMessage && <div className="compare-baseline-message">{baselineMessage}</div>}
-        </section>
-      </div>
+        </div>
+        {baselineMessage && <div className="compare-baseline-message">{baselineMessage}</div>}
+      </section>
 
       {result ? (
         <div className="compare-main-layout">

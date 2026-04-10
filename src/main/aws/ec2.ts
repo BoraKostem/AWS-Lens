@@ -64,7 +64,7 @@ import {
   type InstanceInformation
 } from '@aws-sdk/client-ssm'
 
-import { awsClientConfig, readTags } from './client'
+import { getAwsClient, readTags } from './client'
 import { getGovernanceTagDefaults } from '../phase1FoundationStore'
 import type {
   AwsConnection,
@@ -97,25 +97,21 @@ import type {
 } from '@shared/types'
 import { getSsmConnectionTarget } from './ssm'
 
-function createClient(connection: AwsConnection): EC2Client {
-  return new EC2Client(awsClientConfig(connection))
-}
-
-const BASTION_TAG_PREFIX = 'aws-lens-bastion/'
-const LEGACY_BASTION_TAG_PREFIX = 'aws-lens-bastion#'
-const BASTION_PURPOSE_TAG = 'aws-lens:purpose'
-const BASTION_UUID_TAG = 'aws-lens:bastion-uuid'
-const BASTION_TARGET_INSTANCE_TAG = 'aws-lens:bastion-target-instance-id'
-const BASTION_MANAGED_SG_TAG = 'aws-lens:bastion-managed-sg'
-const TEMP_TAG_PREFIX = 'aws-lens-temp/'
-const LEGACY_TEMP_TAG_PREFIX = 'aws-lens-temp#'
-const TEMP_PURPOSE_TAG = 'aws-lens:purpose'
-const TEMP_UUID_TAG = 'aws-lens:temp-uuid'
-const TEMP_SOURCE_VOLUME_TAG = 'aws-lens:source-volume-id'
+const BASTION_TAG_PREFIX = 'infra-lens-bastion/'
+const LEGACY_BASTION_TAG_PREFIX = 'infra-lens-bastion#'
+const BASTION_PURPOSE_TAG = 'infra-lens:purpose'
+const BASTION_UUID_TAG = 'infra-lens:bastion-uuid'
+const BASTION_TARGET_INSTANCE_TAG = 'infra-lens:bastion-target-instance-id'
+const BASTION_MANAGED_SG_TAG = 'infra-lens:bastion-managed-sg'
+const TEMP_TAG_PREFIX = 'infra-lens-temp/'
+const LEGACY_TEMP_TAG_PREFIX = 'infra-lens-temp#'
+const TEMP_PURPOSE_TAG = 'infra-lens:purpose'
+const TEMP_UUID_TAG = 'infra-lens:temp-uuid'
+const TEMP_SOURCE_VOLUME_TAG = 'infra-lens:source-volume-id'
 const TEMP_PURPOSE_EBS_INSPECTION = 'ebs-inspection'
-const TEMP_MANAGED_SG_TAG = 'aws-lens:temp-managed-sg'
-const TEMP_MANAGED_ROLE_TAG = 'aws-lens:temp-managed-role'
-const TEMP_MANAGED_INSTANCE_PROFILE_TAG = 'aws-lens:temp-managed-instance-profile'
+const TEMP_MANAGED_SG_TAG = 'infra-lens:temp-managed-sg'
+const TEMP_MANAGED_ROLE_TAG = 'infra-lens:temp-managed-role'
+const TEMP_MANAGED_INSTANCE_PROFILE_TAG = 'infra-lens:temp-managed-instance-profile'
 const TEMP_ATTACH_DEVICE = '/dev/sdf'
 const GOVERNANCE_TAG_KEYS = ['Owner', 'Environment', 'Project', 'CostCenter'] as const
 const SSM_MANAGED_POLICY_ARN = 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
@@ -123,22 +119,7 @@ const TEMP_INSPECTION_AMI_ID = 'ami-096a4fdbcf530d8e0'
 
 type TempProgressReporter = (progress: EbsTempInspectionProgress) => void
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
 
-function isDescribeInstanceInformationAccessDenied(error: unknown): boolean {
-  return /accessdenied|access denied|not authorized|unauthorized/i.test(errorMessage(error)) &&
-    /describeinstanceinformation/i.test(errorMessage(error))
-}
-
-function createIamClient(connection: AwsConnection): IAMClient {
-  return new IAMClient(awsClientConfig(connection))
-}
-
-function createSsmClient(connection: AwsConnection): SSMClient {
-  return new SSMClient(awsClientConfig(connection))
-}
 
 function buildBastionTagKey(uuid: string): string {
   return `${BASTION_TAG_PREFIX}${uuid}`
@@ -275,14 +256,14 @@ async function createManagedBastionSecurityGroup(
   const tagKey = buildBastionTagKey(uuid)
   const output = await client.send(
     new CreateSecurityGroupCommand({
-      GroupName: `aws-lens-bastion-${uuid}`,
-      Description: `AWS Lens bastion access for ${targetInstanceId}`,
+      GroupName: `infra-lens-bastion-${uuid}`,
+      Description: `InfraLens bastion access for ${targetInstanceId}`,
       VpcId: vpcId,
       TagSpecifications: [
         {
           ResourceType: 'security-group',
           Tags: Object.entries(mergeWithGovernanceDefaults({
-            Name: `aws-lens-bastion-${uuid}`,
+            Name: `infra-lens-bastion-${uuid}`,
             [tagKey]: 'true',
             [BASTION_PURPOSE_TAG]: 'bastion',
             [BASTION_UUID_TAG]: uuid,
@@ -315,7 +296,7 @@ async function allowManagedBastionToReachTarget(
         UserIdGroupPairs: [
           {
             GroupId: bastionSecurityGroupId,
-            Description: `AWS Lens bastion access on port ${port}`
+            Description: `InfraLens bastion access on port ${port}`
           }
         ]
       },
@@ -326,7 +307,7 @@ async function allowManagedBastionToReachTarget(
         UserIdGroupPairs: [
           {
             GroupId: bastionSecurityGroupId,
-            Description: 'AWS Lens bastion ping access'
+            Description: 'InfraLens bastion ping access'
           }
         ]
       }
@@ -400,7 +381,7 @@ async function findBastionConnectionByUuid(
     new DescribeInstancesCommand({
       Filters: [
         { Name: `tag:${tagKey}`, Values: ['true'] },
-        { Name: 'tag:aws-lens:purpose', Values: ['bastion'] },
+        { Name: 'tag:infra-lens:purpose', Values: ['bastion'] },
         { Name: 'instance-state-name', Values: ['pending', 'running', 'stopping', 'stopped'] }
       ]
     })
@@ -417,7 +398,7 @@ async function findBastionConnectionByUuid(
       const tags = readTags(instance.Tags)
       targetInstanceId = targetInstanceId || tags[BASTION_TARGET_INSTANCE_TAG] || ''
       const managedGroup = (instance.SecurityGroups ?? []).find(
-        (group) => group.GroupId && (group.GroupName ?? '').startsWith(`aws-lens-bastion-${uuid}`)
+        (group) => group.GroupId && (group.GroupName ?? '').startsWith(`infra-lens-bastion-${uuid}`)
       )
       bastionSecurityGroupId = bastionSecurityGroupId || managedGroup?.GroupId || ''
     }
@@ -502,7 +483,7 @@ async function findTempInspectionEnvironmentByUuid(
         continue
       }
       const tags = readTags(instance.Tags)
-      const managedGroup = (instance.SecurityGroups ?? []).find((group) => group.GroupId && group.GroupName?.startsWith(`aws-lens-ebs-inspection-${uuid}`))
+      const managedGroup = (instance.SecurityGroups ?? []).find((group) => group.GroupId && group.GroupName?.startsWith(`infra-lens-ebs-inspection-${uuid}`))
       return {
         tempUuid: uuid,
         purpose: tags[TEMP_PURPOSE_TAG] ?? TEMP_PURPOSE_EBS_INSPECTION,
@@ -735,14 +716,14 @@ async function createManagedInspectionSecurityGroup(
 ): Promise<string> {
   const output = await client.send(
     new CreateSecurityGroupCommand({
-      GroupName: `aws-lens-ebs-inspection-${uuid}`,
-      Description: `AWS Lens temporary EBS inspection for ${volumeId}`,
+      GroupName: `infra-lens-ebs-inspection-${uuid}`,
+      Description: `InfraLens temporary EBS inspection for ${volumeId}`,
       VpcId: vpcId,
       TagSpecifications: [
         {
           ResourceType: 'security-group',
           Tags: Object.entries({
-            Name: `aws-lens-ebs-inspection-${uuid}`,
+            Name: `infra-lens-ebs-inspection-${uuid}`,
             ...buildTempTags(uuid, volumeId, {
               [TEMP_MANAGED_SG_TAG]: 'true'
             })
@@ -784,7 +765,7 @@ async function ensureInspectionRole(
     new CreateRoleCommand({
       RoleName: roleName,
       AssumeRolePolicyDocument: trustPolicy,
-      Description: `AWS Lens temporary EBS inspection role for ${volumeId}`,
+      Description: `InfraLens temporary EBS inspection role for ${volumeId}`,
       Tags: tags
     })
   )
@@ -938,14 +919,9 @@ function toInstanceSummary(instance: Instance, managedInfo?: { PingStatus?: stri
 }
 
 export async function listEc2Instances(connection: AwsConnection): Promise<Ec2InstanceSummary[]> {
-  const client = createClient(connection)
-  const ssmClient = createSsmClient(connection)
-  const managedInstanceMap = await loadManagedInstanceMap(ssmClient).catch((error) => {
-    if (isDescribeInstanceInformationAccessDenied(error)) {
-      return new Map<string, InstanceInformation>()
-    }
-    throw error
-  })
+  const client = getAwsClient(EC2Client, connection)
+  const ssmClient = getAwsClient(SSMClient, connection)
+  const managedInstanceMap = await loadManagedInstanceMap(ssmClient)
   const instances: Ec2InstanceSummary[] = []
   let nextToken: string | undefined
 
@@ -963,14 +939,14 @@ export async function listEc2Instances(connection: AwsConnection): Promise<Ec2In
 }
 
 export async function listEbsVolumes(connection: AwsConnection): Promise<EbsVolumeSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const output = await client.send(new DescribeVolumesCommand({}))
   const volumes = await Promise.all((output.Volumes ?? []).map((volume) => toVolumeSummary(client, volume)))
   return volumes.sort((left, right) => left.volumeId.localeCompare(right.volumeId))
 }
 
 export async function describeEbsVolume(connection: AwsConnection, volumeId: string): Promise<EbsVolumeDetail | null> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const volume = await loadSingleVolume(client, volumeId)
   if (!volume) {
     return null
@@ -987,7 +963,7 @@ export async function tagEbsVolume(
   volumeId: string,
   tags: Record<string, string>
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await tagResources(client, [volumeId], tags)
 }
 
@@ -996,7 +972,7 @@ export async function untagEbsVolume(
   volumeId: string,
   tagKeys: string[]
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await removeTagKeys(client, [volumeId], tagKeys)
 }
 
@@ -1005,7 +981,7 @@ export async function attachEbsVolume(
   volumeId: string,
   request: EbsVolumeAttachRequest
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const volume = await describeTargetVolume(client, volumeId)
   const instance = await describeTargetInstance(client, request.instanceId)
 
@@ -1027,7 +1003,7 @@ export async function detachEbsVolume(
   volumeId: string,
   request: EbsVolumeDetachRequest = {}
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(
     new DetachVolumeCommand({
       VolumeId: volumeId,
@@ -1039,7 +1015,7 @@ export async function detachEbsVolume(
 }
 
 export async function deleteEbsVolume(connection: AwsConnection, volumeId: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(new DeleteVolumeCommand({ VolumeId: volumeId }))
 }
 
@@ -1048,7 +1024,7 @@ export async function modifyEbsVolume(
   volumeId: string,
   request: EbsVolumeModifyRequest
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const payload: {
     VolumeId: string
     Size?: number
@@ -1129,7 +1105,7 @@ function toInstanceDetail(
 }
 
 export async function describeEc2Instance(connection: AwsConnection, instanceId: string): Promise<Ec2InstanceDetail | null> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const output = await client.send(new DescribeInstancesCommand({ InstanceIds: [instanceId] }))
 
   let instance: Instance | undefined
@@ -1165,7 +1141,7 @@ export async function runEc2InstanceAction(
   instanceId: string,
   action: Ec2InstanceAction
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
 
   if (action === 'start') {
     await client.send(new StartInstancesCommand({ InstanceIds: [instanceId] }))
@@ -1181,7 +1157,7 @@ export async function runEc2InstanceAction(
 }
 
 export async function terminateEc2Instance(connection: AwsConnection, instanceId: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(new TerminateInstancesCommand({ InstanceIds: [instanceId] }))
 }
 
@@ -1241,7 +1217,7 @@ export async function runEc2BulkInstanceAction(
     }
   }
 
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const nameMap = await loadInstanceNameMap(client, uniqueInstanceIds).catch(() => new Map<string, string>())
   const results: Ec2BulkInstanceActionItemResult[] = []
 
@@ -1289,7 +1265,7 @@ export async function resizeEc2Instance(
   instanceId: string,
   instanceType: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(
     new ModifyInstanceAttributeCommand({
       InstanceId: instanceId,
@@ -1305,7 +1281,7 @@ export async function listInstanceTypes(
   architecture?: string,
   currentGenerationOnly = true
 ): Promise<Ec2InstanceTypeOption[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const types: Ec2InstanceTypeOption[] = []
   let nextToken: string | undefined
 
@@ -1348,7 +1324,7 @@ export async function listInstanceTypes(
 /* ── Snapshots ─────────────────────────────────────────────── */
 
 export async function listEc2Snapshots(connection: AwsConnection): Promise<Ec2SnapshotSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const snapshots: Ec2SnapshotSummary[] = []
   let nextToken: string | undefined
 
@@ -1384,7 +1360,7 @@ export async function createEc2Snapshot(
   volumeId: string,
   description: string
 ): Promise<string> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const output = await client.send(
     new CreateSnapshotCommand({
       VolumeId: volumeId,
@@ -1393,7 +1369,7 @@ export async function createEc2Snapshot(
         {
           ResourceType: 'snapshot',
           Tags: Object.entries(mergeWithGovernanceDefaults({
-            CreatedBy: 'aws-lens'
+            CreatedBy: 'infra-lens'
           })).map(([Key, Value]) => ({ Key, Value }))
         }
       ]
@@ -1403,7 +1379,7 @@ export async function createEc2Snapshot(
 }
 
 export async function deleteEc2Snapshot(connection: AwsConnection, snapshotId: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(new DeleteSnapshotCommand({ SnapshotId: snapshotId }))
 }
 
@@ -1412,7 +1388,7 @@ export async function tagEc2Snapshot(
   snapshotId: string,
   tags: Record<string, string>
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(
     new CreateTagsCommand({
       Resources: [snapshotId],
@@ -1427,7 +1403,7 @@ export async function getIamAssociation(
   connection: AwsConnection,
   instanceId: string
 ): Promise<Ec2IamAssociation | null> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const output = await client.send(
     new DescribeIamInstanceProfileAssociationsCommand({
       Filters: [{ Name: 'instance-id', Values: [instanceId] }]
@@ -1450,7 +1426,7 @@ export async function attachIamProfile(
   instanceId: string,
   profileName: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(
     new AssociateIamInstanceProfileCommand({
       InstanceId: instanceId,
@@ -1464,7 +1440,7 @@ export async function replaceIamProfile(
   associationId: string,
   profileName: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(
     new ReplaceIamInstanceProfileAssociationCommand({
       AssociationId: associationId,
@@ -1474,14 +1450,14 @@ export async function replaceIamProfile(
 }
 
 export async function removeIamProfile(connection: AwsConnection, associationId: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(new DisassociateIamInstanceProfileCommand({ AssociationId: associationId }))
 }
 
 /* ── Bastion lifecycle ─────────────────────────────────────── */
 
 export async function launchBastion(connection: AwsConnection, config: BastionLaunchConfig): Promise<string> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const targetInstance = await describeTargetInstance(client, config.targetInstanceId)
   await ensureSubnetMatchesVpc(client, config.subnetId, targetInstance.VpcId ?? '')
 
@@ -1520,7 +1496,7 @@ export async function launchBastion(connection: AwsConnection, config: BastionLa
           {
             ResourceType: 'instance',
             Tags: Object.entries(mergeWithGovernanceDefaults({
-              Name: `aws-lens-bastion-${uuid}`,
+              Name: `infra-lens-bastion-${uuid}`,
               [tagKey]: 'true',
               [BASTION_PURPOSE_TAG]: 'bastion',
               [BASTION_UUID_TAG]: uuid,
@@ -1554,12 +1530,12 @@ export async function launchBastion(connection: AwsConnection, config: BastionLa
 }
 
 export async function listBastions(connection: AwsConnection): Promise<Ec2InstanceSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const bastions: Ec2InstanceSummary[] = []
   const output = await client.send(
     new DescribeInstancesCommand({
       Filters: [
-        { Name: 'tag:aws-lens:purpose', Values: ['bastion'] },
+        { Name: 'tag:infra-lens:purpose', Values: ['bastion'] },
         { Name: 'instance-state-name', Values: ['pending', 'running', 'stopping', 'stopped'] }
       ]
     })
@@ -1578,7 +1554,7 @@ export async function findBastionConnectionsForInstance(
   connection: AwsConnection,
   targetInstanceId: string
 ): Promise<BastionConnectionInfo[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const targetInstance = await describeTargetInstance(client, targetInstanceId)
   const tags = readTags(targetInstance.Tags)
   const uuids = listBastionUuids(tags)
@@ -1595,7 +1571,7 @@ export async function findBastionConnectionsForInstance(
 }
 
 export async function deleteBastionForInstance(connection: AwsConnection, targetInstanceId: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const targetInstance = await describeTargetInstance(client, targetInstanceId)
   const tags = readTags(targetInstance.Tags)
   const uuids = listBastionUuids(tags)
@@ -1641,9 +1617,9 @@ export async function createTempInspectionEnvironment(
   volumeId: string,
   reportProgress?: TempProgressReporter
 ): Promise<EbsTempInspectionEnvironment> {
-  const client = createClient(connection)
-  const iamClient = createIamClient(connection)
-  const ssmClient = createSsmClient(connection)
+  const client = getAwsClient(EC2Client, connection)
+  const iamClient = getAwsClient(IAMClient, connection)
+  const ssmClient = getAwsClient(SSMClient, connection)
   const volume = await describeTargetVolume(client, volumeId)
   const attachments = (volume.Attachments ?? []).map(normalizeVolumeAttachment)
   const status = classifyVolumeStatus(volume, attachments)
@@ -1737,7 +1713,7 @@ export async function createTempInspectionEnvironment(
             'systemctl restart amazon-ssm-agent || systemctl start amazon-ssm-agent || true',
             'systemctl status amazon-ssm-agent --no-pager || true',
             `cat >/etc/motd <<'EOF'`,
-            `AWS Lens attached ${volumeId} to this instance.`,
+            `InfraLens attached ${volumeId} to this instance.`,
             'Connect via SSM, inspect the extra device, and mount it under /mnt if needed.',
             'Nitro instances may expose the attached EBS device as /dev/nvme*n1 instead of the AWS attachment name.',
             'EOF'
@@ -1747,14 +1723,14 @@ export async function createTempInspectionEnvironment(
           {
             ResourceType: 'instance',
             Tags: Object.entries({
-              Name: `aws-lens-ebs-inspection-${uuid}`,
+              Name: `infra-lens-ebs-inspection-${uuid}`,
               ...tags
             }).map(([Key, Value]) => ({ Key, Value }))
           },
           {
             ResourceType: 'volume',
             Tags: Object.entries({
-              Name: `aws-lens-ebs-inspection-root-${uuid}`,
+              Name: `infra-lens-ebs-inspection-root-${uuid}`,
               ...tags
             }).map(([Key, Value]) => ({ Key, Value }))
           }
@@ -1860,8 +1836,8 @@ export async function deleteTempInspectionEnvironment(
   tempUuidOrInstanceId: string,
   reportProgress?: TempProgressReporter
 ): Promise<void> {
-  const client = createClient(connection)
-  const iamClient = createIamClient(connection)
+  const client = getAwsClient(EC2Client, connection)
+  const iamClient = getAwsClient(IAMClient, connection)
 
   let tempUuid = tempUuidOrInstanceId
   let environment: EbsTempInspectionEnvironment | null = null
@@ -1992,7 +1968,7 @@ export async function listPopularBastionAmis(
   connection: AwsConnection,
   architecture?: string
 ): Promise<BastionAmiOption[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const families: Array<{
     owner: string
     platform: string
@@ -2076,7 +2052,7 @@ export async function listPopularBastionAmis(
 /* ── VPC pivot ─────────────────────────────────────────────── */
 
 export async function describeVpc(connection: AwsConnection, vpcId: string): Promise<Ec2VpcDetail | null> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const output = await client.send(new DescribeVpcsCommand({ VpcIds: [vpcId] }))
   const vpc = output.Vpcs?.[0]
   if (!vpc) return null
@@ -2093,7 +2069,7 @@ export async function describeVpc(connection: AwsConnection, vpcId: string): Pro
 /* ── Launch from snapshot ──────────────────────────────────── */
 
 export async function launchFromSnapshot(connection: AwsConnection, config: SnapshotLaunchConfig): Promise<string> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
 
   const amiOutput = await client.send(
     new RegisterImageCommand({
@@ -2127,7 +2103,7 @@ export async function launchFromSnapshot(connection: AwsConnection, config: Snap
           ResourceType: 'instance',
           Tags: Object.entries(mergeWithGovernanceDefaults({
             Name: `launched-from-${config.snapshotId}`,
-            'aws-lens:source-snapshot': config.snapshotId
+            'infra-lens:source-snapshot': config.snapshotId
           })).map(([Key, Value]) => ({ Key, Value }))
         }
       ]
@@ -2146,7 +2122,7 @@ export async function sendSshPublicKey(
   publicKey: string,
   availabilityZone: string
 ): Promise<boolean> {
-  const connectClient = new EC2InstanceConnectClient(awsClientConfig(connection))
+  const connectClient = getAwsClient(EC2InstanceConnectClient, connection)
   const output = await connectClient.send(
     new SendSSHPublicKeyCommand({
       InstanceId: instanceId,
@@ -2185,7 +2161,7 @@ export async function getEc2Recommendations(connection: AwsConnection): Promise<
   const running = instances.filter((i) => i.state === 'running')
   if (running.length === 0) return []
 
-  const client = new CloudWatchClient(awsClientConfig(connection))
+  const client = getAwsClient(CloudWatchClient, connection)
   const endTime = new Date()
   const startTime = new Date(endTime.getTime() - 7 * 24 * 60 * 60 * 1000) // 7 days
 

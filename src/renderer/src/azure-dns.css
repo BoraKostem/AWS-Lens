@@ -1,0 +1,429 @@
+.azure-dns-console {
+  gap: 12px;
+}
+
+.azure-dns-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.92fr);
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid rgba(145, 176, 207, 0.14);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top left, rgba(0, 120, 212, 0.14), transparent 32%),
+    radial-gradient(circle at bottom right, rgba(0, 188, 212, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(10, 16, 24, 0.98));
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+}
+
+.azure-dns-hero-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.azure-dns-eyebrow,
+.azure-dns-section-kicker {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(0, 120, 212, 0.14);
+  color: #7ec8f0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.azure-dns-hero-copy h2,
+.azure-dns-table-header h3,
+.azure-dns-form-header h3,
+.azure-dns-panel-head h3 {
+  margin: 0;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  letter-spacing: -0.04em;
+  color: #edf4fb;
+}
+
+.azure-dns-hero-copy h2 {
+  max-width: 14ch;
+  font-size: clamp(1.6rem, 2.2vw, 2.5rem);
+  line-height: 1.02;
+}
+
+.azure-dns-hero-copy p,
+.azure-dns-table-header p,
+.azure-dns-form-header p,
+.azure-dns-panel-head p {
+  margin: 0;
+  color: #a6bbcf;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.azure-dns-meta-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.azure-dns-meta-pill,
+.azure-dns-stat-card,
+.azure-dns-toolbar,
+.azure-dns-chip {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.azure-dns-meta-pill {
+  min-width: 148px;
+  padding: 9px 11px;
+  border-radius: 13px;
+  background: rgba(9, 14, 22, 0.5);
+  backdrop-filter: blur(12px);
+}
+
+.azure-dns-meta-pill span,
+.azure-dns-stat-card span {
+  display: block;
+  margin-bottom: 4px;
+  color: #8fa3ba;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.azure-dns-meta-pill strong,
+.azure-dns-stat-card strong {
+  color: #edf4fb;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  font-size: 0.92rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.azure-dns-hero-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.azure-dns-stat-card {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(9, 14, 22, 0.55);
+  backdrop-filter: blur(12px);
+}
+
+.azure-dns-stat-card small {
+  display: block;
+  margin-top: 4px;
+  color: #7e96ad;
+  font-size: 0.66rem;
+  line-height: 1.38;
+}
+
+.azure-dns-stat-card-accent {
+  background: linear-gradient(135deg, rgba(0, 120, 212, 0.12), rgba(9, 14, 22, 0.55));
+}
+
+.azure-dns-toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: rgba(9, 14, 22, 0.55);
+  backdrop-filter: blur(12px);
+}
+
+.azure-dns-toolbar-main {
+  display: flex;
+  flex: 1;
+  gap: 10px;
+  min-width: 0;
+}
+
+.azure-dns-zone-field {
+  flex: 1;
+  min-width: 180px;
+}
+
+.azure-dns-search-field {
+  flex: 0.55;
+  min-width: 140px;
+}
+
+.azure-dns-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.azure-dns-field label,
+.azure-dns-field > span {
+  color: #8fa3ba;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.azure-dns-toolbar-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.azure-dns-toolbar-btn {
+  padding: 7px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #c0d0e0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.azure-dns-toolbar-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #edf4fb;
+}
+
+.azure-dns-toolbar-btn.accent {
+  background: rgba(0, 120, 212, 0.22);
+  border-color: rgba(0, 120, 212, 0.4);
+  color: #7ec8f0;
+}
+
+.azure-dns-toolbar-btn.accent:hover {
+  background: rgba(0, 120, 212, 0.35);
+}
+
+.azure-dns-toolbar-btn:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.azure-dns-layout {
+  display: grid;
+  grid-template-columns: 1fr 370px;
+  gap: 12px;
+  min-height: 340px;
+}
+
+.azure-dns-table-shell {
+  min-width: 0;
+}
+
+.azure-dns-table-header {
+  padding: 14px 0 10px 0;
+}
+
+.azure-dns-table-header-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.azure-dns-summary-strip {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.azure-dns-summary-pill {
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  background: rgba(9, 14, 22, 0.4);
+}
+
+.azure-dns-summary-pill span {
+  display: block;
+  color: #8fa3ba;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.azure-dns-summary-pill strong {
+  color: #edf4fb;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.azure-dns-table {
+  font-size: 0.76rem;
+}
+
+.azure-dns-table td {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.azure-dns-row-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.azure-dns-inline-btn {
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: transparent;
+  color: #9ec7ff;
+  font-size: 0.66rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.azure-dns-inline-btn:hover {
+  background: rgba(0, 120, 212, 0.18);
+}
+
+.azure-dns-inline-btn.danger {
+  color: #f87171;
+}
+
+.azure-dns-inline-btn.danger:hover {
+  background: rgba(248, 113, 113, 0.15);
+}
+
+.azure-dns-sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+}
+
+.azure-dns-form-shell {
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background: rgba(9, 14, 22, 0.55);
+}
+
+.azure-dns-form-header {
+  margin-bottom: 10px;
+}
+
+.azure-dns-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.azure-dns-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.azure-dns-form-label {
+  color: #8fa3ba;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.azure-dns-form-row input,
+.azure-dns-form-row select,
+.azure-dns-form-row textarea {
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  color: #edf4fb;
+  font-size: 0.78rem;
+  font-family: inherit;
+}
+
+.azure-dns-form-row textarea {
+  min-height: 60px;
+  resize: vertical;
+}
+
+.azure-dns-form-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.azure-dns-empty {
+  padding: 24px;
+  text-align: center;
+  color: #7e96ad;
+  font-size: 0.82rem;
+}
+
+.azure-dns-utility-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.azure-dns-panel {
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background: rgba(9, 14, 22, 0.55);
+}
+
+.azure-dns-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.azure-dns-bootstrap-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.azure-dns-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.azure-dns-badge-public {
+  background: rgba(0, 120, 212, 0.18);
+  color: #7ec8f0;
+}
+
+.azure-dns-badge-private {
+  background: rgba(168, 85, 247, 0.18);
+  color: #c4a5f7;
+}
+
+@media (max-width: 1120px) {
+  .azure-dns-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .azure-dns-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .azure-dns-utility-grid {
+    grid-template-columns: 1fr;
+  }
+}

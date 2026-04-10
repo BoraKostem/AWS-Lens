@@ -31,8 +31,8 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { app, BrowserWindow, dialog, shell } from 'electron'
 import { createWriteStream, watchFile, unwatchFile } from 'fs'
-import { readFile, writeFile } from 'fs/promises'
-import { join } from 'path'
+import { chmod, readFile, writeFile } from 'fs/promises'
+import { basename, join } from 'path'
 import { pipeline } from 'stream/promises'
 import { Readable } from 'stream'
 
@@ -48,11 +48,7 @@ import type {
   S3ObjectContent,
   S3ObjectSummary
 } from '@shared/types'
-import { awsClientConfig } from './client'
-
-function createClient(connection: AwsConnection): S3Client {
-  return new S3Client(awsClientConfig(connection))
-}
+import { getAwsClient } from './client'
 
 function normalizeBucketRegion(region: string | null | undefined, fallback: string): string {
   if (!region) {
@@ -133,7 +129,7 @@ async function mapWithConcurrency<TInput, TOutput>(
 }
 
 async function resolveBucketRegion(connection: AwsConnection, bucketName: string): Promise<string> {
-  const client = createClient(connection)
+  const client = getAwsClient(S3Client, connection)
   const location = await client.send(new GetBucketLocationCommand({ Bucket: bucketName }))
   return normalizeBucketRegion(location.LocationConstraint, connection.region)
 }
@@ -284,7 +280,7 @@ async function inspectBucketGovernance(
   bucket: S3BucketSummary
 ): Promise<S3BucketGovernanceDetail> {
   const bucketConnection = toBucketConnection(connection, bucket.region || connection.region)
-  const client = createClient(bucketConnection)
+  const client = getAwsClient(S3Client, bucketConnection)
 
   const [
     publicAccessBlockResult,
@@ -561,7 +557,7 @@ async function inspectBucketGovernance(
 /* Buckets */
 
 export async function listBuckets(connection: AwsConnection): Promise<S3BucketSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(S3Client, connection)
   const output = await client.send(new ListBucketsCommand({}))
 
   const buckets = await Promise.all((output.Buckets ?? []).map(async (bucket) => {
@@ -596,7 +592,7 @@ export async function listBuckets(connection: AwsConnection): Promise<S3BucketSu
 }
 
 export async function createBucket(connection: AwsConnection, bucketName: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(S3Client, connection)
   await client.send(new CreateBucketCommand({
     Bucket: bucketName,
     ...(connection.region !== 'us-east-1' && {
@@ -655,7 +651,7 @@ export async function getBucketGovernanceDetail(
 
 export async function enableBucketVersioning(connection: AwsConnection, bucketName: string): Promise<void> {
   const region = await resolveBucketRegion(connection, bucketName)
-  const client = createClient(toBucketConnection(connection, region))
+  const client = getAwsClient(S3Client, toBucketConnection(connection, region))
   await client.send(new PutBucketVersioningCommand({
     Bucket: bucketName,
     VersioningConfiguration: {
@@ -666,7 +662,7 @@ export async function enableBucketVersioning(connection: AwsConnection, bucketNa
 
 export async function enableBucketEncryption(connection: AwsConnection, bucketName: string): Promise<void> {
   const region = await resolveBucketRegion(connection, bucketName)
-  const client = createClient(toBucketConnection(connection, region))
+  const client = getAwsClient(S3Client, toBucketConnection(connection, region))
   await client.send(new PutBucketEncryptionCommand({
     Bucket: bucketName,
     ServerSideEncryptionConfiguration: {
@@ -682,7 +678,7 @@ export async function enableBucketEncryption(connection: AwsConnection, bucketNa
 
 export async function putBucketPolicy(connection: AwsConnection, bucketName: string, policyJson: string): Promise<void> {
   const region = await resolveBucketRegion(connection, bucketName)
-  const client = createClient(toBucketConnection(connection, region))
+  const client = getAwsClient(S3Client, toBucketConnection(connection, region))
   const normalizedPolicy = sanitizeJson(JSON.parse(policyJson))
   await client.send(new PutBucketPolicyCommand({
     Bucket: bucketName,
@@ -697,7 +693,7 @@ export async function listBucketObjects(
   bucketName: string,
   prefix = ''
 ): Promise<S3ObjectSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(S3Client, connection)
   const objects: S3ObjectSummary[] = []
   let continuationToken: string | undefined
 
@@ -747,7 +743,7 @@ export async function listBucketObjects(
 }
 
 export async function deleteObject(connection: AwsConnection, bucketName: string, key: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(S3Client, connection)
   await client.send(new DeleteObjectCommand({ Bucket: bucketName, Key: key }))
 }
 
@@ -757,13 +753,13 @@ export async function getPresignedUrl(
   key: string,
   expiresIn = 3600
 ): Promise<string> {
-  const client = createClient(connection)
+  const client = getAwsClient(S3Client, connection)
   const command = new GetObjectCommand({ Bucket: bucketName, Key: key })
   return getSignedUrl(client, command, { expiresIn })
 }
 
 export async function createFolder(connection: AwsConnection, bucketName: string, folderKey: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(S3Client, connection)
   const key = folderKey.endsWith('/') ? folderKey : `${folderKey}/`
   await client.send(new PutObjectCommand({ Bucket: bucketName, Key: key, Body: '' }))
 }
@@ -775,19 +771,19 @@ export async function downloadObject(
   bucketName: string,
   key: string
 ): Promise<string> {
-  const client = createClient(connection)
+  const client = getAwsClient(S3Client, connection)
   const output = await client.send(new GetObjectCommand({ Bucket: bucketName, Key: key }))
 
-  const fileName = key.split('/').pop() || 'download'
+  const fileName = basename(key.split('/').pop() || 'download').replace(/\.\./g, '_')
   const tempDir = app.getPath('temp')
   const filePath = join(tempDir, `s3-${Date.now()}-${fileName}`)
 
   if (output.Body instanceof Readable) {
-    const ws = createWriteStream(filePath)
+    const ws = createWriteStream(filePath, { mode: 0o600 })
     await pipeline(output.Body, ws)
   } else if (output.Body) {
     const bytes = await output.Body.transformToByteArray()
-    await writeFile(filePath, Buffer.from(bytes))
+    await writeFile(filePath, Buffer.from(bytes), { mode: 0o600 })
   }
 
   return filePath
@@ -798,7 +794,7 @@ export async function downloadObjectToPath(
   bucketName: string,
   key: string
 ): Promise<string> {
-  const fileName = key.split('/').pop() || 'download'
+  const fileName = basename(key.split('/').pop() || 'download').replace(/\.\./g, '_')
   const win = BrowserWindow.getFocusedWindow()
   const result = await dialog.showSaveDialog(win ?? BrowserWindow.getAllWindows()[0], {
     defaultPath: fileName,
@@ -807,7 +803,7 @@ export async function downloadObjectToPath(
 
   if (result.canceled || !result.filePath) return ''
 
-  const client = createClient(connection)
+  const client = getAwsClient(S3Client, connection)
   const output = await client.send(new GetObjectCommand({ Bucket: bucketName, Key: key }))
 
   if (output.Body instanceof Readable) {
@@ -839,7 +835,7 @@ export async function openInVSCode(
   key: string
 ): Promise<string> {
   const filePath = await downloadObject(connection, bucketName, key)
-  void shell.openExternal(`vscode://file/${filePath}`)
+  void shell.openExternal(`vscode://file/${encodeURI(filePath)}`)
 
   if (watchedFiles.has(filePath)) {
     unwatchFile(filePath)
@@ -878,7 +874,7 @@ export async function getObjectContent(
   bucketName: string,
   key: string
 ): Promise<S3ObjectContent> {
-  const client = createClient(connection)
+  const client = getAwsClient(S3Client, connection)
   const output = await client.send(new GetObjectCommand({ Bucket: bucketName, Key: key }))
   const contentType = output.ContentType ?? 'application/octet-stream'
 
@@ -898,7 +894,7 @@ export async function putObjectContent(
   content: string,
   contentType?: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(S3Client, connection)
   await client.send(new PutObjectCommand({
     Bucket: bucketName,
     Key: key,
@@ -915,7 +911,7 @@ export async function uploadObject(
   key: string,
   localPath: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(S3Client, connection)
   const fileBuffer = await readFile(localPath)
   await client.send(new PutObjectCommand({
     Bucket: bucketName,

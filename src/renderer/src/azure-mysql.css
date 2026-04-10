@@ -1,0 +1,52 @@
+/* Azure MySQL Console — azure blue accent overrides */
+
+.azure-mysql-theme .rds-shell-hero,
+.azure-mysql-theme .rds-detail-hero {
+  background:
+    radial-gradient(circle at top left, rgba(0, 120, 212, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(80, 160, 230, 0.12), transparent 32%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(11, 17, 25, 0.98));
+}
+
+.azure-mysql-theme .rds-shell-stat-card-accent,
+.azure-mysql-theme .rds-detail-stat-card.success {
+  border-color: rgba(0, 120, 212, 0.32);
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.2), transparent 42%),
+    linear-gradient(180deg, rgba(20, 35, 55, 0.96), rgba(12, 22, 38, 0.96));
+}
+
+.azure-mysql-theme .rds-toolbar-btn.active {
+  border-color: rgba(0, 120, 212, 0.36);
+  background: linear-gradient(180deg, rgba(0, 120, 212, 0.18), rgba(0, 120, 212, 0.08));
+  color: #c8e2ff;
+}
+
+.azure-mysql-theme .rds-toolbar-btn.accent {
+  background: linear-gradient(135deg, #0078d4, #50a0e6);
+  border-color: rgba(80, 160, 230, 0.24);
+  color: #fff;
+}
+
+.azure-mysql-theme .rds-side-tabs button:hover {
+  color: #edf1f6;
+  border-color: rgba(0, 120, 212, 0.24);
+  background: rgba(0, 120, 212, 0.1);
+}
+
+.azure-mysql-theme .rds-side-tabs button.active {
+  color: #edf1f6;
+  border-color: rgba(0, 120, 212, 0.32);
+  background: linear-gradient(180deg, rgba(0, 120, 212, 0.18), rgba(0, 120, 212, 0.08));
+}
+
+.azure-mysql-theme .rds-data-table tbody tr.active {
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.1), transparent 40%),
+    rgba(50, 57, 71, 0.88);
+}
+
+.azure-mysql-theme .rds-shell-meta-pill,
+.azure-mysql-theme .rds-detail-meta-pill {
+  border-color: rgba(0, 120, 212, 0.14);
+}

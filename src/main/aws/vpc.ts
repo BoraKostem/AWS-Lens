@@ -16,7 +16,7 @@ import {
   StartNetworkInsightsAnalysisCommand
 } from '@aws-sdk/client-ec2'
 
-import { awsClientConfig, readTags } from './client'
+import { getAwsClient, readTags } from './client'
 import type {
   AwsConnection,
   InternetGatewaySummary,
@@ -32,14 +32,10 @@ import type {
   VpcTopology
 } from '@shared/types'
 
-function createClient(connection: AwsConnection): EC2Client {
-  return new EC2Client(awsClientConfig(connection))
-}
-
 /* ── VPC inventory ────────────────────────────────────────── */
 
 export async function listVpcs(connection: AwsConnection): Promise<VpcSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const vpcs: VpcSummary[] = []
   let nextToken: string | undefined
 
@@ -64,7 +60,7 @@ export async function listVpcs(connection: AwsConnection): Promise<VpcSummary[]>
 }
 
 export async function listSubnets(connection: AwsConnection, vpcId?: string): Promise<SubnetSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const subnets: SubnetSummary[] = []
   let nextToken: string | undefined
   const filters = vpcId ? [{ Name: 'vpc-id', Values: [vpcId] }] : undefined
@@ -92,7 +88,7 @@ export async function listSubnets(connection: AwsConnection, vpcId?: string): Pr
 }
 
 export async function listRouteTables(connection: AwsConnection, vpcId?: string): Promise<RouteTableSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const tables: RouteTableSummary[] = []
   let nextToken: string | undefined
   const filters = vpcId ? [{ Name: 'vpc-id', Values: [vpcId] }] : undefined
@@ -130,7 +126,7 @@ export async function listRouteTables(connection: AwsConnection, vpcId?: string)
 }
 
 export async function listInternetGateways(connection: AwsConnection, vpcId?: string): Promise<InternetGatewaySummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const gateways: InternetGatewaySummary[] = []
   const filters = vpcId ? [{ Name: 'attachment.vpc-id', Values: [vpcId] }] : undefined
 
@@ -150,7 +146,7 @@ export async function listInternetGateways(connection: AwsConnection, vpcId?: st
 }
 
 export async function listNatGateways(connection: AwsConnection, vpcId?: string): Promise<NatGatewaySummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const gateways: NatGatewaySummary[] = []
   let nextToken: string | undefined
   const filter = vpcId ? [{ Name: 'vpc-id', Values: [vpcId] }] : undefined
@@ -179,7 +175,7 @@ export async function listNatGateways(connection: AwsConnection, vpcId?: string)
 }
 
 export async function listTransitGateways(connection: AwsConnection): Promise<TransitGatewaySummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const gateways: TransitGatewaySummary[] = []
   let nextToken: string | undefined
 
@@ -204,7 +200,7 @@ export async function listTransitGateways(connection: AwsConnection): Promise<Tr
 }
 
 export async function listNetworkInterfaces(connection: AwsConnection, vpcId?: string): Promise<NetworkInterfaceSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const enis: NetworkInterfaceSummary[] = []
   let nextToken: string | undefined
   const filters = vpcId ? [{ Name: 'vpc-id', Values: [vpcId] }] : undefined
@@ -238,7 +234,7 @@ export async function listNetworkInterfaces(connection: AwsConnection, vpcId?: s
 }
 
 export async function listSecurityGroups(connection: AwsConnection, vpcId?: string): Promise<SecurityGroupSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const groups: SecurityGroupSummary[] = []
   let nextToken: string | undefined
   const filters = vpcId ? [{ Name: 'vpc-id', Values: [vpcId] }] : undefined
@@ -366,7 +362,7 @@ export async function updateSubnetAutoAssignPublicIp(
   subnetId: string,
   mapPublicIpOnLaunch: boolean
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(
     new ModifySubnetAttributeCommand({
       SubnetId: subnetId,
@@ -383,7 +379,7 @@ export async function createReachabilityPath(
   destinationId: string,
   protocol: string
 ): Promise<ReachabilityPathResult> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
 
   const pathResult = await client.send(
     new CreateNetworkInsightsPathCommand({
@@ -393,7 +389,7 @@ export async function createReachabilityPath(
       TagSpecifications: [
         {
           ResourceType: 'network-insights-path',
-          Tags: [{ Key: 'Name', Value: `aws-lens-${Date.now()}` }]
+          Tags: [{ Key: 'Name', Value: `infra-lens-${Date.now()}` }]
         }
       ]
     })
@@ -426,7 +422,7 @@ export async function getReachabilityAnalysis(
   connection: AwsConnection,
   analysisId: string
 ): Promise<ReachabilityPathResult> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
 
   const output = await client.send(
     new DescribeNetworkInsightsAnalysesCommand({
@@ -461,11 +457,11 @@ export async function getReachabilityAnalysis(
 }
 
 export async function deleteReachabilityPath(connection: AwsConnection, pathId: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(new DeleteNetworkInsightsPathCommand({ NetworkInsightsPathId: pathId }))
 }
 
 export async function deleteReachabilityAnalysis(connection: AwsConnection, analysisId: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(new DeleteNetworkInsightsAnalysisCommand({ NetworkInsightsAnalysisId: analysisId }))
 }

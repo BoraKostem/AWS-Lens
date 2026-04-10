@@ -220,8 +220,8 @@ function resolveBucketConnection(connection: AwsConnection, buckets: S3BucketSum
 
 function bucketStorageKey(connection: AwsConnection): string {
   return connection.kind === 'profile'
-    ? `aws-lens:s3-known-buckets:profile:${connection.profile}`
-    : `aws-lens:s3-known-buckets:assumed-role:${connection.profile}:${connection.roleArn}`
+    ? `infra-lens:s3-known-buckets:profile:${connection.profile}`
+    : `infra-lens:s3-known-buckets:assumed-role:${connection.profile}:${connection.roleArn}`
 }
 
 function loadStoredBuckets(connection: AwsConnection): S3BucketSummary[] {
@@ -291,18 +291,6 @@ function getSummaryFilterLabel(filter: SummaryFilterKey): string {
     case 'no-lifecycle': return 'Buckets Missing Lifecycle Rules'
     case 'important-no-versioning': return 'Important Buckets Without Versioning'
   }
-}
-
-function sortObjects(items: S3ObjectSummary[]): S3ObjectSummary[] {
-  return [...items].sort((left, right) => {
-    if (left.isFolder !== right.isFolder) return left.isFolder ? -1 : 1
-    return left.key.localeCompare(right.key)
-  })
-}
-
-function upsertObject(items: S3ObjectSummary[], next: S3ObjectSummary): S3ObjectSummary[] {
-  const filtered = items.filter((item) => item.key !== next.key)
-  return sortObjects([...filtered, next])
 }
 
 export function S3Console({ connection }: { connection: AwsConnection }) {
@@ -556,21 +544,13 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
     await Promise.all([loadBucketsAndSelection(bucketName, nextPrefix), loadGovernanceSummary()])
   }
 
-  function refreshObjectsInBackground(bucketName = selectedBucket, nextPrefix = prefix): void {
+  async function refreshObjects(bucketName = selectedBucket, nextPrefix = prefix): Promise<void> {
     if (!bucketName) return
-    void listS3Objects(resolveBucketConnection(connection, buckets, bucketName), bucketName, nextPrefix)
-      .then((nextObjects) => {
-        setObjects(nextObjects)
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : String(err))
-      })
-  }
-
-  function refreshAllInBackground(bucketName = selectedBucket, nextPrefix = prefix): void {
-    void refreshAll(bucketName, nextPrefix).catch((err) => {
-      setError(err instanceof Error ? err.message : String(err))
-    })
+    try {
+      setObjects(await listS3Objects(resolveBucketConnection(connection, buckets, bucketName), bucketName, nextPrefix))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
   }
 
   async function runBucketRemediation(actionLabel: string, mutation: () => Promise<void>): Promise<void> {
@@ -1187,14 +1167,18 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
                       {editing && (
                         <>
                           <button className="s3-btn s3-btn-ok" type="button" onClick={() => void (async () => {
-                            setSaving(true)
-                            await putS3ObjectContent(resolveBucketConnection(connection, buckets, selectedBucket), selectedBucket, selectedKey, editContent, previewContentType)
-                            setSaving(false)
-                            setEditing(false)
-                            setPreviewContent(editContent)
-                            setMsg(`Saved ${selectedKey}`)
-                            refreshObjectsInBackground(selectedBucket, prefix)
-                            refreshAllInBackground(selectedBucket, prefix)
+                            try {
+                              setSaving(true)
+                              await putS3ObjectContent(resolveBucketConnection(connection, buckets, selectedBucket), selectedBucket, selectedKey, editContent, previewContentType)
+                              setEditing(false)
+                              setPreviewContent(editContent)
+                              setMsg(`Saved ${selectedKey}`)
+                              await refreshObjects(selectedBucket, prefix)
+                            } catch (e) {
+                              setError(e instanceof Error ? e.message : String(e))
+                            } finally {
+                              setSaving(false)
+                            }
                           })()} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
                           <button className="s3-btn" type="button" onClick={() => setEditing(false)}>Cancel</button>
                         </>
@@ -1230,21 +1214,17 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
                   const file = e.target.files?.[0]
                   if (file) {
                     void (async () => {
-                      const localPath = (file as File & { path?: string }).path
-                      const objectKey = prefix + file.name
-                      const bucketConnection = resolveBucketConnection(connection, buckets, selectedBucket)
-                      if (localPath) await uploadS3Object(bucketConnection, selectedBucket, objectKey, localPath)
-                      else await putS3ObjectContent(bucketConnection, selectedBucket, objectKey, await file.text(), file.type || undefined)
-                      setObjects((current) => upsertObject(current, {
-                        key: objectKey,
-                        size: file.size,
-                        lastModified: new Date(file.lastModified || Date.now()).toISOString(),
-                        storageClass: 'STANDARD',
-                        isFolder: false
-                      }))
-                      setMsg(`Uploaded ${file.name}`)
-                      refreshObjectsInBackground(selectedBucket, prefix)
-                      refreshAllInBackground(selectedBucket, prefix)
+                      try {
+                        const localPath = (file as File & { path?: string }).path
+                        const objectKey = prefix + file.name
+                        const bucketConnection = resolveBucketConnection(connection, buckets, selectedBucket)
+                        if (localPath) await uploadS3Object(bucketConnection, selectedBucket, objectKey, localPath)
+                        else await putS3ObjectContent(bucketConnection, selectedBucket, objectKey, await file.text(), file.type || undefined)
+                        setMsg(`Uploaded ${file.name}`)
+                        await refreshObjects(selectedBucket, prefix)
+                      } catch (e) {
+                        setError(e instanceof Error ? e.message : String(e))
+                      }
                     })()
                   }
                   e.target.value = ''
@@ -1260,13 +1240,15 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
                 })()} disabled={!selectedKey || !!selectedObj?.isFolder}>Pre-Signed URL</button>
                 <ConfirmButton className="s3-btn s3-btn-danger" type="button" onConfirm={() => void (async () => {
                   const deletedKey = selectedKey
-                  await deleteS3Object(resolveBucketConnection(connection, buckets, selectedBucket), selectedBucket, selectedKey)
-                  setObjects((current) => current.filter((item) => item.key !== deletedKey))
-                  closePreview()
-                  setSelectedKey('')
-                  setMsg(`Deleted ${deletedKey}`)
-                  refreshObjectsInBackground(selectedBucket, prefix)
-                  refreshAllInBackground(selectedBucket, prefix)
+                  try {
+                    await deleteS3Object(resolveBucketConnection(connection, buckets, selectedBucket), selectedBucket, selectedKey)
+                    closePreview()
+                    setSelectedKey('')
+                    setMsg(`Deleted ${deletedKey}`)
+                    await refreshObjects(selectedBucket, prefix)
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : String(e))
+                  }
                 })()} disabled={!selectedKey} confirmLabel="Confirm Delete?">Delete</ConfirmButton>
               </div>
 

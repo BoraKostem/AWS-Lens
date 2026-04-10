@@ -7,7 +7,6 @@ import type {
   DbConnectionResourceKind,
   DbConnectionResolutionResult,
   DbConnectionCredentialSourceKind,
-  DbConnectionSecretHandling,
   DbVaultCredentialSummary
 } from '@shared/types'
 import {
@@ -89,56 +88,6 @@ function formatCredentialSource(kind: DbConnectionCredentialSourceKind): string 
   }
 }
 
-function describeCredentialHandling(kind: DbConnectionCredentialSourceKind): {
-  label: string
-  tone: 'neutral' | 'good' | 'warning'
-  detail: string
-} {
-  switch (kind) {
-    case 'local-vault':
-      return {
-        label: 'Persisted locally',
-        tone: 'good',
-        detail: 'Encrypted local vault entry is reused on later resolves.'
-      }
-    case 'aws-secrets-manager':
-      return {
-        label: 'Runtime only',
-        tone: 'warning',
-        detail: 'Resolved from Secrets Manager on demand and not saved into the local vault.'
-      }
-    default:
-      return {
-        label: 'Session only',
-        tone: 'warning',
-        detail: 'Manual password stays in memory for this helper session only.'
-      }
-  }
-}
-
-function describeResolvedHandling(kind: DbConnectionSecretHandling): {
-  title: string
-  tone: 'neutral' | 'good' | 'warning'
-} {
-  switch (kind) {
-    case 'persisted-local-vault':
-      return {
-        title: 'Persisted local credential',
-        tone: 'good'
-      }
-    case 'runtime-secrets-manager':
-      return {
-        title: 'Runtime Secrets Manager credential',
-        tone: 'warning'
-      }
-    default:
-      return {
-        title: 'Ephemeral manual credential',
-        tone: 'warning'
-      }
-  }
-}
-
 async function copyText(value: string): Promise<void> {
   await navigator.clipboard.writeText(value)
 }
@@ -183,7 +132,6 @@ export function RdsConnectionHelpers({
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [resolved, setResolved] = useState<DbConnectionResolutionResult | null>(null)
-  const credentialHandling = describeCredentialHandling(form.credentialSourceKind)
 
   async function hydrateLists(): Promise<void> {
     const [nextPresets, nextVaultCredentials] = await Promise.all([
@@ -230,8 +178,6 @@ export function RdsConnectionHelpers({
     }
 
     setForm(toFormState(preset))
-    setManualPassword('')
-    setResolved(null)
   }, [presets, selectedPresetId])
 
   async function handleSavePreset(): Promise<void> {
@@ -407,19 +353,22 @@ export function RdsConnectionHelpers({
             <span>Credential source</span>
             <strong>{formatCredentialSource(form.credentialSourceKind)}</strong>
           </div>
-          <div className={`rds-posture-badge rds-tone-${credentialHandling.tone}`}>
-            <span>Secret handling</span>
-            <strong>{credentialHandling.label}</strong>
-          </div>
         </div>
-        <div className="rds-sidebar-hint">{credentialHandling.detail}</div>
         {msg && <div className={`rds-msg ${messageTone}`}>{msg}</div>}
       </div>
 
       <div className="rds-sidebar-section">
         <h3>Saved Presets</h3>
         <div className="rds-inline-form">
-          <select className="rds-select" value={selectedPresetId} onChange={(event) => setSelectedPresetId(event.target.value)}>
+          <select
+            className="rds-select"
+            value={selectedPresetId}
+            onChange={(event) => {
+              setSelectedPresetId(event.target.value)
+              setManualPassword('')
+              setResolved(null)
+            }}
+          >
             <option value="">Use resource defaults</option>
             {presets.map((preset) => (
               <option key={preset.id} value={preset.id}>
@@ -564,9 +513,6 @@ export function RdsConnectionHelpers({
             <span>Secret ARN or name</span>
             <input value={form.credentialSourceRef} onChange={(event) => setForm((current) => ({ ...current, credentialSourceRef: event.target.value }))} placeholder="arn:aws:secretsmanager:..." />
           </label>
-          <div className="rds-sidebar-hint">
-            This path resolves the password directly from Secrets Manager when you click Resolve. It does not create or update a local vault entry unless you switch the credential source to Local Vault and save one explicitly.
-          </div>
           {managedSecretArn && managedSecretArn !== '-' && (
             <div className="rds-inline-form">
               <button
@@ -589,9 +535,6 @@ export function RdsConnectionHelpers({
             <span>Password</span>
             <input type="password" value={manualPassword} onChange={(event) => setManualPassword(event.target.value)} placeholder="Temporary only, not stored" />
           </label>
-          <div className="rds-sidebar-hint">
-            Manual passwords stay in memory for this helper session only. Use Local Vault if you want an encrypted reusable entry.
-          </div>
         </div>
       )}
 
@@ -638,11 +581,6 @@ export function RdsConnectionHelpers({
                   <div className="rds-kv-value">{resolved.username}</div>
                 </div>
               </div>
-            </div>
-
-            <div className={`rds-state-card rds-tone-${describeResolvedHandling(resolved.secretHandling).tone}`}>
-              <strong>{describeResolvedHandling(resolved.secretHandling).title}</strong>
-              <div className="rds-state-card-body">{resolved.secretHandlingSummary}</div>
             </div>
 
             {resolved.warnings.length > 0 && (

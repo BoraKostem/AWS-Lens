@@ -1,18 +1,14 @@
 import { CreateKeyPairCommand, DeleteKeyPairCommand, DescribeKeyPairsCommand, EC2Client } from '@aws-sdk/client-ec2'
 
 import type { AwsConnection, CreatedKeyPair, KeyPairSummary } from '@shared/types'
-import { awsClientConfig, readTags } from './client'
-
-function createClient(connection: AwsConnection): EC2Client {
-  return new EC2Client(awsClientConfig(connection))
-}
+import { getAwsClient, readTags } from './client'
 
 function toIso(value: Date | undefined): string {
   return value ? value.toISOString() : ''
 }
 
 export async function listKeyPairs(connection: AwsConnection): Promise<KeyPairSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const response = await client.send(new DescribeKeyPairsCommand({}))
 
   return (response.KeyPairs ?? []).map((pair) => ({
@@ -26,7 +22,7 @@ export async function listKeyPairs(connection: AwsConnection): Promise<KeyPairSu
 }
 
 export async function createKeyPair(connection: AwsConnection, keyName: string): Promise<CreatedKeyPair> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const response = await client.send(new CreateKeyPairCommand({ KeyName: keyName, KeyType: 'rsa' }))
 
   return {
@@ -38,6 +34,6 @@ export async function createKeyPair(connection: AwsConnection, keyName: string):
 }
 
 export async function deleteKeyPair(connection: AwsConnection, keyName: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(new DeleteKeyPairCommand({ KeyName: keyName }))
 }

@@ -414,6 +414,13 @@
   font-size: 11px;
   font-weight: 700;
 }
+.cw-chip.active {
+  border-color: rgba(245, 154, 61, 0.5);
+  background:
+    radial-gradient(circle at top right, rgba(245, 154, 61, 0.24), transparent 44%),
+    linear-gradient(180deg, rgba(40, 32, 22, 0.96), rgba(28, 22, 16, 0.96));
+  color: #ffe4b8;
+}
 
 .cw-table-hint,
 .cw-loading,
@@ -437,8 +444,11 @@
 }
 
 .cw-table thead {
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(18, 26, 40, 0.98);
   border-bottom: 1px solid rgba(145, 176, 207, 0.08);
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .cw-table th {
@@ -650,6 +660,158 @@
   line-height: 1.5;
 }
 
+.gcp-logging-console .cw-shell-hero {
+  background:
+    radial-gradient(circle at top left, rgba(108, 214, 141, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(77, 171, 130, 0.14), transparent 30%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(11, 17, 25, 0.98));
+}
+
+.gcp-logging-console .cw-shell-kicker {
+  color: #a6efbd;
+}
+
+.gcp-logging-console .cw-shell-stat-card-accent {
+  border-color: rgba(108, 214, 141, 0.3);
+  background:
+    radial-gradient(circle at top right, rgba(108, 214, 141, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(28, 44, 35, 0.96), rgba(18, 28, 23, 0.96));
+}
+
+.gcp-logging-console .cw-tab.active {
+  border-color: rgba(108, 214, 141, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(108, 214, 141, 0.16), transparent 48%),
+    linear-gradient(180deg, rgba(27, 42, 34, 0.96), rgba(16, 24, 35, 0.96));
+}
+
+.gcp-logging-console .cw-toolbar-pill,
+.gcp-logging-console .cw-ec2-badge {
+  border-color: rgba(108, 214, 141, 0.24);
+  background: rgba(108, 214, 141, 0.1);
+  color: #b7f5ca;
+}
+
+.gcp-logging-console .cw-refresh-btn,
+.gcp-logging-console .cw-expand-btn {
+  border-color: rgba(108, 214, 141, 0.18);
+  background:
+    radial-gradient(circle at top right, rgba(108, 214, 141, 0.14), transparent 60%),
+    linear-gradient(180deg, rgba(30, 52, 41, 0.98), rgba(19, 33, 27, 0.98));
+}
+
+.gcp-logging-console .cw-toggle.active {
+  border-color: rgba(108, 214, 141, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(108, 214, 141, 0.16), transparent 44%),
+    linear-gradient(180deg, rgba(33, 52, 40, 0.96), rgba(20, 31, 24, 0.96));
+  color: #b7f5ca;
+}
+
+.gcp-logging-console .cw-chip {
+  background: rgba(108, 214, 141, 0.12);
+  border-color: rgba(108, 214, 141, 0.2);
+  color: #b7f5ca;
+}
+.gcp-logging-console .cw-chip.active {
+  border-color: rgba(108, 214, 141, 0.5);
+  background:
+    radial-gradient(circle at top right, rgba(108, 214, 141, 0.24), transparent 44%),
+    linear-gradient(180deg, rgba(22, 40, 28, 0.96), rgba(16, 28, 20, 0.96));
+  color: #d4fae0;
+}
+
+.gcp-logging-console .cw-table tr.cw-clickable:hover {
+  background: rgba(108, 214, 141, 0.06);
+}
+
+.gcp-logging-console .cw-bar-fill {
+  background: linear-gradient(90deg, rgba(108, 214, 141, 0.78), rgba(77, 171, 130, 0.42));
+}
+
+/* ── Azure Monitor theme (blue accents) ── */
+
+.azure-monitor-console .cw-shell-hero {
+  background:
+    radial-gradient(circle at top left, rgba(56, 142, 224, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(80, 120, 200, 0.14), transparent 30%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(11, 17, 25, 0.98));
+}
+
+.azure-monitor-console .cw-shell-kicker {
+  color: #7ec8f8;
+}
+
+.azure-monitor-console .cw-shell-stat-card-accent {
+  border-color: rgba(56, 142, 224, 0.3);
+  background:
+    radial-gradient(circle at top right, rgba(56, 142, 224, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(24, 34, 52, 0.96), rgba(14, 22, 36, 0.96));
+}
+
+.azure-monitor-console .cw-tab.active {
+  border-color: rgba(56, 142, 224, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(56, 142, 224, 0.16), transparent 48%),
+    linear-gradient(180deg, rgba(24, 34, 50, 0.96), rgba(16, 24, 38, 0.96));
+}
+
+.azure-monitor-console .cw-toolbar-pill,
+.azure-monitor-console .cw-ec2-badge {
+  border-color: rgba(56, 142, 224, 0.24);
+  background: rgba(56, 142, 224, 0.1);
+  color: #a8d8f8;
+}
+
+.azure-monitor-console .cw-refresh-btn,
+.azure-monitor-console .cw-expand-btn {
+  border-color: rgba(56, 142, 224, 0.18);
+  background:
+    radial-gradient(circle at top right, rgba(56, 142, 224, 0.14), transparent 60%),
+    linear-gradient(180deg, rgba(24, 36, 56, 0.98), rgba(16, 26, 42, 0.98));
+}
+
+.azure-monitor-console .cw-toggle.active {
+  border-color: rgba(56, 142, 224, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(56, 142, 224, 0.16), transparent 44%),
+    linear-gradient(180deg, rgba(26, 38, 56, 0.96), rgba(18, 28, 42, 0.96));
+  color: #a8d8f8;
+}
+
+.azure-monitor-console .cw-chip {
+  background: rgba(56, 142, 224, 0.12);
+  border-color: rgba(56, 142, 224, 0.2);
+  color: #a8d8f8;
+}
+.azure-monitor-console .cw-chip.active {
+  border-color: rgba(56, 142, 224, 0.5);
+  background:
+    radial-gradient(circle at top right, rgba(56, 142, 224, 0.24), transparent 44%),
+    linear-gradient(180deg, rgba(26, 38, 56, 0.96), rgba(18, 28, 42, 0.96));
+  color: #c4e4ff;
+}
+
+.azure-monitor-console .cw-table tr.cw-clickable:hover {
+  background: rgba(56, 142, 224, 0.06);
+}
+
+.azure-monitor-console .cw-bar-fill {
+  background: linear-gradient(90deg, rgba(56, 142, 224, 0.78), rgba(80, 120, 200, 0.42));
+}
+
+.azure-monitor-console .cw-query-chip {
+  border-color: rgba(56, 142, 224, 0.26);
+  background: rgba(56, 142, 224, 0.12);
+  color: #a8d8f8;
+}
+
+.azure-monitor-console .cw-query-feedback.success {
+  border-color: rgba(56, 142, 224, 0.28);
+  background: rgba(56, 142, 224, 0.1);
+  color: #c0e0f8;
+}
+
 .cw-severity-error {
   border-left-color: #ff6b6b;
   background: rgba(255, 107, 107, 0.06);
@@ -743,13 +905,6 @@
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
   gap: 16px;
-}
-
-.cw-correlation-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  margin-bottom: 16px;
 }
 
 .cw-query-main,
@@ -854,39 +1009,10 @@
   color: var(--muted);
 }
 
-.cw-correlation-copy {
-  min-width: 0;
-  flex: 1;
-}
-
-.cw-correlation-copy strong,
-.cw-correlation-copy span,
-.cw-correlation-copy small {
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.cw-timeline-pill-success {
-  color: #c8f0d6;
-}
-
-.cw-timeline-pill-error {
-  color: #ffd4d4;
-}
-
-.cw-timeline-pill-warning {
-  color: #ffe4b5;
-}
-
-.cw-timeline-pill-info {
-  color: #d5e8ff;
-}
-
 @media (max-width: 1100px) {
   .cw-shell-hero,
   .cw-charts-row,
-  .cw-query-layout,
-  .cw-correlation-grid {
+  .cw-query-layout {
     grid-template-columns: 1fr;
   }
 }
@@ -925,4 +1051,184 @@
     flex-direction: column;
     align-items: flex-start;
   }
+}
+
+/* ---- Azure Cost Console theme (blue) ---- */
+
+.azure-cost-console .cw-shell-hero {
+  background:
+    radial-gradient(circle at top left, rgba(74, 143, 231, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(56, 120, 200, 0.14), transparent 30%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(11, 17, 25, 0.98));
+}
+
+.azure-cost-console .cw-shell-kicker {
+  color: #7ab3f0;
+}
+
+.azure-cost-console .cw-shell-stat-card-accent {
+  border-color: rgba(74, 143, 231, 0.3);
+  background:
+    radial-gradient(circle at top right, rgba(74, 143, 231, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(24, 36, 54, 0.96), rgba(14, 22, 36, 0.96));
+}
+
+.azure-cost-console .cw-tab.active {
+  border-color: rgba(74, 143, 231, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(74, 143, 231, 0.16), transparent 48%),
+    linear-gradient(180deg, rgba(24, 34, 50, 0.96), rgba(16, 24, 35, 0.96));
+}
+
+.azure-cost-console .cw-refresh-btn,
+.azure-cost-console .cw-expand-btn {
+  border-color: rgba(74, 143, 231, 0.18);
+  background:
+    radial-gradient(circle at top right, rgba(74, 143, 231, 0.14), transparent 60%),
+    linear-gradient(180deg, rgba(22, 36, 56, 0.98), rgba(14, 22, 38, 0.98));
+}
+
+/* ---- Azure Cost Console elements ---- */
+
+.cost-daily-panel {
+  padding: 14px 16px;
+  border: 1px solid rgba(145, 176, 207, 0.12);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(17, 24, 34, 0.94), rgba(10, 16, 25, 0.94));
+}
+
+.cost-daily-panel .panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.cost-daily-panel .panel-header h3 {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #edf4fb;
+}
+
+.cost-daily-label {
+  font-size: 0.68rem;
+  color: #8fa3ba;
+  font-weight: 600;
+}
+
+.cost-daily-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 100px;
+  padding-top: 4px;
+}
+
+.cost-daily-bar-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  min-width: 0;
+  cursor: default;
+}
+
+.cost-daily-bar {
+  width: 100%;
+  max-width: 28px;
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, rgba(74, 143, 231, 0.9), rgba(74, 143, 231, 0.5));
+  transition: height 0.3s ease, background 0.16s ease;
+}
+
+.cost-daily-bar-wrap:hover .cost-daily-bar {
+  background: linear-gradient(180deg, rgba(100, 170, 255, 0.95), rgba(74, 143, 231, 0.75));
+}
+
+.cost-daily-date {
+  margin-top: 4px;
+  font-size: 0.56rem;
+  color: #6b7688;
+  font-variant-numeric: tabular-nums;
+}
+
+.cost-share-bar-track {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(145, 176, 207, 0.1);
+  overflow: hidden;
+  align-self: center;
+}
+
+.cost-share-bar-fill {
+  height: 100%;
+  min-width: 2px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, rgba(74, 143, 231, 0.85), rgba(74, 143, 231, 0.5));
+  transition: width 0.3s ease;
+}
+
+@media (max-width: 720px) {
+  .cost-daily-chart {
+    height: 64px;
+  }
+}
+
+/* ── Azure Application Insights theme (azure blue) ── */
+
+.azure-app-insights-console .cw-shell-hero {
+  background:
+    radial-gradient(circle at top left, rgba(56, 142, 224, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(80, 120, 200, 0.14), transparent 30%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(11, 17, 25, 0.98));
+}
+
+.azure-app-insights-console .cw-shell-kicker {
+  color: #7ec8f8;
+}
+
+.azure-app-insights-console .cw-shell-stat-card-accent {
+  border-color: rgba(56, 142, 224, 0.3);
+  background:
+    radial-gradient(circle at top right, rgba(56, 142, 224, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(24, 34, 52, 0.96), rgba(14, 22, 36, 0.96));
+}
+
+.azure-app-insights-console .cw-tab.active {
+  border-color: rgba(56, 142, 224, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(56, 142, 224, 0.16), transparent 48%),
+    linear-gradient(180deg, rgba(24, 34, 50, 0.96), rgba(16, 24, 38, 0.96));
+}
+
+.azure-app-insights-console .cw-shell-toolbar-btn {
+  border-color: rgba(56, 142, 224, 0.18);
+  background:
+    radial-gradient(circle at top right, rgba(56, 142, 224, 0.14), transparent 60%),
+    linear-gradient(180deg, rgba(24, 36, 56, 0.98), rgba(16, 26, 42, 0.98));
+}
+
+/* ── Log Summary Modal ─────────────────────────────── */
+
+.cw-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+.cw-modal-content {
+  background: linear-gradient(180deg, rgba(24, 34, 50, 0.98), rgba(16, 24, 38, 0.98));
+  border: 1px solid rgba(145, 176, 207, 0.14);
+  border-radius: 16px;
+  padding: 20px 24px;
+  width: 90vw;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
 }

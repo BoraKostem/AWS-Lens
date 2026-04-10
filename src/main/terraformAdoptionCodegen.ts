@@ -11,6 +11,7 @@ import type {
   TerraformProject,
   TerraformResourceInventoryItem
 } from '@shared/types'
+import { logWarn } from './observability'
 import { getProject } from './terraform'
 import { mapTerraformAdoption } from './terraformAdoptionMapping'
 
@@ -32,7 +33,8 @@ function listTerraformFiles(rootPath: string): string[] {
 function readText(filePath: string): string {
   try {
     return fs.readFileSync(filePath, 'utf8')
-  } catch {
+  } catch (error) {
+    logWarn('terraform.adoption.codegen.read-file', 'Failed to read Terraform file while scoring adoption target.', { filePath }, error)
     return ''
   }
 }
@@ -228,7 +230,7 @@ function buildIamProfileExpression(mapping: TerraformAdoptionMappingResult, targ
   return profile ? quote(profile.split('/').pop() ?? profile) : ''
 }
 
-function buildResourceBlock(project: TerraformProject, mapping: TerraformAdoptionMappingResult): string {
+function buildResourceBlock(_project: TerraformProject, mapping: TerraformAdoptionMappingResult): string {
   const target = mapping.target
   const lines: string[] = [
     `resource "${mapping.recommendedResourceType}" "${mapping.suggestedResourceName}" {`

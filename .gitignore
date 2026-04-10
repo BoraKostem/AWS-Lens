@@ -48,3 +48,6 @@ Thumbs.db
 .claude/
 agent/
 copilot-instructions.md
+.github/agents/
+.github/instructions/
+.github/skills/

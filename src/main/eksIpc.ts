@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import os from 'node:os'
 import path from 'node:path'
 
 import { dialog, ipcMain, type BrowserWindow } from 'electron'
@@ -55,9 +56,9 @@ export function registerEksIpcHandlers(getWindow: () => BrowserWindow | null): v
       const normalizedCurrentPath = currentPath?.trim()
       const defaultPath = normalizedCurrentPath
         ? (normalizedCurrentPath === '.kube/config' || normalizedCurrentPath === '.kube\\config'
-            ? path.join(process.env.USERPROFILE || process.env.HOME || '.', '.kube', 'config')
+            ? path.join(os.homedir(), '.kube', 'config')
             : normalizedCurrentPath)
-        : path.join(process.env.USERPROFILE || process.env.HOME || '.', '.kube', 'config')
+        : path.join(os.homedir(), '.kube', 'config')
 
       const result = owner
         ? await dialog.showSaveDialog(owner, {
@@ -110,7 +111,7 @@ export function registerEksIpcHandlers(getWindow: () => BrowserWindow | null): v
         const child = spawn(command, {
           shell: true,
           env,
-          cwd: process.env.USERPROFILE || process.env.HOME || '.'
+          cwd: os.homedir()
         })
 
         let output = ''

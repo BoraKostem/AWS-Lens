@@ -3,7 +3,9 @@ import path from 'node:path'
 
 import { safeStorage } from 'electron'
 
-const SECURE_FILE_PREFIX = 'aws-lens-secure:v1:'
+import { logWarn } from './observability'
+
+const SECURE_FILE_PREFIX = 'infra-lens-secure:v1:'
 
 type ReadOptions<T> = {
   fallback: T
@@ -49,7 +51,18 @@ export function readSecureJsonFile<T>(filePath: string, options: ReadOptions<T>)
       return decryptJson<T>(raw, options.fileLabel)
     }
 
-    return JSON.parse(raw) as T
+    logWarn(
+      'secureJson.plaintext-fallback',
+      `${options.fileLabel} is stored as plaintext instead of encrypted — migrating to encrypted storage.`,
+      { filePath }
+    )
+    const parsed = JSON.parse(raw) as T
+    try {
+      writeSecureJsonFile(filePath, parsed, options.fileLabel)
+    } catch {
+      /* migration is best-effort — encrypted write may fail if safeStorage is unavailable */
+    }
+    return parsed
   } catch {
     return options.fallback
   }

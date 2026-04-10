@@ -32,10 +32,10 @@ import type {
   EcsTaskDefinitionReference,
   EcsTaskSummary
 } from '@shared/types'
-import { awsClientConfig } from './client'
+import { getAwsClient } from './client'
 
 export async function listClusters(connection: AwsConnection): Promise<EcsClusterSummary[]> {
-  const client = new ECSClient(awsClientConfig(connection))
+  const client = getAwsClient(ECSClient, connection)
   const listOutput = await client.send(new ListClustersCommand({}))
   const arns = listOutput.clusterArns ?? []
   if (!arns.length) return []
@@ -53,7 +53,7 @@ export async function listClusters(connection: AwsConnection): Promise<EcsCluste
 }
 
 export async function listServices(connection: AwsConnection, clusterArn: string): Promise<EcsServiceSummary[]> {
-  const client = new ECSClient(awsClientConfig(connection))
+  const client = getAwsClient(ECSClient, connection)
   const serviceArns: string[] = []
   let nextToken: string | undefined
 
@@ -93,7 +93,7 @@ export async function describeService(
   clusterArn: string,
   serviceName: string
 ): Promise<EcsServiceDetail> {
-  const client = new ECSClient(awsClientConfig(connection))
+  const client = getAwsClient(ECSClient, connection)
   const output = await client.send(new DescribeServicesCommand({ cluster: clusterArn, services: [serviceName] }))
   const s = output.services?.[0]
   if (!s) throw new Error(`Service ${serviceName} not found`)
@@ -148,7 +148,7 @@ async function listTasksByDesiredStatus(
   serviceName?: string,
   desiredStatus?: 'RUNNING' | 'STOPPED'
 ): Promise<EcsTaskSummary[]> {
-  const client = new ECSClient(awsClientConfig(connection))
+  const client = getAwsClient(ECSClient, connection)
   const taskArns: string[] = []
   let nextToken: string | undefined
 
@@ -218,7 +218,7 @@ export async function getServiceDiagnostics(
   clusterArn: string,
   serviceName: string
 ): Promise<EcsServiceDiagnostics> {
-  const client = new ECSClient(awsClientConfig(connection))
+  const client = getAwsClient(ECSClient, connection)
   const service = await describeService(connection, clusterArn, serviceName)
   const [runningTasks, stoppedTasks, taskDefinition] = await Promise.all([
     listTasksByDesiredStatus(connection, clusterArn, serviceName, 'RUNNING'),
@@ -648,7 +648,7 @@ export async function updateDesiredCount(
   serviceName: string,
   desiredCount: number
 ): Promise<void> {
-  const client = new ECSClient(awsClientConfig(connection))
+  const client = getAwsClient(ECSClient, connection)
   await client.send(
     new UpdateServiceCommand({
       cluster: clusterArn,
@@ -663,7 +663,7 @@ export async function forceRedeploy(
   clusterArn: string,
   serviceName: string
 ): Promise<void> {
-  const client = new ECSClient(awsClientConfig(connection))
+  const client = getAwsClient(ECSClient, connection)
   await client.send(
     new UpdateServiceCommand({
       cluster: clusterArn,
@@ -679,12 +679,12 @@ export async function stopTask(
   taskArn: string,
   reason?: string
 ): Promise<void> {
-  const client = new ECSClient(awsClientConfig(connection))
+  const client = getAwsClient(ECSClient, connection)
   await client.send(
     new StopTaskCommand({
       cluster: clusterArn,
       task: taskArn,
-      reason: reason || 'Stopped from AWS Lens console'
+      reason: reason || 'Stopped from InfraLens console'
     })
   )
 }
@@ -694,7 +694,7 @@ export async function deleteService(
   clusterArn: string,
   serviceName: string
 ): Promise<void> {
-  const client = new ECSClient(awsClientConfig(connection))
+  const client = getAwsClient(ECSClient, connection)
   // Scale to 0 first, then delete
   await client.send(
     new UpdateServiceCommand({
@@ -716,7 +716,7 @@ export async function createFargateService(
   connection: AwsConnection,
   config: EcsFargateServiceConfig
 ): Promise<void> {
-  const client = new ECSClient(awsClientConfig(connection))
+  const client = getAwsClient(ECSClient, connection)
   await client.send(
     new CreateServiceCommand({
       cluster: config.clusterArn,
@@ -741,7 +741,7 @@ export async function getContainerLogs(
   logStream: string,
   startTime?: number
 ): Promise<EcsLogEvent[]> {
-  const client = new CloudWatchLogsClient(awsClientConfig(connection))
+  const client = getAwsClient(CloudWatchLogsClient, connection)
   const output = await client.send(
     new GetLogEventsCommand({
       logGroupName: logGroup,

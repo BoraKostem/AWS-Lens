@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The State Operations Center is the guided UI for Terraform state changes inside AWS Lens. It is intended for cases where an operator needs to:
+The State Operations Center is the guided UI for Terraform state changes inside InfraLens. It is intended for cases where an operator needs to:
 
 - import an existing remote object into Terraform state
 - move a state address during a refactor
@@ -15,7 +15,7 @@ All state actions run in the Electron main process instead of asking the operato
 
 The top summary cards expose the current state snapshot and backup status for the selected project:
 
-- `Current state source`: where AWS Lens read the current state snapshot from
+- `Current state source`: where InfraLens read the current state snapshot from
 - `Latest backup`: the newest locally captured backup, if one exists
 - `Backup inventory`: how many project-scoped backups are currently retained
 
@@ -30,7 +30,7 @@ It also shows recent backups and the current lock inspection result.
 
 ## Current State Source
 
-AWS Lens resolves the displayed state snapshot in this order:
+InfraLens resolves the displayed state snapshot in this order:
 
 1. `terraform.tfstate` in the project root
 2. the newest workspace file under `terraform.tfstate.d/<workspace>/terraform.tfstate`
@@ -44,7 +44,7 @@ That produces these state source labels:
 - `remote-cache`
 - `none`
 
-For remote backends, `remote-cache` means AWS Lens is showing the most recently cached result of `terraform state pull`.
+For remote backends, `remote-cache` means InfraLens is showing the most recently cached result of `terraform state pull`.
 
 ## Backups
 
@@ -83,7 +83,7 @@ Each file is named with the capture timestamp and source, for example:
 
 ### Retention
 
-AWS Lens keeps the 20 newest backups per project and deletes older ones automatically.
+InfraLens keeps the 20 newest backups per project and deletes older ones automatically.
 
 ## Guided Operations
 
@@ -96,7 +96,7 @@ Inputs:
 - Terraform address, for example `aws_s3_bucket.logs`
 - provider import ID, for example `my-existing-bucket`
 
-AWS Lens runs:
+InfraLens runs:
 
 ```text
 terraform import -input=false -no-color <address> <import-id>
@@ -105,7 +105,7 @@ terraform import -input=false -no-color <address> <import-id>
 Behavior notes:
 
 - runtime inputs are resolved before the command runs
-- on success, AWS Lens refreshes the remote state cache
+- on success, InfraLens refreshes the remote state cache
 - on success, saved plan artifacts are cleared because state changed
 
 ### Move State Address
@@ -117,7 +117,7 @@ Inputs:
 - source address
 - destination address
 
-AWS Lens runs:
+InfraLens runs:
 
 ```text
 terraform state mv -lock=true <from> <to>
@@ -139,7 +139,7 @@ Input:
 
 - state address to forget
 
-AWS Lens runs:
+InfraLens runs:
 
 ```text
 terraform state rm -lock=true <address>
@@ -150,7 +150,7 @@ Behavior notes:
 - requires typed confirmation in the UI
 - always creates a backup first
 - refreshes the remote state cache after success when possible
-- if refresh fails, AWS Lens clears the local cache for `state rm` rather than showing stale removed entries
+- if refresh fails, InfraLens clears the local cache for `state rm` rather than showing stale removed entries
 - clears saved plan artifacts after success
 - invalidates cached drift results after success
 
@@ -158,7 +158,7 @@ Behavior notes:
 
 ### What Lock Inspection Can Show
 
-AWS Lens reads lock metadata from these local files when Terraform leaves them behind:
+InfraLens reads lock metadata from these local files when Terraform leaves them behind:
 
 - `.terraform.tfstate.lock.info`
 - `.terraform/terraform.tfstate.lock.info`
@@ -184,7 +184,7 @@ Input:
 
 - lock ID
 
-AWS Lens runs:
+InfraLens runs:
 
 ```text
 terraform force-unlock -force <lock-id>
@@ -210,15 +210,15 @@ This is a UI reload of Terraform state data. It is not the same as `terraform ap
 
 ## Inputs And Temporary Files
 
-State operations may still need runtime input values. To support that safely, AWS Lens can write a temporary `terraform.tfvars.json` in the project root before state commands run.
+State operations may still need runtime input values. To support that safely, InfraLens can write a temporary `terraform.tfvars.json` in the project root before state commands run.
 
 If a `terraform.tfvars.json` already exists:
 
-- AWS Lens copies it to `terraform.tfvars.json.aws-lens-backup`
+- InfraLens copies it to `terraform.tfvars.json.infra-lens-backup`
 - writes the temporary merged values needed for the operation
 - restores the original file after the command completes
 
-If no file existed, AWS Lens deletes the temporary file after completion.
+If no file existed, InfraLens deletes the temporary file after completion.
 
 ## Operational Guidance
 

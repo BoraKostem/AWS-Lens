@@ -4,6 +4,7 @@ import path from 'node:path'
 
 import { app, dialog, type BrowserWindow } from 'electron'
 
+import { PRODUCT_BRAND_NAME, PRODUCT_BRAND_SLUG } from '@shared/branding'
 import type {
   AwsConnection,
   EnterpriseAccessMode,
@@ -175,7 +176,9 @@ const ALWAYS_OPERATOR_CHANNELS = new Set<string>([
   'sqs:tag-queue',
   'sqs:untag-queue',
   'terminal:open-aws',
+  'terminal:open-provider-context',
   'terminal:update-aws-context',
+  'terminal:update-provider-context',
   'terminal:input',
   'terminal:run-command'
 ])
@@ -268,7 +271,12 @@ async function resolveAccountId(connection?: AwsConnection | null): Promise<stri
   }
 
   try {
-    const identity = await getCallerIdentity(connection)
+    const identity = await Promise.race([
+      getCallerIdentity(connection),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('getCallerIdentity timed out after 10s')), 10_000)
+      )
+    ])
     const accountId = identity.account ?? ''
     if (accountId) {
       accountIdCache.set(cacheKey, accountId)
@@ -424,10 +432,17 @@ function inferActionLabel(channel: string, args: unknown[]): string {
   return toActionLabel(channel)
 }
 
-function appendAuditEvent(event: EnterpriseAuditEvent): void {
-  const current = readAuditLog()
-  const next = [event, ...current].slice(0, 500)
-  writeAuditLog(next)
+// Serialise all audit writes to prevent TOCTOU races under concurrent IPC traffic.
+let auditWriteChain: Promise<void> = Promise.resolve()
+
+function appendAuditEvent(event: EnterpriseAuditEvent): Promise<void> {
+  return (auditWriteChain = auditWriteChain
+    .then(() => {
+      const current = readAuditLog()
+      const next = [event, ...current].slice(0, 500)
+      writeAuditLog(next)
+    })
+    .catch(() => { /* never let a write failure break the chain */ }))
 }
 
 export function getEnterpriseSettings(): EnterpriseSettings {
@@ -445,7 +460,7 @@ export function setEnterpriseAccessMode(accessMode: EnterpriseAccessMode): Enter
 export function assertEnterpriseAccess(channel: string, args: unknown[]): EnterpriseSettings {
   const settings = readSettings()
   if (settings.accessMode !== 'operator' && isOperatorAction(channel, args)) {
-    throw new Error('AWS Lens is in read-only mode. Switch to operator mode to run mutating or command execution actions.')
+      throw new Error(`${PRODUCT_BRAND_NAME} is in read-only mode. Switch to operator mode to run mutating or command execution actions.`)
   }
 
   return settings
@@ -471,7 +486,7 @@ export async function recordEnterpriseAuditEvent(
     details.push(`error:${errorMessage}`)
   }
 
-  appendAuditEvent({
+  await appendAuditEvent({
     id: randomUUID(),
     happenedAt: new Date().toISOString(),
     accessMode: settings.accessMode,
@@ -515,7 +530,7 @@ export async function exportEnterpriseAuditEvents(owner?: BrowserWindow | null):
   const rangeDays: 1 | 7 = scopeChoice.response === 1 ? 1 : 7
   const threshold = Date.now() - (rangeDays * MS_PER_DAY)
   const events = readAuditLog().filter((event) => new Date(event.happenedAt).getTime() >= threshold)
-  const defaultFileName = `aws-lens-audit-${rangeDays}d-${new Date().toISOString().slice(0, 10)}.json`
+  const defaultFileName = `${PRODUCT_BRAND_SLUG}-audit-${rangeDays}d-${new Date().toISOString().slice(0, 10)}.json`
   const result = owner
     ? await dialog.showSaveDialog(owner, {
         title: 'Export audit trail',

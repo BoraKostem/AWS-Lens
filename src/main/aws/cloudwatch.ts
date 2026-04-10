@@ -12,7 +12,7 @@ import {
   StartQueryCommand as StartLogsQueryCommand
 } from '@aws-sdk/client-cloudwatch-logs'
 
-import { awsClientConfig } from './client'
+import { getAwsClient } from './client'
 import type {
   AwsConnection,
   CloudWatchLogEventSummary,
@@ -30,13 +30,7 @@ const EC2_METRICS = ['CPUUtilization', 'NetworkIn', 'NetworkOut']
 const QUERY_POLL_INTERVAL_MS = 750
 const QUERY_MAX_ATTEMPTS = 20
 
-function createCloudWatchClient(connection: AwsConnection): CloudWatchClient {
-  return new CloudWatchClient(awsClientConfig(connection))
-}
 
-function createLogsClient(connection: AwsConnection): CloudWatchLogsClient {
-  return new CloudWatchLogsClient(awsClientConfig(connection))
-}
 
 function toMetricSummary(metric: Metric): CloudWatchMetricSummary {
   return {
@@ -58,7 +52,7 @@ function parseDimensions(dims: string[]): Array<{ Name: string; Value: string }>
 export async function listCloudWatchMetrics(
   connection: AwsConnection
 ): Promise<{ metrics: CloudWatchMetricSummary[]; namespaces: CloudWatchNamespaceSummary[] }> {
-  const client = createCloudWatchClient(connection)
+  const client = getAwsClient(CloudWatchClient, connection)
   const metrics: CloudWatchMetricSummary[] = []
   let nextToken: string | undefined
 
@@ -110,7 +104,7 @@ export async function listEc2InstanceMetrics(
   connection: AwsConnection,
   instanceId: string
 ): Promise<CloudWatchMetricSummary[]> {
-  const client = createCloudWatchClient(connection)
+  const client = getAwsClient(CloudWatchClient, connection)
   const metrics: CloudWatchMetricSummary[] = []
   let nextToken: string | undefined
 
@@ -141,7 +135,7 @@ export async function getMetricStatistics(
 ): Promise<CloudWatchMetricStatistic[]> {
   if (metrics.length === 0) return []
 
-  const client = createCloudWatchClient(connection)
+  const client = getAwsClient(CloudWatchClient, connection)
   const endTime = new Date()
   const startTime = new Date(endTime.getTime() - periodHours * 60 * 60 * 1000)
   const period = periodHours <= 3 ? 60 : periodHours <= 24 ? 300 : 3600
@@ -201,7 +195,7 @@ export async function getEc2AllMetricSeries(
   const metrics = await listEc2InstanceMetrics(connection, instanceId)
   if (metrics.length === 0) return []
 
-  const client = createCloudWatchClient(connection)
+  const client = getAwsClient(CloudWatchClient, connection)
   const endTime = new Date()
   const startTime = new Date(endTime.getTime() - periodHours * 60 * 60 * 1000)
   const period = periodHours <= 3 ? 60 : periodHours <= 24 ? 300 : 3600
@@ -251,7 +245,7 @@ export async function getEc2MetricSeries(
   connection: AwsConnection,
   instanceId: string
 ): Promise<CloudWatchMetricSeries[]> {
-  const client = createCloudWatchClient(connection)
+  const client = getAwsClient(CloudWatchClient, connection)
   const endTime = new Date()
   const startTime = new Date(endTime.getTime() - 12 * 60 * 60 * 1000)
 
@@ -287,7 +281,7 @@ export async function getEc2MetricSeries(
 }
 
 export async function listCloudWatchLogGroups(connection: AwsConnection): Promise<CloudWatchLogGroupSummary[]> {
-  const client = createLogsClient(connection)
+  const client = getAwsClient(CloudWatchLogsClient, connection)
   const groups: CloudWatchLogGroupSummary[] = []
   let nextToken: string | undefined
 
@@ -320,7 +314,7 @@ export async function listRecentLogEvents(
   logGroupName: string,
   periodHours = 24
 ): Promise<CloudWatchLogEventSummary[]> {
-  const client = createLogsClient(connection)
+  const client = getAwsClient(CloudWatchLogsClient, connection)
   const output = await client.send(
     new FilterLogEventsCommand({
       logGroupName,
@@ -359,7 +353,7 @@ export async function executeCloudWatchQuery(
 
   const startTimeMs = Math.max(0, Math.min(input.startTimeMs, input.endTimeMs))
   const endTimeMs = Math.max(startTimeMs, input.endTimeMs)
-  const client = createLogsClient(connection)
+  const client = getAwsClient(CloudWatchLogsClient, connection)
 
   const startedAt = new Date().toISOString()
   const started = await client.send(

@@ -11,6 +11,7 @@ import {
   assumeSavedRoleTarget,
   deleteAssumeRoleTarget,
   deleteSession,
+  getAssumedSessionCredentials,
   listSessionHubState,
   refreshAssumedSession,
   saveAssumeRoleTarget
@@ -42,6 +43,9 @@ export function registerAwsIpcHandlers(): void {
   )
   ipcMain.handle('session-hub:assume-target', async (_event, targetId: string) =>
     wrap(() => assumeSavedRoleTarget(targetId))
+  )
+  ipcMain.handle('aws:sts:get-session-credentials', async (_event, sessionId: string) =>
+    wrap(() => getAssumedSessionCredentials(sessionId))
   )
   ipcMain.handle('sts:get-caller-identity', async (_event, connection: AwsConnection) =>
     wrap(() => getCallerIdentity(connection))

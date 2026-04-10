@@ -2,6 +2,46 @@
   gap: 14px;
 }
 
+.gcp-compliance-center .compliance-shell-hero::after {
+  background:
+    linear-gradient(115deg, rgba(55, 184, 113, 0.12), transparent 38%),
+    linear-gradient(180deg, transparent 60%, rgba(125, 211, 252, 0.08));
+}
+
+.gcp-compliance-center .compliance-overview-tile.highlight,
+.gcp-compliance-center .tf-shell-stat-card-accent {
+  background:
+    radial-gradient(circle at top right, rgba(55, 184, 113, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(22, 45, 35, 0.96), rgba(10, 24, 18, 0.96));
+}
+
+.azure-compliance-center .compliance-shell-hero::after {
+  background:
+    linear-gradient(115deg, rgba(56, 136, 216, 0.14), transparent 38%),
+    linear-gradient(180deg, transparent 60%, rgba(100, 160, 240, 0.08));
+}
+
+.azure-compliance-center .compliance-overview-tile.highlight,
+.azure-compliance-center .tf-shell-stat-card-accent {
+  background:
+    radial-gradient(circle at top right, rgba(56, 136, 216, 0.2), transparent 42%),
+    linear-gradient(180deg, rgba(18, 32, 52, 0.96), rgba(10, 18, 30, 0.96));
+}
+
+.azure-compliance-center .compliance-category-chip.active {
+  background:
+    radial-gradient(circle at top right, rgba(56, 136, 216, 0.12), transparent 40%),
+    linear-gradient(180deg, rgba(18, 30, 46, 0.96), rgba(10, 18, 28, 0.96));
+}
+
+.azure-compliance-center .compliance-category-chip.active span {
+  color: #8bc4f6;
+}
+
+.azure-compliance-center .compliance-collapse-button:hover {
+  border-color: rgba(56, 136, 216, 0.36);
+}
+
 .compliance-shell-hero {
   grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.92fr);
 }

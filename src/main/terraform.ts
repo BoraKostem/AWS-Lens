@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { spawn, execFile, execFileSync } from 'node:child_process'
+import { spawn, execFile, execFileSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
 
 import { app, type BrowserWindow } from 'electron'
 
@@ -38,7 +38,6 @@ import type {
   TerraformProjectMetadata,
   TerraformProjectStatus,
   TerraformSavedPlanMetadata,
-  TerraformBackendHealth,
   TerraformResolvedRuntimeInputs,
   TerraformResourceInventoryItem,
   TerraformResourceRow,
@@ -60,8 +59,10 @@ import { getResolvedProcessEnv, resolveExecutablePath } from './shell'
 import { getConnectionEnv } from './sessionHub'
 import { saveRunRecord, updateRunRecord, redactArgs } from './terraformHistoryStore'
 import { invalidateTerraformDriftReports } from './terraformDrift'
+import { buildTerraformDiagram } from './terraformDiagramParser'
 import type { TerraformRunRecord } from '@shared/types'
 import { getPreferredTerraformCliKindSetting, listToolCommandCandidates } from './toolchain'
+import { readAzureFoundationStore } from './azureFoundationStore'
 
 /* ── Stored project shape (persistence) ───────────────────── */
 
@@ -86,10 +87,21 @@ const PLAN_FILE = '.terraform-workspace.tfplan'
 const PLAN_METADATA_FILE = '.terraform-workspace.tfplan.meta.json'
 const STATE_CACHE_FILE = '.terraform-workspace.state.json'
 const STATE_BACKUP_LIMIT = 20
+const COMMAND_LOG_CAP_PER_PROJECT = 100
 
 const commandLogs = new Map<string, TerraformCommandLog[]>()
 const savedPlanPaths = new Map<string, string>()
 const activeDestructiveCommands = new Map<string, 'apply' | 'destroy'>()
+const activeTerraformRuns = new Map<string, ActiveTerraformRun>()
+
+type ActiveTerraformRun = {
+  projectId: string
+  logId: string
+  command: TerraformCommandRequest['command']
+  child: ChildProcessWithoutNullStreams | null
+  cancelRequested: boolean
+  cancelMessage: string
+}
 
 /* ── Helpers ──────────────────────────────────────────────── */
 
@@ -113,19 +125,19 @@ function listTerraformFiles(rootPath: string): string[] {
 }
 
 function managedInputsPath(rootPath: string): string {
-  return path.join(rootPath, INPUTS_FILE)
+  return path.join(path.resolve(rootPath), INPUTS_FILE)
 }
 
 function temporaryStateVarFilePath(rootPath: string): string {
-  return path.join(rootPath, 'terraform.tfvars.json')
+  return path.join(path.resolve(rootPath), 'terraform.tfvars.json')
 }
 
 function stateCachePath(rootPath: string): string {
-  return path.join(rootPath, STATE_CACHE_FILE)
+  return path.join(path.resolve(rootPath), STATE_CACHE_FILE)
 }
 
 function planPath(rootPath: string): string {
-  return path.join(rootPath, PLAN_FILE)
+  return path.join(path.resolve(rootPath), PLAN_FILE)
 }
 
 function planJsonPath(rootPath: string): string {
@@ -144,8 +156,45 @@ function hasSavedPlanArtifacts(rootPath: string): boolean {
   return fs.existsSync(planPath(rootPath)) && fs.existsSync(planJsonPath(rootPath))
 }
 
+const ANSI_ESCAPE_RE = /\x1b\[[0-9;]*m/g
+
 function stripAnsi(text: string): string {
-  return text.replace(/\x1b\[[0-9;]*m/g, '')
+  return text.replace(ANSI_ESCAPE_RE, '')
+}
+
+class TerraformCommandCancelledError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'TerraformCommandCancelledError'
+  }
+}
+
+function buildCancelledMessage(command: TerraformCommandRequest['command']): string {
+  return `Terraform ${command} cancelled by operator.`
+}
+
+function terminateChildProcess(child: ChildProcessWithoutNullStreams | null): void {
+  if (!child) return
+
+  if (process.platform === 'win32' && child.pid) {
+    try {
+      // Wait for the kill command to exit so we know the process tree is gone before we proceed.
+      execFileSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
+        windowsHide: true,
+        stdio: 'ignore',
+        shell: false
+      })
+      return
+    } catch {
+      /* fall back to direct kill */
+    }
+  }
+
+  try {
+    child.kill()
+  } catch {
+    /* ignore kill failures */
+  }
 }
 
 function terraformCommand(): string {
@@ -156,8 +205,34 @@ function terraformCliLabel(): string {
   return cachedCli?.label || 'Terraform'
 }
 
+function inferTerraformProviderId(
+  profileName: string,
+  connection?: AwsConnection
+): 'aws' | 'gcp' | 'azure' | 'local' {
+  if (connection?.providerId === 'gcp' || profileName.startsWith('provider:gcp:terraform:')) return 'gcp'
+  if (connection?.providerId === 'azure' || profileName.startsWith('provider:azure:terraform:')) return 'azure'
+  if (connection?.providerId === 'aws' || profileName.startsWith('profile:') || profileName.startsWith('assumed-role:')) return 'aws'
+  return 'local'
+}
+
+function parseScopedTerraformProfileName(
+  profileName: string
+): { providerId: 'gcp' | 'azure'; scopeId: string; location: string } | null {
+  const match = profileName.match(/^provider:(gcp|azure):terraform:([^:]+):(.+)$/)
+  if (!match) return null
+  return {
+    providerId: match[1] as 'gcp' | 'azure',
+    scopeId: match[2] === 'unscoped' ? '' : match[2],
+    location: match[3] === 'global' ? '' : match[3]
+  }
+}
+
 function displayConnectionLabel(profileName: string, connection?: AwsConnection): string {
   if (connection?.label) return connection.label
+  const scopedProfile = parseScopedTerraformProfileName(profileName)
+  if (scopedProfile) {
+    return [scopedProfile.scopeId, scopedProfile.location].filter(Boolean).join(' | ')
+  }
   if (profileName.startsWith('profile:')) return profileName.slice('profile:'.length)
   return ''
 }
@@ -612,11 +687,15 @@ function parseWorkspaceList(output: string, currentWorkspace: string): Terraform
   return [...names.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
-function readWorkspaceSnapshot(project: StoredProject, connection?: AwsConnection): { currentWorkspace: string; workspaces: TerraformWorkspaceSummary[] } {
+function readWorkspaceSnapshot(
+  profileName: string,
+  project: StoredProject,
+  connection?: AwsConnection
+): { currentWorkspace: string; workspaces: TerraformWorkspaceSummary[] } {
   const fallback = fallbackWorkspaceSnapshot(project.rootPath)
 
   try {
-    const env = buildEnvWithVars(project, connection)
+    const env = buildEnvWithVars(project, profileName, connection)
     const currentWorkspace = stripAnsi(execFileSync(terraformCommand(), ['workspace', 'show'], {
       cwd: project.rootPath,
       env,
@@ -659,22 +738,35 @@ type ParsedNamedBlock = {
   body: string
 }
 
+const RESOURCE_REFERENCE_PATTERN = '(?:module\\.[\\w-]+\\.)*(?:data\\.)?[a-z][\\w-]*_[\\w-]+\\.[\\w-]+'
+const RESOURCE_REFERENCE_RE = new RegExp(RESOURCE_REFERENCE_PATTERN, 'g')
+const LEADING_RESOURCE_REFERENCE_RE = new RegExp(`^${RESOURCE_REFERENCE_PATTERN}`)
+
 function prefixAddress(modulePath: string, address: string): string {
   return modulePath ? `${modulePath}.${address}` : address
 }
 
 function normalizeConfigReference(reference: string, modulePath: string): string {
   if (!reference) return ''
-  if (reference.startsWith('module.') || reference.startsWith('var.') || reference.startsWith('local.') || reference.startsWith('path.')) {
-    return reference
+  const trimmed = reference.trim()
+  if (
+    trimmed.startsWith('var.')
+    || trimmed.startsWith('local.')
+    || trimmed.startsWith('path.')
+    || trimmed.startsWith('terraform.')
+    || trimmed.startsWith('provider.')
+    || trimmed.startsWith('count.')
+    || trimmed.startsWith('each.')
+    || trimmed.startsWith('self.')
+  ) {
+    return ''
   }
-  if (reference.startsWith('data.')) {
-    return prefixAddress(modulePath, reference)
+  const resourceReference = trimmed.match(LEADING_RESOURCE_REFERENCE_RE)?.[0] ?? ''
+  if (!resourceReference) return ''
+  if (resourceReference.startsWith('module.')) {
+    return resourceReference
   }
-  if (/^aws_[\w-]+\.[\w-]+$/.test(reference)) {
-    return prefixAddress(modulePath, reference)
-  }
-  return reference
+  return prefixAddress(modulePath, resourceReference)
 }
 
 function parseNamedBlocks(combined: string): ParsedNamedBlock[] {
@@ -773,11 +865,11 @@ function buildConfigEdges(blocks: ConfigBlock[]): TerraformGraphEdge[] {
       }
     }
     // Detect references like aws_vpc.main, data.aws_ami.latest
-    const refRe = /(?:data\.)?aws_[\w]+\.[\w]+/g
+    const refRe = new RegExp(RESOURCE_REFERENCE_RE)
     let refMatch: RegExpExecArray | null
     while ((refMatch = refRe.exec(block.body)) !== null) {
       const ref = normalizeConfigReference(refMatch[0], block.modulePath)
-      if (ref !== address && !ref.startsWith(address + '.')) {
+      if (ref && ref !== address && !ref.startsWith(address + '.')) {
         const key = `${ref}->${address}`
         if (!edgeSet.has(key)) { edgeSet.add(key); edges.push({ from: ref, to: address, relation: 'reference' }) }
       }
@@ -788,13 +880,92 @@ function buildConfigEdges(blocks: ConfigBlock[]): TerraformGraphEdge[] {
 
 /* ── Dynamic Identity Inference for Graph Edges ───────────── */
 
-const IDENTITY_KEYS = ['id', 'arn', 'name', 'bucket', 'cluster_identifier', 'db_instance_identifier']
+const IDENTITY_KEYS = ['id', 'arn', 'name', 'bucket', 'cluster_identifier', 'db_instance_identifier', 'self_link', 'email']
 const REFERENCE_KEYS = [
   'vpc_id', 'subnet_id', 'security_group_id', 'role_arn', 'instance_id', 'cluster_name',
   'target_group_arn', 'load_balancer_arn', 'log_group_name', 'kms_key_id', 'certificate_arn',
-  'hosted_zone_id', 'db_subnet_group_name', 'execution_role_arn', 'task_role_arn'
+  'hosted_zone_id', 'db_subnet_group_name', 'execution_role_arn', 'task_role_arn',
+  'network', 'subnetwork', 'router', 'instance', 'cluster'
 ]
-const PLURAL_REFERENCE_KEYS = ['subnet_ids', 'security_group_ids', 'security_groups', 'vpc_security_group_ids']
+const PLURAL_REFERENCE_KEYS = ['subnet_ids', 'security_group_ids', 'security_groups', 'vpc_security_group_ids', 'reserved_peering_ranges']
+
+function collectExpressionReferences(value: unknown, sink: Set<string>): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectExpressionReferences(item, sink)
+    return
+  }
+  if (!value || typeof value !== 'object') return
+  const record = value as Record<string, unknown>
+  if (Array.isArray(record.references)) {
+    for (const item of record.references) {
+      if (typeof item === 'string' && item.trim()) sink.add(item.trim())
+    }
+  }
+  for (const nested of Object.values(record)) {
+    collectExpressionReferences(nested, sink)
+  }
+}
+
+function buildPlanConfigEdges(rootPath: string): TerraformGraphEdge[] {
+  const plan = parseJsonFile<Record<string, unknown> | null>(planJsonPath(rootPath), null)
+  const configuration = plan?.configuration
+  if (!configuration || typeof configuration !== 'object') return []
+  const rootModule = (configuration as Record<string, unknown>).root_module
+  if (!rootModule || typeof rootModule !== 'object') return []
+
+  const edges: TerraformGraphEdge[] = []
+  const edgeSet = new Set<string>()
+
+  function addEdge(from: string, to: string): void {
+    if (!from || !to || from === to || from.startsWith(`${to}.`)) return
+    const key = `${from}->${to}`
+    if (!edgeSet.has(key)) {
+      edgeSet.add(key)
+      edges.push({ from, to, relation: 'reference' })
+    }
+  }
+
+  function walkModule(moduleNode: Record<string, unknown>, modulePath: string): void {
+    const resources = Array.isArray(moduleNode.resources) ? moduleNode.resources : []
+    for (const entry of resources) {
+      const resource = entry as Record<string, unknown>
+      const localAddress = typeof resource.address === 'string' ? resource.address : ''
+      if (!localAddress) continue
+      const address = prefixAddress(modulePath, localAddress)
+      const refs = new Set<string>()
+      collectExpressionReferences(resource.expressions, refs)
+      const dependsOn = Array.isArray(resource.depends_on)
+        ? resource.depends_on.filter((value): value is string => typeof value === 'string')
+        : []
+      for (const rawRef of [...refs, ...dependsOn]) {
+        const normalized = normalizeConfigReference(rawRef, modulePath)
+        if (normalized) addEdge(normalized, address)
+      }
+    }
+
+    const moduleCalls = moduleNode.module_calls
+    if (!moduleCalls || typeof moduleCalls !== 'object') return
+    for (const [moduleName, entry] of Object.entries(moduleCalls as Record<string, unknown>)) {
+      if (!entry || typeof entry !== 'object') continue
+      const childModule = (entry as Record<string, unknown>).module
+      if (!childModule || typeof childModule !== 'object') continue
+      walkModule(childModule as Record<string, unknown>, prefixAddress(modulePath, `module.${moduleName}`))
+    }
+  }
+
+  walkModule(rootModule as Record<string, unknown>, '')
+  return edges
+}
+
+function buildDiagramNodeLabel(address: string): string {
+  const moduleSegments = [...address.matchAll(/module\.([\w-]+)/g)].map((match) => match[1])
+  const moduleLabel = moduleSegments.length > 0 ? moduleSegments[moduleSegments.length - 1] : ''
+  const resourceReference = address.match(LEADING_RESOURCE_REFERENCE_RE)?.[0] ?? ''
+  const baseLabel = resourceReference || address
+  const suffix = resourceReference ? address.slice(address.indexOf(resourceReference) + resourceReference.length) : ''
+  const withModule = moduleLabel ? `${moduleLabel} / ${baseLabel}${suffix}` : `${baseLabel}${suffix}`
+  return withModule.length > 54 ? `${withModule.slice(0, 26)}...${withModule.slice(-24)}` : withModule
+}
 
 function inferDynamicEdges(inventory: TerraformResourceInventoryItem[]): TerraformGraphEdge[] {
   const identityIndex = new Map<string, string>() // value -> address
@@ -1446,79 +1617,6 @@ function readStateLockInfo(rootPath: string, backendType: string): TerraformStat
   }
 }
 
-function buildBackendHealth(metadata: TerraformProjectMetadata, lockInfo: TerraformStateLockInfo | null): TerraformBackendHealth {
-  const details: string[] = []
-  const backend = metadata.backend
-
-  if (backend.type === 'local' && 'stateLocation' in backend) {
-    details.push(`State path: ${backend.stateLocation}`)
-  } else if (backend.type === 's3' && 'bucket' in backend && 'effectiveStateKey' in backend && 'region' in backend) {
-    details.push(`Bucket: ${backend.bucket}`)
-    details.push(`State key: ${backend.effectiveStateKey}`)
-    details.push(`Region: ${backend.region || '(not set in backend config)'}`)
-  } else {
-    details.push(`Backend detail: ${backend.label}`)
-  }
-
-  if (lockInfo?.infoPath) {
-    details.push(`Lock metadata file: ${lockInfo.infoPath}`)
-  }
-  if (lockInfo?.message) {
-    details.push(lockInfo.message)
-  }
-
-  if (backend.type === 's3' && !metadata.s3Backend) {
-    return {
-      status: 'error',
-      summary: 'S3 backend declared but configuration could not be parsed.',
-      details,
-      lockVisibility: 'limited',
-      lockSummary: 'Remote lock inspection is limited without readable backend details.'
-    }
-  }
-
-  if (lockInfo?.message === 'Lock metadata exists but could not be parsed.') {
-    return {
-      status: 'warning',
-      summary: 'Backend is configured, but lock metadata could not be parsed.',
-      details,
-      lockVisibility: 'parse_error',
-      lockSummary: 'A lock info file exists, but its contents were unreadable.'
-    }
-  }
-
-  if (lockInfo?.lockId) {
-    return {
-      status: 'warning',
-      summary: 'Backend is reachable and a Terraform lock is currently detectable.',
-      details,
-      lockVisibility: 'detected',
-      lockSummary: `Lock ${lockInfo.lockId} is present${lockInfo.operation ? ` for ${lockInfo.operation}` : ''}.`
-    }
-  }
-
-  if (backend.type === 's3' && 'region' in backend) {
-    const regionMissing = !backend.region.trim()
-    return {
-      status: regionMissing ? 'warning' : 'limited',
-      summary: regionMissing
-        ? 'S3 backend is configured, but backend region is missing from config.'
-        : 'S3 backend is configured. Remote lock visibility remains limited unless Terraform leaves local lock metadata.',
-      details,
-      lockVisibility: 'limited',
-      lockSummary: 'Remote backend locks are not directly inspectable here unless Terraform wrote a local lock info file.'
-    }
-  }
-
-  return {
-    status: 'healthy',
-    summary: 'Backend is configured and no active local lock was detected.',
-    details,
-    lockVisibility: 'not_detected',
-    lockSummary: 'No lock metadata is present.'
-  }
-}
-
 function readPlanSnapshot(rootPath: string): {
   planChanges: TerraformPlanChange[]
   lastPlanSummary: TerraformPlanSummary
@@ -1622,7 +1720,11 @@ function resourceCategory(type: string): string {
 }
 
 function extractArn(values: Record<string, unknown>): string {
-  return typeof values.arn === 'string' ? values.arn : ''
+  if (typeof values.arn === 'string' && values.arn) return values.arn
+  if (typeof values.id === 'string' && values.id) return values.id
+  if (typeof values.self_link === 'string' && values.self_link) return values.self_link
+  if (typeof values.resource_id === 'string' && values.resource_id) return values.resource_id
+  return ''
 }
 
 function extractRegion(values: Record<string, unknown>): string {
@@ -1632,6 +1734,8 @@ function extractRegion(values: Record<string, unknown>): string {
     if (parts.length >= 4 && parts[3]) return parts[3]
   }
   if (typeof values.region === 'string' && values.region) return values.region
+  if (typeof values.location === 'string' && values.location) return values.location
+  if (typeof values.primary_location === 'string' && values.primary_location) return values.primary_location
   if (typeof values.availability_zone === 'string' && values.availability_zone) {
     return values.availability_zone.replace(/[a-z]$/, '')
   }
@@ -1695,10 +1799,10 @@ function buildDiagram(
 
   // Nodes from inventory
   for (const item of inventory) {
-    nodeMap.set(item.address, { id: item.address, label: item.address, category: item.type || 'resource' })
+    nodeMap.set(item.address, { id: item.address, label: buildDiagramNodeLabel(item.address), category: item.type || 'resource' })
     for (const dep of item.dependsOn) {
       addEdge({ from: dep, to: item.address, relation: 'depends_on' })
-      if (!nodeMap.has(dep)) nodeMap.set(dep, { id: dep, label: dep, category: 'dependency' })
+      if (!nodeMap.has(dep)) nodeMap.set(dep, { id: dep, label: buildDiagramNodeLabel(dep), category: 'dependency' })
     }
   }
 
@@ -1706,7 +1810,7 @@ function buildDiagram(
   for (const change of changes) {
     nodeMap.set(change.address, {
       id: change.address,
-      label: `${change.address} (${change.actionLabel})`,
+      label: buildDiagramNodeLabel(change.address),
       category: change.actionLabel
     })
   }
@@ -1715,8 +1819,16 @@ function buildDiagram(
   const configBlocks = parseConfigBlocks(rootPath)
   for (const edge of buildConfigEdges(configBlocks)) {
     addEdge(edge)
-    if (!nodeMap.has(edge.from)) nodeMap.set(edge.from, { id: edge.from, label: edge.from, category: 'config' })
-    if (!nodeMap.has(edge.to)) nodeMap.set(edge.to, { id: edge.to, label: edge.to, category: 'config' })
+    if (!nodeMap.has(edge.from)) nodeMap.set(edge.from, { id: edge.from, label: buildDiagramNodeLabel(edge.from), category: 'config' })
+    if (!nodeMap.has(edge.to)) nodeMap.set(edge.to, { id: edge.to, label: buildDiagramNodeLabel(edge.to), category: 'config' })
+  }
+
+  // Saved plan configuration edges capture provider references that do not
+  // survive cleanly in state snapshots, especially in Google modules.
+  for (const edge of buildPlanConfigEdges(rootPath)) {
+    addEdge(edge)
+    if (!nodeMap.has(edge.from)) nodeMap.set(edge.from, { id: edge.from, label: buildDiagramNodeLabel(edge.from), category: 'config' })
+    if (!nodeMap.has(edge.to)) nodeMap.set(edge.to, { id: edge.to, label: buildDiagramNodeLabel(edge.to), category: 'config' })
   }
 
   // Dynamic inference edges
@@ -2181,7 +2293,12 @@ async function validateRuntimeInputs(project: StoredProject, connection?: AwsCon
   }
 }
 
-function buildEnvWithVars(project: StoredProject, connection?: AwsConnection, runtimeInputs?: TerraformResolvedRuntimeInputs): Record<string, string> {
+function buildEnvWithVars(
+  project: StoredProject,
+  profileName: string,
+  connection?: AwsConnection,
+  runtimeInputs?: TerraformResolvedRuntimeInputs
+): Record<string, string> {
   const env: Record<string, string> = { ...process.env as Record<string, string> }
   env.CHECKPOINT_DISABLE = '1'
   env.TF_IN_AUTOMATION = '1'
@@ -2193,23 +2310,42 @@ function buildEnvWithVars(project: StoredProject, connection?: AwsConnection, ru
     if (!fs.existsSync(cliConfigPath)) fs.writeFileSync(cliConfigPath, '', 'utf-8')
   } catch { /* ok */ }
   env.TF_CLI_CONFIG_FILE = cliConfigPath
-  if (process.platform === 'win32') {
-    env.APPDATA = tmpDir
-  } else {
-    env.XDG_CONFIG_HOME = tmpDir
+
+  // Keep the user's native config directories intact so provider CLIs can
+  // still discover credentials like GCP ADC under gcloud's default paths.
+  if (!env.GOOGLE_APPLICATION_CREDENTIALS) {
+    const adcPath = process.platform === 'win32'
+      ? path.join(process.env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming'), 'gcloud', 'application_default_credentials.json')
+      : path.join(process.env.HOME ?? os.homedir(), '.config', 'gcloud', 'application_default_credentials.json')
+    if (fs.existsSync(adcPath)) {
+      env.GOOGLE_APPLICATION_CREDENTIALS = adcPath
+    }
   }
+
   const inputs = runtimeInputs?.values ?? readPersistedInputValues(project)
   for (const [key, value] of Object.entries(inputs)) {
     if (typeof value === 'string') env[`TF_VAR_${key}`] = value
     else env[`TF_VAR_${key}`] = JSON.stringify(value)
   }
 
-  if (connection) {
+  const providerId = inferTerraformProviderId(profileName, connection)
+
+  if (providerId === 'aws' && connection) {
     delete env.AWS_PROFILE
     delete env.AWS_ACCESS_KEY_ID
     delete env.AWS_SECRET_ACCESS_KEY
     delete env.AWS_SESSION_TOKEN
     Object.assign(env, getConnectionEnv(connection))
+  } else if (providerId === 'azure') {
+    const azureStore = readAzureFoundationStore()
+    const subscriptionId = azureStore.activeSubscriptionId.trim()
+    const tenantId = azureStore.activeTenantId.trim()
+    const location = connection?.region || project.environment?.region || azureStore.activeLocation.trim()
+
+    if (subscriptionId) env.ARM_SUBSCRIPTION_ID = subscriptionId
+    if (tenantId) env.ARM_TENANT_ID = tenantId
+    if (location) env.ARM_LOCATION = location
+    env.ARM_USE_CLI = 'true'
   }
 
   return env
@@ -2277,12 +2413,12 @@ function writeTemporaryVarFile(rootPath: string, values: Record<string, unknown>
 
   const tempDir = path.join(os.tmpdir(), 'terraform-workspace-runtime-inputs')
   try {
-    fs.mkdirSync(tempDir, { recursive: true })
+    fs.mkdirSync(tempDir, { recursive: true, mode: 0o700 })
   } catch {
     /* ok */
   }
   const filePath = path.join(tempDir, `${path.basename(rootPath)}.${suffix}.${randomUUID()}.tfvars.json`)
-  fs.writeFileSync(filePath, JSON.stringify(values, null, 2) + '\n', 'utf-8')
+  fs.writeFileSync(filePath, JSON.stringify(values, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 })
   return {
     filePath,
     cleanup: () => {
@@ -2302,7 +2438,7 @@ function prepareStateCommandVarFile(project: StoredProject, runtimeInputs?: Terr
   }
 
   const tempPath = temporaryStateVarFilePath(project.rootPath)
-  const backupPath = `${tempPath}.aws-lens-backup`
+  const backupPath = `${tempPath}.infra-lens-backup`
   const hadExistingFile = fs.existsSync(tempPath)
 
   if (hadExistingFile) {
@@ -2337,20 +2473,42 @@ async function runChildProcess(
     timeoutMs?: number
     operationName?: string
     context?: Record<string, unknown>
+    activeRun?: ActiveTerraformRun
   } = {}
 ): Promise<{ output: string; exitCode: number }> {
   return await executeOperation(
     options.operationName ?? 'terraform.child-process',
     async () => await new Promise((resolve, reject) => {
       const child = spawn(command, args, { cwd, env, shell: false, windowsHide: true })
+      if (options.activeRun) {
+        options.activeRun.child = child
+        if (options.activeRun.cancelRequested) {
+          terminateChildProcess(child)
+        }
+      }
       let output = ''
       let timedOut = false
+      let settled = false
       const timer = options.timeoutMs && options.timeoutMs > 0
         ? setTimeout(() => {
             timedOut = true
-            child.kill()
+            terminateChildProcess(child)
           }, options.timeoutMs)
         : null
+
+      function rejectOnce(error: Error): void {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        reject(error)
+      }
+
+      function resolveOnce(result: { output: string; exitCode: number }): void {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        resolve(result)
+      }
 
       child.stdout.on('data', (buf) => {
         const chunk = buf.toString()
@@ -2365,18 +2523,25 @@ async function runChildProcess(
       })
 
       child.on('error', (err) => {
-        if (timer) clearTimeout(timer)
-        reject(err)
+        if (options.activeRun?.cancelRequested) {
+          rejectOnce(new TerraformCommandCancelledError(options.activeRun.cancelMessage || buildCancelledMessage(options.activeRun.command)))
+          return
+        }
+        rejectOnce(err)
       })
 
       child.on('close', (code) => {
-        if (timer) clearTimeout(timer)
         if (timedOut) {
-          reject(new OperationTimeoutError(`${command} ${args.join(' ')} timed out after ${options.timeoutMs}ms.`))
+          rejectOnce(new OperationTimeoutError(`${command} ${args.join(' ')} timed out after ${options.timeoutMs}ms.`))
           return
         }
 
-        resolve({ output, exitCode: code ?? -1 })
+        if (options.activeRun?.cancelRequested) {
+          rejectOnce(new TerraformCommandCancelledError(options.activeRun.cancelMessage || buildCancelledMessage(options.activeRun.command)))
+          return
+        }
+
+        resolveOnce({ output, exitCode: code ?? -1 })
       })
     }),
     {
@@ -2409,7 +2574,6 @@ function loadProject(project: StoredProject, profileName = '', connection?: AwsC
       resourceCount: 0, moduleCount: 0, variableCount: 0, outputsCount: 0, tfFileCount: 0,
       lastScannedAt: '', s3Backend: null
     }
-    const backendHealth = buildBackendHealth(emptyMeta, null)
     const currentWorkspace = project.environment?.workspaceName || 'default'
     const inputConfig = normalizeInputConfig(project)
     const inputValidation = { valid: true, missing: [], unresolvedSecrets: [] }
@@ -2441,7 +2605,6 @@ function loadProject(project: StoredProject, profileName = '', connection?: AwsC
       stateAddresses: [], rawStateJson: '', stateSource: 'none',
       stateBackups,
       latestStateBackup: stateBackups[0] ?? null,
-      backendHealth,
       stateLockInfo: null,
       hasSavedPlan: savedPlanPaths.has(project.id) || hasSavedPlanArtifacts(project.rootPath),
       savedPlanMetadata: readPlanMetadata(project.rootPath)
@@ -2449,17 +2612,16 @@ function loadProject(project: StoredProject, profileName = '', connection?: AwsC
   }
 
   const { metadata, variables } = inferMetadata(project.rootPath)
-  const { currentWorkspace, workspaces } = readWorkspaceSnapshot(project, connection)
+  const { currentWorkspace, workspaces } = readWorkspaceSnapshot(profileName, project, connection)
   const inputs = parseJsonFile<Record<string, unknown>>(managedInputsPath(project.rootPath), {})
   const { inventory, stateAddresses, rawStateJson, stateSource } = readStateSnapshot(project.rootPath)
   const { planChanges, lastPlanSummary } = readPlanSnapshot(project.rootPath)
   const actionRows = buildActionRows(planChanges, inventory)
   const resourceRows = buildResourceRows(inventory)
-  const diagram = buildDiagram(inventory, planChanges, project.rootPath)
+  const diagram = buildTerraformDiagram(inventory, planChanges, project.rootPath)
   const environment = buildEnvironmentMetadata(project, profileName, connection, metadata, currentWorkspace, inventory)
   const stateBackups = listStateBackups(project.id)
   const stateLockInfo = readStateLockInfo(project.rootPath, metadata.backendType)
-  const backendHealth = buildBackendHealth(metadata, stateLockInfo)
   const inputConfig = normalizeInputConfig(project)
   const inputView = buildProjectInputsView(project, variables)
   const inputValidation = buildStoredInputValidation(project, variables)
@@ -2481,7 +2643,6 @@ function loadProject(project: StoredProject, profileName = '', connection?: AwsC
     stateAddresses, rawStateJson, stateSource,
     stateBackups,
     latestStateBackup: stateBackups[0] ?? null,
-    backendHealth,
     stateLockInfo,
     hasSavedPlan: savedPlanPaths.has(project.id) || hasSavedPlanArtifacts(project.rootPath),
     savedPlanMetadata: readPlanMetadata(project.rootPath)
@@ -2517,11 +2678,12 @@ function validateWorkspaceName(workspaceName: string): string {
 }
 
 async function runWorkspaceCommand(
+  profileName: string,
   project: StoredProject,
   args: string[],
   connection?: AwsConnection
 ): Promise<void> {
-  const env = buildEnvWithVars(project, connection)
+  const env = buildEnvWithVars(project, profileName, connection)
   const result = await runChildProcess(project.rootPath, terraformCommand(), args, env)
   if (result.exitCode !== 0) {
     throw new Error(stripAnsi(result.output).trim() || `Terraform ${args.join(' ')} failed.`)
@@ -2636,7 +2798,7 @@ export async function selectProjectWorkspace(
   const project = getStoredProjects(profileName).find((item) => item.id === projectId)
   if (!project) throw new Error('Project not found.')
   const target = validateWorkspaceName(workspaceName)
-  await runWorkspaceCommand(project, ['workspace', 'select', target], connection)
+  await runWorkspaceCommand(profileName, project, ['workspace', 'select', target], connection)
   clearStateCache(project.rootPath)
   syncStoredProjectEnvironment(profileName, projectId, {
     environmentLabel: inferEnvironmentLabel(target),
@@ -2658,7 +2820,7 @@ export async function createProjectWorkspace(
   const project = getStoredProjects(profileName).find((item) => item.id === projectId)
   if (!project) throw new Error('Project not found.')
   const target = validateWorkspaceName(workspaceName)
-  await runWorkspaceCommand(project, ['workspace', 'new', target], connection)
+  await runWorkspaceCommand(profileName, project, ['workspace', 'new', target], connection)
   clearStateCache(project.rootPath)
   return getProject(profileName, projectId, connection)
 }
@@ -2675,11 +2837,11 @@ export async function deleteProjectWorkspace(
   if (target === 'default') {
     throw new Error('The default workspace cannot be deleted.')
   }
-  const snapshot = readWorkspaceSnapshot(project, connection)
+  const snapshot = readWorkspaceSnapshot(profileName, project, connection)
   if (snapshot.currentWorkspace === target) {
     throw new Error('Select a different workspace before deleting the current workspace.')
   }
-  await runWorkspaceCommand(project, ['workspace', 'delete', target], connection)
+  await runWorkspaceCommand(profileName, project, ['workspace', 'delete', target], connection)
   clearStateCache(project.rootPath)
   return getProject(profileName, projectId, connection)
 }
@@ -2756,7 +2918,7 @@ export { cloudTrailServiceForType }
 function pushLog(projectId: string, log: TerraformCommandLog): void {
   const logs = commandLogs.get(projectId) ?? []
   logs.unshift(log)
-  commandLogs.set(projectId, logs.slice(0, 24))
+  commandLogs.set(projectId, logs.slice(0, COMMAND_LOG_CAP_PER_PROJECT))
 }
 
 async function runTerraformShowJson(rootPath: string, planPath: string, env: Record<string, string>): Promise<void> {
@@ -2942,13 +3104,13 @@ export async function runProjectCommand(
     ? writeTemporaryVarFile(project.rootPath, runtimeInputs?.secretNames.length ? runtimeInputs.values : {}, 'runtime-inputs')
     : null
   const args = buildArgs(request, project, runtimeVarFile?.filePath ?? '')
-  const env = buildEnvWithVars(project, request.connection, runtimeInputs)
+    const env = buildEnvWithVars(project, request.profileName, request.connection, runtimeInputs)
   const cleanupStateVarFile = ['state-list', 'state-pull', 'state-show', 'state-mv', 'state-rm', 'force-unlock'].includes(request.command)
     ? prepareStateCommandVarFile(project, runtimeInputs)
     : null
   const gitMetadata = detectGitMetadata(project.rootPath)
   const gitCommitMetadata = toGitCommitMetadata(gitMetadata)
-  const destructiveStateOperation = request.command === 'state-mv' || request.command === 'state-rm' || request.command === 'force-unlock'
+  const stateBackupRequired = request.command === 'state-mv' || request.command === 'state-rm'
   const stateOperationSummary =
     request.command === 'import'
       ? `${request.importAddress?.trim() ?? ''} <= ${request.importId?.trim() ?? ''}`
@@ -2968,6 +3130,12 @@ export async function runProjectCommand(
 
   pushLog(request.projectId, log)
   emit(window, { type: 'started', projectId: request.projectId, log })
+
+  if (activeTerraformRuns.has(request.projectId)) {
+    throw new Error(
+      `A Terraform ${activeTerraformRuns.get(request.projectId)!.command} is already running for this project. Wait for it to finish before starting a new one.`
+    )
+  }
 
   // Persist run record to history store
   const currentWorkspace = readText(path.join(project.rootPath, '.terraform', 'environment')).trim() || 'default'
@@ -2995,6 +3163,16 @@ export async function runProjectCommand(
   }
   saveRunRecord(runRecord, '')
 
+  const activeRun: ActiveTerraformRun = {
+    projectId: request.projectId,
+    logId: log.id,
+    command: request.command,
+    child: null,
+    cancelRequested: false,
+    cancelMessage: ''
+  }
+  activeTerraformRuns.set(request.projectId, activeRun)
+
   if (request.command === 'apply' || request.command === 'destroy') {
     activeDestructiveCommands.set(request.projectId, request.command)
   }
@@ -3002,7 +3180,7 @@ export async function runProjectCommand(
   let lastProgressTime = 0
 
   try {
-    if (destructiveStateOperation) {
+    if (stateBackupRequired) {
       backupSummary = await createStateBackup(project, env)
       log.output += `[backup] Saved Terraform state backup to ${backupSummary.path}\n`
       emit(window, { type: 'output', projectId: request.projectId, logId: log.id, chunk: `[backup] Saved Terraform state backup to ${backupSummary.path}\n` })
@@ -3038,6 +3216,7 @@ export async function runProjectCommand(
     }, {
       timeoutMs: commandTimeoutMs(request.command),
       operationName: `terraform.${request.command}`,
+      activeRun,
       context: {
         projectId: request.projectId,
         projectName: project.name,
@@ -3109,9 +3288,12 @@ export async function runProjectCommand(
     return log
   } catch (error) {
     log.finishedAt = new Date().toISOString()
-    log.exitCode = -1
+    log.exitCode = error instanceof TerraformCommandCancelledError ? 130 : -1
     log.success = false
-    log.output += `\n${error instanceof Error ? error.message : String(error)}`
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    if (!log.output.includes(errorMessage)) {
+      log.output += `${log.output.endsWith('\n') || !log.output ? '' : '\n'}${errorMessage}`
+    }
     emit(window, { type: 'completed', projectId: request.projectId, log, project: getProject(request.profileName, request.projectId, request.connection) })
 
     // Update history record on error
@@ -3127,10 +3309,25 @@ export async function runProjectCommand(
   } finally {
     runtimeVarFile?.cleanup()
     cleanupStateVarFile?.()
+    const trackedRun = activeTerraformRuns.get(request.projectId)
+    if (trackedRun?.logId === log.id) {
+      activeTerraformRuns.delete(request.projectId)
+    }
     if (request.command === 'apply' || request.command === 'destroy') {
       activeDestructiveCommands.delete(request.projectId)
     }
   }
+}
+
+export function cancelProjectCommand(projectId: string): boolean {
+  const activeRun = activeTerraformRuns.get(projectId)
+  if (!activeRun) return false
+  if (activeRun.cancelRequested) return true
+
+  activeRun.cancelRequested = true
+  activeRun.cancelMessage = buildCancelledMessage(activeRun.command)
+  terminateChildProcess(activeRun.child)
+  return true
 }
 
 export function hasActiveTerraformApplyOrDestroy(): boolean {
@@ -3156,7 +3353,7 @@ export function getProjectContext(profileName: string, projectId: string, connec
   if (!project) throw new Error('Project not found.')
   return {
     rootPath: project.rootPath,
-    env: buildEnvWithVars(project, connection),
+    env: buildEnvWithVars(project, profileName, connection),
     tfCliPath: terraformCommand(),
     tfCliLabel: terraformCliLabel(),
     tfCliKind: cachedCli?.kind ?? ''
