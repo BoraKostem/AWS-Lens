@@ -17,20 +17,28 @@ function appProfileRegistryPath(): string {
   return path.join(app.getPath('userData'), 'profile-registry.json')
 }
 
+let cachedProfileRegistry: ProfileRegistry | null = null
+
 function readProfileRegistry(): ProfileRegistry {
+  if (cachedProfileRegistry) {
+    return cachedProfileRegistry
+  }
+
   const parsed = readSecureJsonFile<Partial<ProfileRegistry>>(appProfileRegistryPath(), {
     fallback: { manualProfiles: [] },
     fileLabel: 'AWS profile registry'
   })
-  return {
+  cachedProfileRegistry = {
     manualProfiles: Array.isArray(parsed.manualProfiles)
       ? parsed.manualProfiles.filter((entry): entry is string => typeof entry === 'string')
       : []
   }
+  return cachedProfileRegistry
 }
 
 function writeProfileRegistry(registry: ProfileRegistry): void {
   writeSecureJsonFile(appProfileRegistryPath(), registry, 'AWS profile registry')
+  cachedProfileRegistry = registry
 }
 
 function markProfileAsManual(profileName: string): void {
