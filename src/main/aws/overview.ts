@@ -2064,15 +2064,26 @@ export async function getRelationshipMap(connection: AwsConnection): Promise<Rel
 
   // ECS → Load Balancer link (by shared VPC presence)
   // Lambda → SNS/SQS naming convention links
+  // Build name sets for O(1) exact-match lookups, then fall back to substring only for non-exact cases
+  const topicNameSet = new Set(snsTopics.map((t) => t.name))
+  const queueNameSet = new Set(sqsQueues.map((q) => q.name))
   for (const fn of lambda.functions) {
-    for (const topic of snsTopics) {
-      if (fn.name.includes(topic.name) || topic.name.includes(fn.name)) {
-        edges.push({ source: `lambda:${fn.name}`, sourceType: 'lambda', target: `sns:${topic.name}`, targetType: 'sns', relation: 'triggers' })
+    if (topicNameSet.has(fn.name)) {
+      edges.push({ source: `lambda:${fn.name}`, sourceType: 'lambda', target: `sns:${fn.name}`, targetType: 'sns', relation: 'triggers' })
+    } else {
+      for (const topic of snsTopics) {
+        if (fn.name.includes(topic.name) || topic.name.includes(fn.name)) {
+          edges.push({ source: `lambda:${fn.name}`, sourceType: 'lambda', target: `sns:${topic.name}`, targetType: 'sns', relation: 'triggers' })
+        }
       }
     }
-    for (const queue of sqsQueues) {
-      if (fn.name.includes(queue.name) || queue.name.includes(fn.name)) {
-        edges.push({ source: `sqs:${queue.name}`, sourceType: 'sqs', target: `lambda:${fn.name}`, targetType: 'lambda', relation: 'triggers' })
+    if (queueNameSet.has(fn.name)) {
+      edges.push({ source: `sqs:${fn.name}`, sourceType: 'sqs', target: `lambda:${fn.name}`, targetType: 'lambda', relation: 'triggers' })
+    } else {
+      for (const queue of sqsQueues) {
+        if (fn.name.includes(queue.name) || queue.name.includes(fn.name)) {
+          edges.push({ source: `sqs:${queue.name}`, sourceType: 'sqs', target: `lambda:${fn.name}`, targetType: 'lambda', relation: 'triggers' })
+        }
       }
     }
   }
