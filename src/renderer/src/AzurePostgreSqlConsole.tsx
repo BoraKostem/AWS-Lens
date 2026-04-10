@@ -1,59 +1,58 @@
 import { useEffect, useMemo, useState } from 'react'
 import './rds.css'
-import './azure-sql.css'
+import './azure-postgresql.css'
 
 import type {
   AzureMonitorActivityEvent,
-  AzureSqlDatabaseSummary,
-  AzureSqlEstateOverview,
-  AzureSqlFinding,
-  AzureSqlFirewallRule,
-  AzureSqlOperationalTone,
-  AzureSqlPostureBadge,
-  AzureSqlServerDetail,
-  AzureSqlServerSummary,
-  AzureSqlSummaryTile
+  AzurePostgreSqlDatabaseSummary,
+  AzurePostgreSqlEstateOverview,
+  AzurePostgreSqlFinding,
+  AzurePostgreSqlFirewallRule,
+  AzurePostgreSqlOperationalTone,
+  AzurePostgreSqlPostureBadge,
+  AzurePostgreSqlServerDetail,
+  AzurePostgreSqlServerSummary,
+  AzurePostgreSqlSummaryTile
 } from '@shared/types'
-import { describeAzureSqlServer, getAzureSqlEstate, listAzureMonitorActivity } from './api'
+import { describeAzurePostgreSqlServer, getAzurePostgreSqlEstate, listAzureMonitorActivity } from './api'
 
 type SideTab = 'overview' | 'databases' | 'timeline'
-type ServerColumnKey = 'server' | 'resourceGroup' | 'network' | 'databases' | 'tls' | 'version'
-type DatabaseColumnKey = 'name' | 'status' | 'sku' | 'size' | 'backup' | 'zoneRedundant'
+type ServerColumnKey = 'server' | 'resourceGroup' | 'state' | 'version' | 'sku' | 'ha' | 'databases'
+type DatabaseColumnKey = 'name' | 'charset' | 'collation'
 
 const SERVER_COLUMNS: { key: ServerColumnKey; label: string; color: string }[] = [
   { key: 'server', label: 'Server', color: '#3b82f6' },
   { key: 'resourceGroup', label: 'Resource Group', color: '#8b5cf6' },
-  { key: 'network', label: 'Network', color: '#22c55e' },
-  { key: 'databases', label: 'Databases', color: '#f59e0b' },
-  { key: 'tls', label: 'TLS', color: '#14b8a6' },
-  { key: 'version', label: 'Version', color: '#06b6d4' }
+  { key: 'state', label: 'State', color: '#22c55e' },
+  { key: 'version', label: 'Version', color: '#06b6d4' },
+  { key: 'sku', label: 'SKU', color: '#f59e0b' },
+  { key: 'ha', label: 'HA', color: '#14b8a6' },
+  { key: 'databases', label: 'Databases', color: '#ec4899' }
 ]
 
 const DATABASE_COLUMNS: { key: DatabaseColumnKey; label: string; color: string }[] = [
   { key: 'name', label: 'Database', color: '#3b82f6' },
-  { key: 'status', label: 'Status', color: '#22c55e' },
-  { key: 'sku', label: 'SKU', color: '#8b5cf6' },
-  { key: 'size', label: 'Max Size', color: '#f59e0b' },
-  { key: 'backup', label: 'Backup', color: '#14b8a6' },
-  { key: 'zoneRedundant', label: 'Zone Redundant', color: '#06b6d4' }
+  { key: 'charset', label: 'Charset', color: '#8b5cf6' },
+  { key: 'collation', label: 'Collation', color: '#22c55e' }
 ]
 
-function getServerColumnValue(server: AzureSqlServerSummary, key: ServerColumnKey): string {
+function getServerColumnValue(server: AzurePostgreSqlServerSummary, key: ServerColumnKey): string {
   switch (key) {
     case 'server': return server.name
     case 'resourceGroup': return server.resourceGroup
-    case 'network': return server.publicNetworkAccess || '-'
-    case 'databases': return String(server.databaseCount)
-    case 'tls': return server.minimalTlsVersion || '-'
+    case 'state': return server.state || '-'
     case 'version': return server.version || '-'
+    case 'sku': return server.skuName || '-'
+    case 'ha': return server.haEnabled ? 'Enabled' : 'Disabled'
+    case 'databases': return String(server.databaseCount)
   }
 }
 
-function toneClass(tone: AzureSqlOperationalTone): string {
+function toneClass(tone: AzurePostgreSqlOperationalTone): string {
   return `rds-tone-${tone}`
 }
 
-function severityClass(severity: AzureSqlFinding['severity']): string {
+function severityClass(severity: AzurePostgreSqlFinding['severity']): string {
   return `rds-finding-${severity}`
 }
 
@@ -61,7 +60,7 @@ function prettifyStatus(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
-function tileToneSummary(tone: AzureSqlOperationalTone): string {
+function tileToneSummary(tone: AzurePostgreSqlOperationalTone): string {
   switch (tone) {
     case 'good': return 'Healthy operating signal'
     case 'warning': return 'Needs operator review'
@@ -85,10 +84,10 @@ function KV({ items }: { items: Array<[string, string]> }) {
 
 function StatusBadge({ status }: { status: string }) {
   const normalized = status.toLowerCase().replace(/\s+/g, '-')
-  return <span className={`rds-badge ${normalized === 'online' ? 'available' : normalized === 'offline' ? 'stopped' : normalized}`}>{status}</span>
+  return <span className={`rds-badge ${normalized === 'ready' ? 'available' : normalized === 'stopped' ? 'stopped' : normalized}`}>{status}</span>
 }
 
-function SummaryTiles({ items }: { items: AzureSqlSummaryTile[] }) {
+function SummaryTiles({ items }: { items: AzurePostgreSqlSummaryTile[] }) {
   return (
     <div className="rds-summary-tiles">
       {items.map((item) => (
@@ -101,7 +100,7 @@ function SummaryTiles({ items }: { items: AzureSqlSummaryTile[] }) {
   )
 }
 
-function PostureBadges({ items }: { items: AzureSqlPostureBadge[] }) {
+function PostureBadges({ items }: { items: AzurePostgreSqlPostureBadge[] }) {
   return (
     <div className="rds-posture-badges">
       {items.map((item) => (
@@ -114,7 +113,7 @@ function PostureBadges({ items }: { items: AzureSqlPostureBadge[] }) {
   )
 }
 
-function FindingsList({ items }: { items: AzureSqlFinding[] }) {
+function FindingsList({ items }: { items: AzurePostgreSqlFinding[] }) {
   if (!items.length) {
     return <div className="rds-state-card rds-tone-good">No operational warnings detected.</div>
   }
@@ -132,7 +131,7 @@ function FindingsList({ items }: { items: AzureSqlFinding[] }) {
   )
 }
 
-function FirewallRulesTable({ rules }: { rules: AzureSqlFirewallRule[] }) {
+function FirewallRulesTable({ rules }: { rules: AzurePostgreSqlFirewallRule[] }) {
   if (!rules.length) {
     return <div className="rds-state-card">No firewall rules configured.</div>
   }
@@ -161,7 +160,7 @@ function FirewallRulesTable({ rules }: { rules: AzureSqlFirewallRule[] }) {
   )
 }
 
-export function AzureSqlConsole({
+export function AzurePostgreSqlConsole({
   subscriptionId,
   location,
   refreshNonce,
@@ -176,12 +175,12 @@ export function AzureSqlConsole({
   canRunTerminalCommand: boolean
   onOpenMonitor: (query: string) => void
 }): JSX.Element {
-  const [overview, setOverview] = useState<AzureSqlEstateOverview | null>(null)
+  const [overview, setOverview] = useState<AzurePostgreSqlEstateOverview | null>(null)
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState('')
 
   const [selectedServerName, setSelectedServerName] = useState('')
-  const [serverDetail, setServerDetail] = useState<AzureSqlServerDetail | null>(null)
+  const [serverDetail, setServerDetail] = useState<AzurePostgreSqlServerDetail | null>(null)
 
   const [sideTab, setSideTab] = useState<SideTab>('overview')
   const [selectedDatabaseName, setSelectedDatabaseName] = useState('')
@@ -227,7 +226,7 @@ export function AzureSqlConsole({
     const server = servers.find((s) => s.name === serverName)
     if (!server) return
     try {
-      const detail = await describeAzureSqlServer(subscriptionId, server.resourceGroup, serverName)
+      const detail = await describeAzurePostgreSqlServer(subscriptionId, server.resourceGroup, serverName)
       setServerDetail(detail)
       setSelectedDatabaseName(detail.databases[0]?.name ?? '')
     } catch (error) {
@@ -240,7 +239,7 @@ export function AzureSqlConsole({
     setLoading(true)
     setMsg('')
     try {
-      const estate = await getAzureSqlEstate(subscriptionId, location)
+      const estate = await getAzurePostgreSqlEstate(subscriptionId, location)
       setOverview(estate)
 
       const resolvedServer = (selectedServerName && estate.servers.some((s) => s.name === selectedServerName))
@@ -251,7 +250,7 @@ export function AzureSqlConsole({
       if (resolvedServer) {
         const server = estate.servers.find((s) => s.name === resolvedServer)
         if (server) {
-          const detail = await describeAzureSqlServer(subscriptionId, server.resourceGroup, resolvedServer)
+          const detail = await describeAzurePostgreSqlServer(subscriptionId, server.resourceGroup, resolvedServer)
           setServerDetail(detail)
           setSelectedDatabaseName(detail.databases[0]?.name ?? '')
         }
@@ -283,7 +282,7 @@ export function AzureSqlConsole({
     setTimelineLoading(true)
     setTimelineError('')
     try {
-      const result = await listAzureMonitorActivity(subscriptionId, location, `Microsoft.Sql|${selectedServerName}`, 168)
+      const result = await listAzureMonitorActivity(subscriptionId, location, `Microsoft.DBforPostgreSQL|${selectedServerName}`, 168)
       setTimelineEvents(result.events)
     } catch (error) {
       setTimelineEvents([])
@@ -313,21 +312,21 @@ export function AzureSqlConsole({
     })
   }
 
-  if (loading) return <div className="rds-empty">Loading Azure SQL data...</div>
+  if (loading) return <div className="rds-empty">Loading PostgreSQL Flexible Server data...</div>
 
   return (
-    <div className="rds-console azure-sql-theme">
+    <div className="rds-console azure-postgresql-theme">
       <section className="rds-shell-hero">
         <div className="rds-shell-hero-copy">
-          <div className="eyebrow">Azure SQL</div>
-          <h2>{overviewTitle || 'SQL Server command center'}</h2>
+          <div className="eyebrow">Azure PostgreSQL</div>
+          <h2>{overviewTitle || 'PostgreSQL Flexible Server command center'}</h2>
           <p>
             Monitor server posture, review firewall rules and database inventory, and run operational actions without leaving the console.
           </p>
           <div className="rds-shell-meta-strip">
             <div className="rds-shell-meta-pill">
               <span>Scope</span>
-              <strong>SQL Servers</strong>
+              <strong>Flexible Servers</strong>
             </div>
             <div className="rds-shell-meta-pill">
               <span>Subscription</span>
@@ -446,8 +445,10 @@ export function AzureSqlConsole({
                   >
                     {activeServerCols.map((col) => (
                       <td key={col.key}>
-                        {col.key === 'network'
-                          ? <StatusBadge status={server.publicNetworkAccess.toLowerCase() === 'enabled' ? 'Enabled' : 'Disabled'} />
+                        {col.key === 'state'
+                          ? <StatusBadge status={server.state || '-'} />
+                          : col.key === 'ha'
+                          ? <StatusBadge status={server.haEnabled ? 'Enabled' : 'Disabled'} />
                           : getServerColumnValue(server, col.key)}
                       </td>
                     ))}
@@ -455,7 +456,7 @@ export function AzureSqlConsole({
                 ))}
               </tbody>
             </table>
-            {!filteredServers.length && <div className="rds-empty">No SQL servers match filters.</div>}
+            {!filteredServers.length && <div className="rds-empty">No PostgreSQL Flexible Servers match filters.</div>}
           </div>
         </div>
 
@@ -466,7 +467,7 @@ export function AzureSqlConsole({
                 <div className="rds-detail-hero-copy">
                   <div className="eyebrow">Server posture</div>
                   <h3>{serverDetail.server.name}</h3>
-                  <p>Security posture, firewall configuration, and database inventory for the selected SQL server.</p>
+                  <p>Security posture, firewall configuration, and database inventory for the selected PostgreSQL server.</p>
                   <div className="rds-detail-meta-strip">
                     <div className="rds-detail-meta-pill">
                       <span>FQDN</span>
@@ -524,7 +525,7 @@ export function AzureSqlConsole({
                         <div className="rds-overview-kicker">Server operations</div>
                         <h3>{serverDetail.server.name}</h3>
                       </div>
-                      <StatusBadge status={serverDetail.server.publicNetworkAccess.toLowerCase() === 'enabled' ? 'Public' : 'Private'} />
+                      <StatusBadge status={serverDetail.server.state || 'Unknown'} />
                     </div>
                     <SummaryTiles items={serverDetail.summaryTiles} />
                   </div>
@@ -556,7 +557,7 @@ export function AzureSqlConsole({
                         className="rds-action-btn"
                         type="button"
                         disabled={!canRunTerminalCommand}
-                        onClick={() => onRunTerminalCommand(`az sql server show -g "${serverDetail.server.resourceGroup}" -n "${serverDetail.server.name}" --subscription "${subscriptionId}" --output jsonc`)}
+                        onClick={() => onRunTerminalCommand(`az postgres flexible-server show -g "${serverDetail.server.resourceGroup}" -n "${serverDetail.server.name}" --subscription "${subscriptionId}" --output jsonc`)}
                       >
                         Server Snapshot
                       </button>
@@ -564,7 +565,7 @@ export function AzureSqlConsole({
                         className="rds-action-btn"
                         type="button"
                         disabled={!canRunTerminalCommand}
-                        onClick={() => onRunTerminalCommand(`az sql db list -g "${serverDetail.server.resourceGroup}" -s "${serverDetail.server.name}" --subscription "${subscriptionId}" --output table`)}
+                        onClick={() => onRunTerminalCommand(`az postgres flexible-server db list -g "${serverDetail.server.resourceGroup}" -s "${serverDetail.server.name}" --subscription "${subscriptionId}" --output table`)}
                       >
                         List Databases
                       </button>
@@ -572,7 +573,7 @@ export function AzureSqlConsole({
                         className="rds-action-btn"
                         type="button"
                         disabled={!canRunTerminalCommand}
-                        onClick={() => onRunTerminalCommand(`az sql server firewall-rule list -g "${serverDetail.server.resourceGroup}" -s "${serverDetail.server.name}" --subscription "${subscriptionId}" --output table`)}
+                        onClick={() => onRunTerminalCommand(`az postgres flexible-server firewall-rule list -g "${serverDetail.server.resourceGroup}" -n "${serverDetail.server.name}" --subscription "${subscriptionId}" --output table`)}
                       >
                         List Firewall Rules
                       </button>
@@ -580,22 +581,22 @@ export function AzureSqlConsole({
                         className="rds-action-btn"
                         type="button"
                         disabled={!canRunTerminalCommand}
-                        onClick={() => onRunTerminalCommand(`az sql server ad-admin list -g "${serverDetail.server.resourceGroup}" -s "${serverDetail.server.name}" --subscription "${subscriptionId}" --output jsonc`)}
+                        onClick={() => onRunTerminalCommand(`az postgres flexible-server parameter list -g "${serverDetail.server.resourceGroup}" -s "${serverDetail.server.name}" --subscription "${subscriptionId}" --output table`)}
                       >
-                        List AD Admins
+                        Server Parameters
                       </button>
                       <button
                         className="rds-action-btn"
                         type="button"
                         disabled={!canRunTerminalCommand}
-                        onClick={() => onRunTerminalCommand(`az sql server conn-policy show -g "${serverDetail.server.resourceGroup}" -s "${serverDetail.server.name}" --subscription "${subscriptionId}" --output jsonc`)}
+                        onClick={() => onRunTerminalCommand(`az postgres flexible-server show-connection-string -s "${serverDetail.server.name}" --output jsonc`)}
                       >
-                        Connection Policy
+                        Connection Strings
                       </button>
                       <button
                         className="rds-action-btn"
                         type="button"
-                        onClick={() => onOpenMonitor(`Microsoft.Sql ${serverDetail.server.name}`)}
+                        onClick={() => onOpenMonitor(`Microsoft.DBforPostgreSQL ${serverDetail.server.name}`)}
                       >
                         Open Monitor
                       </button>
@@ -606,8 +607,8 @@ export function AzureSqlConsole({
                     <h3>Connection Metadata</h3>
                     <KV items={[
                       ['Hostname', serverDetail.server.fullyQualifiedDomainName || 'N/A'],
-                      ['Port', '1433'],
-                      ['Connection string', `Server=tcp:${serverDetail.server.fullyQualifiedDomainName || 'N/A'},1433;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`]
+                      ['Port', '5432'],
+                      ['Connection string', `host=${serverDetail.server.fullyQualifiedDomainName || 'N/A'} port=5432 dbname=postgres sslmode=require`]
                     ]} />
                   </div>
 
@@ -667,11 +668,8 @@ export function AzureSqlConsole({
                               {activeDbCols.map((col) => (
                                 <td key={col.key}>
                                   {col.key === 'name' ? db.name
-                                    : col.key === 'status' ? <StatusBadge status={db.status || '-'} />
-                                    : col.key === 'sku' ? `${db.skuName || db.edition || '-'}`
-                                    : col.key === 'size' ? (db.maxSizeGb ? `${db.maxSizeGb} GB` : '-')
-                                    : col.key === 'backup' ? (db.backupStorageRedundancy || '-')
-                                    : col.key === 'zoneRedundant' ? (db.zoneRedundant ? 'Yes' : 'No')
+                                    : col.key === 'charset' ? (db.charset || '-')
+                                    : col.key === 'collation' ? (db.collation || '-')
                                     : '-'}
                                 </td>
                               ))}
@@ -688,17 +686,10 @@ export function AzureSqlConsole({
                       <h3>Database Detail</h3>
                       <KV items={[
                         ['Name', selectedDatabase.name],
-                        ['Status', selectedDatabase.status || '-'],
-                        ['SKU', selectedDatabase.skuName || '-'],
-                        ['Edition', selectedDatabase.edition || '-'],
-                        ['Max Size', selectedDatabase.maxSizeGb ? `${selectedDatabase.maxSizeGb} GB` : '-'],
-                        ['Zone Redundant', selectedDatabase.zoneRedundant ? 'Yes' : 'No'],
-                        ['Read Scale', selectedDatabase.readScale || 'Disabled'],
-                        ['Auto-pause', selectedDatabase.autoPauseDelayMinutes > 0 ? `${selectedDatabase.autoPauseDelayMinutes} min` : 'Disabled'],
-                        ['Backup Redundancy', selectedDatabase.backupStorageRedundancy || '-'],
+                        ['Charset', selectedDatabase.charset || '-'],
+                        ['Collation', selectedDatabase.collation || '-'],
                         ['Server', selectedDatabase.serverName],
-                        ['Resource Group', selectedDatabase.resourceGroup],
-                        ['Region', selectedDatabase.location]
+                        ['Resource Group', selectedDatabase.resourceGroup]
                       ]} />
                     </div>
                   )}
@@ -711,7 +702,7 @@ export function AzureSqlConsole({
                           className="rds-action-btn"
                           type="button"
                           disabled={!canRunTerminalCommand}
-                          onClick={() => onRunTerminalCommand(`az sql db show -g "${selectedDatabase.resourceGroup}" -s "${selectedDatabase.serverName}" -n "${selectedDatabase.name}" --subscription "${subscriptionId}" --output jsonc`)}
+                          onClick={() => onRunTerminalCommand(`az postgres flexible-server db show -g "${selectedDatabase.resourceGroup}" -s "${selectedDatabase.serverName}" -d "${selectedDatabase.name}" --subscription "${subscriptionId}" --output jsonc`)}
                         >
                           Database Snapshot
                         </button>
@@ -719,38 +710,14 @@ export function AzureSqlConsole({
                           className="rds-action-btn"
                           type="button"
                           disabled={!canRunTerminalCommand}
-                          onClick={() => onRunTerminalCommand(`az sql db audit-policy show -g "${selectedDatabase.resourceGroup}" -s "${selectedDatabase.serverName}" -n "${selectedDatabase.name}" --subscription "${subscriptionId}" --output jsonc`)}
+                          onClick={() => onRunTerminalCommand(`az postgres flexible-server connect -n "${serverDetail.server.name}" -d "${selectedDatabase.name}" -u "${serverDetail.connectionDetails.find((d) => d.label === 'Admin login')?.value ?? 'admin'}" --interactive`)}
                         >
-                          Audit Policy
+                          Connect (Interactive)
                         </button>
                         <button
                           className="rds-action-btn"
                           type="button"
-                          disabled={!canRunTerminalCommand}
-                          onClick={() => onRunTerminalCommand(`az sql db tde show -g "${selectedDatabase.resourceGroup}" -s "${selectedDatabase.serverName}" -n "${selectedDatabase.name}" --subscription "${subscriptionId}" --output jsonc`)}
-                        >
-                          TDE Status
-                        </button>
-                        <button
-                          className="rds-action-btn"
-                          type="button"
-                          disabled={!canRunTerminalCommand}
-                          onClick={() => onRunTerminalCommand(`az sql db show-connection-string -s "${serverDetail.server.fullyQualifiedDomainName}" -n "${selectedDatabase.name}" -c ado.net --output tsv`)}
-                        >
-                          Connection String
-                        </button>
-                        <button
-                          className="rds-action-btn"
-                          type="button"
-                          disabled={!canRunTerminalCommand}
-                          onClick={() => onRunTerminalCommand(`az sql db list-editions -l "${serverDetail.server.location}" --subscription "${subscriptionId}" --output table`)}
-                        >
-                          Available Editions
-                        </button>
-                        <button
-                          className="rds-action-btn"
-                          type="button"
-                          onClick={() => onOpenMonitor(`Microsoft.Sql ${selectedDatabase.name}`)}
+                          onClick={() => onOpenMonitor(`Microsoft.DBforPostgreSQL ${selectedDatabase.name}`)}
                         >
                           Open Monitor
                         </button>
@@ -799,7 +766,7 @@ export function AzureSqlConsole({
             <div className="rds-sidebar-section">
               <div className="rds-empty-state">
                 <span className="rds-pane-kicker">No server selected</span>
-                <h3>Choose a SQL server to inspect posture.</h3>
+                <h3>Choose a PostgreSQL server to inspect posture.</h3>
                 <p>
                   The detail pane will show security posture, firewall configuration, database inventory, and Azure Monitor activity for the selected server.
                 </p>

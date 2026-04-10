@@ -2,14 +2,16 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import type {
+  AzureAppInsightsSummary,
   AzureCostOverview,
   AzureMonitorActivityEvent,
   AzureMonitorActivityResult
 } from '@shared/types'
-import { getAzureCostOverview, listAzureMonitorActivity } from './api'
+import { getAzureCostOverview, listAzureAppInsightsComponents, listAzureMonitorActivity } from './api'
 import { SvcState } from './SvcState'
 
 export { AzureSqlConsole } from './AzureSqlConsole'
+export { AzurePostgreSqlConsole } from './AzurePostgreSqlConsole'
 
 function normalizeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -549,7 +551,7 @@ export function AzureMonitorConsole({
                 </div>
                 <div className="cw-query-preset-row">
                   {MONITOR_PRESETS.map((preset) => (
-                    <button key={preset.id} type="button" className="cw-chip" onClick={() => setQueryDraft(preset.query)}>{preset.label}</button>
+                    <button key={preset.id} type="button" className={`cw-chip ${appliedQuery === preset.query ? 'active' : ''}`} onClick={() => { setQueryDraft(preset.query); runQuery(preset.query) }}>{preset.label}</button>
                   ))}
                 </div>
                 <textarea className="cw-query-editor" value={queryDraft} onChange={(e) => setQueryDraft(e.target.value)} rows={8} spellCheck={false} placeholder={'Enter a text filter to search activity events.\nExamples: Failed, Microsoft.Compute, resourceGroups/my-rg'} />
@@ -901,6 +903,200 @@ export function AzureCostConsole({
           </div>
         </>
       ) : null}
+    </div>
+  )
+}
+
+/* ─── Azure Application Insights Console ─── */
+
+function networkAccessBadge(value: string): 'ok' | 'warn' {
+  return value.toLowerCase() === 'enabled' ? 'ok' : 'warn'
+}
+
+function trunc(value: string, max: number): string {
+  return value.length > max ? value.slice(0, max - 1) + '\u2026' : value
+}
+
+export function AzureAppInsightsConsole({
+  subscriptionId,
+  location,
+  refreshNonce,
+  onRunTerminalCommand,
+  canRunTerminalCommand,
+  onOpenMonitor
+}: {
+  subscriptionId: string
+  location: string
+  refreshNonce: number
+  onRunTerminalCommand: (command: string) => void
+  canRunTerminalCommand: boolean
+  onOpenMonitor: (query: string) => void
+}): JSX.Element {
+  const [components, setComponents] = useState<AzureAppInsightsSummary[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [filter, setFilter] = useState('')
+  const [selectedName, setSelectedName] = useState('')
+
+  function doRefresh() {
+    setLoading(true)
+    setError('')
+    listAzureAppInsightsComponents(subscriptionId, location)
+      .then((next) => setComponents(next))
+      .catch((err) => setError(normalizeError(err)))
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError('')
+    listAzureAppInsightsComponents(subscriptionId, location)
+      .then((next) => { if (!cancelled) setComponents(next) })
+      .catch((err) => { if (!cancelled) setError(normalizeError(err)) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [subscriptionId, location, refreshNonce])
+
+  const filtered = useMemo(() => {
+    if (!filter) return components
+    const q = filter.toLowerCase()
+    return components.filter((c) =>
+      c.name.toLowerCase().includes(q) || c.applicationType.toLowerCase().includes(q) || c.kind.toLowerCase().includes(q)
+    )
+  }, [components, filter])
+
+  const selected = useMemo(
+    () => components.find((c) => c.name === selectedName) ?? null,
+    [components, selectedName]
+  )
+
+  const workspaceLinkedCount = useMemo(
+    () => components.filter((c) => c.workspaceResourceId).length,
+    [components]
+  )
+
+  const privateIngestionCount = useMemo(
+    () => components.filter((c) => c.publicNetworkAccessForIngestion.toLowerCase() !== 'enabled').length,
+    [components]
+  )
+
+  if (loading && !components.length) return <SvcState type="loading" message="Loading Application Insights components..." />
+
+  return (
+    <div className="cw-console azure-app-insights-console">
+      {error && !loading && <div className="error-banner">{error}</div>}
+
+      {/* ── Hero ── */}
+      <div className="cw-shell-hero">
+        <div className="cw-shell-hero-copy">
+          <div className="cw-shell-kicker">Application Insights</div>
+          <h2>Component inventory and instrumentation posture</h2>
+          <p>Browse Application Insights components, inspect instrumentation keys, review network access posture, and navigate to Azure Monitor for deeper analysis.</p>
+          <div className="cw-shell-meta-strip">
+            <div className="cw-shell-meta-pill"><span>Subscription</span><strong>{trunc(subscriptionId, 28)}</strong></div>
+            <div className="cw-shell-meta-pill"><span>Location</span><strong>{location || 'All regions'}</strong></div>
+            <div className="cw-shell-meta-pill"><span>Selected</span><strong>{selectedName || 'None'}</strong></div>
+          </div>
+        </div>
+        <div className="cw-shell-hero-stats">
+          <div className="cw-shell-stat-card cw-shell-stat-card-accent"><span>Components</span><strong>{components.length}</strong><small>Application Insights resources discovered.</small></div>
+          <div className="cw-shell-stat-card"><span>Workspace-linked</span><strong>{workspaceLinkedCount}</strong><small>Components connected to a Log Analytics workspace.</small></div>
+          <div className="cw-shell-stat-card"><span>Private ingestion</span><strong>{privateIngestionCount}</strong><small>Components with non-public ingestion access.</small></div>
+        </div>
+      </div>
+
+      {/* ── Toolbar ── */}
+      <div className="cw-shell-toolbar">
+        <div className="cw-tabs" role="tablist">
+          <button type="button" className={`cw-tab ${!selectedName ? 'active' : ''}`} onClick={() => setSelectedName('')}>All Components</button>
+          {selected && <button type="button" className="cw-tab active">{selected.name}</button>}
+        </div>
+        <div className="cw-shell-toolbar-actions">
+          <button type="button" className="cw-shell-toolbar-btn" onClick={doRefresh}>Refresh</button>
+        </div>
+      </div>
+
+      {/* ── Component list view ── */}
+      {!selectedName && (
+        <div className="cw-shell-body">
+          <input className="svc-search" placeholder="Filter by name, type, or kind..." value={filter} onChange={(e) => setFilter(e.target.value)} style={{ margin: '12px 0' }} />
+          <div className="svc-table-area">
+            <table className="svc-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Kind</th>
+                  <th>Location</th>
+                  <th>Retention (days)</th>
+                  <th>Ingestion Mode</th>
+                  <th>Ingestion Access</th>
+                  <th>Query Access</th>
+                  <th>State</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((c) => (
+                  <tr key={c.id} className="svc-clickable-row" onClick={() => setSelectedName(c.name)}>
+                    <td><strong>{c.name}</strong></td>
+                    <td>{c.applicationType}</td>
+                    <td>{c.kind}</td>
+                    <td>{c.location}</td>
+                    <td>{c.retentionInDays}</td>
+                    <td>{c.ingestionMode}</td>
+                    <td><span className={`svc-badge ${networkAccessBadge(c.publicNetworkAccessForIngestion)}`}>{c.publicNetworkAccessForIngestion}</span></td>
+                    <td><span className={`svc-badge ${networkAccessBadge(c.publicNetworkAccessForQuery)}`}>{c.publicNetworkAccessForQuery}</span></td>
+                    <td><span className={`svc-badge ${c.provisioningState === 'Succeeded' ? 'ok' : 'warn'}`}>{c.provisioningState}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!filtered.length && <div className="svc-empty">No Application Insights components found.</div>}
+          </div>
+        </div>
+      )}
+
+      {/* ── Component detail view ── */}
+      {selected && (
+        <div className="cw-shell-body">
+          <div className="cw-shell-layout-split" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, padding: '16px 0' }}>
+            <section className="svc-panel" style={{ padding: 16 }}>
+              <h3 style={{ marginBottom: 12 }}>Component details</h3>
+              <table className="svc-kv-table">
+                <tbody>
+                  <tr><td>Resource Group</td><td>{selected.resourceGroup}</td></tr>
+                  <tr><td>Location</td><td>{selected.location}</td></tr>
+                  <tr><td>Application Type</td><td>{selected.applicationType}</td></tr>
+                  <tr><td>Kind</td><td>{selected.kind}</td></tr>
+                  <tr><td>Ingestion Mode</td><td>{selected.ingestionMode}</td></tr>
+                  <tr><td>Retention</td><td>{selected.retentionInDays} days</td></tr>
+                  <tr><td>Provisioning State</td><td><span className={`svc-badge ${selected.provisioningState === 'Succeeded' ? 'ok' : 'warn'}`}>{selected.provisioningState}</span></td></tr>
+                  <tr><td>Workspace</td><td style={{ wordBreak: 'break-all', fontSize: 11 }}>{selected.workspaceResourceId || 'Not linked'}</td></tr>
+                </tbody>
+              </table>
+            </section>
+
+            <section className="svc-panel" style={{ padding: 16 }}>
+              <h3 style={{ marginBottom: 12 }}>Instrumentation &amp; access</h3>
+              <table className="svc-kv-table">
+                <tbody>
+                  <tr><td>Instrumentation Key</td><td><code>{selected.instrumentationKey}</code></td></tr>
+                  <tr><td>Application ID</td><td><code>{selected.applicationId}</code></td></tr>
+                  <tr><td>Connection String</td><td><code style={{ wordBreak: 'break-all', fontSize: 11 }}>{selected.connectionString}</code></td></tr>
+                  <tr><td>Ingestion Network</td><td><span className={`svc-badge ${networkAccessBadge(selected.publicNetworkAccessForIngestion)}`}>{selected.publicNetworkAccessForIngestion}</span></td></tr>
+                  <tr><td>Query Network</td><td><span className={`svc-badge ${networkAccessBadge(selected.publicNetworkAccessForQuery)}`}>{selected.publicNetworkAccessForQuery}</span></td></tr>
+                </tbody>
+              </table>
+              <div className="svc-btn-row" style={{ marginTop: 16 }}>
+                <button type="button" className="svc-btn muted" disabled={!canRunTerminalCommand} onClick={() => onRunTerminalCommand(`az monitor app-insights component show --app "${selected.name}" --resource-group "${selected.resourceGroup}" --output table`)}>CLI details</button>
+                <button type="button" className="svc-btn muted" disabled={!canRunTerminalCommand} onClick={() => onRunTerminalCommand(`az monitor app-insights metrics show --app "${selected.name}" --resource-group "${selected.resourceGroup}" --metric requests/count --output table`)}>Request metrics</button>
+                <button type="button" className="svc-btn muted" onClick={() => onOpenMonitor(`Microsoft.Insights components ${selected.name}`)}>Open monitor</button>
+              </div>
+            </section>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

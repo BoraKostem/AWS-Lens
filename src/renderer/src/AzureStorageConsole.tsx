@@ -1,17 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type {
+  AzureMonitorActivityEvent,
   AzureStorageAccountSummary,
   AzureStorageBlobSummary,
   AzureStorageContainerSummary
 } from '@shared/types'
 import {
+  createAzureStorageContainer,
   deleteAzureStorageBlob,
   downloadAzureStorageBlobToPath,
   getAzureStorageBlobContent,
+  getAzureStorageBlobSasUrl,
+  listAzureMonitorActivity,
   listAzureStorageAccounts,
   listAzureStorageBlobs,
   listAzureStorageContainers,
+  openAzureStorageBlob,
+  openAzureStorageBlobInVSCode,
   putAzureStorageBlobContent,
   uploadAzureStorageBlob
 } from './api'
@@ -82,6 +88,14 @@ function normalizeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+function activityStatusTone(status: string): 'success' | 'warning' | 'danger' | 'info' {
+  const normalized = status.trim().toLowerCase()
+  if (normalized.includes('succeed') || normalized.includes('complete')) return 'success'
+  if (normalized.includes('fail') || normalized.includes('error') || normalized.includes('cancel')) return 'danger'
+  if (normalized.includes('accept') || normalized.includes('start') || normalized.includes('progress') || normalized.includes('running')) return 'info'
+  return 'warning'
+}
+
 function getBlobColValue(blob: AzureStorageBlobSummary, col: BlobColKey, pfx: string): string {
   switch (col) {
     case 'name': return displayName(blob.key, pfx)
@@ -148,14 +162,20 @@ export function AzureStorageAccountsConsole({
   const [accountSearch, setAccountSearch] = useState('')
   const [containerSearch, setContainerSearch] = useState('')
   const [blobSearch, setBlobSearch] = useState('')
-  const [detailTab, setDetailTab] = useState<'objects' | 'posture'>('objects')
+  const [detailTab, setDetailTab] = useState<'objects' | 'posture' | 'timeline'>('objects')
   const [visibleBlobCols, setVisibleBlobCols] = useState<Set<BlobColKey>>(new Set(['name', 'type', 'key', 'size', 'modified', 'accessTier']))
+  const [timelineEvents, setTimelineEvents] = useState<AzureMonitorActivityEvent[]>([])
+  const [timelineLoading, setTimelineLoading] = useState(false)
+  const [timelineError, setTimelineError] = useState('')
   const [showNewFolder, setShowNewFolder] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
   const [largeObjectThresholdMb, setLargeObjectThresholdMb] = useState('100')
   const [oldObjectDays, setOldObjectDays] = useState('180')
   const [showLargeOnly, setShowLargeOnly] = useState(false)
   const [showOldOnly, setShowOldOnly] = useState(false)
+  const [previewUrl, setPreviewUrl] = useState('')
+  const [showCreateContainer, setShowCreateContainer] = useState(false)
+  const [newContainerName, setNewContainerName] = useState('')
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const selectedAccount = useMemo(
@@ -239,6 +259,25 @@ export function AzureStorageAccountsConsole({
     })
   }, [blobs, blobSearch, largeObjects, oldObjects, prefix, showLargeOnly, showOldOnly])
 
+  async function loadStorageTimeline() {
+    if (!selectedAccount) return
+    setTimelineLoading(true)
+    setTimelineError('')
+    try {
+      const result = await listAzureMonitorActivity(subscriptionId, location, `Microsoft.Storage|${selectedAccount.name}`, 168)
+      setTimelineEvents(result.events)
+    } catch (error) {
+      setTimelineEvents([])
+      setTimelineError(error instanceof Error ? error.message : 'Failed to load activity')
+    } finally {
+      setTimelineLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (detailTab === 'timeline' && selectedAccount) void loadStorageTimeline()
+  }, [detailTab, selectedAccountId])
+
   function closePreview(): void {
     setShowPreview(false)
     setShowPreviewFullscreen(false)
@@ -246,6 +285,7 @@ export function AzureStorageAccountsConsole({
     setPreviewContent('')
     setPreviewContentType('')
     setPreviewError('')
+    setPreviewUrl('')
   }
 
   async function browseContainer(account: AzureStorageAccountSummary, containerName: string, nextPrefix = ''): Promise<void> {
@@ -275,6 +315,9 @@ export function AzureStorageAccountsConsole({
     setSelectedKey('')
     setPrefix('')
     closePreview()
+    setDetailTab('objects')
+    setTimelineEvents([])
+    setTimelineError('')
     setContainersLoading(true)
     try {
       const nextContainers = await listAzureStorageContainers(subscriptionId, account.resourceGroup, account.name, account.primaryBlobEndpoint)
@@ -298,6 +341,7 @@ export function AzureStorageAccountsConsole({
   async function doPreview(account: AzureStorageAccountSummary, containerName: string, blob: AzureStorageBlobSummary): Promise<void> {
     setSelectedKey(blob.key)
     setPreviewContent('')
+    setPreviewUrl('')
     setPreviewContentType(blob.contentType || '')
     setPreviewError('')
     setEditing(false)
@@ -311,12 +355,21 @@ export function AzureStorageAccountsConsole({
     setShowPreview(true)
 
     if (isImageFile(blob.key)) {
-      setPreviewError('Image preview is not available inline for Azure blobs. Use Download to view images locally.')
+      setPreviewLoading(true)
+      try {
+        const url = await getAzureStorageBlobSasUrl(subscriptionId, account.resourceGroup, account.name, containerName, blob.key, account.primaryBlobEndpoint)
+        setPreviewUrl(url)
+        setPreviewContentType('image')
+      } catch (error) {
+        setPreviewError(normalizeError(error))
+      } finally {
+        setPreviewLoading(false)
+      }
       return
     }
 
     if (!isTextFile(blob.key)) {
-      setPreviewError('Preview is limited to text-based blobs. Use Download for binary content.')
+      setPreviewError('Preview is limited to text and image blobs. Use Download for other binary content.')
       return
     }
 
@@ -434,8 +487,8 @@ export function AzureStorageAccountsConsole({
             </div>
           </div>
 
-          <div className="s3-layout">
-            <div className="s3-bucket-panel">
+          <div className="s3-layout s3-layout-inventory">
+            <div className="s3-bucket-panel s3-bucket-panel-inventory">
               <div className="s3-pane-head">
                 <div>
                   <span className="s3-pane-kicker">Tracked accounts</span>
@@ -476,7 +529,7 @@ export function AzureStorageAccountsConsole({
               </div>
             </div>
 
-            <div className="s3-browser-panel">
+            <div className="s3-browser-panel s3-browser-panel-inventory">
               {!selectedAccount ? (
                 <SvcState variant="no-selection" resourceName="storage account" message="Select a storage account to inspect posture or browse blobs." />
               ) : (
@@ -511,9 +564,10 @@ export function AzureStorageAccountsConsole({
                   <div className="s3-detail-tabs">
                     <button className={detailTab === 'objects' ? 'active' : ''} type="button" onClick={() => setDetailTab('objects')}>Containers & Blobs</button>
                     <button className={detailTab === 'posture' ? 'active' : ''} type="button" onClick={() => setDetailTab('posture')}>Account Posture</button>
+                    <button className={detailTab === 'timeline' ? 'active' : ''} type="button" onClick={() => setDetailTab('timeline')}>Activity Timeline</button>
                   </div>
 
-                  {detailTab === 'objects' ? (
+                  {detailTab === 'objects' && (
                     <>
                       <div className="s3-layout">
                         <section className="s3-bucket-panel">
@@ -525,6 +579,28 @@ export function AzureStorageAccountsConsole({
                             <span className="s3-pane-summary">{filteredContainers.length} visible</span>
                           </div>
                           <input className="s3-filter-input" placeholder="Filter containers..." value={containerSearch} onChange={(e) => setContainerSearch(e.target.value)} />
+                          <div style={{ padding: '0 8px 6px' }}>
+                            {showCreateContainer ? (
+                              <div className="s3-inline-form">
+                                <input placeholder="container name" value={newContainerName} onChange={(e) => setNewContainerName(e.target.value)} />
+                                <button className="s3-btn s3-btn-ok" type="button" onClick={() => void (async () => {
+                                  if (!newContainerName.trim()) return
+                                  try {
+                                    await createAzureStorageContainer(subscriptionId, selectedAccount.resourceGroup, selectedAccount.name, newContainerName.trim(), selectedAccount.primaryBlobEndpoint)
+                                    setMessage(`Container "${newContainerName.trim()}" created`)
+                                    setNewContainerName('')
+                                    setShowCreateContainer(false)
+                                    await browseAccount(selectedAccount, newContainerName.trim())
+                                  } catch (error) {
+                                    setContainersError(normalizeError(error))
+                                  }
+                                })()}>Create</button>
+                                <button className="s3-btn" type="button" onClick={() => { setShowCreateContainer(false); setNewContainerName('') }}>Cancel</button>
+                              </div>
+                            ) : (
+                              <button className="s3-btn" type="button" onClick={() => setShowCreateContainer(true)} style={{ width: '100%' }}>New Container</button>
+                            )}
+                          </div>
                           <div className="s3-bucket-list">
                             {filteredContainers.map((container) => (
                               <button key={container.name} type="button" className={`s3-bucket-row ${selectedContainer === container.name ? 'active' : ''}`} onClick={() => void browseContainer(selectedAccount, container.name, '')}>
@@ -651,7 +727,8 @@ export function AzureStorageAccountsConsole({
                                   <div className="s3-preview-body">
                                     {previewLoading && <SvcState variant="loading" resourceName="preview" compact />}
                                     {previewError && <div className="error-banner">{previewError}</div>}
-                                    {!previewLoading && !previewError && !editing && previewContent && <pre className="s3-preview-text">{previewContent}</pre>}
+                                    {!previewLoading && !previewError && previewUrl && <img src={previewUrl} alt={selectedKey} style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain' }} />}
+                                    {!previewLoading && !previewError && !editing && !previewUrl && previewContent && <pre className="s3-preview-text">{previewContent}</pre>}
                                     {editing && <textarea className="s3-edit-area" value={editContent} onChange={(e) => setEditContent(e.target.value)} />}
                                   </div>
                                 </div>
@@ -710,6 +787,24 @@ export function AzureStorageAccountsConsole({
                                     setBlobsError(normalizeError(error))
                                   }
                                 })()}>Download</button>
+                                <button className="s3-btn" type="button" disabled={!selectedBlob || selectedBlob.isFolder} onClick={() => void (async () => {
+                                  if (!selectedBlob || selectedBlob.isFolder || !selectedContainerSummary) return
+                                  try {
+                                    const filePath = await openAzureStorageBlob(subscriptionId, selectedAccount.resourceGroup, selectedAccount.name, selectedContainerSummary.name, selectedBlob.key, selectedAccount.primaryBlobEndpoint)
+                                    setMessage(`Opened ${selectedBlob.key} (${filePath})`)
+                                  } catch (error) {
+                                    setBlobsError(normalizeError(error))
+                                  }
+                                })()}>Open</button>
+                                <button className="s3-btn" type="button" disabled={!selectedBlob || selectedBlob.isFolder} onClick={() => void (async () => {
+                                  if (!selectedBlob || selectedBlob.isFolder || !selectedContainerSummary) return
+                                  try {
+                                    const filePath = await openAzureStorageBlobInVSCode(subscriptionId, selectedAccount.resourceGroup, selectedAccount.name, selectedContainerSummary.name, selectedBlob.key, selectedAccount.primaryBlobEndpoint)
+                                    setMessage(`Opened ${selectedBlob.key} in VSCode (${filePath}). Changes will sync back automatically.`)
+                                  } catch (error) {
+                                    setBlobsError(normalizeError(error))
+                                  }
+                                })()}>Open in VSCode</button>
                                 <button className="s3-btn" type="button" disabled={!selectedBlob || selectedBlob.isFolder || !canRunTerminalCommand} onClick={() => selectedBlob && onRunTerminalCommand(`az storage blob show --account-name "${selectedAccount.name}" --container-name "${selectedContainerSummary.name}" --name "${selectedBlob.key}" --auth-mode login --output jsonc`)}>Inspect Blob</button>
                                 <ConfirmButton className="s3-btn s3-btn-danger" onConfirm={() => void (async () => {
                                   if (!selectedBlob || selectedBlob.isFolder || !selectedContainerSummary) return
@@ -740,9 +835,10 @@ export function AzureStorageAccountsConsole({
                                     </div>
                                     <div className="s3-preview-body s3-preview-body-fullscreen">
                                       {previewError && <div className="error-banner">{previewError}</div>}
-                                      {!editing && previewContent && <pre className="s3-preview-text s3-preview-text-fullscreen">{previewContent}</pre>}
+                                      {!editing && previewUrl && <img src={previewUrl} alt={selectedKey} style={{ maxWidth: '100%', maxHeight: '85vh', objectFit: 'contain' }} />}
+                                      {!editing && !previewUrl && previewContent && <pre className="s3-preview-text s3-preview-text-fullscreen">{previewContent}</pre>}
                                       {editing && <textarea className="s3-edit-area s3-edit-area-fullscreen" value={editContent} onChange={(e) => setEditContent(e.target.value)} />}
-                                      {!previewContent && !previewError && !editing && <SvcState variant="loading" resourceName="preview" compact />}
+                                      {!previewContent && !previewUrl && !previewError && !editing && <SvcState variant="loading" resourceName="preview" compact />}
                                     </div>
                                   </div>
                                 </div>
@@ -752,7 +848,9 @@ export function AzureStorageAccountsConsole({
                         </div>
                       </div>
                     </>
-                  ) : (
+                  )}
+
+                  {detailTab === 'posture' && (
                     <div className="s3-governance-panel">
                       <div className="s3-summary-strip">
                         <div className="s3-summary-card"><span>Kind</span><strong>{selectedAccount.kind || 'Unknown'}</strong></div>
@@ -938,6 +1036,62 @@ export function AzureStorageAccountsConsole({
                           ))}
                         </div>
                       </div>
+                    </div>
+                  )}
+
+                  {detailTab === 'timeline' && (
+                    <div className="s3-governance-panel s3-timeline-panel" style={{ padding: 16 }}>
+                      <div className="s3-timeline-head">
+                        <span className="s3-pane-kicker">Azure Monitor</span>
+                        <h3>Activity timeline</h3>
+                        <p>
+                          Management-plane events for <strong>{selectedAccount?.name ?? 'selected account'}</strong> from the last 7 days.
+                        </p>
+                      </div>
+                      {timelineLoading && <SvcState variant="loading" resourceName="activity events" compact />}
+                      {!timelineLoading && timelineError && <SvcState variant="error" error={timelineError} />}
+                      {!timelineLoading && !timelineError && timelineEvents.length === 0 && <SvcState variant="empty" message="No Azure Monitor events found for this storage account." />}
+                      {!timelineLoading && timelineEvents.length > 0 && (
+                        <div className="s3-object-table-wrap s3-timeline-table-wrap">
+                          <table className="s3-timeline-table">
+                            <colgroup>
+                              <col className="s3-timeline-col-operation" />
+                              <col className="s3-timeline-col-status" />
+                              <col className="s3-timeline-col-caller" />
+                              <col className="s3-timeline-col-time" />
+                            </colgroup>
+                            <thead>
+                              <tr>
+                                <th>Operation</th>
+                                <th>Status</th>
+                                <th>Caller</th>
+                                <th>Time</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {timelineEvents.map((event) => (
+                                <tr key={event.id}>
+                                  <td title={event.resourceId || event.resourceType}>
+                                    <div className="s3-timeline-primary">{event.operationName || 'Unknown operation'}</div>
+                                    <div className="s3-timeline-secondary">{event.resourceType || event.resourceGroup || 'Management event'}</div>
+                                  </td>
+                                  <td>
+                                    <span className={`s3-status-badge ${activityStatusTone(event.status)}`}>{event.status || 'Unknown'}</span>
+                                  </td>
+                                  <td title={event.caller || '-'}>
+                                    <div className="s3-timeline-primary">{event.caller || '-'}</div>
+                                    <div className="s3-timeline-secondary">{event.correlationId ? `Correlation: ${event.correlationId}` : (event.level || 'Administrative')}</div>
+                                  </td>
+                                  <td>
+                                    <div className="s3-timeline-primary">{event.timestamp ? new Date(event.timestamp).toLocaleString() : '-'}</div>
+                                    <div className="s3-timeline-secondary">{event.summary || event.resourceGroup || 'Azure Monitor activity event'}</div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
                   )}
                 </>

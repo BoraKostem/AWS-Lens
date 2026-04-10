@@ -9,21 +9,39 @@ import { IAMClient, ListAttachedRolePoliciesCommand } from '@aws-sdk/client-iam'
 import { DescribeDBInstancesCommand, DescribeDBSubnetGroupsCommand, RDSClient } from '@aws-sdk/client-rds'
 
 import type {
+  AcmCertificateSummary,
+  AutoScalingGroupSummary,
   AwsConnection,
+  CloudFormationStackSummary,
+  CloudTrailSummary,
+  CloudWatchLogGroupSummary,
+  EbsVolumeSummary,
   Ec2InstanceSummary,
-  EcsClusterSummary,
+  Ec2SnapshotSummary,
   EcrRepositorySummary,
+  EcsClusterSummary,
+  EcsServiceSummary,
   EksClusterSummary,
-  InternetGatewaySummary,
+  IamGroupSummary,
+  IamPolicySummary,
   IamRoleSummary,
+  IamUserSummary,
+  InternetGatewaySummary,
+  KeyPairSummary,
+  KmsKeySummary,
   LambdaFunctionSummary,
   NatGatewaySummary,
   NetworkInterfaceSummary,
   RdsClusterSummary,
   RdsInstanceSummary,
+  Route53HostedZoneSummary,
+  Route53RecordSummary,
   RouteTableSummary,
   S3BucketSummary,
+  SecretsManagerSecretSummary,
   SecurityGroupSummary,
+  SnsTopicSummary,
+  SqsQueueSummary,
   SubnetSummary,
   TerraformDriftCoverageItem,
   TerraformDriftDifference,
@@ -35,18 +53,30 @@ import type {
   TerraformProject,
   TerraformResourceInventoryItem,
   TransitGatewaySummary,
-  VpcSummary
+  VpcSummary,
+  WafWebAclSummary
 } from '@shared/types'
 import { getAwsClient, readTags } from './aws/client'
-import { listEc2Instances } from './aws/ec2'
+import { listAcmCertificates } from './aws/acm'
+import { listAutoScalingGroups } from './aws/autoScaling'
+import { listStacks } from './aws/cloudformation'
+import { listTrails } from './aws/cloudtrail'
+import { listCloudWatchLogGroups } from './aws/cloudwatch'
+import { listEc2Instances, listEbsVolumes, listEc2Snapshots } from './aws/ec2'
 import { listEcrRepositories } from './aws/ecr'
-import { listClusters as listEcsClusters } from './aws/ecs'
-import { listEksClusters, listEksNodegroups } from './aws/eks'
-import { listIamRoles } from './aws/iam'
+import { listClusters as listEcsClusters, listServices as listEcsServices } from './aws/ecs'
+import { listEksClusters, listEksNodegroups, listEksAddons, type EksManagedAddonSummary } from './aws/eks'
+import { listIamRoles, listIamUsers, listIamGroups, listIamPolicies } from './aws/iam'
+import { listKeyPairs } from './aws/keyPairs'
+import { listKmsKeys } from './aws/kms'
 import { listLambdaFunctions } from './aws/lambda'
 import { listDbClusters, listDbInstances } from './aws/rds'
+import { listRoute53HostedZones, listRoute53Records } from './aws/route53'
 import { listBuckets } from './aws/s3'
+import { listSecrets } from './aws/secretsManager'
 import { listSecurityGroups } from './aws/securityGroups'
+import { listTopics } from './aws/sns'
+import { listQueues } from './aws/sqs'
 import {
   listInternetGateways,
   listNatGateways,
@@ -56,6 +86,7 @@ import {
   listTransitGateways,
   listVpcs
 } from './aws/vpc'
+import { listWebAcls } from './aws/waf'
 import { getCachedCliInfo, getProject } from './terraform'
 
 type ComparableValue = string | number | boolean
@@ -126,6 +157,27 @@ type RouteTableAssociationSummary = {
   isMain: boolean
 }
 
+type EcsServiceLiveSummary = {
+  clusterName: string
+  serviceName: string
+  desiredCount: number
+  launchType: string
+}
+
+type EksAddonLiveSummary = {
+  clusterName: string
+  addonName: string
+  addonVersion: string
+}
+
+type Route53RecordLiveSummary = {
+  zoneId: string
+  zoneName: string
+  name: string
+  type: string
+  ttl: number | null
+}
+
 type SecurityGroupRuleSummary = {
   securityGroupId: string
   direction: 'ingress' | 'egress'
@@ -162,6 +214,26 @@ type LiveInventory = {
   aws_rds_cluster_instance: AuroraClusterInstanceSummary[]
   aws_route_table_association: RouteTableAssociationSummary[]
   aws_security_group_rule: SecurityGroupRuleSummary[]
+  aws_autoscaling_group: AutoScalingGroupSummary[]
+  aws_ebs_volume: EbsVolumeSummary[]
+  aws_ebs_snapshot: Ec2SnapshotSummary[]
+  aws_key_pair: KeyPairSummary[]
+  aws_iam_user: IamUserSummary[]
+  aws_iam_group: IamGroupSummary[]
+  aws_iam_policy: IamPolicySummary[]
+  aws_sns_topic: SnsTopicSummary[]
+  aws_sqs_queue: SqsQueueSummary[]
+  aws_cloudwatch_log_group: CloudWatchLogGroupSummary[]
+  aws_cloudtrail: CloudTrailSummary[]
+  aws_acm_certificate: AcmCertificateSummary[]
+  aws_kms_key: KmsKeySummary[]
+  aws_secretsmanager_secret: SecretsManagerSecretSummary[]
+  aws_route53_zone: Route53HostedZoneSummary[]
+  aws_cloudformation_stack: CloudFormationStackSummary[]
+  aws_wafv2_web_acl: WafWebAclSummary[]
+  aws_ecs_service: EcsServiceLiveSummary[]
+  aws_eks_addon: EksAddonLiveSummary[]
+  aws_route53_record: Route53RecordLiveSummary[]
 }
 
 type SupportedResourceType = keyof LiveInventory
@@ -1232,6 +1304,388 @@ function normalizeAwsSecurityGroupRule(item: TerraformResourceInventoryItem, con
   }
 }
 
+function normalizeAwsAutoscalingGroup(item: TerraformResourceInventoryItem, connection: AwsConnection): ComparableResource | null {
+  const values = item.values
+  const region = extractRegion(values) || connection.region
+  if (region !== connection.region) return null
+  const name = str(values.name)
+  return {
+    resourceType: item.type,
+    logicalName: name || item.name,
+    cloudIdentifier: name,
+    region,
+    consoleUrl: consoleUrl(`ec2/v2/home?region=${region}#AutoScalingGroupDetails:id=${encodeURIComponent(name)}`, region),
+    attributes: {
+      name,
+      min_size: num(values.min_size) ?? 0,
+      max_size: num(values.max_size) ?? 0,
+      desired_capacity: num(values.desired_capacity) ?? 0,
+      health_check_type: str(values.health_check_type)
+    },
+    tags: terraformTags(values)
+  }
+}
+
+function normalizeAwsEbsVolume(item: TerraformResourceInventoryItem, connection: AwsConnection): ComparableResource | null {
+  const values = item.values
+  const region = extractRegion(values) || connection.region
+  if (region !== connection.region) return null
+  const volumeId = str(values.id)
+  return {
+    resourceType: item.type,
+    logicalName: volumeId || item.name,
+    cloudIdentifier: volumeId,
+    region,
+    consoleUrl: consoleUrl(`ec2/v2/home?region=${region}#VolumeDetails:volumeId=${volumeId}`, region),
+    attributes: {
+      size: num(values.size) ?? 0,
+      type: str(values.type),
+      iops: num(values.iops) ?? 0,
+      encrypted: bool(values.encrypted) ?? false,
+      availability_zone: str(values.availability_zone)
+    },
+    tags: terraformTags(values)
+  }
+}
+
+function normalizeAwsEbsSnapshot(item: TerraformResourceInventoryItem, connection: AwsConnection): ComparableResource | null {
+  const values = item.values
+  const region = extractRegion(values) || connection.region
+  if (region !== connection.region) return null
+  const snapshotId = str(values.id)
+  return {
+    resourceType: item.type,
+    logicalName: snapshotId || item.name,
+    cloudIdentifier: snapshotId,
+    region,
+    consoleUrl: consoleUrl(`ec2/v2/home?region=${region}#SnapshotDetails:snapshotId=${snapshotId}`, region),
+    attributes: {
+      volume_id: str(values.volume_id),
+      volume_size: num(values.volume_size) ?? 0,
+      encrypted: bool(values.encrypted) ?? false
+    },
+    tags: terraformTags(values)
+  }
+}
+
+function normalizeAwsKeyPair(item: TerraformResourceInventoryItem, connection: AwsConnection): ComparableResource | null {
+  const values = item.values
+  const region = extractRegion(values) || connection.region
+  if (region !== connection.region) return null
+  const keyPairId = str(values.key_pair_id) || str(values.id)
+  const keyName = str(values.key_name)
+  return {
+    resourceType: item.type,
+    logicalName: keyName || item.name,
+    cloudIdentifier: keyPairId,
+    region,
+    consoleUrl: consoleUrl(`ec2/v2/home?region=${region}#KeyPairs:search=${encodeURIComponent(keyName)}`, region),
+    attributes: {
+      key_name: keyName,
+      key_type: str(values.key_type),
+      public_key_fingerprint: str(values.fingerprint)
+    },
+    tags: terraformTags(values)
+  }
+}
+
+function normalizeAwsIamUser(item: TerraformResourceInventoryItem, connection: AwsConnection): ComparableResource | null {
+  const values = item.values
+  const userName = str(values.name)
+  return {
+    resourceType: item.type,
+    logicalName: userName || item.name,
+    cloudIdentifier: userName,
+    region: connection.region,
+    consoleUrl: consoleUrl(`iamv2/home#/users/details/${encodeURIComponent(userName)}`, connection.region),
+    attributes: { user_name: userName, path: str(values.path) },
+    tags: {}
+  }
+}
+
+function normalizeAwsIamGroup(item: TerraformResourceInventoryItem, connection: AwsConnection): ComparableResource | null {
+  const values = item.values
+  const groupName = str(values.name)
+  return {
+    resourceType: item.type,
+    logicalName: groupName || item.name,
+    cloudIdentifier: groupName,
+    region: connection.region,
+    consoleUrl: consoleUrl(`iamv2/home#/groups/details/${encodeURIComponent(groupName)}`, connection.region),
+    attributes: { group_name: groupName, path: str(values.path) },
+    tags: {}
+  }
+}
+
+function normalizeAwsIamPolicy(item: TerraformResourceInventoryItem, connection: AwsConnection): ComparableResource | null {
+  const values = item.values
+  const policyName = str(values.name)
+  const arn = extractArn(values)
+  return {
+    resourceType: item.type,
+    logicalName: policyName || item.name,
+    cloudIdentifier: arn || policyName,
+    region: connection.region,
+    consoleUrl: consoleUrl(`iamv2/home#/policies/details/${encodeURIComponent(arn)}`, connection.region),
+    attributes: { policy_name: policyName, arn, path: str(values.path) },
+    tags: {}
+  }
+}
+
+function normalizeAwsSnsTopic(item: TerraformResourceInventoryItem, connection: AwsConnection): ComparableResource | null {
+  const values = item.values
+  const region = extractRegion(values) || connection.region
+  if (region !== connection.region) return null
+  const topicArn = str(values.arn)
+  const name = str(values.name) || topicArn.split(':').pop() || ''
+  return {
+    resourceType: item.type,
+    logicalName: name || item.name,
+    cloudIdentifier: topicArn || name,
+    region,
+    consoleUrl: consoleUrl(`sns/v3/home?region=${region}#/topic/${encodeURIComponent(topicArn)}`, region),
+    attributes: { name, display_name: str(values.display_name), fifo_topic: bool(values.fifo_topic) ?? false },
+    tags: terraformTags(values)
+  }
+}
+
+function normalizeAwsSqsQueue(item: TerraformResourceInventoryItem, connection: AwsConnection): ComparableResource | null {
+  const values = item.values
+  const region = extractRegion(values) || connection.region
+  if (region !== connection.region) return null
+  const name = str(values.name)
+  return {
+    resourceType: item.type,
+    logicalName: name || item.name,
+    cloudIdentifier: name,
+    region,
+    consoleUrl: consoleUrl(`sqs/v3/home?region=${region}#/queues`, region),
+    attributes: {
+      queue_name: name,
+      visibility_timeout_seconds: num(values.visibility_timeout_seconds) ?? 30,
+      message_retention_seconds: num(values.message_retention_seconds) ?? 345600,
+      delay_seconds: num(values.delay_seconds) ?? 0,
+      fifo_queue: bool(values.fifo_queue) ?? false
+    },
+    tags: terraformTags(values)
+  }
+}
+
+function normalizeAwsCloudwatchLogGroup(item: TerraformResourceInventoryItem, connection: AwsConnection): ComparableResource | null {
+  const values = item.values
+  const region = extractRegion(values) || connection.region
+  if (region !== connection.region) return null
+  const name = str(values.name)
+  return {
+    resourceType: item.type,
+    logicalName: name || item.name,
+    cloudIdentifier: name,
+    region,
+    consoleUrl: consoleUrl(`cloudwatch/home?region=${region}#logsV2:log-groups/log-group/${encodeURIComponent(name)}`, region),
+    attributes: { name, retention_in_days: num(values.retention_in_days) ?? 0 },
+    tags: terraformTags(values)
+  }
+}
+
+function normalizeAwsCloudtrail(item: TerraformResourceInventoryItem, connection: AwsConnection): ComparableResource | null {
+  const values = item.values
+  const region = extractRegion(values) || connection.region
+  if (region !== connection.region) return null
+  const name = str(values.name)
+  return {
+    resourceType: item.type,
+    logicalName: name || item.name,
+    cloudIdentifier: name,
+    region,
+    consoleUrl: consoleUrl(`cloudtrail/home?region=${region}#/trails`, region),
+    attributes: {
+      name,
+      s3_bucket_name: str(values.s3_bucket_name),
+      is_multi_region_trail: bool(values.is_multi_region_trail) ?? false,
+      enable_logging: bool(values.enable_logging) ?? true,
+      enable_log_file_validation: bool(values.enable_log_file_validation) ?? false
+    },
+    tags: terraformTags(values)
+  }
+}
+
+function normalizeAwsAcmCertificate(item: TerraformResourceInventoryItem, connection: AwsConnection): ComparableResource | null {
+  const values = item.values
+  const region = extractRegion(values) || connection.region
+  if (region !== connection.region) return null
+  const certificateArn = str(values.arn)
+  const domainName = str(values.domain_name)
+  const certType = Array.isArray(values.certificate_authority) && values.certificate_authority.length > 0
+    ? 'PRIVATE'
+    : str(values.type) || 'AMAZON_ISSUED'
+  return {
+    resourceType: item.type,
+    logicalName: domainName || item.name,
+    cloudIdentifier: certificateArn,
+    region,
+    consoleUrl: consoleUrl(`acm/home?region=${region}#/certificates/${encodeURIComponent(certificateArn)}`, region),
+    attributes: { domain_name: domainName, type: certType },
+    tags: terraformTags(values)
+  }
+}
+
+function normalizeAwsKmsKey(item: TerraformResourceInventoryItem, connection: AwsConnection): ComparableResource | null {
+  const values = item.values
+  const region = extractRegion(values) || connection.region
+  if (region !== connection.region) return null
+  const keyId = str(values.key_id) || str(values.id)
+  return {
+    resourceType: item.type,
+    logicalName: keyId || item.name,
+    cloudIdentifier: keyId,
+    region,
+    consoleUrl: consoleUrl(`kms/home?region=${region}#/kms/keys/${encodeURIComponent(keyId)}`, region),
+    attributes: {
+      is_enabled: bool(values.is_enabled) ?? true,
+      key_usage: str(values.key_usage),
+      customer_master_key_spec: str(values.customer_master_key_spec)
+    },
+    tags: terraformTags(values)
+  }
+}
+
+function normalizeAwsSecretsmanagerSecret(item: TerraformResourceInventoryItem, connection: AwsConnection): ComparableResource | null {
+  const values = item.values
+  const region = extractRegion(values) || connection.region
+  if (region !== connection.region) return null
+  const arn = extractArn(values)
+  const name = str(values.name)
+  const rotationEnabled = Array.isArray(values.rotation_rules) && values.rotation_rules.length > 0
+  return {
+    resourceType: item.type,
+    logicalName: name || item.name,
+    cloudIdentifier: arn || name,
+    region,
+    consoleUrl: consoleUrl(`secretsmanager/secret?name=${encodeURIComponent(name)}&region=${region}`, region),
+    attributes: { name, rotation_enabled: rotationEnabled },
+    tags: terraformTags(values)
+  }
+}
+
+function normalizeAwsRoute53Zone(item: TerraformResourceInventoryItem, connection: AwsConnection): ComparableResource | null {
+  const values = item.values
+  const zoneId = str(values.zone_id) || str(values.id)
+  const name = str(values.name)
+  const hasVpc = Array.isArray(values.vpc) && values.vpc.length > 0
+  const privateZone = bool(values.private_zone) ?? hasVpc
+  return {
+    resourceType: item.type,
+    logicalName: name || item.name,
+    cloudIdentifier: zoneId,
+    region: connection.region,
+    consoleUrl: consoleUrl(`route53/v2/hostedzones#ListRecordSets/${zoneId}`, connection.region),
+    attributes: { zone_id: zoneId, name, private_zone: privateZone },
+    tags: terraformTags(values)
+  }
+}
+
+function normalizeAwsCloudformationStack(item: TerraformResourceInventoryItem, connection: AwsConnection): ComparableResource | null {
+  const values = item.values
+  const region = extractRegion(values) || connection.region
+  if (region !== connection.region) return null
+  const stackName = str(values.name)
+  const stackId = str(values.id)
+  return {
+    resourceType: item.type,
+    logicalName: stackName || item.name,
+    cloudIdentifier: stackId || stackName,
+    region,
+    consoleUrl: consoleUrl(`cloudformation/home?region=${region}#/stacks/stackinfo?stackId=${encodeURIComponent(stackId || stackName)}`, region),
+    attributes: { stack_name: stackName },
+    tags: terraformTags(values)
+  }
+}
+
+function normalizeAwsWafv2WebAcl(item: TerraformResourceInventoryItem, connection: AwsConnection): ComparableResource | null {
+  const values = item.values
+  const region = extractRegion(values) || connection.region
+  if (region !== connection.region) return null
+  const name = str(values.name)
+  const arn = extractArn(values)
+  return {
+    resourceType: item.type,
+    logicalName: name || item.name,
+    cloudIdentifier: arn || name,
+    region,
+    consoleUrl: consoleUrl(`wafv2/homev2/web-acl/${encodeURIComponent(name)}?region=${region}`, region),
+    attributes: { name, arn },
+    tags: {}
+  }
+}
+
+function normalizeAwsEcsService(item: TerraformResourceInventoryItem, connection: AwsConnection): ComparableResource | null {
+  const values = item.values
+  const region = extractRegion(values) || connection.region
+  if (region !== connection.region) return null
+  const serviceName = str(values.name)
+  const clusterRaw = str(values.cluster)
+  const clusterName = clusterRaw.includes('/') ? clusterRaw.split('/').pop() ?? clusterRaw
+    : clusterRaw.includes(':') ? clusterRaw.split(':').pop() ?? clusterRaw
+    : clusterRaw
+  return {
+    resourceType: item.type,
+    logicalName: `${clusterName}/${serviceName}`,
+    cloudIdentifier: `${clusterName}/${serviceName}`,
+    region,
+    consoleUrl: consoleUrl(`ecs/v2/clusters/${encodeURIComponent(clusterName)}/services/${encodeURIComponent(serviceName)}?region=${region}`, region),
+    attributes: {
+      cluster_name: clusterName,
+      service_name: serviceName,
+      desired_count: num(values.desired_count) ?? 0,
+      launch_type: str(values.launch_type)
+    },
+    tags: terraformTags(values)
+  }
+}
+
+function normalizeAwsEksAddon(item: TerraformResourceInventoryItem, connection: AwsConnection): ComparableResource | null {
+  const values = item.values
+  const region = extractRegion(values) || connection.region
+  if (region !== connection.region) return null
+  const clusterName = str(values.cluster_name)
+  const addonName = str(values.addon_name)
+  const addonVersion = str(values.addon_version)
+  return {
+    resourceType: item.type,
+    logicalName: `${clusterName}:${addonName}`,
+    cloudIdentifier: `${clusterName}:${addonName}`,
+    region,
+    consoleUrl: consoleUrl(`eks/home?region=${region}#/clusters/${encodeURIComponent(clusterName)}/addons/${encodeURIComponent(addonName)}`, region),
+    attributes: {
+      cluster_name: clusterName,
+      addon_name: addonName,
+      addon_version: addonVersion
+    },
+    tags: terraformTags(values)
+  }
+}
+
+function normalizeAwsRoute53Record(item: TerraformResourceInventoryItem, connection: AwsConnection): ComparableResource | null {
+  const values = item.values
+  const zoneId = str(values.zone_id)
+  const name = str(values.name)
+  const type = str(values.type)
+  return {
+    resourceType: item.type,
+    logicalName: `${zoneId}:${name}:${type}`,
+    cloudIdentifier: `${zoneId}:${name}:${type}`,
+    region: connection.region,
+    consoleUrl: consoleUrl(`route53/v2/hostedzones#ListRecordSets/${zoneId}`, connection.region),
+    attributes: {
+      zone_id: zoneId,
+      name,
+      type,
+      ttl: num(values.ttl) ?? 0
+    },
+    tags: {}
+  }
+}
+
 const SUPPORTED_HANDLERS: { [K in SupportedResourceType]: SupportedHandler<LiveInventory[K][number]> } = {
   aws_instance: {
     normalizeTerraform: normalizeAwsInstance,
@@ -1687,6 +2141,386 @@ const SUPPORTED_HANDLERS: { [K in SupportedResourceType]: SupportedHandler<LiveI
     verifiedChecks: ['group', 'direction', 'protocol', 'port range', 'source'],
     inferredChecks: [],
     notes: ['Rule descriptions are not verified because AWS summaries may collapse per-source descriptions.']
+  },
+  aws_autoscaling_group: {
+    normalizeTerraform: normalizeAwsAutoscalingGroup,
+    normalizeLive: (asg, connection) => ({
+      resourceType: 'aws_autoscaling_group',
+      logicalName: asg.name,
+      cloudIdentifier: asg.name,
+      region: connection.region,
+      consoleUrl: consoleUrl(`ec2/v2/home?region=${connection.region}#AutoScalingGroupDetails:id=${encodeURIComponent(asg.name)}`, connection.region),
+      attributes: {
+        name: asg.name,
+        min_size: typeof asg.min === 'number' ? asg.min : Number(asg.min) || 0,
+        max_size: typeof asg.max === 'number' ? asg.max : Number(asg.max) || 0,
+        desired_capacity: typeof asg.desired === 'number' ? asg.desired : Number(asg.desired) || 0,
+        health_check_type: asg.healthCheck
+      },
+      tags: {}
+    }),
+    identityKeys: ['logicalName'],
+    verifiedChecks: ['name', 'min size', 'max size', 'desired capacity', 'health check type'],
+    inferredChecks: [],
+    notes: ['Instance counts and launch template details are not verified.']
+  },
+  aws_ebs_volume: {
+    normalizeTerraform: normalizeAwsEbsVolume,
+    normalizeLive: (volume, connection) => ({
+      resourceType: 'aws_ebs_volume',
+      logicalName: volume.volumeId,
+      cloudIdentifier: volume.volumeId,
+      region: connection.region,
+      consoleUrl: consoleUrl(`ec2/v2/home?region=${connection.region}#VolumeDetails:volumeId=${volume.volumeId}`, connection.region),
+      attributes: {
+        size: volume.sizeGiB,
+        type: volume.type,
+        iops: volume.iops,
+        encrypted: volume.encrypted,
+        availability_zone: volume.availabilityZone
+      },
+      tags: volume.tags ?? {}
+    }),
+    identityKeys: ['cloudIdentifier'],
+    verifiedChecks: ['size', 'type', 'IOPS', 'encryption', 'availability zone', 'tags'],
+    inferredChecks: [],
+    notes: []
+  },
+  aws_ebs_snapshot: {
+    normalizeTerraform: normalizeAwsEbsSnapshot,
+    normalizeLive: (snapshot, connection) => ({
+      resourceType: 'aws_ebs_snapshot',
+      logicalName: snapshot.snapshotId,
+      cloudIdentifier: snapshot.snapshotId,
+      region: connection.region,
+      consoleUrl: consoleUrl(`ec2/v2/home?region=${connection.region}#SnapshotDetails:snapshotId=${snapshot.snapshotId}`, connection.region),
+      attributes: {
+        volume_id: snapshot.volumeId,
+        volume_size: snapshot.volumeSize,
+        encrypted: snapshot.encrypted
+      },
+      tags: snapshot.tags ?? {}
+    }),
+    identityKeys: ['cloudIdentifier'],
+    verifiedChecks: ['volume ID', 'volume size', 'encryption', 'tags'],
+    inferredChecks: [],
+    notes: []
+  },
+  aws_key_pair: {
+    normalizeTerraform: normalizeAwsKeyPair,
+    normalizeLive: (kp, connection) => ({
+      resourceType: 'aws_key_pair',
+      logicalName: kp.keyName,
+      cloudIdentifier: kp.keyPairId,
+      region: connection.region,
+      consoleUrl: consoleUrl(`ec2/v2/home?region=${connection.region}#KeyPairs:search=${encodeURIComponent(kp.keyName)}`, connection.region),
+      attributes: {
+        key_name: kp.keyName,
+        key_type: kp.keyType,
+        public_key_fingerprint: kp.fingerprint
+      },
+      tags: kp.tags ?? {}
+    }),
+    identityKeys: ['cloudIdentifier', 'logicalName'],
+    verifiedChecks: ['key name', 'key type', 'fingerprint', 'tags'],
+    inferredChecks: [],
+    notes: []
+  },
+  aws_iam_user: {
+    normalizeTerraform: normalizeAwsIamUser,
+    normalizeLive: (user, connection) => ({
+      resourceType: 'aws_iam_user',
+      logicalName: user.userName,
+      cloudIdentifier: user.userName,
+      region: connection.region,
+      consoleUrl: consoleUrl(`iamv2/home#/users/details/${encodeURIComponent(user.userName)}`, connection.region),
+      attributes: { user_name: user.userName, path: user.path },
+      tags: {}
+    }),
+    identityKeys: ['logicalName'],
+    verifiedChecks: ['user name', 'path'],
+    inferredChecks: [],
+    notes: ['Tags and attached policies are not yet verified here.']
+  },
+  aws_iam_group: {
+    normalizeTerraform: normalizeAwsIamGroup,
+    normalizeLive: (group, connection) => ({
+      resourceType: 'aws_iam_group',
+      logicalName: group.groupName,
+      cloudIdentifier: group.groupName,
+      region: connection.region,
+      consoleUrl: consoleUrl(`iamv2/home#/groups/details/${encodeURIComponent(group.groupName)}`, connection.region),
+      attributes: { group_name: group.groupName, path: group.path },
+      tags: {}
+    }),
+    identityKeys: ['logicalName'],
+    verifiedChecks: ['group name', 'path'],
+    inferredChecks: [],
+    notes: ['Group membership and attached policies are not yet verified here.']
+  },
+  aws_iam_policy: {
+    normalizeTerraform: normalizeAwsIamPolicy,
+    normalizeLive: (policy, connection) => ({
+      resourceType: 'aws_iam_policy',
+      logicalName: policy.policyName,
+      cloudIdentifier: policy.arn,
+      region: connection.region,
+      consoleUrl: consoleUrl(`iamv2/home#/policies/details/${encodeURIComponent(policy.arn)}`, connection.region),
+      attributes: { policy_name: policy.policyName, arn: policy.arn, path: policy.path },
+      tags: {}
+    }),
+    identityKeys: ['cloudIdentifier', 'logicalName'],
+    verifiedChecks: ['policy name', 'ARN', 'path'],
+    inferredChecks: [],
+    notes: ['Policy document content is not verified. Only customer-managed (Local scope) policies are compared.']
+  },
+  aws_sns_topic: {
+    normalizeTerraform: normalizeAwsSnsTopic,
+    normalizeLive: (topic, connection) => {
+      const region = topic.topicArn.split(':')[3] || connection.region
+      const name = topic.name || topic.topicArn.split(':').pop() || ''
+      return {
+        resourceType: 'aws_sns_topic',
+        logicalName: name,
+        cloudIdentifier: topic.topicArn,
+        region,
+        consoleUrl: consoleUrl(`sns/v3/home?region=${region}#/topic/${encodeURIComponent(topic.topicArn)}`, region),
+        attributes: { name, display_name: topic.displayName, fifo_topic: topic.fifoTopic },
+        tags: topic.tags ?? {}
+      }
+    },
+    identityKeys: ['cloudIdentifier', 'logicalName'],
+    verifiedChecks: ['name', 'display name', 'FIFO flag', 'tags'],
+    inferredChecks: [],
+    notes: ['Topic policy and delivery configuration are not verified.']
+  },
+  aws_sqs_queue: {
+    normalizeTerraform: normalizeAwsSqsQueue,
+    normalizeLive: (queue, connection) => ({
+      resourceType: 'aws_sqs_queue',
+      logicalName: queue.queueName,
+      cloudIdentifier: queue.queueName,
+      region: connection.region,
+      consoleUrl: consoleUrl(`sqs/v3/home?region=${connection.region}#/queues`, connection.region),
+      attributes: {
+        queue_name: queue.queueName,
+        visibility_timeout_seconds: queue.visibilityTimeout,
+        message_retention_seconds: queue.messageRetentionPeriod,
+        delay_seconds: queue.delaySeconds,
+        fifo_queue: queue.fifoQueue
+      },
+      tags: queue.tags ?? {}
+    }),
+    identityKeys: ['logicalName'],
+    verifiedChecks: ['queue name', 'visibility timeout', 'message retention period', 'delay seconds', 'FIFO flag', 'tags'],
+    inferredChecks: [],
+    notes: ['DLQ configuration, encryption, and policy are not verified.']
+  },
+  aws_cloudwatch_log_group: {
+    normalizeTerraform: normalizeAwsCloudwatchLogGroup,
+    normalizeLive: (logGroup, connection) => ({
+      resourceType: 'aws_cloudwatch_log_group',
+      logicalName: logGroup.name,
+      cloudIdentifier: logGroup.name,
+      region: connection.region,
+      consoleUrl: consoleUrl(`cloudwatch/home?region=${connection.region}#logsV2:log-groups/log-group/${encodeURIComponent(logGroup.name)}`, connection.region),
+      attributes: { name: logGroup.name, retention_in_days: logGroup.retentionInDays ?? 0 },
+      tags: {}
+    }),
+    identityKeys: ['logicalName'],
+    verifiedChecks: ['name', 'retention in days'],
+    inferredChecks: [],
+    notes: ['KMS encryption and metric filters are not verified.']
+  },
+  aws_cloudtrail: {
+    normalizeTerraform: normalizeAwsCloudtrail,
+    normalizeLive: (trail, connection) => ({
+      resourceType: 'aws_cloudtrail',
+      logicalName: trail.name,
+      cloudIdentifier: trail.name,
+      region: connection.region,
+      consoleUrl: consoleUrl(`cloudtrail/home?region=${connection.region}#/trails`, connection.region),
+      attributes: {
+        name: trail.name,
+        s3_bucket_name: trail.s3BucketName,
+        is_multi_region_trail: trail.isMultiRegion,
+        enable_logging: trail.isLogging,
+        enable_log_file_validation: trail.hasLogFileValidation
+      },
+      tags: {}
+    }),
+    identityKeys: ['logicalName'],
+    verifiedChecks: ['name', 'S3 bucket', 'multi-region flag', 'logging flag', 'log file validation flag'],
+    inferredChecks: [],
+    notes: ['Event selectors and CloudWatch Logs configuration are not verified.']
+  },
+  aws_acm_certificate: {
+    normalizeTerraform: normalizeAwsAcmCertificate,
+    normalizeLive: (cert, connection) => {
+      const region = cert.certificateArn.split(':')[3] || connection.region
+      return {
+        resourceType: 'aws_acm_certificate',
+        logicalName: cert.domainName,
+        cloudIdentifier: cert.certificateArn,
+        region,
+        consoleUrl: consoleUrl(`acm/home?region=${region}#/certificates/${encodeURIComponent(cert.certificateArn)}`, region),
+        attributes: { domain_name: cert.domainName, type: cert.type },
+        tags: {}
+      }
+    },
+    identityKeys: ['cloudIdentifier'],
+    verifiedChecks: ['domain name', 'certificate type'],
+    inferredChecks: [],
+    notes: ['Validation method, renewal status, and in-use associations are not verified.']
+  },
+  aws_kms_key: {
+    normalizeTerraform: normalizeAwsKmsKey,
+    normalizeLive: (key, connection) => ({
+      resourceType: 'aws_kms_key',
+      logicalName: key.keyId,
+      cloudIdentifier: key.keyId,
+      region: connection.region,
+      consoleUrl: consoleUrl(`kms/home?region=${connection.region}#/kms/keys/${encodeURIComponent(key.keyId)}`, connection.region),
+      attributes: {
+        is_enabled: key.enabled,
+        key_usage: key.keyUsage,
+        customer_master_key_spec: key.keySpec
+      },
+      tags: {}
+    }),
+    identityKeys: ['cloudIdentifier'],
+    verifiedChecks: ['enabled state', 'key usage', 'key spec'],
+    inferredChecks: [],
+    notes: ['Key policy, aliases, and rotation configuration are not verified.']
+  },
+  aws_secretsmanager_secret: {
+    normalizeTerraform: normalizeAwsSecretsmanagerSecret,
+    normalizeLive: (secret, connection) => {
+      const region = secret.arn.split(':')[3] || connection.region
+      return {
+        resourceType: 'aws_secretsmanager_secret',
+        logicalName: secret.name,
+        cloudIdentifier: secret.arn,
+        region,
+        consoleUrl: consoleUrl(`secretsmanager/secret?name=${encodeURIComponent(secret.name)}&region=${region}`, region),
+        attributes: { name: secret.name, rotation_enabled: secret.rotationEnabled },
+        tags: secret.tags ?? {}
+      }
+    },
+    identityKeys: ['cloudIdentifier', 'logicalName'],
+    verifiedChecks: ['name', 'rotation enabled', 'tags'],
+    inferredChecks: [],
+    notes: ['Secret value content and rotation schedule details are not verified.']
+  },
+  aws_route53_zone: {
+    normalizeTerraform: normalizeAwsRoute53Zone,
+    normalizeLive: (zone, connection) => ({
+      resourceType: 'aws_route53_zone',
+      logicalName: zone.name,
+      cloudIdentifier: zone.id,
+      region: connection.region,
+      consoleUrl: consoleUrl(`route53/v2/hostedzones#ListRecordSets/${zone.id}`, connection.region),
+      attributes: { zone_id: zone.id, name: zone.name, private_zone: zone.privateZone },
+      tags: {}
+    }),
+    identityKeys: ['cloudIdentifier', 'logicalName'],
+    verifiedChecks: ['zone ID', 'name', 'private zone flag'],
+    inferredChecks: [],
+    notes: ['Route53 zone names have trailing dots. Record sets are verified separately.']
+  },
+  aws_cloudformation_stack: {
+    normalizeTerraform: normalizeAwsCloudformationStack,
+    normalizeLive: (stack, connection) => ({
+      resourceType: 'aws_cloudformation_stack',
+      logicalName: stack.stackName,
+      cloudIdentifier: stack.stackId || stack.stackName,
+      region: connection.region,
+      consoleUrl: consoleUrl(`cloudformation/home?region=${connection.region}#/stacks/stackinfo?stackId=${encodeURIComponent(stack.stackId || stack.stackName)}`, connection.region),
+      attributes: { stack_name: stack.stackName },
+      tags: {}
+    }),
+    identityKeys: ['logicalName'],
+    verifiedChecks: ['stack name'],
+    inferredChecks: [],
+    notes: ['Stack parameters, outputs, and resource drift are not verified. Use CloudFormation drift detection for deeper analysis.']
+  },
+  aws_wafv2_web_acl: {
+    normalizeTerraform: normalizeAwsWafv2WebAcl,
+    normalizeLive: (acl, connection) => ({
+      resourceType: 'aws_wafv2_web_acl',
+      logicalName: acl.name,
+      cloudIdentifier: acl.arn,
+      region: connection.region,
+      consoleUrl: consoleUrl(`wafv2/homev2/web-acl/${encodeURIComponent(acl.name)}?region=${connection.region}`, connection.region),
+      attributes: { name: acl.name, arn: acl.arn },
+      tags: {}
+    }),
+    identityKeys: ['cloudIdentifier', 'logicalName'],
+    verifiedChecks: ['name', 'ARN'],
+    inferredChecks: [],
+    notes: ['Only REGIONAL scope Web ACLs are compared. Rules and associations are not verified.']
+  },
+  aws_ecs_service: {
+    normalizeTerraform: normalizeAwsEcsService,
+    normalizeLive: (service, connection) => ({
+      resourceType: 'aws_ecs_service',
+      logicalName: `${service.clusterName}/${service.serviceName}`,
+      cloudIdentifier: `${service.clusterName}/${service.serviceName}`,
+      region: connection.region,
+      consoleUrl: consoleUrl(`ecs/v2/clusters/${encodeURIComponent(service.clusterName)}/services/${encodeURIComponent(service.serviceName)}?region=${connection.region}`, connection.region),
+      attributes: {
+        cluster_name: service.clusterName,
+        service_name: service.serviceName,
+        desired_count: service.desiredCount,
+        launch_type: service.launchType
+      },
+      tags: {}
+    }),
+    identityKeys: ['cloudIdentifier', 'logicalName'],
+    verifiedChecks: ['cluster', 'service name', 'desired count', 'launch type'],
+    inferredChecks: [],
+    notes: ['Task definition, network configuration, and deployment details are not verified.']
+  },
+  aws_eks_addon: {
+    normalizeTerraform: normalizeAwsEksAddon,
+    normalizeLive: (addon, connection) => ({
+      resourceType: 'aws_eks_addon',
+      logicalName: `${addon.clusterName}:${addon.addonName}`,
+      cloudIdentifier: `${addon.clusterName}:${addon.addonName}`,
+      region: connection.region,
+      consoleUrl: consoleUrl(`eks/home?region=${connection.region}#/clusters/${encodeURIComponent(addon.clusterName)}/addons/${encodeURIComponent(addon.addonName)}`, connection.region),
+      attributes: {
+        cluster_name: addon.clusterName,
+        addon_name: addon.addonName,
+        addon_version: addon.addonVersion
+      },
+      tags: {}
+    }),
+    identityKeys: ['cloudIdentifier', 'logicalName'],
+    verifiedChecks: ['cluster', 'addon name', 'addon version'],
+    inferredChecks: [],
+    notes: ['Addon configuration values and service account role are not verified.']
+  },
+  aws_route53_record: {
+    normalizeTerraform: normalizeAwsRoute53Record,
+    normalizeLive: (record, connection) => ({
+      resourceType: 'aws_route53_record',
+      logicalName: `${record.zoneId}:${record.name}:${record.type}`,
+      cloudIdentifier: `${record.zoneId}:${record.name}:${record.type}`,
+      region: connection.region,
+      consoleUrl: consoleUrl(`route53/v2/hostedzones#ListRecordSets/${record.zoneId}`, connection.region),
+      attributes: {
+        zone_id: record.zoneId,
+        name: record.name,
+        type: record.type,
+        ttl: record.ttl ?? 0
+      },
+      tags: {}
+    }),
+    identityKeys: ['cloudIdentifier', 'logicalName'],
+    verifiedChecks: ['zone', 'name', 'type', 'TTL'],
+    inferredChecks: [],
+    notes: ['Record values and alias targets are not verified. Routing policy configuration is not compared.']
   }
 }
 
@@ -1712,7 +2546,24 @@ async function loadLiveInventory(connection: AwsConnection): Promise<LiveInvento
     iamRoles,
     elasticIps,
     dbSubnetGroups,
-    auroraClusterInstances
+    auroraClusterInstances,
+    autoScalingGroups,
+    ebsVolumes,
+    ebsSnapshots,
+    keyPairs,
+    iamUsers,
+    iamGroups,
+    iamPoliciesRaw,
+    snsTopics,
+    sqsQueues,
+    cloudWatchLogGroups,
+    cloudTrails,
+    acmCertificates,
+    kmsKeys,
+    secrets,
+    route53Zones,
+    cloudFormationStacks,
+    wafWebAcls
   ] = await Promise.all([
     listEc2Instances(connection),
     listSecurityGroups(connection),
@@ -1734,7 +2585,24 @@ async function loadLiveInventory(connection: AwsConnection): Promise<LiveInvento
     listIamRoles(connection),
     listElasticIps(connection),
     listDbSubnetGroups(connection),
-    listAuroraClusterInstances(connection)
+    listAuroraClusterInstances(connection),
+    listAutoScalingGroups(connection).catch(() => [] as AutoScalingGroupSummary[]),
+    listEbsVolumes(connection).catch(() => [] as EbsVolumeSummary[]),
+    listEc2Snapshots(connection).catch(() => [] as Ec2SnapshotSummary[]),
+    listKeyPairs(connection).catch(() => [] as KeyPairSummary[]),
+    listIamUsers(connection).catch(() => [] as IamUserSummary[]),
+    listIamGroups(connection).catch(() => [] as IamGroupSummary[]),
+    listIamPolicies(connection, 'Local').catch(() => [] as IamPolicySummary[]),
+    listTopics(connection).catch(() => [] as SnsTopicSummary[]),
+    listQueues(connection).catch(() => [] as SqsQueueSummary[]),
+    listCloudWatchLogGroups(connection).catch(() => [] as CloudWatchLogGroupSummary[]),
+    listTrails(connection).catch(() => [] as CloudTrailSummary[]),
+    listAcmCertificates(connection).catch(() => [] as AcmCertificateSummary[]),
+    listKmsKeys(connection).catch(() => [] as KmsKeySummary[]),
+    listSecrets(connection).catch(() => [] as SecretsManagerSecretSummary[]),
+    listRoute53HostedZones(connection).catch(() => [] as Route53HostedZoneSummary[]),
+    listStacks(connection).catch(() => [] as CloudFormationStackSummary[]),
+    listWebAcls(connection, 'REGIONAL').catch(() => [] as WafWebAclSummary[])
   ])
   const [eksNodegroups, iamRolePolicyAttachments] = await Promise.all([
     listEksNodegroupSummaries(connection, eksClusters),
@@ -1742,6 +2610,61 @@ async function loadLiveInventory(connection: AwsConnection): Promise<LiveInvento
   ])
   const routeTableAssociations = flattenRouteTableAssociations(routeTables)
   const securityGroupRules = flattenSecurityGroupRules(securityGroups)
+
+  // Dependent fetches: ECS services (need clusters), EKS addons (need clusters), Route53 records (need zones)
+  let ecsServiceSummaries: EcsServiceLiveSummary[] = []
+  try {
+    const serviceResults = await Promise.all(
+      ecsClusters.map(async (cluster) => {
+        const services = await listEcsServices(connection, cluster.clusterArn)
+        return services.map((service) => ({
+          clusterName: cluster.clusterName,
+          serviceName: service.serviceName,
+          desiredCount: service.desiredCount,
+          launchType: service.launchType
+        }))
+      })
+    )
+    ecsServiceSummaries = serviceResults.flat()
+  } catch {
+    // ECS service enumeration failed; proceed with empty list.
+  }
+
+  let eksAddonSummaries: EksAddonLiveSummary[] = []
+  try {
+    const addonResults = await Promise.all(
+      eksClusters.map(async (cluster) => {
+        const addons = await listEksAddons(connection, cluster.name)
+        return addons.map((addon) => ({
+          clusterName: cluster.name,
+          addonName: addon.addonName,
+          addonVersion: addon.addonVersion
+        }))
+      })
+    )
+    eksAddonSummaries = addonResults.flat()
+  } catch {
+    // EKS addon enumeration failed; proceed with empty list.
+  }
+
+  let route53RecordSummaries: Route53RecordLiveSummary[] = []
+  try {
+    const recordResults = await Promise.all(
+      route53Zones.map(async (zone) => {
+        const records = await listRoute53Records(connection, zone.id)
+        return records.map((record) => ({
+          zoneId: zone.id,
+          zoneName: zone.name,
+          name: record.name,
+          type: record.type,
+          ttl: record.ttl
+        }))
+      })
+    )
+    route53RecordSummaries = recordResults.flat()
+  } catch {
+    // Route53 record enumeration failed; proceed with empty list.
+  }
 
   return {
     aws_instance: instances,
@@ -1768,7 +2691,27 @@ async function loadLiveInventory(connection: AwsConnection): Promise<LiveInvento
     aws_db_subnet_group: dbSubnetGroups,
     aws_rds_cluster_instance: auroraClusterInstances,
     aws_route_table_association: routeTableAssociations,
-    aws_security_group_rule: securityGroupRules
+    aws_security_group_rule: securityGroupRules,
+    aws_autoscaling_group: autoScalingGroups,
+    aws_ebs_volume: ebsVolumes,
+    aws_ebs_snapshot: ebsSnapshots,
+    aws_key_pair: keyPairs,
+    aws_iam_user: iamUsers,
+    aws_iam_group: iamGroups,
+    aws_iam_policy: iamPoliciesRaw,
+    aws_sns_topic: snsTopics,
+    aws_sqs_queue: sqsQueues,
+    aws_cloudwatch_log_group: cloudWatchLogGroups,
+    aws_cloudtrail: cloudTrails,
+    aws_acm_certificate: acmCertificates,
+    aws_kms_key: kmsKeys,
+    aws_secretsmanager_secret: secrets,
+    aws_route53_zone: route53Zones,
+    aws_cloudformation_stack: cloudFormationStacks,
+    aws_wafv2_web_acl: wafWebAcls,
+    aws_ecs_service: ecsServiceSummaries,
+    aws_eks_addon: eksAddonSummaries,
+    aws_route53_record: route53RecordSummaries
   }
 }
 
@@ -1806,6 +2749,26 @@ async function scanProjectDrift(
     ...buildSupportedItems(project, connection, 'aws_rds_cluster_instance', project.inventory, liveInventory.aws_rds_cluster_instance, SUPPORTED_HANDLERS.aws_rds_cluster_instance),
     ...buildSupportedItems(project, connection, 'aws_route_table_association', project.inventory, liveInventory.aws_route_table_association, SUPPORTED_HANDLERS.aws_route_table_association),
     ...buildSupportedItems(project, connection, 'aws_security_group_rule', project.inventory, liveInventory.aws_security_group_rule, SUPPORTED_HANDLERS.aws_security_group_rule),
+    ...buildSupportedItems(project, connection, 'aws_autoscaling_group', project.inventory, liveInventory.aws_autoscaling_group, SUPPORTED_HANDLERS.aws_autoscaling_group),
+    ...buildSupportedItems(project, connection, 'aws_ebs_volume', project.inventory, liveInventory.aws_ebs_volume, SUPPORTED_HANDLERS.aws_ebs_volume),
+    ...buildSupportedItems(project, connection, 'aws_ebs_snapshot', project.inventory, liveInventory.aws_ebs_snapshot, SUPPORTED_HANDLERS.aws_ebs_snapshot),
+    ...buildSupportedItems(project, connection, 'aws_key_pair', project.inventory, liveInventory.aws_key_pair, SUPPORTED_HANDLERS.aws_key_pair),
+    ...buildSupportedItems(project, connection, 'aws_iam_user', project.inventory, liveInventory.aws_iam_user, SUPPORTED_HANDLERS.aws_iam_user),
+    ...buildSupportedItems(project, connection, 'aws_iam_group', project.inventory, liveInventory.aws_iam_group, SUPPORTED_HANDLERS.aws_iam_group),
+    ...buildSupportedItems(project, connection, 'aws_iam_policy', project.inventory, liveInventory.aws_iam_policy, SUPPORTED_HANDLERS.aws_iam_policy),
+    ...buildSupportedItems(project, connection, 'aws_sns_topic', project.inventory, liveInventory.aws_sns_topic, SUPPORTED_HANDLERS.aws_sns_topic),
+    ...buildSupportedItems(project, connection, 'aws_sqs_queue', project.inventory, liveInventory.aws_sqs_queue, SUPPORTED_HANDLERS.aws_sqs_queue),
+    ...buildSupportedItems(project, connection, 'aws_cloudwatch_log_group', project.inventory, liveInventory.aws_cloudwatch_log_group, SUPPORTED_HANDLERS.aws_cloudwatch_log_group),
+    ...buildSupportedItems(project, connection, 'aws_cloudtrail', project.inventory, liveInventory.aws_cloudtrail, SUPPORTED_HANDLERS.aws_cloudtrail),
+    ...buildSupportedItems(project, connection, 'aws_acm_certificate', project.inventory, liveInventory.aws_acm_certificate, SUPPORTED_HANDLERS.aws_acm_certificate),
+    ...buildSupportedItems(project, connection, 'aws_kms_key', project.inventory, liveInventory.aws_kms_key, SUPPORTED_HANDLERS.aws_kms_key),
+    ...buildSupportedItems(project, connection, 'aws_secretsmanager_secret', project.inventory, liveInventory.aws_secretsmanager_secret, SUPPORTED_HANDLERS.aws_secretsmanager_secret),
+    ...buildSupportedItems(project, connection, 'aws_route53_zone', project.inventory, liveInventory.aws_route53_zone, SUPPORTED_HANDLERS.aws_route53_zone),
+    ...buildSupportedItems(project, connection, 'aws_cloudformation_stack', project.inventory, liveInventory.aws_cloudformation_stack, SUPPORTED_HANDLERS.aws_cloudformation_stack),
+    ...buildSupportedItems(project, connection, 'aws_wafv2_web_acl', project.inventory, liveInventory.aws_wafv2_web_acl, SUPPORTED_HANDLERS.aws_wafv2_web_acl),
+    ...buildSupportedItems(project, connection, 'aws_ecs_service', project.inventory, liveInventory.aws_ecs_service, SUPPORTED_HANDLERS.aws_ecs_service),
+    ...buildSupportedItems(project, connection, 'aws_eks_addon', project.inventory, liveInventory.aws_eks_addon, SUPPORTED_HANDLERS.aws_eks_addon),
+    ...buildSupportedItems(project, connection, 'aws_route53_record', project.inventory, liveInventory.aws_route53_record, SUPPORTED_HANDLERS.aws_route53_record),
     ...buildUnsupportedItems(project, project.inventory)
   ]
   const sorted = sortItems(items)

@@ -292,6 +292,9 @@
 .asg-group-card-metrics strong {
   color: #edf4fb;
   font-size: 0.82rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .asg-detail-pane {
@@ -417,4 +420,212 @@
   .asg-group-card-metrics {
     flex-direction: column;
   }
+}
+
+/* ── Azure VMSS Console — blue theme overrides ───────────── */
+
+.azure-vmss-theme .asg-hero,
+.azure-vmss-theme .asg-detail-hero {
+  background:
+    radial-gradient(circle at top left, rgba(0, 120, 212, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(56, 139, 253, 0.10), transparent 30%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(11, 17, 25, 0.98));
+}
+
+.azure-vmss-theme .asg-stat-card-accent {
+  border-color: rgba(0, 120, 212, 0.32);
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(22, 35, 52, 0.96), rgba(14, 24, 38, 0.96));
+}
+
+.azure-vmss-theme .asg-groups-pane,
+.azure-vmss-theme .asg-detail-pane,
+.azure-vmss-theme .asg-tab-bar,
+.azure-vmss-theme .asg-capacity-panel,
+.azure-vmss-theme .asg-filter-panel,
+.azure-vmss-theme .asg-table-area {
+  border-color: rgba(0, 120, 212, 0.14);
+}
+
+.azure-vmss-theme .asg-group-card:hover {
+  border-color: rgba(0, 120, 212, 0.24);
+}
+
+.azure-vmss-theme .asg-group-card.active {
+  border-color: rgba(0, 120, 212, 0.34);
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.12), transparent 40%),
+    linear-gradient(180deg, rgba(28, 40, 55, 0.98), rgba(14, 23, 34, 0.98));
+  box-shadow: inset 0 0 0 1px rgba(0, 120, 212, 0.08);
+}
+
+.azure-vmss-theme .asg-group-card-badge {
+  background: rgba(0, 120, 212, 0.16);
+  color: #7db8f5;
+}
+
+.azure-vmss-theme .svc-btn.primary {
+  background: linear-gradient(135deg, #0078d4, #50a0e6);
+  border-color: rgba(80, 160, 230, 0.24);
+}
+
+.azure-vmss-theme .svc-tab.active {
+  border-color: rgba(0, 120, 212, 0.32);
+  background: linear-gradient(180deg, rgba(0, 120, 212, 0.18), rgba(0, 120, 212, 0.08));
+}
+
+/* ── Azure App Service theme (azure blue) ── */
+
+.azure-app-service-theme .asg-hero,
+.azure-app-service-theme .asg-detail-hero {
+  background:
+    radial-gradient(circle at top left, rgba(0, 120, 212, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(56, 139, 253, 0.10), transparent 30%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(11, 17, 25, 0.98));
+}
+
+.azure-app-service-theme .asg-stat-card-accent {
+  border-color: rgba(0, 120, 212, 0.32);
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(22, 35, 52, 0.96), rgba(14, 24, 38, 0.96));
+}
+
+.azure-app-service-theme .asg-groups-pane,
+.azure-app-service-theme .asg-detail-pane,
+.azure-app-service-theme .asg-tab-bar,
+.azure-app-service-theme .asg-capacity-panel,
+.azure-app-service-theme .asg-filter-panel,
+.azure-app-service-theme .asg-table-area {
+  border-color: rgba(0, 120, 212, 0.14);
+}
+
+.azure-app-service-theme .asg-group-card:hover {
+  border-color: rgba(0, 120, 212, 0.24);
+}
+
+.azure-app-service-theme .asg-group-card.active {
+  border-color: rgba(0, 120, 212, 0.34);
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.12), transparent 40%),
+    linear-gradient(180deg, rgba(28, 40, 55, 0.98), rgba(14, 23, 34, 0.98));
+  box-shadow: inset 0 0 0 1px rgba(0, 120, 212, 0.08);
+}
+
+.azure-app-service-theme .asg-group-card-badge {
+  background: rgba(0, 120, 212, 0.16);
+  color: #7db8f5;
+}
+
+.azure-app-service-theme .svc-btn.primary {
+  background: linear-gradient(135deg, #0078d4, #50a0e6);
+  border-color: rgba(80, 160, 230, 0.24);
+}
+
+.azure-app-service-theme .svc-tab.active {
+  border-color: rgba(0, 120, 212, 0.32);
+  background: linear-gradient(180deg, rgba(0, 120, 212, 0.18), rgba(0, 120, 212, 0.08));
+}
+
+.azure-event-hub-theme .asg-hero,
+.azure-event-hub-theme .asg-detail-hero {
+  background:
+    radial-gradient(circle at top left, rgba(0, 120, 212, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(56, 139, 253, 0.10), transparent 30%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(11, 17, 25, 0.98));
+}
+
+.azure-event-hub-theme .asg-stat-card-accent {
+  border-color: rgba(0, 120, 212, 0.32);
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(22, 35, 52, 0.96), rgba(14, 24, 38, 0.96));
+}
+
+.azure-event-hub-theme .asg-groups-pane,
+.azure-event-hub-theme .asg-detail-pane,
+.azure-event-hub-theme .asg-tab-bar,
+.azure-event-hub-theme .asg-capacity-panel,
+.azure-event-hub-theme .asg-filter-panel,
+.azure-event-hub-theme .asg-table-area {
+  border-color: rgba(0, 120, 212, 0.14);
+}
+
+.azure-event-hub-theme .asg-group-card:hover {
+  border-color: rgba(0, 120, 212, 0.24);
+}
+
+.azure-event-hub-theme .asg-group-card.active {
+  border-color: rgba(0, 120, 212, 0.34);
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.12), transparent 40%),
+    linear-gradient(180deg, rgba(28, 40, 55, 0.98), rgba(14, 23, 34, 0.98));
+  box-shadow: inset 0 0 0 1px rgba(0, 120, 212, 0.08);
+}
+
+.azure-event-hub-theme .asg-group-card-badge {
+  background: rgba(0, 120, 212, 0.16);
+  color: #7db8f5;
+}
+
+.azure-event-hub-theme .svc-btn.primary {
+  background: linear-gradient(135deg, #0078d4, #50a0e6);
+  border-color: rgba(80, 160, 230, 0.24);
+}
+
+.azure-event-hub-theme .svc-tab.active {
+  border-color: rgba(0, 120, 212, 0.32);
+  background: linear-gradient(180deg, rgba(0, 120, 212, 0.18), rgba(0, 120, 212, 0.08));
+}
+
+.azure-key-vault-theme .asg-hero,
+.azure-key-vault-theme .asg-detail-hero {
+  background:
+    radial-gradient(circle at top left, rgba(0, 120, 212, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(56, 139, 253, 0.10), transparent 30%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(11, 17, 25, 0.98));
+}
+
+.azure-key-vault-theme .asg-stat-card-accent {
+  border-color: rgba(0, 120, 212, 0.32);
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(22, 35, 52, 0.96), rgba(14, 24, 38, 0.96));
+}
+
+.azure-key-vault-theme .asg-groups-pane,
+.azure-key-vault-theme .asg-detail-pane,
+.azure-key-vault-theme .asg-tab-bar,
+.azure-key-vault-theme .asg-capacity-panel,
+.azure-key-vault-theme .asg-filter-panel,
+.azure-key-vault-theme .asg-table-area {
+  border-color: rgba(0, 120, 212, 0.14);
+}
+
+.azure-key-vault-theme .asg-group-card:hover {
+  border-color: rgba(0, 120, 212, 0.24);
+}
+
+.azure-key-vault-theme .asg-group-card.active {
+  border-color: rgba(0, 120, 212, 0.34);
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.12), transparent 40%),
+    linear-gradient(180deg, rgba(28, 40, 55, 0.98), rgba(14, 23, 34, 0.98));
+  box-shadow: inset 0 0 0 1px rgba(0, 120, 212, 0.08);
+}
+
+.azure-key-vault-theme .asg-group-card-badge {
+  background: rgba(0, 120, 212, 0.16);
+  color: #7db8f5;
+}
+
+.azure-key-vault-theme .svc-btn.primary {
+  background: linear-gradient(135deg, #0078d4, #50a0e6);
+  border-color: rgba(80, 160, 230, 0.24);
+}
+
+.azure-key-vault-theme .svc-tab.active {
+  border-color: rgba(0, 120, 212, 0.32);
+  background: linear-gradient(180deg, rgba(0, 120, 212, 0.18), rgba(0, 120, 212, 0.08));
 }

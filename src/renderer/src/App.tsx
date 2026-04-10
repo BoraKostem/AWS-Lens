@@ -100,8 +100,14 @@ import {
   AzureSubscriptionsConsole,
   AzureVirtualMachinesConsole
 } from './AzureCoreConsoles'
-import { AzureCostConsole, AzureMonitorConsole, AzureSqlConsole } from './AzureOpsConsoles'
+import { AzureCostConsole, AzureMonitorConsole, AzurePostgreSqlConsole, AzureSqlConsole } from './AzureOpsConsoles'
+import { AzureNetworkConsole } from './AzureNetworkConsole'
 import { AzureStorageAccountsConsole } from './AzureStorageConsole'
+import { AzureVmssConsole } from './AzureVmssConsole'
+import { AzureAppInsightsConsole } from './AzureOpsConsoles'
+import { AzureKeyVaultConsole } from './AzureKeyVaultConsole'
+import { AzureEventHubConsole } from './AzureEventHubConsole'
+import { AzureAppServiceConsole } from './AzureAppServiceConsole'
 import { AwsTerminalPanel } from './AwsTerminalPanel'
 import { AzureFoundationPanel } from './AzureFoundationPanel'
 import { CloudFormationConsole } from './CloudFormationConsole'
@@ -119,6 +125,11 @@ import { GcpCloudSqlConsolePage, GcpComputeEngineConsolePage } from './GcpRuntim
 import { GcpGkeConsolePage } from './GcpGkeConsole'
 import { GcpSessionHub } from './GcpSessionHub'
 import { GcpVpcWorkspace } from './GcpVpcWorkspace'
+import { GcpPubSubConsole } from './GcpPubSubConsole'
+import { GcpBigQueryConsole } from './GcpBigQueryConsole'
+import { GcpMonitoringConsole } from './GcpMonitoringConsole'
+import { GcpSccConsole } from './GcpSccConsole'
+import { GcpFirestoreConsole } from './GcpFirestoreConsole'
 import { useAwsPageConnection } from './AwsPage'
 import { EcsConsole } from './EcsConsole'
 import { Ec2Console } from './Ec2Console'
@@ -292,14 +303,26 @@ const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   'gcp-cloud-sql': 'Project-aware Cloud SQL entry point staged for database posture, instance inventory, and connection helpers.',
   'gcp-logging': 'Project-aware Logging entry point staged for log exploration, query posture, and shell handoff.',
   'gcp-billing': 'Project-aware Billing posture with project linkage, ownership signals, and billing account visibility.',
+  'gcp-bigquery': 'Project-aware BigQuery workspace with dataset inventory, table browser, schema viewer, and interactive query panel.',
+  'gcp-monitoring': 'Project-aware Cloud Monitoring workspace with alert policy overview, uptime checks, and metric exploration.',
+  'gcp-scc': 'Project-aware Security Command Center workspace with findings browser, source inventory, and severity breakdown.',
+  'gcp-firestore': 'Project-aware Firestore workspace with database picker, collection browser, and document viewer.',
+  'gcp-pubsub': 'Project-aware Pub/Sub workspace with topic inventory, subscription details, and messaging posture.',
   'azure-subscriptions': 'Tenant-aware subscription inventory with management-group hints, location coverage, and cost-facing context.',
   'azure-rbac': 'Scope-aware RBAC posture with inherited assignments, risky roles, and principal filters.',
   'azure-virtual-machines': 'Subscription-aware VM inventory with power state, identity posture, diagnostics links, and operator actions.',
   'azure-aks': 'AKS inventory with cluster posture, node pool visibility, version context, and kubeconfig handoff.',
   'azure-storage-accounts': 'Storage account posture plus container and blob workflows with preview, edit, upload, download, and delete flows.',
   'azure-sql': 'Azure SQL server and database posture with network visibility, maintenance metadata, and connection helper handoff.',
+  'azure-postgresql': 'PostgreSQL Flexible Server posture with HA visibility, firewall rules, database inventory, and connection metadata.',
   'azure-monitor': 'Azure Monitor query workflows, saved investigations, and diagnostics entry points across Azure services.',
-  'azure-cost': 'Subscription cost posture with spend visibility, service mix, and budget-facing ownership hints.'
+  'azure-cost': 'Subscription cost posture with spend visibility, service mix, and budget-facing ownership hints.',
+  'azure-network': 'Virtual network inventory with VNet topology, subnet posture, NSG rules, public IPs, and network interface visibility.',
+  'azure-vmss': 'VM Scale Set fleet posture with instance health, capacity controls, scaling actions, and zone distribution.',
+  'azure-app-insights': 'Application Insights component inventory with instrumentation context, retention posture, and network access visibility.',
+  'azure-key-vault': 'Key Vault posture with secret and key inventory, soft-delete and purge protection signals, and RBAC authorization context.',
+  'azure-event-hub': 'Event Hub namespace inventory with hub topology, consumer group visibility, throughput configuration, and Kafka enablement.',
+  'azure-app-service': 'App Service posture with plan inventory, web app configuration, deployment slot visibility, and deployment history.'
 }
 
 const SERVICE_MATURITY_LABELS: Record<ServiceMaturity, string> = {
@@ -339,7 +362,12 @@ const IMPLEMENTED_SCREENS = new Set<ServiceId>([
   'sts',
   'kms',
   'waf',
-  'gcp-vpc'
+  'gcp-vpc',
+  'gcp-bigquery',
+  'gcp-monitoring',
+  'gcp-scc',
+  'gcp-firestore',
+  'gcp-pubsub'
 ])
 
 const DEFAULT_PROVIDER_ID: CloudProviderId = 'aws'
@@ -3055,14 +3083,26 @@ function screenCacheTag(screen: Screen): CacheTag | null {
     case 'gcp-cloud-sql':
     case 'gcp-logging':
     case 'gcp-billing':
+    case 'gcp-bigquery':
+    case 'gcp-monitoring':
+    case 'gcp-scc':
+    case 'gcp-firestore':
+    case 'gcp-pubsub':
     case 'azure-subscriptions':
     case 'azure-rbac':
     case 'azure-virtual-machines':
     case 'azure-aks':
     case 'azure-storage-accounts':
     case 'azure-sql':
+    case 'azure-postgresql':
     case 'azure-monitor':
     case 'azure-cost':
+    case 'azure-network':
+    case 'azure-vmss':
+    case 'azure-app-insights':
+    case 'azure-key-vault':
+    case 'azure-event-hub':
+    case 'azure-app-service':
       return 'shell'
     case 'session-hub':
       return null
@@ -4371,15 +4411,18 @@ export function App() {
   }
 
   async function handleApplyAzureLocation(location: string): Promise<void> {
-    setAzureContextBusy(true)
-    setAzureContextError('')
-    try {
-      applyAzureSnapshot(await setAzureActiveLocation(location))
-    } catch (error) {
-      setAzureContextError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setAzureContextBusy(false)
-    }
+    const trimmed = location.trim()
+
+    setAzureProviderContext((current) => {
+      if (!current) return current
+      const updated = { ...current, activeLocation: trimmed }
+      writeAzureContextCache(updated)
+      return updated
+    })
+
+    setAzureActiveLocation(trimmed)
+      .then((snapshot) => applyAzureSnapshot(snapshot))
+      .catch(() => {})
   }
 
   function renderGcpProjectCard(project: NonNullable<GcpCliContext['projects'][number]>, compact = false) {
@@ -5418,7 +5461,9 @@ export function App() {
                       <small>{provider.connectionLabel}</small>
                     </div>
                     <span className={`enterprise-mode-pill ${provider.availability === 'available' ? 'operator' : 'read-only'}`}>
-                      {provider.availability === 'available'
+                      {provider.id === 'azure'
+                        ? 'Beta'
+                        : provider.availability === 'available'
                         ? 'Live'
                         : provider.id === 'gcp'
                           ? 'Beta'
@@ -5851,6 +5896,96 @@ export function App() {
       }
 
       if (
+        activeProviderId === 'gcp'
+        && targetScreen === 'gcp-pubsub'
+        && targetService?.id === 'gcp-pubsub'
+        && gcpContextReady
+        && activeGcpConnectionDraft
+      ) {
+        return (
+          <GcpPubSubConsole
+            projectId={activeGcpConnectionDraft.projectId.trim()}
+            location={activeGcpConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['gcp-pubsub'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'gcp'
+        && targetScreen === 'gcp-bigquery'
+        && targetService?.id === 'gcp-bigquery'
+        && gcpContextReady
+        && activeGcpConnectionDraft
+      ) {
+        return (
+          <GcpBigQueryConsole
+            projectId={activeGcpConnectionDraft.projectId.trim()}
+            location={activeGcpConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['gcp-bigquery'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'gcp'
+        && targetScreen === 'gcp-monitoring'
+        && targetService?.id === 'gcp-monitoring'
+        && gcpContextReady
+        && activeGcpConnectionDraft
+      ) {
+        return (
+          <GcpMonitoringConsole
+            projectId={activeGcpConnectionDraft.projectId.trim()}
+            location={activeGcpConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['gcp-monitoring'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'gcp'
+        && targetScreen === 'gcp-scc'
+        && targetService?.id === 'gcp-scc'
+        && gcpContextReady
+        && activeGcpConnectionDraft
+      ) {
+        return (
+          <GcpSccConsole
+            projectId={activeGcpConnectionDraft.projectId.trim()}
+            location={activeGcpConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['gcp-scc'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'gcp'
+        && targetScreen === 'gcp-firestore'
+        && targetService?.id === 'gcp-firestore'
+        && gcpContextReady
+        && activeGcpConnectionDraft
+      ) {
+        return (
+          <GcpFirestoreConsole
+            projectId={activeGcpConnectionDraft.projectId.trim()}
+            location={activeGcpConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['gcp-firestore'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+          />
+        )
+      }
+
+      if (
         activeProviderId === 'azure'
         && targetScreen === 'azure-subscriptions'
         && targetService?.id === 'azure-subscriptions'
@@ -5970,6 +6105,25 @@ export function App() {
 
       if (
         activeProviderId === 'azure'
+        && targetScreen === 'azure-postgresql'
+        && targetService?.id === 'azure-postgresql'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzurePostgreSqlConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-postgresql'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenMonitor={(query) => openAzureMonitor(query)}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
         && targetScreen === 'azure-monitor'
         && targetService?.id === 'azure-monitor'
         && azureContextReady
@@ -6007,6 +6161,121 @@ export function App() {
             onOpenCompliance={() => setScreen('compliance-center')}
             onOpenMonitor={(query) => openAzureMonitor(query)}
             onOpenDirectAccess={() => setScreen('direct-access')}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-network'
+        && targetService?.id === 'azure-network'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureNetworkConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-network'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenMonitor={(query) => openAzureMonitor(query)}
+            onNavigate={(serviceId) => navigateToService(serviceId)}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-vmss'
+        && targetService?.id === 'azure-vmss'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureVmssConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-vmss'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenMonitor={(query) => openAzureMonitor(query)}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-app-insights'
+        && targetService?.id === 'azure-app-insights'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureAppInsightsConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-app-insights'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenMonitor={(query) => openAzureMonitor(query)}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-key-vault'
+        && targetService?.id === 'azure-key-vault'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureKeyVaultConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-key-vault'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenMonitor={(query) => openAzureMonitor(query)}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-event-hub'
+        && targetService?.id === 'azure-event-hub'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureEventHubConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-event-hub'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenMonitor={(query) => openAzureMonitor(query)}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-app-service'
+        && targetService?.id === 'azure-app-service'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureAppServiceConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-app-service'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenMonitor={(query) => openAzureMonitor(query)}
           />
         )
       }

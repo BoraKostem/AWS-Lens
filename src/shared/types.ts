@@ -874,6 +874,298 @@ export type AzureAksNodePoolSummary = {
   nodeTaints: string[]
 }
 
+/* ── Azure Network types ─────────────────────────────────── */
+
+export type AzureVNetSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  addressPrefixes: string[]
+  subnetCount: number
+  provisioningState: string
+  enableDdosProtection: boolean
+  dnsServers: string[]
+  peeringCount: number
+  tagCount: number
+}
+
+export type AzureSubnetSummary = {
+  id: string
+  name: string
+  addressPrefix: string
+  provisioningState: string
+  nsgName: string
+  routeTableName: string
+  delegations: string[]
+  privateEndpointCount: number
+  natGatewayName: string
+}
+
+export type AzureNsgSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  securityRuleCount: number
+  defaultRuleCount: number
+  associatedSubnetCount: number
+  associatedNicCount: number
+  provisioningState: string
+}
+
+export type AzureNsgRuleSummary = {
+  name: string
+  priority: number
+  direction: 'Inbound' | 'Outbound'
+  access: 'Allow' | 'Deny'
+  protocol: string
+  sourceAddressPrefix: string
+  sourcePortRange: string
+  destinationAddressPrefix: string
+  destinationPortRange: string
+}
+
+export type AzurePublicIpSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  ipAddress: string
+  allocationMethod: string
+  sku: string
+  associatedResourceName: string
+  provisioningState: string
+  dnsLabel: string
+  fqdn: string
+}
+
+export type AzureNetworkInterfaceSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  privateIp: string
+  publicIp: string
+  subnetName: string
+  vnetName: string
+  nsgName: string
+  macAddress: string
+  attachedVmName: string
+  provisioningState: string
+  enableAcceleratedNetworking: boolean
+}
+
+export type AzureNetworkOverview = {
+  vnets: AzureVNetSummary[]
+  nsgs: AzureNsgSummary[]
+  publicIps: AzurePublicIpSummary[]
+  networkInterfaces: AzureNetworkInterfaceSummary[]
+}
+
+/* ── Azure VMSS types ────────────────────────────────────── */
+
+export type AzureVmssSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  skuName: string
+  skuCapacity: number
+  provisioningState: string
+  orchestrationMode: string
+  upgradePolicy: string
+  platformFaultDomainCount: number
+  overprovision: boolean
+  singlePlacementGroup: boolean
+  identityType: string
+  tagCount: number
+  zones: string[]
+}
+
+export type AzureVmssInstanceSummary = {
+  instanceId: string
+  name: string
+  provisioningState: string
+  powerState: string
+  latestModelApplied: boolean
+  vmSize: string
+  protectionFromScaleIn: boolean
+  zone: string
+}
+
+export type AzureVmssActionResult = {
+  action: string
+  vmssName: string
+  resourceGroup: string
+  accepted: boolean
+  error?: string
+}
+
+/* ── Azure Application Insights types ───────────────────── */
+
+export type AzureAppInsightsSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  instrumentationKey: string
+  applicationId: string
+  applicationType: string
+  kind: string
+  ingestionMode: string
+  retentionInDays: number
+  publicNetworkAccessForIngestion: string
+  publicNetworkAccessForQuery: string
+  provisioningState: string
+  connectionString: string
+  workspaceResourceId: string
+  tagCount: number
+}
+
+/* ── Azure Key Vault types ──────────────────────────────── */
+
+export type AzureKeyVaultSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  vaultUri: string
+  skuName: string
+  tenantId: string
+  enableSoftDelete: boolean
+  softDeleteRetentionInDays: number
+  enablePurgeProtection: boolean
+  enableRbacAuthorization: boolean
+  publicNetworkAccess: string
+  provisioningState: string
+  tagCount: number
+}
+
+export type AzureKeyVaultSecretSummary = {
+  id: string
+  name: string
+  enabled: boolean
+  contentType: string
+  managed: boolean
+  created: string
+  updated: string
+}
+
+export type AzureKeyVaultKeySummary = {
+  id: string
+  name: string
+  enabled: boolean
+  keyType: string
+  keyOps: string[]
+  created: string
+  updated: string
+}
+
+/* ── Azure Event Hub types ──────────────────────────────── */
+
+export type AzureEventHubNamespaceSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  skuName: string
+  skuTier: string
+  skuCapacity: number
+  isAutoInflateEnabled: boolean
+  maximumThroughputUnits: number
+  kafkaEnabled: boolean
+  zoneRedundant: boolean
+  publicNetworkAccess: string
+  provisioningState: string
+  status: string
+  serviceBusEndpoint: string
+  tagCount: number
+}
+
+export type AzureEventHubSummary = {
+  id: string
+  name: string
+  partitionCount: number
+  messageRetentionInDays: number
+  status: string
+  createdAt: string
+  updatedAt: string
+  partitionIds: string[]
+}
+
+export type AzureEventHubConsumerGroupSummary = {
+  id: string
+  name: string
+  userMetadata: string
+  createdAt: string
+  updatedAt: string
+}
+
+/* ── Azure App Service types ────────────────────────────── */
+
+export type AzureAppServicePlanSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  skuName: string
+  skuTier: string
+  skuCapacity: number
+  kind: string
+  numberOfWorkers: number
+  numberOfSites: number
+  status: string
+  reserved: boolean
+  zoneRedundant: boolean
+  provisioningState: string
+  tagCount: number
+}
+
+export type AzureWebAppSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  kind: string
+  state: string
+  defaultHostName: string
+  httpsOnly: boolean
+  enabled: boolean
+  appServicePlanName: string
+  runtimeStack: string
+  ftpsState: string
+  http20Enabled: boolean
+  minTlsVersion: string
+  publicNetworkAccess: string
+  provisioningState: string
+  lastModifiedTimeUtc: string
+  tagCount: number
+}
+
+export type AzureWebAppSlotSummary = {
+  id: string
+  name: string
+  slotName: string
+  state: string
+  hostName: string
+  enabled: boolean
+  httpsOnly: boolean
+  lastModifiedTimeUtc: string
+}
+
+export type AzureWebAppDeploymentSummary = {
+  id: string
+  deploymentId: string
+  status: number
+  message: string
+  author: string
+  deployer: string
+  startTime: string
+  endTime: string
+  active: boolean
+}
+
 export type AzureStorageAccountSummary = {
   id: string
   name: string
@@ -1004,6 +1296,88 @@ export type AzureSqlServerDetail = {
   badges: AzureSqlPostureBadge[]
   summaryTiles: AzureSqlSummaryTile[]
   findings: AzureSqlFinding[]
+  recommendations: string[]
+  connectionDetails: Array<{ label: string; value: string }>
+}
+
+export type AzurePostgreSqlServerSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  version: string
+  fullyQualifiedDomainName: string
+  publicNetworkAccess: string
+  state: string
+  skuName: string
+  skuTier: string
+  storageSizeGb: number
+  haEnabled: boolean
+  haState: string
+  backupRetentionDays: number
+  geoRedundantBackup: boolean
+  availabilityZone: string
+  databaseCount: number
+  tagCount: number
+  notes: string[]
+}
+
+export type AzurePostgreSqlDatabaseSummary = {
+  id: string
+  name: string
+  serverName: string
+  resourceGroup: string
+  charset: string
+  collation: string
+}
+
+export type AzurePostgreSqlEstateOverview = {
+  subscriptionId: string
+  serverCount: number
+  databaseCount: number
+  publicServerCount: number
+  servers: AzurePostgreSqlServerSummary[]
+  databases: AzurePostgreSqlDatabaseSummary[]
+  notes: string[]
+}
+
+export type AzurePostgreSqlFirewallRule = {
+  name: string
+  startIpAddress: string
+  endIpAddress: string
+}
+
+export type AzurePostgreSqlOperationalTone = 'good' | 'warning' | 'risk' | 'info' | 'neutral'
+
+export type AzurePostgreSqlPostureBadge = {
+  id: string
+  label: string
+  value: string
+  tone: AzurePostgreSqlOperationalTone
+}
+
+export type AzurePostgreSqlSummaryTile = {
+  id: string
+  label: string
+  value: string
+  tone: AzurePostgreSqlOperationalTone
+}
+
+export type AzurePostgreSqlFinding = {
+  id: string
+  severity: 'info' | 'warning' | 'risk'
+  title: string
+  message: string
+  recommendation: string
+}
+
+export type AzurePostgreSqlServerDetail = {
+  server: AzurePostgreSqlServerSummary
+  databases: AzurePostgreSqlDatabaseSummary[]
+  firewallRules: AzurePostgreSqlFirewallRule[]
+  badges: AzurePostgreSqlPostureBadge[]
+  summaryTiles: AzurePostgreSqlSummaryTile[]
+  findings: AzurePostgreSqlFinding[]
   recommendations: string[]
   connectionDetails: Array<{ label: string; value: string }>
 }
@@ -1539,6 +1913,228 @@ export type GcpBillingOverview = {
   linkedProjectLabelCoveragePercent: number
   visibility: GcpBillingVisibility
   lastUpdatedAt: string
+}
+
+export type GcpBigQueryDatasetSummary = {
+  datasetId: string
+  projectId: string
+  location: string
+  friendlyName: string
+  description: string
+  creationTime: string
+  lastModifiedTime: string
+  tableCount: number
+}
+
+export type GcpBigQueryTableSummary = {
+  tableId: string
+  datasetId: string
+  projectId: string
+  type: string
+  creationTime: string
+  expirationTime: string
+  rowCount: string
+  sizeBytes: string
+  description: string
+}
+
+export type GcpBigQuerySchemaFieldSummary = {
+  name: string
+  type: string
+  mode: string
+  description: string
+  fields: GcpBigQuerySchemaFieldSummary[]
+}
+
+export type GcpBigQueryTableDetail = {
+  tableId: string
+  datasetId: string
+  projectId: string
+  type: string
+  schema: GcpBigQuerySchemaFieldSummary[]
+  rowCount: string
+  sizeBytes: string
+  creationTime: string
+  lastModifiedTime: string
+  description: string
+  location: string
+}
+
+export type GcpBigQueryQueryResult = {
+  columns: string[]
+  rows: string[][]
+  totalRows: string
+  jobComplete: boolean
+  cacheHit: boolean
+}
+
+export type GcpMonitoringAlertPolicySummary = {
+  name: string
+  displayName: string
+  enabled: boolean
+  conditionCount: number
+  notificationChannelCount: number
+  combiner: string
+  creationTime: string
+  mutationTime: string
+}
+
+export type GcpMonitoringUptimeCheckSummary = {
+  name: string
+  displayName: string
+  monitoredResource: string
+  protocol: string
+  period: string
+  timeout: string
+  selectedRegions: string[]
+  isInternal: boolean
+}
+
+export type GcpMonitoringMetricDescriptorSummary = {
+  type: string
+  displayName: string
+  description: string
+  metricKind: string
+  valueType: string
+  unit: string
+  launchStage: string
+}
+
+export type GcpMonitoringTimeSeriesPoint = {
+  timestamp: string
+  value: number
+}
+
+export type GcpMonitoringTimeSeriesResult = {
+  metric: string
+  resource: string
+  points: GcpMonitoringTimeSeriesPoint[]
+}
+
+export type GcpSccFindingSummary = {
+  name: string
+  category: string
+  state: string
+  severity: string
+  resourceName: string
+  resourceType: string
+  sourceDisplayName: string
+  eventTime: string
+  createTime: string
+  description: string
+  externalUri: string
+}
+
+export type GcpSccSourceSummary = {
+  name: string
+  displayName: string
+  description: string
+}
+
+export type GcpSccFindingDetail = {
+  name: string
+  category: string
+  state: string
+  severity: string
+  resourceName: string
+  resourceType: string
+  sourceDisplayName: string
+  sourceProperties: Record<string, string>
+  eventTime: string
+  createTime: string
+  description: string
+  nextSteps: string
+  externalUri: string
+  mute: string
+}
+
+export type GcpSccSeverityBreakdown = {
+  critical: number
+  high: number
+  medium: number
+  low: number
+  unspecified: number
+}
+
+export type GcpFirestoreDatabaseSummary = {
+  name: string
+  uid: string
+  locationId: string
+  type: string
+  concurrencyMode: string
+  deleteProtectionState: string
+  earliestVersionTime: string
+}
+
+export type GcpFirestoreCollectionSummary = {
+  collectionId: string
+  documentCount: number
+}
+
+export type GcpFirestoreDocumentSummary = {
+  name: string
+  documentId: string
+  createTime: string
+  updateTime: string
+  fieldCount: number
+}
+
+export type GcpFirestoreDocumentDetail = {
+  name: string
+  documentId: string
+  createTime: string
+  updateTime: string
+  fields: Record<string, unknown>
+}
+
+export type GcpPubSubTopicSummary = {
+  name: string
+  topicId: string
+  labels: Record<string, string>
+  messageRetentionDuration: string
+  kmsKeyName: string
+  schemaSettings: string
+}
+
+export type GcpPubSubSubscriptionSummary = {
+  name: string
+  subscriptionId: string
+  topic: string
+  topicId: string
+  ackDeadlineSeconds: number
+  messageRetentionDuration: string
+  pushEndpoint: string
+  deliveryType: string
+  filter: string
+  enableExactlyOnceDelivery: boolean
+  state: string
+  detached: boolean
+}
+
+export type GcpPubSubTopicDetail = {
+  name: string
+  topicId: string
+  labels: Record<string, string>
+  messageRetentionDuration: string
+  kmsKeyName: string
+  schemaSettings: string
+  subscriptionCount: number
+}
+
+export type GcpPubSubSubscriptionDetail = {
+  name: string
+  subscriptionId: string
+  topic: string
+  ackDeadlineSeconds: number
+  messageRetentionDuration: string
+  retainAckedMessages: boolean
+  pushConfig: { pushEndpoint: string; attributes: Record<string, string> } | null
+  deadLetterPolicy: { deadLetterTopic: string; maxDeliveryAttempts: number } | null
+  retryPolicy: { minimumBackoff: string; maximumBackoff: string } | null
+  filter: string
+  enableExactlyOnceDelivery: boolean
+  state: string
+  expirationTtl: string
 }
 
 export type GcpFirewallRuleSummary = {
@@ -2256,14 +2852,26 @@ export type ServiceId =
   | 'gcp-cloud-sql'
   | 'gcp-logging'
   | 'gcp-billing'
+  | 'gcp-bigquery'
+  | 'gcp-monitoring'
+  | 'gcp-scc'
+  | 'gcp-firestore'
+  | 'gcp-pubsub'
   | 'azure-subscriptions'
   | 'azure-rbac'
   | 'azure-virtual-machines'
   | 'azure-aks'
   | 'azure-storage-accounts'
   | 'azure-sql'
+  | 'azure-postgresql'
   | 'azure-monitor'
   | 'azure-cost'
+  | 'azure-network'
+  | 'azure-vmss'
+  | 'azure-app-insights'
+  | 'azure-key-vault'
+  | 'azure-event-hub'
+  | 'azure-app-service'
 
 export type GovernanceTagKey = 'Owner' | 'Environment' | 'Project' | 'CostCenter'
 

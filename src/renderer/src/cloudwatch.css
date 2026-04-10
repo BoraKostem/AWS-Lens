@@ -414,6 +414,13 @@
   font-size: 11px;
   font-weight: 700;
 }
+.cw-chip.active {
+  border-color: rgba(245, 154, 61, 0.5);
+  background:
+    radial-gradient(circle at top right, rgba(245, 154, 61, 0.24), transparent 44%),
+    linear-gradient(180deg, rgba(40, 32, 22, 0.96), rgba(28, 22, 16, 0.96));
+  color: #ffe4b8;
+}
 
 .cw-table-hint,
 .cw-loading,
@@ -703,6 +710,13 @@
   border-color: rgba(108, 214, 141, 0.2);
   color: #b7f5ca;
 }
+.gcp-logging-console .cw-chip.active {
+  border-color: rgba(108, 214, 141, 0.5);
+  background:
+    radial-gradient(circle at top right, rgba(108, 214, 141, 0.24), transparent 44%),
+    linear-gradient(180deg, rgba(22, 40, 28, 0.96), rgba(16, 28, 20, 0.96));
+  color: #d4fae0;
+}
 
 .gcp-logging-console .cw-table tr.cw-clickable:hover {
   background: rgba(108, 214, 141, 0.06);
@@ -766,6 +780,13 @@
   background: rgba(56, 142, 224, 0.12);
   border-color: rgba(56, 142, 224, 0.2);
   color: #a8d8f8;
+}
+.azure-monitor-console .cw-chip.active {
+  border-color: rgba(56, 142, 224, 0.5);
+  background:
+    radial-gradient(circle at top right, rgba(56, 142, 224, 0.24), transparent 44%),
+    linear-gradient(180deg, rgba(26, 38, 56, 0.96), rgba(18, 28, 42, 0.96));
+  color: #c4e4ff;
 }
 
 .azure-monitor-console .cw-table tr.cw-clickable:hover {
@@ -1151,4 +1172,38 @@
   .cost-daily-chart {
     height: 64px;
   }
+}
+
+/* ── Azure Application Insights theme (azure blue) ── */
+
+.azure-app-insights-console .cw-shell-hero {
+  background:
+    radial-gradient(circle at top left, rgba(56, 142, 224, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(80, 120, 200, 0.14), transparent 30%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(11, 17, 25, 0.98));
+}
+
+.azure-app-insights-console .cw-shell-kicker {
+  color: #7ec8f8;
+}
+
+.azure-app-insights-console .cw-shell-stat-card-accent {
+  border-color: rgba(56, 142, 224, 0.3);
+  background:
+    radial-gradient(circle at top right, rgba(56, 142, 224, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(24, 34, 52, 0.96), rgba(14, 22, 36, 0.96));
+}
+
+.azure-app-insights-console .cw-tab.active {
+  border-color: rgba(56, 142, 224, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(56, 142, 224, 0.16), transparent 48%),
+    linear-gradient(180deg, rgba(24, 34, 50, 0.96), rgba(16, 24, 38, 0.96));
+}
+
+.azure-app-insights-console .cw-shell-toolbar-btn {
+  border-color: rgba(56, 142, 224, 0.18);
+  background:
+    radial-gradient(circle at top right, rgba(56, 142, 224, 0.14), transparent 60%),
+    linear-gradient(180deg, rgba(24, 36, 56, 0.98), rgba(16, 26, 42, 0.98));
 }

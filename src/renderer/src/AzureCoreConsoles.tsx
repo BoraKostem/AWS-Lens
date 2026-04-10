@@ -6,6 +6,7 @@ import type {
   AzureAksClusterDetail,
   AzureAksClusterSummary,
   AzureAksNodePoolSummary,
+  AzureMonitorActivityEvent,
   AzureRbacOverview,
   AzureRoleAssignmentSummary,
   AzureRoleDefinitionSummary,
@@ -25,9 +26,13 @@ import {
   listAzureRoleAssignments,
   listAzureRoleDefinitions,
   listAzureSubscriptions,
+  listAzureMonitorActivity,
   listAzureVirtualMachines,
   runAzureVmAction,
-  updateAzureAksNodePoolScaling
+  addAksToKubeconfig,
+  chooseAksKubeconfigPath,
+  updateAzureAksNodePoolScaling,
+  toggleAzureAksNodePoolAutoscaling
 } from './api'
 import { ConfirmButton } from './ConfirmButton'
 import { SvcState } from './SvcState'
@@ -69,7 +74,7 @@ export function AzureSubscriptionsConsole({
   canRunTerminalCommand: boolean
   onOpenCost: () => void
   onOpenMonitor: () => void
-  onOpenService: (serviceId: 'azure-rbac' | 'azure-virtual-machines' | 'azure-aks' | 'azure-storage-accounts' | 'azure-sql') => void
+  onOpenService: (serviceId: 'azure-rbac' | 'azure-virtual-machines' | 'azure-aks' | 'azure-storage-accounts' | 'azure-sql' | 'azure-network' | 'azure-vmss') => void
 }): JSX.Element {
   const [subscriptions, setSubscriptions] = useState<AzureSubscriptionSummary[]>([])
   const [loading, setLoading] = useState(true)
@@ -265,6 +270,8 @@ export function AzureSubscriptionsConsole({
                 <button type="button" className="ghost" onClick={() => onOpenService('azure-aks')}>AKS clusters</button>
                 <button type="button" className="ghost" onClick={() => onOpenService('azure-storage-accounts')}>Storage accounts</button>
                 <button type="button" className="ghost" onClick={() => onOpenService('azure-sql')}>Azure SQL</button>
+                <button type="button" className="ghost" onClick={() => onOpenService('azure-network')}>Network</button>
+                <button type="button" className="ghost" onClick={() => onOpenService('azure-vmss')}>VM Scale Sets</button>
                 <button type="button" className="ghost" onClick={onOpenCost}>Cost posture</button>
                 <button type="button" className="ghost" onClick={onOpenMonitor}>Monitor</button>
               </div>
@@ -409,6 +416,8 @@ export function AzureSubscriptionsConsole({
                 <button type="button" className="ghost" onClick={() => onOpenService('azure-aks')}>AKS clusters</button>
                 <button type="button" className="ghost" onClick={() => onOpenService('azure-storage-accounts')}>Storage accounts</button>
                 <button type="button" className="ghost" onClick={() => onOpenService('azure-sql')}>Azure SQL</button>
+                <button type="button" className="ghost" onClick={() => onOpenService('azure-network')}>Network</button>
+                <button type="button" className="ghost" onClick={() => onOpenService('azure-vmss')}>VM Scale Sets</button>
                 <button type="button" className="ghost" onClick={onOpenCost}>Cost posture</button>
                 <button type="button" className="ghost" onClick={onOpenMonitor}>Monitor</button>
               </div>
@@ -1171,6 +1180,10 @@ export function AzureVirtualMachinesConsole({
   const [detail, setDetail] = useState<AzureVirtualMachineDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [actionBusy, setActionBusy] = useState(false)
+  const [vmSideTab, setVmSideTab] = useState<'overview' | 'timeline'>('overview')
+  const [timelineEvents, setTimelineEvents] = useState<AzureMonitorActivityEvent[]>([])
+  const [timelineLoading, setTimelineLoading] = useState(false)
+  const [timelineError, setTimelineError] = useState('')
 
   async function reload(): Promise<void> {
     setLoading(true)
@@ -1202,6 +1215,9 @@ export function AzureVirtualMachinesConsole({
     setSelectedId(vm.id)
     setDetailLoading(true)
     setMsg('')
+    setVmSideTab('overview')
+    setTimelineEvents([])
+    setTimelineError('')
     try {
       const d = await describeAzureVirtualMachine(subscriptionId, vm.resourceGroup, vm.name)
       setDetail(d)
@@ -1212,6 +1228,25 @@ export function AzureVirtualMachinesConsole({
       setDetailLoading(false)
     }
   }
+
+  async function loadVmTimeline() {
+    if (!detail) return
+    setTimelineLoading(true)
+    setTimelineError('')
+    try {
+      const result = await listAzureMonitorActivity(subscriptionId, location, `Microsoft.Compute|${detail.name}`, 168)
+      setTimelineEvents(result.events)
+    } catch (error) {
+      setTimelineEvents([])
+      setTimelineError(error instanceof Error ? error.message : 'Failed to load activity')
+    } finally {
+      setTimelineLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (vmSideTab === 'timeline' && detail) void loadVmTimeline()
+  }, [vmSideTab, selectedId])
 
   async function doVmAction(action: AzureVmAction): Promise<void> {
     if (!detail) return
@@ -1382,77 +1417,112 @@ export function AzureVirtualMachinesConsole({
 
             <div className="ec2-sidebar">
               <div className="ec2-side-tabs">
-                <button className="active" type="button">Overview</button>
+                <button className={vmSideTab === 'overview' ? 'active' : ''} type="button" onClick={() => setVmSideTab('overview')}>Overview</button>
+                <button className={vmSideTab === 'timeline' ? 'active' : ''} type="button" onClick={() => setVmSideTab('timeline')}>Activity Timeline</button>
               </div>
 
-              <div className="ec2-sidebar-section">
-                <h3>Actions</h3>
-                <div className="ec2-actions-grid">
-                  <button className="ec2-action-btn start" type="button" disabled={!detail || isRunning || actionBusy} onClick={() => void doVmAction('start')}>Start</button>
-                  <ConfirmButton className="ec2-action-btn stop" type="button" disabled={!detail || isStopped || actionBusy} onConfirm={() => void doVmAction('deallocate')}>Deallocate</ConfirmButton>
-                  <ConfirmButton className="ec2-action-btn" type="button" disabled={!detail || !isRunning || actionBusy} onConfirm={() => void doVmAction('restart')}>Restart</ConfirmButton>
-                  <ConfirmButton className="ec2-action-btn stop" type="button" disabled={!detail || !isRunning || actionBusy} onConfirm={() => void doVmAction('powerOff')}>Power Off</ConfirmButton>
-                  <button className="ec2-action-btn" type="button" disabled={!canRunTerminalCommand || !detail} onClick={() => { if (detail) onRunTerminalCommand(`az vm show -g "${detail.resourceGroup}" -n "${detail.name}" --subscription "${subscriptionId}" -d --output jsonc`) }}>Describe</button>
-                  <button className="ec2-action-btn" type="button" disabled={!canRunTerminalCommand || !detail} onClick={() => { if (detail) onRunTerminalCommand(`az serial-console connect -g "${detail.resourceGroup}" -n "${detail.name}" --subscription "${subscriptionId}"`) }}>Serial Console</button>
-                  <button className="ec2-action-btn" type="button" disabled={!canRunTerminalCommand || !detail} onClick={() => { if (detail) onRunTerminalCommand(`az vm run-command invoke -g "${detail.resourceGroup}" -n "${detail.name}" --subscription "${subscriptionId}" --command-id RunShellScript --scripts "uname -a && whoami && df -h"`) }}>Run Command</button>
-                  <button className="ec2-action-btn" type="button" onClick={() => onOpenMonitor('Microsoft.Compute virtualMachines')}>Monitor</button>
-                  <button className="ec2-action-btn" type="button" onClick={onOpenDirectAccess}>Direct Access</button>
-                </div>
-              </div>
-
-              {detailLoading && (<div className="ec2-sidebar-section"><SvcState variant="loading" resourceName="VM detail" compact /></div>)}
-
-              {detail && !detailLoading && (
+              {vmSideTab === 'overview' && (
                 <>
                   <div className="ec2-sidebar-section">
-                    <h3>Instance Detail</h3>
-                    <AzureVmKV items={[['Name', detail.name], ['Resource Group', detail.resourceGroup], ['Location', detail.location], ['VM Size', detail.vmSize], ['Power State', detail.powerState], ['Provisioning', detail.provisioningState], ['OS Type', detail.osType], ['Computer Name', detail.computerName || '-'], ['Admin User', detail.adminUsername || '-'], ['Availability Zone', detail.availabilityZone || '-'], ['Image', detail.imageReference || '-'], ['Identity', detail.identityType]]} />
-                  </div>
-
-                  <div className="ec2-sidebar-section">
-                    <h3>Networking</h3>
-                    <AzureVmKV items={[['Private IP', detail.privateIp || '-'], ['Public IP', detail.publicIp || '-'], ['VNet', detail.vnetName || '-'], ['Subnet', detail.subnetName || '-'], ['NSG', detail.networkSecurityGroup || '-'], ['NICs', String(detail.networkInterfaceCount)]]} />
-                  </div>
-
-                  <div className="ec2-sidebar-section">
-                    <h3>Storage</h3>
-                    <AzureVmKV items={[['OS Disk', detail.osDiskName || '-'], ['OS Disk Size', detail.osDiskSizeGiB ? `${detail.osDiskSizeGiB} GiB` : '-'], ['OS Disk Type', detail.osDiskType || '-'], ['Data Disks', String(detail.dataDisks.length)], ['Boot Diagnostics', detail.diagnosticsState]]} />
-                    {detail.dataDisks.length > 0 && (
-                      <div style={{ marginTop: 8 }}>
-                        {detail.dataDisks.map((disk) => (
-                          <div key={disk.name} className="ec2-kv-row">
-                            <div className="ec2-kv-label">LUN {disk.lun}</div>
-                            <div className="ec2-kv-value">{disk.name} ({disk.sizeGiB} GiB, {disk.type || 'unknown'})</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {tagEntries.length > 0 && (
-                    <div className="ec2-sidebar-section">
-                      <h3>Tags ({tagEntries.length})</h3>
-                      <AzureVmKV items={tagEntries.map(([k, v]) => [k, v])} />
+                    <h3>Actions</h3>
+                    <div className="ec2-actions-grid">
+                      <button className="ec2-action-btn start" type="button" disabled={!detail || isRunning || actionBusy} onClick={() => void doVmAction('start')}>Start</button>
+                      <ConfirmButton className="ec2-action-btn stop" type="button" disabled={!detail || isStopped || actionBusy} onConfirm={() => void doVmAction('deallocate')}>Deallocate</ConfirmButton>
+                      <ConfirmButton className="ec2-action-btn" type="button" disabled={!detail || !isRunning || actionBusy} onConfirm={() => void doVmAction('restart')}>Restart</ConfirmButton>
+                      <ConfirmButton className="ec2-action-btn stop" type="button" disabled={!detail || !isRunning || actionBusy} onConfirm={() => void doVmAction('powerOff')}>Power Off</ConfirmButton>
+                      <button className="ec2-action-btn" type="button" disabled={!canRunTerminalCommand || !detail} onClick={() => { if (detail) onRunTerminalCommand(`az vm show -g "${detail.resourceGroup}" -n "${detail.name}" --subscription "${subscriptionId}" -d --output jsonc`) }}>Describe</button>
+                      <button className="ec2-action-btn" type="button" disabled={!canRunTerminalCommand || !detail} onClick={() => { if (detail) onRunTerminalCommand(`az serial-console connect -g "${detail.resourceGroup}" -n "${detail.name}" --subscription "${subscriptionId}"`) }}>Serial Console</button>
+                      <button className="ec2-action-btn" type="button" disabled={!canRunTerminalCommand || !detail} onClick={() => { if (detail) onRunTerminalCommand(`az vm run-command invoke -g "${detail.resourceGroup}" -n "${detail.name}" --subscription "${subscriptionId}" --command-id RunShellScript --scripts "uname -a && whoami && df -h"`) }}>Run Command</button>
+                      <button className="ec2-action-btn" type="button" onClick={() => onOpenMonitor('Microsoft.Compute virtualMachines')}>Monitor</button>
+                      <button className="ec2-action-btn" type="button" onClick={onOpenDirectAccess}>Direct Access</button>
                     </div>
+                  </div>
+
+                  {detailLoading && (<div className="ec2-sidebar-section"><SvcState variant="loading" resourceName="VM detail" compact /></div>)}
+
+                  {detail && !detailLoading && (
+                    <>
+                      <div className="ec2-sidebar-section">
+                        <h3>Instance Detail</h3>
+                        <AzureVmKV items={[['Name', detail.name], ['Resource Group', detail.resourceGroup], ['Location', detail.location], ['VM Size', detail.vmSize], ['Power State', detail.powerState], ['Provisioning', detail.provisioningState], ['OS Type', detail.osType], ['Computer Name', detail.computerName || '-'], ['Admin User', detail.adminUsername || '-'], ['Availability Zone', detail.availabilityZone || '-'], ['Image', detail.imageReference || '-'], ['Identity', detail.identityType]]} />
+                      </div>
+
+                      <div className="ec2-sidebar-section">
+                        <h3>Networking</h3>
+                        <AzureVmKV items={[['Private IP', detail.privateIp || '-'], ['Public IP', detail.publicIp || '-'], ['VNet', detail.vnetName || '-'], ['Subnet', detail.subnetName || '-'], ['NSG', detail.networkSecurityGroup || '-'], ['NICs', String(detail.networkInterfaceCount)]]} />
+                      </div>
+
+                      <div className="ec2-sidebar-section">
+                        <h3>Storage</h3>
+                        <AzureVmKV items={[['OS Disk', detail.osDiskName || '-'], ['OS Disk Size', detail.osDiskSizeGiB ? `${detail.osDiskSizeGiB} GiB` : '-'], ['OS Disk Type', detail.osDiskType || '-'], ['Data Disks', String(detail.dataDisks.length)], ['Boot Diagnostics', detail.diagnosticsState]]} />
+                        {detail.dataDisks.length > 0 && (
+                          <div style={{ marginTop: 8 }}>
+                            {detail.dataDisks.map((disk) => (
+                              <div key={disk.name} className="ec2-kv-row">
+                                <div className="ec2-kv-label">LUN {disk.lun}</div>
+                                <div className="ec2-kv-value">{disk.name} ({disk.sizeGiB} GiB, {disk.type || 'unknown'})</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {tagEntries.length > 0 && (
+                        <div className="ec2-sidebar-section">
+                          <h3>Tags ({tagEntries.length})</h3>
+                          <AzureVmKV items={tagEntries.map(([k, v]) => [k, v])} />
+                        </div>
+                      )}
+
+                      <div className="ec2-sidebar-section">
+                        <h3>Terminal Handoff</h3>
+                        <div className="ec2-actions-grid">
+                          <button className="ec2-action-btn" type="button" disabled={!canRunTerminalCommand} onClick={() => onRunTerminalCommand(`az vm list-ip-addresses -g "${detail.resourceGroup}" -n "${detail.name}" --subscription "${subscriptionId}" --output table`)}>IP Addresses</button>
+                          <button className="ec2-action-btn" type="button" disabled={!canRunTerminalCommand} onClick={() => onRunTerminalCommand(`az vm get-instance-view -g "${detail.resourceGroup}" -n "${detail.name}" --subscription "${subscriptionId}" --output jsonc`)}>Instance View</button>
+                          <button className="ec2-action-btn" type="button" disabled={!canRunTerminalCommand} onClick={() => onRunTerminalCommand(`az disk list -g "${detail.resourceGroup}" --subscription "${subscriptionId}" --output table`)}>List Disks</button>
+                          <button className="ec2-action-btn" type="button" disabled={!canRunTerminalCommand} onClick={() => onRunTerminalCommand(`az vm list -g "${detail.resourceGroup}" --subscription "${subscriptionId}" -d --output table`)}>List VMs in RG</button>
+                          <button className="ec2-action-btn" type="button" disabled={!canRunTerminalCommand} onClick={() => onRunTerminalCommand(`az network nsg list -g "${detail.resourceGroup}" --subscription "${subscriptionId}" --output table`)}>List NSGs</button>
+                          <button className="ec2-action-btn" type="button" disabled={!canRunTerminalCommand} onClick={() => onRunTerminalCommand(`az vm boot-diagnostics get-boot-log -g "${detail.resourceGroup}" -n "${detail.name}" --subscription "${subscriptionId}"`)}>Boot Log</button>
+                        </div>
+                      </div>
+                    </>
                   )}
 
-                  <div className="ec2-sidebar-section">
-                    <h3>Terminal Handoff</h3>
-                    <div className="ec2-actions-grid">
-                      <button className="ec2-action-btn" type="button" disabled={!canRunTerminalCommand} onClick={() => onRunTerminalCommand(`az vm list-ip-addresses -g "${detail.resourceGroup}" -n "${detail.name}" --subscription "${subscriptionId}" --output table`)}>IP Addresses</button>
-                      <button className="ec2-action-btn" type="button" disabled={!canRunTerminalCommand} onClick={() => onRunTerminalCommand(`az vm get-instance-view -g "${detail.resourceGroup}" -n "${detail.name}" --subscription "${subscriptionId}" --output jsonc`)}>Instance View</button>
-                      <button className="ec2-action-btn" type="button" disabled={!canRunTerminalCommand} onClick={() => onRunTerminalCommand(`az disk list -g "${detail.resourceGroup}" --subscription "${subscriptionId}" --output table`)}>List Disks</button>
-                      <button className="ec2-action-btn" type="button" disabled={!canRunTerminalCommand} onClick={() => onRunTerminalCommand(`az vm list -g "${detail.resourceGroup}" --subscription "${subscriptionId}" -d --output table`)}>List VMs in RG</button>
-                      <button className="ec2-action-btn" type="button" disabled={!canRunTerminalCommand} onClick={() => onRunTerminalCommand(`az network nsg list -g "${detail.resourceGroup}" --subscription "${subscriptionId}" --output table`)}>List NSGs</button>
-                      <button className="ec2-action-btn" type="button" disabled={!canRunTerminalCommand} onClick={() => onRunTerminalCommand(`az vm boot-diagnostics get-boot-log -g "${detail.resourceGroup}" -n "${detail.name}" --subscription "${subscriptionId}"`)}>Boot Log</button>
+                  {!detail && !detailLoading && (
+                    <div className="ec2-sidebar-section">
+                      <div className="ec2-empty">Select a virtual machine to view details, run actions, and inspect configuration.</div>
                     </div>
-                  </div>
+                  )}
                 </>
               )}
 
-              {!detail && !detailLoading && (
+              {vmSideTab === 'timeline' && (
                 <div className="ec2-sidebar-section">
-                  <div className="ec2-empty">Select a virtual machine to view details, run actions, and inspect configuration.</div>
+                  <h3>Azure Monitor Activity</h3>
+                  <div style={{ color: '#9ca7b7', fontSize: 12, marginBottom: 8 }}>
+                    Management-plane events for <strong>{detail?.name ?? 'selected VM'}</strong> from the last 7 days.
+                  </div>
+                  {!detail && <div className="ec2-empty">Select a virtual machine to view activity.</div>}
+                  {detail && timelineLoading && <div className="ec2-empty">Loading activity events...</div>}
+                  {detail && !timelineLoading && timelineError && <div className="ec2-empty" style={{ color: '#f87171' }}>{timelineError}</div>}
+                  {detail && !timelineLoading && !timelineError && timelineEvents.length === 0 && <div className="ec2-empty">No Azure Monitor events found.</div>}
+                  {detail && !timelineLoading && timelineEvents.length > 0 && (
+                    <div className="ec2-timeline-table-wrap">
+                      <table className="ec2-timeline-table">
+                        <thead><tr><th>Operation</th><th>Status</th><th>Caller</th><th>Time</th></tr></thead>
+                        <tbody>
+                          {timelineEvents.map((event) => (
+                            <tr key={event.id}>
+                              <td title={event.resourceType}>{event.operationName}</td>
+                              <td>{event.status}</td>
+                              <td>{event.caller}</td>
+                              <td>{event.timestamp ? new Date(event.timestamp).toLocaleString() : '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1512,7 +1582,10 @@ export function AzureAksConsole({ subscriptionId, location, refreshNonce, onRunT
   const [npSearch, setNpSearch] = useState('')
   const [visibleNpCols, setVisibleNpCols] = useState<Set<AksNodePoolCol>>(new Set(['name', 'status', 'min', 'desired', 'max', 'vmSize', 'version', 'mode']))
   const [selectedNp, setSelectedNp] = useState('')
-  const [sideTab, setSideTab] = useState<'overview' | 'details'>('overview')
+  const [sideTab, setSideTab] = useState<'overview' | 'details' | 'timeline'>('overview')
+  const [aksTimelineEvents, setAksTimelineEvents] = useState<AzureMonitorActivityEvent[]>([])
+  const [aksTimelineLoading, setAksTimelineLoading] = useState(false)
+  const [aksTimelineError, setAksTimelineError] = useState('')
   const [showDescribe, setShowDescribe] = useState(false)
   const [showScale, setShowScale] = useState(false)
   const [scaleMin, setScaleMin] = useState('')
@@ -1520,6 +1593,16 @@ export function AzureAksConsole({ subscriptionId, location, refreshNonce, onRunT
   const [scaleMax, setScaleMax] = useState('')
   const [scaleBusy, setScaleBusy] = useState(false)
   const [scaleErr, setScaleErr] = useState('')
+  const [showKubeconfigForm, setShowKubeconfigForm] = useState(false)
+  const [kubeconfigContextName, setKubeconfigContextName] = useState('')
+  const [kubeconfigLocation, setKubeconfigLocation] = useState('.kube/config')
+  const [kubeconfigBusy, setKubeconfigBusy] = useState(false)
+  const [kubeconfigErr, setKubeconfigErr] = useState('')
+  const [showAutoscaleToggle, setShowAutoscaleToggle] = useState(false)
+  const [autoscaleToggleBusy, setAutoscaleToggleBusy] = useState(false)
+  const [autoscaleToggleErr, setAutoscaleToggleErr] = useState('')
+  const [autoscaleMinInput, setAutoscaleMinInput] = useState('')
+  const [autoscaleMaxInput, setAutoscaleMaxInput] = useState('')
 
   const activeNpCols = AKS_NODEPOOL_COLUMNS.filter((c) => visibleNpCols.has(c.key))
   const filteredClusters = useMemo(() => { const q = clusterSearch.trim().toLowerCase(); if (!q) return clusters; return clusters.filter((c) => c.name.toLowerCase().includes(q) || c.kubernetesVersion.toLowerCase().includes(q) || c.provisioningState.toLowerCase().includes(q) || c.location.toLowerCase().includes(q)) }, [clusterSearch, clusters])
@@ -1532,9 +1615,29 @@ export function AzureAksConsole({ subscriptionId, location, refreshNonce, onRunT
   useEffect(() => { void reload() }, [refreshNonce, subscriptionId, location])
 
   async function doSelect(cluster: AzureAksClusterSummary) {
-    setSelectedCluster(cluster.name); setError(''); setMsg(''); setShowDescribe(false); setShowScale(false)
+    setSelectedCluster(cluster.name); setError(''); setMsg(''); setShowDescribe(false); setShowScale(false); setShowAutoscaleToggle(false)
+    setSideTab('overview'); setAksTimelineEvents([]); setAksTimelineError('')
     try { const [d, np] = await Promise.all([describeAzureAksCluster(subscriptionId, cluster.resourceGroup, cluster.name), listAzureAksNodePools(subscriptionId, cluster.resourceGroup, cluster.name)]); setDetail(d); setNodePools(np); setSelectedNp(np[0]?.name ?? '') } catch (e) { setError(normalizeError(e)) }
   }
+
+  async function loadAksTimeline() {
+    if (!selectedCluster || !detail) return
+    setAksTimelineLoading(true)
+    setAksTimelineError('')
+    try {
+      const result = await listAzureMonitorActivity(subscriptionId, location, `Microsoft.ContainerService|${detail.name}`, 168)
+      setAksTimelineEvents(result.events)
+    } catch (error) {
+      setAksTimelineEvents([])
+      setAksTimelineError(error instanceof Error ? error.message : 'Failed to load activity')
+    } finally {
+      setAksTimelineLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (sideTab === 'timeline' && selectedCluster) void loadAksTimeline()
+  }, [sideTab, selectedCluster])
 
   async function handleScale() {
     if (!selectedCluster || !selectedNp || !detail) return
@@ -1545,14 +1648,78 @@ export function AzureAksConsole({ subscriptionId, location, refreshNonce, onRunT
     try { await updateAzureAksNodePoolScaling(subscriptionId, detail.resourceGroup, selectedCluster, selectedNp, mn, dn, mx); setNodePools(await listAzureAksNodePools(subscriptionId, detail.resourceGroup, selectedCluster)); setShowScale(false); setMsg(`Scaled ${selectedNp} successfully`) } catch (e) { setScaleErr(normalizeError(e)) } finally { setScaleBusy(false) }
   }
 
-  function openScaleForm() { const p = nodePools.find((i) => i.name === selectedNp); if (p) { setScaleMin(String(p.min === '-' ? 0 : p.min)); setScaleDesired(String(p.desired === '-' ? 0 : p.desired)); setScaleMax(String(p.max === '-' ? 0 : p.max)) } setScaleErr(''); setShowScale(true) }
+  function openScaleForm() { setShowAutoscaleToggle(false); const p = nodePools.find((i) => i.name === selectedNp); if (p) { setScaleMin(String(p.min === '-' ? 0 : p.min)); setScaleDesired(String(p.desired === '-' ? 0 : p.desired)); setScaleMax(String(p.max === '-' ? 0 : p.max)) } setScaleErr(''); setShowScale(true) }
+
+  function openAutoscaleToggleForm() {
+    if (!selectedNodePool) return
+    setShowScale(false)
+    setAutoscaleToggleErr('')
+    const currentDesired = String(selectedNodePool.desired === '-' ? 1 : selectedNodePool.desired)
+    setAutoscaleMinInput(selectedNodePool.enableAutoScaling ? '' : currentDesired)
+    setAutoscaleMaxInput(selectedNodePool.enableAutoScaling ? '' : currentDesired)
+    setShowAutoscaleToggle(true)
+  }
+
+  async function handleAutoscaleToggle() {
+    if (!selectedCluster || !selectedNp || !detail || !selectedNodePool) return
+    const willEnable = !selectedNodePool.enableAutoScaling
+    if (willEnable) {
+      const mn = Number(autoscaleMinInput), mx = Number(autoscaleMaxInput)
+      if (Number.isNaN(mn) || Number.isNaN(mx)) return setAutoscaleToggleErr('Min and max must be numbers')
+      if (mn < 1) return setAutoscaleToggleErr('Min count must be at least 1')
+      if (mn > mx) return setAutoscaleToggleErr('Min must be less than or equal to max')
+      setAutoscaleToggleErr(''); setAutoscaleToggleBusy(true)
+      try { await toggleAzureAksNodePoolAutoscaling(subscriptionId, detail.resourceGroup, selectedCluster, selectedNp, true, mn, mx); setNodePools(await listAzureAksNodePools(subscriptionId, detail.resourceGroup, selectedCluster)); setShowAutoscaleToggle(false); setMsg(`Enabled autoscaling on ${selectedNp} (min: ${mn}, max: ${mx})`) } catch (e) { setAutoscaleToggleErr(normalizeError(e)) } finally { setAutoscaleToggleBusy(false) }
+    } else {
+      setAutoscaleToggleErr(''); setAutoscaleToggleBusy(true)
+      try { await toggleAzureAksNodePoolAutoscaling(subscriptionId, detail.resourceGroup, selectedCluster, selectedNp, false); setNodePools(await listAzureAksNodePools(subscriptionId, detail.resourceGroup, selectedCluster)); setShowAutoscaleToggle(false); setMsg(`Disabled autoscaling on ${selectedNp}`) } catch (e) { setAutoscaleToggleErr(normalizeError(e)) } finally { setAutoscaleToggleBusy(false) }
+    }
+  }
+
+  function openKubeconfigForm() {
+    if (!selectedCluster) return
+    setShowKubeconfigForm(true)
+    setKubeconfigContextName(selectedCluster)
+    setKubeconfigLocation('.kube/config')
+    setKubeconfigErr('')
+  }
+
+  async function browseKubeconfigLocation() {
+    if (kubeconfigBusy) return
+    setKubeconfigErr('')
+    try {
+      const selectedPath = await chooseAksKubeconfigPath(kubeconfigLocation)
+      if (selectedPath) setKubeconfigLocation(selectedPath)
+    } catch (e) {
+      setKubeconfigErr(normalizeError(e))
+    }
+  }
+
+  async function handleKubeconfig() {
+    if (!selectedCluster || !detail) return
+    const contextName = kubeconfigContextName.trim()
+    const kubeconfigPath = kubeconfigLocation.trim()
+    if (!contextName) return setKubeconfigErr('Context name is required')
+    if (!kubeconfigPath) return setKubeconfigErr('Config location is required')
+    setMsg(''); setError(''); setKubeconfigErr(''); setKubeconfigBusy(true)
+    try {
+      const result = await addAksToKubeconfig(subscriptionId, detail.resourceGroup, selectedCluster, contextName, kubeconfigPath)
+      setMsg(result || `Added ${selectedCluster} to kubeconfig as context "${contextName}"`)
+      setShowKubeconfigForm(false)
+    } catch (e) {
+      setKubeconfigErr(normalizeError(e))
+    } finally {
+      setKubeconfigBusy(false)
+    }
+  }
+
   function openKubectl() { if (!selectedCluster || !detail) return; onRunTerminalCommand(`az aks get-credentials -g "${detail.resourceGroup}" -n "${selectedCluster}" --subscription "${subscriptionId}" --overwrite-existing; Write-Host 'kubectl context ready for cluster: ${selectedCluster}'; Write-Host ''; kubectl cluster-info`); setMsg(`Opened kubectl terminal for ${selectedCluster} in the app terminal`) }
   function toggleNpCol(key: AksNodePoolCol) { setVisibleNpCols((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n }) }
 
   if (loading && !clusters.length) return <SvcState variant="loading" resourceName="AKS clusters" />
 
   return (
-    <div className="eks-console">
+    <div className="eks-console azure-aks-theme">
       <section className="eks-shell-hero">
         <div className="eks-shell-hero-copy">
           <div className="eyebrow">AKS service</div>
@@ -1577,14 +1744,16 @@ export function AzureAksConsole({ subscriptionId, location, refreshNonce, onRunT
         <div className="eks-toolbar">
           <button className="eks-toolbar-btn accent" type="button" onClick={() => void reload()} disabled={loading}>Reload inventory</button>
           <button className="eks-toolbar-btn" type="button" onClick={() => setShowDescribe((c) => !c)} disabled={!selectedCluster}>{showDescribe ? 'Hide details' : 'Describe cluster'}</button>
+          <button className="eks-toolbar-btn" type="button" onClick={openKubeconfigForm} disabled={!selectedCluster}>Add to kubeconfig</button>
           <button className="eks-toolbar-btn" type="button" onClick={() => { if (detail) onRunTerminalCommand(`az aks get-credentials -g "${detail.resourceGroup}" -n "${selectedCluster}" --subscription "${subscriptionId}" --overwrite-existing`) }} disabled={!selectedCluster || !canRunTerminalCommand}>Get kubeconfig</button>
-          <button className="eks-toolbar-btn" type="button" onClick={openScaleForm} disabled={!selectedCluster || !nodePools.length}>Scale node pool</button>
+          {selectedNodePool?.enableAutoScaling !== false && <button className="eks-toolbar-btn" type="button" onClick={openScaleForm} disabled={!selectedCluster || !nodePools.length}>Scale node pool</button>}
+          <button className="eks-toolbar-btn" type="button" onClick={openAutoscaleToggleForm} disabled={!selectedCluster || !selectedNp}>{selectedNodePool?.enableAutoScaling ? 'Disable autoscaling' : 'Enable autoscaling'}</button>
           <button className="eks-toolbar-btn" type="button" onClick={openKubectl} disabled={!selectedCluster || !canRunTerminalCommand}>Open kubectl terminal</button>
         </div>
         <div className="eks-shell-status">
           <div className="eks-status-card"><span>Inventory</span><strong>{loading ? 'Refreshing' : `${clusters.length} clusters loaded`}</strong></div>
           <div className="eks-status-card"><span>Selection</span><strong>{selectedCluster ? aksTrunc(selectedCluster, 28) : 'Waiting for selection'}</strong></div>
-          <div className="eks-status-card"><span>Mode</span><strong>{sideTab === 'overview' ? 'Capacity review' : 'Cluster details'}</strong></div>
+          <div className="eks-status-card"><span>Mode</span><strong>{sideTab === 'overview' ? 'Capacity review' : sideTab === 'details' ? 'Cluster details' : 'Activity timeline'}</strong></div>
         </div>
       </div>
 
@@ -1633,6 +1802,7 @@ export function AzureAksConsole({ subscriptionId, location, refreshNonce, onRunT
               <div className="eks-detail-tabs">
                 <button className={sideTab === 'overview' ? 'active' : ''} type="button" onClick={() => setSideTab('overview')}>Overview</button>
                 <button className={sideTab === 'details' ? 'active' : ''} type="button" onClick={() => setSideTab('details')}>Cluster details</button>
+                <button className={sideTab === 'timeline' ? 'active' : ''} type="button" onClick={() => setSideTab('timeline')}>Activity Timeline</button>
               </div>
 
               {sideTab === 'overview' && (
@@ -1653,8 +1823,10 @@ export function AzureAksConsole({ subscriptionId, location, refreshNonce, onRunT
                   <section className="eks-section">
                     <div className="eks-section-head"><div><span className="eks-section-kicker">Operations</span><h4>Cluster actions</h4></div><span className="eks-section-hint">Actions operate on the selected cluster and its node pools.</span></div>
                     <div className="eks-action-grid">
-                      <button type="button" className="eks-action-btn accent" disabled={!canRunTerminalCommand} onClick={() => onRunTerminalCommand(`az aks get-credentials -g "${detail.resourceGroup}" -n "${selectedCluster}" --subscription "${subscriptionId}" --overwrite-existing`)}>Get kubeconfig</button>
-                      <button type="button" className="eks-action-btn" onClick={openScaleForm} disabled={!nodePools.length}>Scale node pool</button>
+                      <button type="button" className="eks-action-btn accent" onClick={openKubeconfigForm}>Add to kubeconfig</button>
+                      <button type="button" className="eks-action-btn" disabled={!canRunTerminalCommand} onClick={() => onRunTerminalCommand(`az aks get-credentials -g "${detail.resourceGroup}" -n "${selectedCluster}" --subscription "${subscriptionId}" --overwrite-existing`)}>Get kubeconfig</button>
+                      {selectedNodePool?.enableAutoScaling !== false && <button type="button" className="eks-action-btn" onClick={openScaleForm} disabled={!nodePools.length}>Scale node pool</button>}
+                      <button type="button" className="eks-action-btn" onClick={openAutoscaleToggleForm} disabled={!nodePools.length}>{selectedNodePool?.enableAutoScaling ? 'Disable autoscaling' : 'Enable autoscaling'}</button>
                       <button type="button" className="eks-action-btn" onClick={openKubectl} disabled={!canRunTerminalCommand}>Open kubectl terminal</button>
                       <button type="button" className="eks-action-btn" onClick={() => onOpenMonitor('Microsoft.ContainerService managedClusters')}>Open monitor</button>
                     </div>
@@ -1669,6 +1841,23 @@ export function AzureAksConsole({ subscriptionId, location, refreshNonce, onRunT
                           <button type="button" className="eks-toolbar-btn accent" disabled={scaleBusy} onClick={() => void handleScale()}>{scaleBusy ? 'Applying...' : 'Apply scale change'}</button>
                         </div>
                         {scaleErr && <div className="eks-inline-error">{scaleErr}</div>}
+                      </section>
+                    )}
+                    {showAutoscaleToggle && selectedNodePool && (
+                      <section className="eks-inline-panel eks-scale-inline-panel">
+                        <div className="eks-section-head"><div><span className="eks-section-kicker">Autoscaling</span><h4>{selectedNodePool.enableAutoScaling ? 'Disable' : 'Enable'} autoscaling</h4></div><button type="button" className="eks-toolbar-btn" onClick={() => setShowAutoscaleToggle(false)} disabled={autoscaleToggleBusy}>Close</button></div>
+                        <div className="eks-scale-form">
+                          <label>Node pool<select value={selectedNp} onChange={(e) => { setSelectedNp(e.target.value); const p = nodePools.find((i) => i.name === e.target.value); if (p) { const d = String(p.desired === '-' ? 1 : p.desired); setAutoscaleMinInput(p.enableAutoScaling ? '' : d); setAutoscaleMaxInput(p.enableAutoScaling ? '' : d) } }}>{nodePools.map((p) => <option key={p.name} value={p.name}>{p.name} ({p.enableAutoScaling ? 'autoscaling on' : 'autoscaling off'})</option>)}</select></label>
+                          {!selectedNodePool.enableAutoScaling && (
+                            <>
+                              <label>Min count<input type="number" value={autoscaleMinInput} onChange={(e) => setAutoscaleMinInput(e.target.value)} min={1} /></label>
+                              <label>Max count<input type="number" value={autoscaleMaxInput} onChange={(e) => setAutoscaleMaxInput(e.target.value)} min={1} /></label>
+                            </>
+                          )}
+                          <p style={{ margin: '0.5rem 0', opacity: 0.7, fontSize: '0.85rem' }}>{selectedNodePool.enableAutoScaling ? `Disabling autoscaling will fix the node count at the current desired value (${selectedNodePool.desired}). The cluster autoscaler will no longer manage this pool.` : 'Enabling autoscaling allows the cluster autoscaler to adjust node count between the specified min and max bounds.'}</p>
+                          <button type="button" className="eks-toolbar-btn accent" disabled={autoscaleToggleBusy} onClick={() => void handleAutoscaleToggle()}>{autoscaleToggleBusy ? 'Applying...' : (selectedNodePool.enableAutoScaling ? 'Disable autoscaling' : 'Enable autoscaling')}</button>
+                        </div>
+                        {autoscaleToggleErr && <div className="eks-inline-error">{autoscaleToggleErr}</div>}
                       </section>
                     )}
                   </section>
@@ -1764,10 +1953,65 @@ export function AzureAksConsole({ subscriptionId, location, refreshNonce, onRunT
                   </section>
                 </section>
               )}
+              {sideTab === 'timeline' && (
+                <section className="eks-section">
+                  <div className="eks-section-head">
+                    <div><span className="eks-section-kicker">Azure Monitor</span><h4>Activity timeline</h4></div>
+                    <span className="eks-section-hint">Management-plane events for <strong>{detail?.name ?? selectedCluster}</strong> from the last 7 days.</span>
+                  </div>
+                  {!selectedCluster && <SvcState variant="empty" resourceName="cluster" compact />}
+                  {selectedCluster && aksTimelineLoading && <SvcState variant="loading" resourceName="activity events" compact />}
+                  {selectedCluster && !aksTimelineLoading && aksTimelineError && <div className="eks-inline-error">{aksTimelineError}</div>}
+                  {selectedCluster && !aksTimelineLoading && !aksTimelineError && aksTimelineEvents.length === 0 && <SvcState variant="empty" message="No Azure Monitor events found for this cluster." />}
+                  {selectedCluster && !aksTimelineLoading && aksTimelineEvents.length > 0 && (
+                    <div className="eks-table-shell">
+                      <div className="eks-ng-scroll">
+                        <table className="eks-data-table">
+                          <thead><tr><th>Operation</th><th>Status</th><th>Caller</th><th>Time</th></tr></thead>
+                          <tbody>
+                            {aksTimelineEvents.map((event) => (
+                              <tr key={event.id}>
+                                <td title={event.resourceType}>{event.operationName}</td>
+                                <td>{event.status}</td>
+                                <td>{event.caller}</td>
+                                <td>{event.timestamp ? new Date(event.timestamp).toLocaleString() : '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </section>
+              )}
             </>
           )}
         </div>
       </div>
+      {showKubeconfigForm && (
+        <div className="eks-modal-backdrop" onClick={() => { if (!kubeconfigBusy) setShowKubeconfigForm(false) }}>
+          <section className="eks-modal-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="eks-section-head">
+              <div><span className="eks-section-kicker">Kubeconfig</span><h4>Add selected cluster</h4></div>
+            </div>
+            <div className="eks-form-grid">
+              <label>Context name<input value={kubeconfigContextName} onChange={(event) => setKubeconfigContextName(event.target.value)} placeholder="my-aks-context" autoFocus /></label>
+              <label>
+                Config location
+                <div className="eks-picker-field">
+                  <input value={kubeconfigLocation} placeholder=".kube/config" readOnly />
+                  <button type="button" className="eks-toolbar-btn" onClick={() => void browseKubeconfigLocation()} disabled={kubeconfigBusy}>Browse</button>
+                </div>
+              </label>
+            </div>
+            <div className="eks-inline-actions">
+              <button type="button" className="eks-toolbar-btn" onClick={() => setShowKubeconfigForm(false)} disabled={kubeconfigBusy}>Cancel</button>
+              <button type="button" className="eks-toolbar-btn accent" onClick={() => void handleKubeconfig()} disabled={kubeconfigBusy}>{kubeconfigBusy ? 'Adding...' : 'Add to kubeconfig'}</button>
+            </div>
+            {kubeconfigErr && <div className="eks-inline-error">{kubeconfigErr}</div>}
+          </section>
+        </div>
+      )}
     </div>
   )
 }

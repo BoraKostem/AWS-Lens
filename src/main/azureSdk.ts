@@ -1,8 +1,14 @@
-import { dialog, BrowserWindow } from 'electron'
-import { basename, extname } from 'node:path'
+import { app, dialog, BrowserWindow, shell } from 'electron'
+import { execFile } from 'node:child_process'
+import { createWriteStream, watchFile, unwatchFile } from 'node:fs'
+import { mkdir } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path'
 import { readFile, writeFile } from 'node:fs/promises'
+import { pipeline } from 'node:stream/promises'
+import { promisify } from 'node:util'
 
-import { BlobServiceClient, StorageSharedKeyCredential } from '@azure/storage-blob'
+import { BlobSASPermissions, BlobServiceClient, generateBlobSASQueryParameters, StorageSharedKeyCredential } from '@azure/storage-blob'
 import { DefaultAzureCredential } from '@azure/identity'
 
 import type {
@@ -34,10 +40,66 @@ import type {
   AzureVirtualMachineDetail,
   AzureVirtualMachineSummary,
   AzureVmAction,
-  AzureVmActionResult
+  AzureVmActionResult,
+  AzureVNetSummary,
+  AzureSubnetSummary,
+  AzureNsgSummary,
+  AzureNsgRuleSummary,
+  AzurePublicIpSummary,
+  AzureNetworkInterfaceSummary,
+  AzureNetworkOverview,
+  AzureVmssSummary,
+  AzureVmssInstanceSummary,
+  AzureVmssActionResult,
+  AzurePostgreSqlServerSummary,
+  AzurePostgreSqlDatabaseSummary,
+  AzurePostgreSqlEstateOverview,
+  AzurePostgreSqlFirewallRule,
+  AzurePostgreSqlPostureBadge,
+  AzurePostgreSqlSummaryTile,
+  AzurePostgreSqlFinding,
+  AzurePostgreSqlServerDetail,
+  AzureAppInsightsSummary,
+  AzureKeyVaultSummary,
+  AzureKeyVaultSecretSummary,
+  AzureKeyVaultKeySummary,
+  AzureEventHubNamespaceSummary,
+  AzureEventHubSummary,
+  AzureEventHubConsumerGroupSummary,
+  AzureAppServicePlanSummary,
+  AzureWebAppSummary,
+  AzureWebAppSlotSummary,
+  AzureWebAppDeploymentSummary
 } from '@shared/types'
 
-import { logWarn } from './observability'
+import { getEnvironmentHealthReport } from './environment'
+import { logInfo, logWarn } from './observability'
+
+const execFileAsync = promisify(execFile)
+
+async function loadAzureCliPath(): Promise<string> {
+  try {
+    const report = await getEnvironmentHealthReport()
+    return report.tools.find((t) => t.id === 'azure-cli' && t.found)?.path.trim() ?? ''
+  } catch {
+    return ''
+  }
+}
+
+function isWindowsBatchFile(command: string): boolean {
+  if (process.platform !== 'win32') return false
+  const ext = extname(command.trim()).toLowerCase()
+  return ext === '.cmd' || ext === '.bat'
+}
+
+function resolveKubeconfigPath(kubeconfigPath: string): string {
+  const trimmed = kubeconfigPath.trim()
+  if (!trimmed) return join(homedir(), '.kube', 'config')
+  if (trimmed === '.kube/config' || trimmed === '.kube\\config') return join(homedir(), '.kube', 'config')
+  if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) return resolve(homedir(), trimmed.slice(2))
+  if (isAbsolute(trimmed)) return trimmed
+  return resolve(homedir(), trimmed)
+}
 
 let azureCredential: DefaultAzureCredential | null = null
 const azureBlobServiceClientCache = new Map<string, Promise<BlobServiceClient>>()
@@ -127,6 +189,29 @@ function extractProvisioningState(statuses: Array<{ code?: string; displayStatus
   return match?.displayStatus?.trim() || fallback.trim() || 'Unknown'
 }
 
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let cursor = 0
+
+  async function worker(): Promise<void> {
+    while (cursor < items.length) {
+      const index = cursor
+      cursor += 1
+      results[index] = await fn(items[index], index)
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => worker())
+  )
+
+  return results
+}
+
 function inferScopeKind(scope: string, subscriptionScope: string): AzureRoleAssignmentSummary['scopeKind'] {
   const normalizedScope = scope.toLowerCase()
   const normalizedSubscriptionScope = subscriptionScope.toLowerCase()
@@ -143,12 +228,12 @@ function inferScopeKind(scope: string, subscriptionScope: string): AzureRoleAssi
 }
 
 function normalizeRegion<T extends { location: string }>(items: T[], location: string): T[] {
-  const normalizedLocation = location.trim().toLowerCase()
+  const normalizedLocation = location.trim().toLowerCase().replace(/\s+/g, '')
   if (!normalizedLocation) {
     return items
   }
 
-  return items.filter((item) => item.location.trim().toLowerCase() === normalizedLocation)
+  return items.filter((item) => item.location.trim().toLowerCase().replace(/\s+/g, '') === normalizedLocation)
 }
 
 function toFacetCounts(values: string[]): AzureMonitorFacetCount[] {
@@ -507,22 +592,31 @@ export async function listAzureVirtualMachines(subscriptionId: string, location:
       hardwareProfile?: { vmSize?: string }
       diagnosticsProfile?: { bootDiagnostics?: { enabled?: boolean } }
       networkProfile?: { networkInterfaces?: Array<{ id?: string }> }
-      instanceView?: { statuses?: Array<{ code?: string; displayStatus?: string }> }
     }
     identity?: { type?: string }
-  }>(`/subscriptions/${subscriptionId.trim()}/providers/Microsoft.Compute/virtualMachines?$expand=instanceView`, '2023-09-01')
+  }>(`/subscriptions/${subscriptionId.trim()}/providers/Microsoft.Compute/virtualMachines`, '2023-09-01')
 
   const normalizedLocation = location.trim().toLowerCase()
   const filtered = normalizedLocation
     ? allVms.filter((vm) => (vm.location?.trim().toLowerCase() ?? '') === normalizedLocation)
     : allVms
 
-  const results = await Promise.all(filtered.map(async (vm) => {
+  const results = await mapWithConcurrency(filtered, 5, async (vm) => {
     const nicIds = (vm.properties?.networkProfile?.networkInterfaces ?? [])
       .map((item) => item.id?.trim() || '')
       .filter(Boolean)
-    const network = await resolveAzureVmNetworkSummary(nicIds)
-    const statuses = vm.properties?.instanceView?.statuses ?? []
+
+    const [instanceView, network] = await Promise.all([
+      fetchAzureArmJson<{
+        statuses?: Array<{ code?: string; displayStatus?: string }>
+      }>(`${vm.id}/instanceView`, '2023-09-01').catch((error) => {
+        logWarn('azureSdk.listAzureVirtualMachines', `Failed to fetch instanceView for VM ${vm.name ?? vm.id}.`, { vmId: vm.id }, error)
+        return null
+      }),
+      resolveAzureVmNetworkSummary(nicIds)
+    ])
+
+    const statuses = instanceView?.statuses ?? []
 
     return {
       id: vm.id?.trim() || '',
@@ -530,8 +624,12 @@ export async function listAzureVirtualMachines(subscriptionId: string, location:
       resourceGroup: extractResourceGroup(vm.id ?? ''),
       location: vm.location?.trim() || '',
       vmSize: vm.properties?.hardwareProfile?.vmSize?.trim() || '',
-      powerState: extractPowerState(statuses),
-      provisioningState: extractProvisioningState(statuses, vm.properties?.provisioningState ?? ''),
+      powerState: statuses.length > 0
+        ? extractPowerState(statuses)
+        : (vm.properties?.provisioningState?.trim() || 'Unknown'),
+      provisioningState: statuses.length > 0
+        ? extractProvisioningState(statuses, vm.properties?.provisioningState ?? '')
+        : (vm.properties?.provisioningState?.trim() || 'Unknown'),
       osType: vm.properties?.storageProfile?.osDisk?.osType?.trim() || '',
       identityType: vm.identity?.type?.trim() || 'None',
       privateIp: network.privateIp,
@@ -542,7 +640,7 @@ export async function listAzureVirtualMachines(subscriptionId: string, location:
       diagnosticsState: vm.properties?.diagnosticsProfile?.bootDiagnostics?.enabled ? 'Boot diagnostics enabled' : 'Boot diagnostics off',
       tagCount: Object.keys(vm.tags ?? {}).length
     } satisfies AzureVirtualMachineSummary
-  }))
+  })
 
   return results.sort((left, right) => left.name.localeCompare(right.name))
 }
@@ -914,24 +1012,90 @@ export async function updateAzureAksNodePoolScaling(
   desired: number,
   max: number
 ): Promise<void> {
-  const pool = await fetchAzureArmJson<{
-    properties?: { enableAutoScaling?: boolean }
-  }>(
-    `/subscriptions/${subscriptionId.trim()}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.ContainerService/managedClusters/${encodeURIComponent(clusterName)}/agentPools/${encodeURIComponent(nodePoolName)}`,
-    '2024-02-01'
-  )
+  const poolPath = `/subscriptions/${subscriptionId.trim()}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.ContainerService/managedClusters/${encodeURIComponent(clusterName)}/agentPools/${encodeURIComponent(nodePoolName)}`
+
+  const pool = await fetchAzureArmJson<Record<string, unknown> & {
+    properties?: Record<string, unknown> & { enableAutoScaling?: boolean }
+  }>(poolPath, '2024-02-01')
 
   const autoScaling = pool.properties?.enableAutoScaling === true
 
-  const body = autoScaling
-    ? { properties: { count: desired, minCount: min, maxCount: max, enableAutoScaling: true } }
-    : { properties: { count: desired } }
+  const updatedProperties = autoScaling
+    ? { ...pool.properties, count: desired, minCount: min, maxCount: max, enableAutoScaling: true }
+    : { ...pool.properties, count: desired }
 
   await fetchAzureArmJson(
-    `/subscriptions/${subscriptionId.trim()}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.ContainerService/managedClusters/${encodeURIComponent(clusterName)}/agentPools/${encodeURIComponent(nodePoolName)}`,
+    poolPath,
     '2024-02-01',
-    { method: 'PATCH', body: JSON.stringify(body) }
+    { method: 'PUT', body: JSON.stringify({ ...pool, properties: updatedProperties }) }
   )
+}
+
+export async function toggleAzureAksNodePoolAutoscaling(
+  subscriptionId: string,
+  resourceGroup: string,
+  clusterName: string,
+  nodePoolName: string,
+  enable: boolean,
+  minCount?: number,
+  maxCount?: number
+): Promise<void> {
+  const poolPath = `/subscriptions/${subscriptionId.trim()}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.ContainerService/managedClusters/${encodeURIComponent(clusterName)}/agentPools/${encodeURIComponent(nodePoolName)}`
+
+  const pool = await fetchAzureArmJson<Record<string, unknown> & {
+    properties?: Record<string, unknown> & { enableAutoScaling?: boolean; count?: number }
+  }>(poolPath, '2024-02-01')
+
+  let updatedProperties: Record<string, unknown>
+  if (enable) {
+    if (minCount == null || maxCount == null) throw new Error('minCount and maxCount are required when enabling autoscaling')
+    updatedProperties = { ...pool.properties, enableAutoScaling: true, minCount, maxCount }
+  } else {
+    updatedProperties = { ...pool.properties, enableAutoScaling: false }
+    delete updatedProperties.minCount
+    delete updatedProperties.maxCount
+  }
+
+  await fetchAzureArmJson(
+    poolPath,
+    '2024-02-01',
+    { method: 'PUT', body: JSON.stringify({ ...pool, properties: updatedProperties }) }
+  )
+}
+
+export async function addAksToKubeconfig(
+  subscriptionId: string,
+  resourceGroup: string,
+  clusterName: string,
+  contextName: string,
+  kubeconfigPath: string
+): Promise<string> {
+  const normalizedContextName = contextName.trim()
+  const targetKubeconfigPath = resolveKubeconfigPath(kubeconfigPath)
+  await mkdir(dirname(targetKubeconfigPath), { recursive: true })
+
+  const cliPath = await loadAzureCliPath()
+  const resolved = cliPath || (process.platform === 'win32' ? 'az.cmd' : 'az')
+  const fullArgs = [
+    'aks', 'get-credentials',
+    '-g', resourceGroup,
+    '-n', clusterName,
+    '--subscription', subscriptionId,
+    '--context', normalizedContextName,
+    '--file', targetKubeconfigPath,
+    '--overwrite-existing'
+  ]
+
+  const [command, execArgs] = isWindowsBatchFile(resolved)
+    ? ['cmd.exe', ['/d', '/c', resolved, ...fullArgs]]
+    : [resolved, fullArgs]
+
+  const { stdout, stderr } = await execFileAsync(command, execArgs, {
+    windowsHide: true,
+    timeout: 20000,
+    env: process.env
+  })
+  return (stdout || stderr).trim()
 }
 
 export async function listAzureStorageAccounts(subscriptionId: string, location: string): Promise<AzureStorageAccountSummary[]> {
@@ -1238,6 +1402,135 @@ export async function deleteAzureStorageBlob(
   }
 }
 
+export async function createAzureStorageContainer(
+  subscriptionId: string,
+  resourceGroup: string,
+  accountName: string,
+  containerName: string,
+  blobEndpoint = ''
+): Promise<void> {
+  try {
+    const serviceClient = await getAzureBlobServiceClient(subscriptionId, resourceGroup, accountName, blobEndpoint)
+    await serviceClient.getContainerClient(containerName.trim()).create({ access: undefined })
+  } catch (error) {
+    throw new Error(`Failed to create Azure container "${containerName}": ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+async function downloadAzureStorageBlobToTemp(
+  subscriptionId: string,
+  resourceGroup: string,
+  accountName: string,
+  containerName: string,
+  key: string,
+  blobEndpoint = ''
+): Promise<string> {
+  const serviceClient = await getAzureBlobServiceClient(subscriptionId, resourceGroup, accountName, blobEndpoint)
+  const blobClient = serviceClient.getContainerClient(containerName.trim()).getBlobClient(key.trim())
+  const download = await blobClient.download()
+
+  const fileName = basename(key.split('/').pop() || 'download').replace(/\.\./g, '_')
+  const tempDir = app.getPath('temp')
+  const filePath = join(tempDir, `azure-blob-${Date.now()}-${fileName}`)
+
+  const buf = await streamToBuffer(download.readableStreamBody)
+  await writeFile(filePath, buf, { mode: 0o600 })
+  return filePath
+}
+
+export async function openAzureStorageBlob(
+  subscriptionId: string,
+  resourceGroup: string,
+  accountName: string,
+  containerName: string,
+  key: string,
+  blobEndpoint = ''
+): Promise<string> {
+  try {
+    const filePath = await downloadAzureStorageBlobToTemp(subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint)
+    void shell.openPath(filePath)
+    return filePath
+  } catch (error) {
+    throw new Error(`Failed to open Azure blob "${key}": ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+const azureBlobWatchedFiles = new Set<string>()
+
+export async function openAzureStorageBlobInVSCode(
+  subscriptionId: string,
+  resourceGroup: string,
+  accountName: string,
+  containerName: string,
+  key: string,
+  blobEndpoint = ''
+): Promise<string> {
+  try {
+    const filePath = await downloadAzureStorageBlobToTemp(subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint)
+    void shell.openExternal(`vscode://file/${encodeURI(filePath)}`)
+
+    if (azureBlobWatchedFiles.has(filePath)) {
+      unwatchFile(filePath)
+    }
+
+    let uploading = false
+    watchFile(filePath, { interval: 1000 }, async (curr, prev) => {
+      if (curr.mtimeMs === prev.mtimeMs || uploading) return
+      uploading = true
+      try {
+        await uploadAzureStorageBlob(subscriptionId, resourceGroup, accountName, containerName, key, filePath, blobEndpoint)
+      } catch {
+        unwatchFile(filePath)
+        azureBlobWatchedFiles.delete(filePath)
+      } finally {
+        uploading = false
+      }
+    })
+
+    azureBlobWatchedFiles.add(filePath)
+
+    app.once('before-quit', () => {
+      unwatchFile(filePath)
+      azureBlobWatchedFiles.delete(filePath)
+    })
+
+    return filePath
+  } catch (error) {
+    throw new Error(`Failed to open Azure blob "${key}" in VSCode: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+export async function generateAzureStorageBlobSasUrl(
+  subscriptionId: string,
+  resourceGroup: string,
+  accountName: string,
+  containerName: string,
+  key: string,
+  blobEndpoint = '',
+  expiresInSeconds = 3600
+): Promise<string> {
+  try {
+    const storageKey = await getAzureStorageAccountKey(subscriptionId, resourceGroup, accountName)
+    const credential = new StorageSharedKeyCredential(accountName.trim(), storageKey)
+    const endpoint = blobEndpoint.trim() || `https://${accountName.trim()}.blob.core.windows.net`
+
+    const startsOn = new Date()
+    const expiresOn = new Date(startsOn.getTime() + expiresInSeconds * 1000)
+
+    const sasToken = generateBlobSASQueryParameters({
+      containerName: containerName.trim(),
+      blobName: key.trim(),
+      permissions: BlobSASPermissions.parse('r'),
+      startsOn,
+      expiresOn
+    }, credential).toString()
+
+    return `${endpoint}/${containerName.trim()}/${key.trim()}?${sasToken}`
+  } catch (error) {
+    throw new Error(`Failed to generate SAS URL for Azure blob "${key}": ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
 export async function listAzureSqlEstate(subscriptionId: string, location: string): Promise<AzureSqlEstateOverview> {
   const servers = await fetchAzureArmCollection<{
     id?: string
@@ -1337,7 +1630,12 @@ export async function listAzureSqlEstate(subscriptionId: string, location: strin
     publicServerCount: mappedServers.filter((server) => server.publicNetworkAccess.toLowerCase() === 'enabled').length,
     servers: mappedServers,
     databases: mappedDatabases,
-    notes: mappedServers.length === 0 ? ['No Azure SQL servers were visible for the selected subscription and region.'] : []
+    notes: mappedServers.length === 0
+      ? [
+          'No Azure SQL servers were visible for the selected subscription and region.',
+          'If servers exist in the Azure Portal, verify that the Microsoft.Sql resource provider is registered on this subscription and that your identity has Reader access to SQL Server resources.'
+        ]
+      : []
   }
 }
 
@@ -1510,6 +1808,268 @@ export async function describeAzureSqlServer(subscriptionId: string, resourceGro
   }
 }
 
+export async function listAzurePostgreSqlEstate(subscriptionId: string, location: string): Promise<AzurePostgreSqlEstateOverview> {
+  const servers = await fetchAzureArmCollection<{
+    id?: string
+    name?: string
+    location?: string
+    tags?: Record<string, string>
+    sku?: { name?: string; tier?: string }
+    properties?: {
+      version?: string
+      fullyQualifiedDomainName?: string
+      network?: { publicNetworkAccess?: string }
+      state?: string
+      storage?: { storageSizeGB?: number }
+      highAvailability?: { mode?: string; state?: string }
+      backup?: { backupRetentionDays?: number; geoRedundantBackup?: string }
+      availabilityZone?: string
+    }
+  }>(`/subscriptions/${subscriptionId.trim()}/providers/Microsoft.DBforPostgreSQL/flexibleServers`, '2022-12-01')
+
+  logInfo('azureSdk.listAzurePostgreSqlEstate', `ARM returned ${servers.length} server(s) before region filter.`, {
+    subscriptionId,
+    location,
+    serverLocations: servers.map((s) => s.location ?? '(null)').join(', ') || '(none)'
+  })
+
+  const filteredServers = normalizeRegion(
+    servers.map((server) => ({
+      id: server.id?.trim() || '',
+      name: server.name?.trim() || extractResourceName(server.id ?? ''),
+      resourceGroup: extractResourceGroup(server.id ?? ''),
+      location: server.location?.trim() || '',
+      version: server.properties?.version?.trim() || '',
+      fullyQualifiedDomainName: server.properties?.fullyQualifiedDomainName?.trim() || '',
+      publicNetworkAccess: server.properties?.network?.publicNetworkAccess?.trim() || 'Disabled',
+      state: server.properties?.state?.trim() || '',
+      skuName: server.sku?.name?.trim() || '',
+      skuTier: server.sku?.tier?.trim() || '',
+      storageSizeGb: server.properties?.storage?.storageSizeGB ?? 0,
+      haEnabled: (server.properties?.highAvailability?.mode ?? '').toLowerCase() !== 'disabled' && (server.properties?.highAvailability?.mode ?? '') !== '',
+      haState: server.properties?.highAvailability?.state?.trim() || '',
+      backupRetentionDays: server.properties?.backup?.backupRetentionDays ?? 7,
+      geoRedundantBackup: (server.properties?.backup?.geoRedundantBackup ?? '').toLowerCase() === 'enabled',
+      availabilityZone: server.properties?.availabilityZone?.trim() || '',
+      databaseCount: 0,
+      tagCount: Object.keys(server.tags ?? {}).length,
+      notes: [] as string[]
+    })),
+    location
+  )
+
+  const serverDetails = await Promise.all(filteredServers.map(async (server) => {
+    const databases = await fetchAzureArmCollection<{
+      id?: string
+      name?: string
+      properties?: { charset?: string; collation?: string }
+    }>(`/subscriptions/${encodeURIComponent(subscriptionId.trim())}/resourceGroups/${encodeURIComponent(server.resourceGroup)}/providers/Microsoft.DBforPostgreSQL/flexibleServers/${encodeURIComponent(server.name)}/databases`, '2022-12-01')
+
+    const mappedDatabases = databases
+      .filter((db) => !['azure_maintenance', 'azure_sys'].includes(db.name?.trim().toLowerCase() ?? ''))
+      .map((db) => ({
+        id: db.id?.trim() || '',
+        name: db.name?.trim() || '',
+        serverName: server.name,
+        resourceGroup: server.resourceGroup,
+        charset: db.properties?.charset?.trim() || '',
+        collation: db.properties?.collation?.trim() || ''
+      } satisfies AzurePostgreSqlDatabaseSummary))
+
+    return {
+      server: { ...server, databaseCount: mappedDatabases.length },
+      databases: mappedDatabases
+    }
+  }))
+
+  const mappedServers = serverDetails.map((e) => e.server).sort((a, b) => a.name.localeCompare(b.name))
+  const mappedDatabases = serverDetails.flatMap((e) => e.databases).sort((a, b) => a.name.localeCompare(b.name))
+
+  return {
+    subscriptionId,
+    serverCount: mappedServers.length,
+    databaseCount: mappedDatabases.length,
+    publicServerCount: mappedServers.filter((s) => s.publicNetworkAccess.toLowerCase() === 'enabled').length,
+    servers: mappedServers,
+    databases: mappedDatabases,
+    notes: mappedServers.length === 0
+      ? [
+          'No PostgreSQL Flexible Servers were visible for the selected subscription and region.',
+          'If servers exist in the Azure Portal, verify that the Microsoft.DBforPostgreSQL resource provider is registered on this subscription and that your identity has Reader access to Flexible Server resources.'
+        ]
+      : []
+  }
+}
+
+export async function describeAzurePostgreSqlServer(subscriptionId: string, resourceGroup: string, serverName: string): Promise<AzurePostgreSqlServerDetail> {
+  const basePath = `/subscriptions/${encodeURIComponent(subscriptionId.trim())}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.DBforPostgreSQL/flexibleServers/${encodeURIComponent(serverName)}`
+
+  const [serverRaw, databases, firewallRulesRaw] = await Promise.all([
+    fetchAzureArmJson<{
+      id?: string
+      name?: string
+      location?: string
+      tags?: Record<string, string>
+      sku?: { name?: string; tier?: string }
+      properties?: {
+        version?: string
+        fullyQualifiedDomainName?: string
+        network?: { publicNetworkAccess?: string }
+        state?: string
+        storage?: { storageSizeGB?: number }
+        highAvailability?: { mode?: string; state?: string }
+        backup?: { backupRetentionDays?: number; geoRedundantBackup?: string }
+        availabilityZone?: string
+        administratorLogin?: string
+        authConfig?: { activeDirectoryAuth?: string; passwordAuth?: string }
+        minorVersion?: string
+      }
+    }>(basePath, '2022-12-01'),
+    fetchAzureArmCollection<{
+      id?: string
+      name?: string
+      properties?: { charset?: string; collation?: string }
+    }>(`${basePath}/databases`, '2022-12-01'),
+    fetchAzureArmCollection<{
+      id?: string
+      name?: string
+      properties?: { startIpAddress?: string; endIpAddress?: string }
+    }>(`${basePath}/firewallRules`, '2022-12-01')
+  ])
+
+  const server: AzurePostgreSqlServerSummary = {
+    id: serverRaw.id?.trim() || '',
+    name: serverRaw.name?.trim() || serverName,
+    resourceGroup,
+    location: serverRaw.location?.trim() || '',
+    version: serverRaw.properties?.version?.trim() || '',
+    fullyQualifiedDomainName: serverRaw.properties?.fullyQualifiedDomainName?.trim() || '',
+    publicNetworkAccess: serverRaw.properties?.network?.publicNetworkAccess?.trim() || 'Disabled',
+    state: serverRaw.properties?.state?.trim() || '',
+    skuName: serverRaw.sku?.name?.trim() || '',
+    skuTier: serverRaw.sku?.tier?.trim() || '',
+    storageSizeGb: serverRaw.properties?.storage?.storageSizeGB ?? 0,
+    haEnabled: (serverRaw.properties?.highAvailability?.mode ?? '').toLowerCase() !== 'disabled' && (serverRaw.properties?.highAvailability?.mode ?? '') !== '',
+    haState: serverRaw.properties?.highAvailability?.state?.trim() || '',
+    backupRetentionDays: serverRaw.properties?.backup?.backupRetentionDays ?? 7,
+    geoRedundantBackup: (serverRaw.properties?.backup?.geoRedundantBackup ?? '').toLowerCase() === 'enabled',
+    availabilityZone: serverRaw.properties?.availabilityZone?.trim() || '',
+    databaseCount: 0,
+    tagCount: Object.keys(serverRaw.tags ?? {}).length,
+    notes: []
+  }
+
+  const mappedDatabases: AzurePostgreSqlDatabaseSummary[] = databases
+    .filter((db) => !['azure_maintenance', 'azure_sys'].includes(db.name?.trim().toLowerCase() ?? ''))
+    .map((db) => ({
+      id: db.id?.trim() || '',
+      name: db.name?.trim() || '',
+      serverName: server.name,
+      resourceGroup,
+      charset: db.properties?.charset?.trim() || '',
+      collation: db.properties?.collation?.trim() || ''
+    } satisfies AzurePostgreSqlDatabaseSummary))
+
+  server.databaseCount = mappedDatabases.length
+
+  const firewallRules: AzurePostgreSqlFirewallRule[] = firewallRulesRaw.map((rule) => ({
+    name: rule.name?.trim() || '',
+    startIpAddress: rule.properties?.startIpAddress?.trim() || '',
+    endIpAddress: rule.properties?.endIpAddress?.trim() || ''
+  }))
+
+  const isPublic = server.publicNetworkAccess.toLowerCase() === 'enabled'
+  const hasAadAuth = (serverRaw.properties?.authConfig?.activeDirectoryAuth ?? '').toLowerCase() === 'enabled'
+  const hasPasswordAuth = (serverRaw.properties?.authConfig?.passwordAuth ?? '').toLowerCase() !== 'disabled'
+  const hasAllowAllRule = firewallRules.some((r) => r.startIpAddress === '0.0.0.0' && r.endIpAddress === '255.255.255.255')
+  const hasAllowAzureRule = firewallRules.some((r) => r.startIpAddress === '0.0.0.0' && r.endIpAddress === '0.0.0.0')
+  const isReady = server.state.toLowerCase() === 'ready'
+
+  const badges: AzurePostgreSqlPostureBadge[] = [
+    { id: 'public-access', label: 'Public Access', value: isPublic ? 'Enabled' : 'Disabled', tone: isPublic ? 'risk' : 'good' },
+    { id: 'ha', label: 'High Availability', value: server.haEnabled ? `${serverRaw.properties?.highAvailability?.mode ?? 'Enabled'}` : 'Disabled', tone: server.haEnabled ? 'good' : 'info' },
+    { id: 'aad-auth', label: 'AAD Auth', value: hasAadAuth ? 'Enabled' : 'Disabled', tone: hasAadAuth ? 'good' : 'warning' },
+    { id: 'geo-backup', label: 'Geo Backup', value: server.geoRedundantBackup ? 'Enabled' : 'Disabled', tone: server.geoRedundantBackup ? 'good' : 'info' },
+    { id: 'firewall', label: 'Firewall Rules', value: `${firewallRules.length} rules`, tone: hasAllowAllRule ? 'risk' : firewallRules.length === 0 ? 'good' : 'info' }
+  ]
+
+  const findings: AzurePostgreSqlFinding[] = []
+  const recommendations: string[] = []
+
+  if (isPublic) {
+    findings.push({ id: 'public-access', severity: 'risk', title: 'Public network access enabled', message: 'This PostgreSQL server accepts connections from public IP addresses.', recommendation: 'Disable public network access and use private endpoints or VNet integration for production workloads.' })
+    recommendations.push('Disable public network access and use private endpoints or VNet integration.')
+  }
+
+  if (!hasAadAuth) {
+    findings.push({ id: 'no-aad', severity: 'warning', title: 'Azure AD authentication not enabled', message: 'The server relies on password-only authentication without AAD integration.', recommendation: 'Enable Azure AD authentication for centralized identity management.' })
+    recommendations.push('Enable Azure AD authentication for centralized identity management.')
+  }
+
+  if (!server.haEnabled) {
+    findings.push({ id: 'no-ha', severity: 'info', title: 'High availability not configured', message: 'The server has no high-availability standby replica.', recommendation: 'Enable zone-redundant or same-zone HA for production workloads.' })
+    recommendations.push('Enable high availability for production workloads.')
+  }
+
+  if (!server.geoRedundantBackup) {
+    findings.push({ id: 'no-geo-backup', severity: 'info', title: 'Geo-redundant backup disabled', message: 'Backups are stored in a single region only.', recommendation: 'Enable geo-redundant backup for disaster recovery scenarios.' })
+    recommendations.push('Enable geo-redundant backup for disaster recovery.')
+  }
+
+  if (hasAllowAllRule) {
+    findings.push({ id: 'allow-all-firewall', severity: 'risk', title: 'Firewall allows all IP addresses', message: 'A firewall rule permits connections from the entire internet (0.0.0.0 - 255.255.255.255).', recommendation: 'Remove the allow-all firewall rule and restrict to specific IP ranges.' })
+    recommendations.push('Remove the allow-all firewall rule and restrict to specific IP ranges.')
+  }
+
+  if (hasAllowAzureRule) {
+    findings.push({ id: 'allow-azure-services', severity: 'info', title: 'Azure services access allowed', message: 'A special rule allows all Azure services to connect to this server.', recommendation: 'Review whether all Azure services need access or if VNet integration is preferred.' })
+    recommendations.push('Review whether all Azure services need access or if VNet integration is preferred.')
+  }
+
+  if (server.backupRetentionDays < 14) {
+    findings.push({ id: 'short-retention', severity: 'warning', title: `Backup retention is ${server.backupRetentionDays} days`, message: 'Short backup retention reduces your recovery window.', recommendation: 'Increase backup retention to at least 14 days for production workloads.' })
+    recommendations.push('Increase backup retention to at least 14 days.')
+  }
+
+  if (recommendations.length === 0) {
+    recommendations.push('No immediate operational posture warnings detected. Continue reviewing network and access settings during routine checks.')
+  }
+
+  const summaryTiles: AzurePostgreSqlSummaryTile[] = [
+    { id: 'findings', label: 'Findings', value: String(findings.length), tone: findings.some((f) => f.severity === 'risk') ? 'risk' : findings.length ? 'warning' : 'good' },
+    { id: 'state', label: 'State', value: server.state || 'Unknown', tone: isReady ? 'good' : 'warning' },
+    { id: 'databases', label: 'Databases', value: String(mappedDatabases.length), tone: 'info' },
+    { id: 'firewall', label: 'Firewall', value: `${firewallRules.length} rules`, tone: hasAllowAllRule ? 'risk' : 'info' }
+  ]
+
+  if (isPublic) server.notes.push('Public network access is enabled for this PostgreSQL server.')
+
+  return {
+    server,
+    databases: mappedDatabases,
+    firewallRules,
+    badges,
+    summaryTiles,
+    findings,
+    recommendations,
+    connectionDetails: [
+      { label: 'FQDN', value: server.fullyQualifiedDomainName || 'N/A' },
+      { label: 'Server name', value: server.name },
+      { label: 'Resource group', value: server.resourceGroup },
+      { label: 'PG version', value: server.version || 'N/A' },
+      { label: 'Minor version', value: serverRaw.properties?.minorVersion?.trim() || 'N/A' },
+      { label: 'SKU', value: `${server.skuName} (${server.skuTier})` },
+      { label: 'Storage', value: server.storageSizeGb ? `${server.storageSizeGb} GB` : 'N/A' },
+      { label: 'Port', value: '5432' },
+      { label: 'Admin login', value: serverRaw.properties?.administratorLogin?.trim() || 'N/A' },
+      { label: 'Auth', value: [hasPasswordAuth ? 'Password' : '', hasAadAuth ? 'AAD' : ''].filter(Boolean).join(' + ') || 'Password' },
+      { label: 'Availability zone', value: server.availabilityZone || 'N/A' },
+      { label: 'Backup retention', value: `${server.backupRetentionDays} days` },
+      { label: 'Tags', value: String(server.tagCount) }
+    ]
+  }
+}
+
 export async function listAzureMonitorActivity(subscriptionId: string, location: string, query: string, windowHours = 24): Promise<AzureMonitorActivityResult> {
   const endTime = new Date()
   const startTime = new Date(endTime.getTime() - windowHours * 60 * 60 * 1000)
@@ -1569,7 +2129,15 @@ export async function listAzureMonitorActivity(subscriptionId: string, location:
         event.summary
       ].join(' ').toLowerCase()
 
-      return haystack.includes(normalizedQuery)
+      // Support pipe-separated multi-term queries: split on "|", extract
+      // meaningful search terms from each segment, and require ALL to match.
+      const segments = normalizedQuery.split('|').map(s => s.trim()).filter(Boolean)
+      const terms = segments.map(segment => {
+        const whereMatch = segment.match(/^where\s+\w+\s*==\s*["']?(.+?)["']?\s*$/i)
+        if (whereMatch) return whereMatch[1].trim().toLowerCase()
+        return segment
+      })
+      return terms.every(term => haystack.includes(term))
     })
     .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
     .slice(0, 100)
@@ -1694,4 +2262,593 @@ export async function getAzureCostOverview(subscriptionId: string): Promise<Azur
     dailyCosts,
     notes: rows.length === 0 ? ['No subscription cost rows were returned for the current month-to-date window.'] : []
   }
+}
+
+/* ── Azure Network ───────────────────────────────────────── */
+
+function mapVNet(raw: Record<string, unknown>): AzureVNetSummary {
+  const props = (raw.properties ?? {}) as Record<string, unknown>
+  const addressSpace = (props.addressSpace ?? {}) as Record<string, unknown>
+  const subnets = (props.subnets ?? []) as unknown[]
+  const peerings = (props.virtualNetworkPeerings ?? []) as unknown[]
+  const dhcpOptions = (props.dhcpOptions ?? {}) as Record<string, unknown>
+  const tags = (raw.tags ?? {}) as Record<string, unknown>
+
+  return {
+    id: String(raw.id ?? ''),
+    name: String(raw.name ?? ''),
+    resourceGroup: extractResourceGroup(String(raw.id ?? '')),
+    location: String(raw.location ?? ''),
+    addressPrefixes: (addressSpace.addressPrefixes ?? []) as string[],
+    subnetCount: subnets.length,
+    provisioningState: String(props.provisioningState ?? ''),
+    enableDdosProtection: Boolean(props.enableDdosProtection),
+    dnsServers: ((dhcpOptions.dnsServers ?? []) as string[]),
+    peeringCount: peerings.length,
+    tagCount: Object.keys(tags).length
+  }
+}
+
+function mapSubnet(raw: Record<string, unknown>): AzureSubnetSummary {
+  const props = (raw.properties ?? {}) as Record<string, unknown>
+  const nsg = (props.networkSecurityGroup ?? null) as Record<string, unknown> | null
+  const routeTable = (props.routeTable ?? null) as Record<string, unknown> | null
+  const delegations = (props.delegations ?? []) as Array<Record<string, unknown>>
+  const privateEndpoints = (props.privateEndpoints ?? []) as unknown[]
+  const natGateway = (props.natGateway ?? null) as Record<string, unknown> | null
+
+  return {
+    id: String(raw.id ?? ''),
+    name: String(raw.name ?? ''),
+    addressPrefix: String(props.addressPrefix ?? ''),
+    provisioningState: String(props.provisioningState ?? ''),
+    nsgName: nsg ? extractResourceName(String(nsg.id ?? '')) : '',
+    routeTableName: routeTable ? extractResourceName(String(routeTable.id ?? '')) : '',
+    delegations: delegations.map((d) => {
+      const dProps = (d.properties ?? {}) as Record<string, unknown>
+      return String(dProps.serviceName ?? d.name ?? '')
+    }),
+    privateEndpointCount: privateEndpoints.length,
+    natGatewayName: natGateway ? extractResourceName(String(natGateway.id ?? '')) : ''
+  }
+}
+
+function mapNsg(raw: Record<string, unknown>): AzureNsgSummary {
+  const props = (raw.properties ?? {}) as Record<string, unknown>
+  const rules = (props.securityRules ?? []) as unknown[]
+  const defaultRules = (props.defaultSecurityRules ?? []) as unknown[]
+  const associatedSubnets = (props.subnets ?? []) as unknown[]
+  const associatedNics = (props.networkInterfaces ?? []) as unknown[]
+
+  return {
+    id: String(raw.id ?? ''),
+    name: String(raw.name ?? ''),
+    resourceGroup: extractResourceGroup(String(raw.id ?? '')),
+    location: String(raw.location ?? ''),
+    securityRuleCount: rules.length,
+    defaultRuleCount: defaultRules.length,
+    associatedSubnetCount: associatedSubnets.length,
+    associatedNicCount: associatedNics.length,
+    provisioningState: String(props.provisioningState ?? '')
+  }
+}
+
+function mapNsgRule(raw: Record<string, unknown>): AzureNsgRuleSummary {
+  const props = (raw.properties ?? {}) as Record<string, unknown>
+
+  return {
+    name: String(raw.name ?? ''),
+    priority: Number(props.priority ?? 0),
+    direction: String(props.direction ?? 'Inbound') as 'Inbound' | 'Outbound',
+    access: String(props.access ?? 'Allow') as 'Allow' | 'Deny',
+    protocol: String(props.protocol ?? '*'),
+    sourceAddressPrefix: String(props.sourceAddressPrefix ?? '*'),
+    sourcePortRange: String(props.sourcePortRange ?? '*'),
+    destinationAddressPrefix: String(props.destinationAddressPrefix ?? '*'),
+    destinationPortRange: String(props.destinationPortRange ?? '*')
+  }
+}
+
+function mapPublicIp(raw: Record<string, unknown>): AzurePublicIpSummary {
+  const props = (raw.properties ?? {}) as Record<string, unknown>
+  const ipConfig = (props.ipConfiguration ?? null) as Record<string, unknown> | null
+  const dnsSettings = (props.dnsSettings ?? null) as Record<string, unknown> | null
+  const sku = (raw.sku ?? {}) as Record<string, unknown>
+
+  return {
+    id: String(raw.id ?? ''),
+    name: String(raw.name ?? ''),
+    resourceGroup: extractResourceGroup(String(raw.id ?? '')),
+    location: String(raw.location ?? ''),
+    ipAddress: String(props.ipAddress ?? ''),
+    allocationMethod: String(props.publicIPAllocationMethod ?? ''),
+    sku: String(sku.name ?? ''),
+    associatedResourceName: ipConfig ? extractResourceName(String(ipConfig.id ?? '')) : '',
+    provisioningState: String(props.provisioningState ?? ''),
+    dnsLabel: dnsSettings ? String((dnsSettings as Record<string, unknown>).domainNameLabel ?? '') : '',
+    fqdn: dnsSettings ? String((dnsSettings as Record<string, unknown>).fqdn ?? '') : ''
+  }
+}
+
+function mapNetworkInterface(raw: Record<string, unknown>): AzureNetworkInterfaceSummary {
+  const props = (raw.properties ?? {}) as Record<string, unknown>
+  const ipConfigs = (props.ipConfigurations ?? []) as Array<Record<string, unknown>>
+  const nsg = (props.networkSecurityGroup ?? null) as Record<string, unknown> | null
+  const vmRef = (props.virtualMachine ?? null) as Record<string, unknown> | null
+
+  const primaryConfig = ipConfigs[0] ?? {}
+  const primaryProps = ((primaryConfig as Record<string, unknown>).properties ?? {}) as Record<string, unknown>
+  const subnetRef = (primaryProps.subnet ?? null) as Record<string, unknown> | null
+  const publicIpRef = (primaryProps.publicIPAddress ?? null) as Record<string, unknown> | null
+
+  const subnetId = subnetRef ? String(subnetRef.id ?? '') : ''
+  const subnetSegments = subnetId.split('/')
+  const subnetName = subnetSegments.at(-1) ?? ''
+  const vnetName = subnetSegments.length >= 3 ? subnetSegments[subnetSegments.indexOf('virtualNetworks') + 1] ?? '' : ''
+
+  return {
+    id: String(raw.id ?? ''),
+    name: String(raw.name ?? ''),
+    resourceGroup: extractResourceGroup(String(raw.id ?? '')),
+    location: String(raw.location ?? ''),
+    privateIp: String(primaryProps.privateIPAddress ?? ''),
+    publicIp: publicIpRef ? extractResourceName(String(publicIpRef.id ?? '')) : '',
+    subnetName,
+    vnetName,
+    nsgName: nsg ? extractResourceName(String(nsg.id ?? '')) : '',
+    macAddress: String(props.macAddress ?? ''),
+    attachedVmName: vmRef ? extractResourceName(String(vmRef.id ?? '')) : '',
+    provisioningState: String(props.provisioningState ?? ''),
+    enableAcceleratedNetworking: Boolean(props.enableAcceleratedNetworking)
+  }
+}
+
+export async function listAzureNetworkOverview(subscriptionId: string, location: string): Promise<AzureNetworkOverview> {
+  const basePath = `/subscriptions/${encodeURIComponent(subscriptionId)}/providers/Microsoft.Network`
+  const apiVersion = '2023-11-01'
+
+  const [rawVnets, rawNsgs, rawPublicIps, rawNics] = await Promise.all([
+    fetchAzureArmCollection<Record<string, unknown>>(`${basePath}/virtualNetworks`, apiVersion),
+    fetchAzureArmCollection<Record<string, unknown>>(`${basePath}/networkSecurityGroups`, apiVersion),
+    fetchAzureArmCollection<Record<string, unknown>>(`${basePath}/publicIPAddresses`, apiVersion),
+    fetchAzureArmCollection<Record<string, unknown>>(`${basePath}/networkInterfaces`, apiVersion)
+  ])
+
+  const locationFilter = location.trim().toLowerCase()
+  const filterByLocation = <T extends Record<string, unknown>>(items: T[]): T[] =>
+    locationFilter ? items.filter((item) => String(item.location ?? '').toLowerCase() === locationFilter) : items
+
+  return {
+    vnets: filterByLocation(rawVnets).map(mapVNet),
+    nsgs: filterByLocation(rawNsgs).map(mapNsg),
+    publicIps: filterByLocation(rawPublicIps).map(mapPublicIp),
+    networkInterfaces: filterByLocation(rawNics).map(mapNetworkInterface)
+  }
+}
+
+export async function listAzureVNetSubnets(subscriptionId: string, resourceGroup: string, vnetName: string): Promise<AzureSubnetSummary[]> {
+  const path = `/subscriptions/${encodeURIComponent(subscriptionId)}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.Network/virtualNetworks/${encodeURIComponent(vnetName)}/subnets`
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(path, '2023-11-01')
+  return raw.map(mapSubnet)
+}
+
+export async function listAzureNsgRules(subscriptionId: string, resourceGroup: string, nsgName: string): Promise<AzureNsgRuleSummary[]> {
+  const path = `/subscriptions/${encodeURIComponent(subscriptionId)}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.Network/networkSecurityGroups/${encodeURIComponent(nsgName)}`
+  const detail = await fetchAzureArmJson<Record<string, unknown>>(path, '2023-11-01')
+  const props = (detail.properties ?? {}) as Record<string, unknown>
+  const customRules = ((props.securityRules ?? []) as Array<Record<string, unknown>>).map(mapNsgRule)
+  const defaultRules = ((props.defaultSecurityRules ?? []) as Array<Record<string, unknown>>).map(mapNsgRule)
+  return [...customRules.sort((a, b) => a.priority - b.priority), ...defaultRules.sort((a, b) => a.priority - b.priority)]
+}
+
+/* ── Azure VMSS ──────────────────────────────────────────── */
+
+function mapVmss(raw: Record<string, unknown>): AzureVmssSummary {
+  const props = (raw.properties ?? {}) as Record<string, unknown>
+  const sku = (raw.sku ?? {}) as Record<string, unknown>
+  const upgradePolicy = (props.upgradePolicy ?? {}) as Record<string, unknown>
+  const identity = (raw.identity ?? {}) as Record<string, unknown>
+  const tags = (raw.tags ?? {}) as Record<string, unknown>
+  const zones = (raw.zones ?? []) as string[]
+
+  return {
+    id: String(raw.id ?? ''),
+    name: String(raw.name ?? ''),
+    resourceGroup: extractResourceGroup(String(raw.id ?? '')),
+    location: String(raw.location ?? ''),
+    skuName: String(sku.name ?? ''),
+    skuCapacity: Number(sku.capacity ?? 0),
+    provisioningState: String(props.provisioningState ?? ''),
+    orchestrationMode: String(props.orchestrationMode ?? ''),
+    upgradePolicy: String(upgradePolicy.mode ?? ''),
+    platformFaultDomainCount: Number(props.platformFaultDomainCount ?? 0),
+    overprovision: Boolean(props.overprovision),
+    singlePlacementGroup: Boolean(props.singlePlacementGroup),
+    identityType: String(identity.type ?? 'None'),
+    tagCount: Object.keys(tags).length,
+    zones
+  }
+}
+
+function mapVmssInstance(raw: Record<string, unknown>): AzureVmssInstanceSummary {
+  const props = (raw.properties ?? {}) as Record<string, unknown>
+  const instanceView = (props.instanceView ?? {}) as Record<string, unknown>
+  const statuses = (instanceView.statuses ?? []) as Array<{ code?: string; displayStatus?: string }>
+  const protectionPolicy = (props.protectionPolicy ?? {}) as Record<string, unknown>
+  const hardwareProfile = (props.hardwareProfile ?? {}) as Record<string, unknown>
+
+  return {
+    instanceId: String(raw.instanceId ?? raw.name ?? ''),
+    name: String(raw.name ?? ''),
+    provisioningState: String(props.provisioningState ?? ''),
+    powerState: extractPowerState(statuses),
+    latestModelApplied: Boolean(props.latestModelApplied),
+    vmSize: String(hardwareProfile.vmSize ?? (raw.sku as Record<string, unknown>)?.name ?? ''),
+    protectionFromScaleIn: Boolean(protectionPolicy.protectFromScaleIn),
+    zone: String((raw.zones as string[] | undefined)?.[0] ?? '')
+  }
+}
+
+export async function listAzureVmss(subscriptionId: string, location: string): Promise<AzureVmssSummary[]> {
+  const path = `/subscriptions/${encodeURIComponent(subscriptionId)}/providers/Microsoft.Compute/virtualMachineScaleSets`
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(path, '2024-03-01')
+  const locationFilter = location.trim().toLowerCase()
+  const filtered = locationFilter
+    ? raw.filter((item) => String(item.location ?? '').toLowerCase() === locationFilter)
+    : raw
+  return filtered.map(mapVmss)
+}
+
+export async function listAzureVmssInstances(subscriptionId: string, resourceGroup: string, vmssName: string): Promise<AzureVmssInstanceSummary[]> {
+  const path = `/subscriptions/${encodeURIComponent(subscriptionId)}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.Compute/virtualMachineScaleSets/${encodeURIComponent(vmssName)}/virtualMachines?$expand=instanceView`
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(path, '2024-03-01')
+  return raw.map(mapVmssInstance)
+}
+
+export async function updateAzureVmssCapacity(subscriptionId: string, resourceGroup: string, vmssName: string, capacity: number): Promise<AzureVmssActionResult> {
+  try {
+    const path = `/subscriptions/${encodeURIComponent(subscriptionId)}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.Compute/virtualMachineScaleSets/${encodeURIComponent(vmssName)}`
+    await fetchAzureArmJson(path, '2024-03-01', {
+      method: 'PATCH',
+      body: JSON.stringify({ sku: { capacity } })
+    })
+    return { action: 'updateCapacity', vmssName, resourceGroup, accepted: true }
+  } catch (err) {
+    return { action: 'updateCapacity', vmssName, resourceGroup, accepted: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export async function runAzureVmssInstanceAction(
+  subscriptionId: string,
+  resourceGroup: string,
+  vmssName: string,
+  instanceId: string,
+  action: 'start' | 'powerOff' | 'restart' | 'deallocate'
+): Promise<AzureVmssActionResult> {
+  try {
+    const path = `/subscriptions/${encodeURIComponent(subscriptionId)}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.Compute/virtualMachineScaleSets/${encodeURIComponent(vmssName)}/virtualMachines/${encodeURIComponent(instanceId)}/${action}`
+    await fetchAzureArmJson(path, '2024-03-01', { method: 'POST' })
+    return { action, vmssName, resourceGroup, accepted: true }
+  } catch (err) {
+    return { action, vmssName, resourceGroup, accepted: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/* ── Azure Application Insights ─────────────────────────── */
+
+export async function listAzureAppInsightsComponents(subscriptionId: string, location: string): Promise<AzureAppInsightsSummary[]> {
+  const path = `/subscriptions/${encodeURIComponent(subscriptionId)}/providers/Microsoft.Insights/components`
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(path, '2020-02-02')
+  const locationFilter = location.trim().toLowerCase()
+  const filtered = locationFilter
+    ? raw.filter((item) => String(item.location ?? '').toLowerCase() === locationFilter)
+    : raw
+  return filtered.map((r): AzureAppInsightsSummary => {
+    const props = (r.properties ?? {}) as Record<string, unknown>
+    return {
+      id: String(r.id ?? ''),
+      name: String(r.name ?? ''),
+      resourceGroup: extractResourceGroup(String(r.id ?? '')),
+      location: String(r.location ?? ''),
+      instrumentationKey: String(props.InstrumentationKey ?? ''),
+      applicationId: String(props.AppId ?? ''),
+      applicationType: String(props.Application_Type ?? ''),
+      kind: String(r.kind ?? ''),
+      ingestionMode: String(props.IngestionMode ?? ''),
+      retentionInDays: Number(props.RetentionInDays ?? 90),
+      publicNetworkAccessForIngestion: String(props.publicNetworkAccessForIngestion ?? 'Enabled'),
+      publicNetworkAccessForQuery: String(props.publicNetworkAccessForQuery ?? 'Enabled'),
+      provisioningState: String(props.provisioningState ?? 'Unknown'),
+      connectionString: String(props.ConnectionString ?? ''),
+      workspaceResourceId: String(props.WorkspaceResourceId ?? ''),
+      tagCount: Object.keys((r.tags ?? {}) as Record<string, unknown>).length
+    }
+  })
+}
+
+/* ── Azure Key Vault ────────────────────────────────────── */
+
+export async function listAzureKeyVaults(subscriptionId: string, location: string): Promise<AzureKeyVaultSummary[]> {
+  const path = `/subscriptions/${encodeURIComponent(subscriptionId)}/providers/Microsoft.KeyVault/vaults`
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(path, '2023-07-01')
+  const locationFilter = location.trim().toLowerCase()
+  const filtered = locationFilter
+    ? raw.filter((item) => String(item.location ?? '').toLowerCase() === locationFilter)
+    : raw
+  return filtered.map((r): AzureKeyVaultSummary => {
+    const props = (r.properties ?? {}) as Record<string, unknown>
+    return {
+      id: String(r.id ?? ''),
+      name: String(r.name ?? ''),
+      resourceGroup: extractResourceGroup(String(r.id ?? '')),
+      location: String(r.location ?? ''),
+      vaultUri: String(props.vaultUri ?? ''),
+      skuName: String(((props.sku ?? {}) as Record<string, unknown>).name ?? ''),
+      tenantId: String(props.tenantId ?? ''),
+      enableSoftDelete: Boolean(props.enableSoftDelete),
+      softDeleteRetentionInDays: Number(props.softDeleteRetentionInDays ?? 90),
+      enablePurgeProtection: Boolean(props.enablePurgeProtection),
+      enableRbacAuthorization: Boolean(props.enableRbacAuthorization),
+      publicNetworkAccess: String(props.publicNetworkAccess ?? 'Enabled'),
+      provisioningState: String(props.provisioningState ?? 'Unknown'),
+      tagCount: Object.keys((r.tags ?? {}) as Record<string, unknown>).length
+    }
+  })
+}
+
+export async function describeAzureKeyVault(subscriptionId: string, resourceGroup: string, vaultName: string): Promise<AzureKeyVaultSummary> {
+  const path = `/subscriptions/${encodeURIComponent(subscriptionId)}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.KeyVault/vaults/${encodeURIComponent(vaultName)}`
+  const r = await fetchAzureArmJson<Record<string, unknown>>(path, '2023-07-01')
+  const props = (r.properties ?? {}) as Record<string, unknown>
+  return {
+    id: String(r.id ?? ''),
+    name: String(r.name ?? ''),
+    resourceGroup: extractResourceGroup(String(r.id ?? '')),
+    location: String(r.location ?? ''),
+    vaultUri: String(props.vaultUri ?? ''),
+    skuName: String(((props.sku ?? {}) as Record<string, unknown>).name ?? ''),
+    tenantId: String(props.tenantId ?? ''),
+    enableSoftDelete: Boolean(props.enableSoftDelete),
+    softDeleteRetentionInDays: Number(props.softDeleteRetentionInDays ?? 90),
+    enablePurgeProtection: Boolean(props.enablePurgeProtection),
+    enableRbacAuthorization: Boolean(props.enableRbacAuthorization),
+    publicNetworkAccess: String(props.publicNetworkAccess ?? 'Enabled'),
+    provisioningState: String(props.provisioningState ?? 'Unknown'),
+    tagCount: Object.keys((r.tags ?? {}) as Record<string, unknown>).length
+  }
+}
+
+export async function listAzureKeyVaultSecrets(subscriptionId: string, resourceGroup: string, vaultName: string): Promise<AzureKeyVaultSecretSummary[]> {
+  const path = `/subscriptions/${encodeURIComponent(subscriptionId)}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.KeyVault/vaults/${encodeURIComponent(vaultName)}/secrets`
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(path, '2023-07-01')
+  return raw.map((r): AzureKeyVaultSecretSummary => {
+    const props = (r.properties ?? {}) as Record<string, unknown>
+    const attrs = (props.attributes ?? {}) as Record<string, unknown>
+    return {
+      id: String(r.id ?? ''),
+      name: String(r.name ?? ''),
+      enabled: Boolean(attrs.enabled),
+      contentType: String(props.contentType ?? ''),
+      managed: Boolean(attrs.managed),
+      created: String(attrs.created ?? ''),
+      updated: String(attrs.updated ?? '')
+    }
+  })
+}
+
+export async function listAzureKeyVaultKeys(subscriptionId: string, resourceGroup: string, vaultName: string): Promise<AzureKeyVaultKeySummary[]> {
+  const path = `/subscriptions/${encodeURIComponent(subscriptionId)}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.KeyVault/vaults/${encodeURIComponent(vaultName)}/keys`
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(path, '2023-07-01')
+  return raw.map((r): AzureKeyVaultKeySummary => {
+    const props = (r.properties ?? {}) as Record<string, unknown>
+    const attrs = (props.attributes ?? {}) as Record<string, unknown>
+    const kty = (props.kty ?? '') as string
+    const keyOps = Array.isArray(props.keyOps) ? (props.keyOps as string[]) : []
+    return {
+      id: String(r.id ?? ''),
+      name: String(r.name ?? ''),
+      enabled: Boolean(attrs.enabled),
+      keyType: kty,
+      keyOps,
+      created: String(attrs.created ?? ''),
+      updated: String(attrs.updated ?? '')
+    }
+  })
+}
+
+/* ── Azure Event Hub ────────────────────────────────────── */
+
+export async function listAzureEventHubNamespaces(subscriptionId: string, location: string): Promise<AzureEventHubNamespaceSummary[]> {
+  const path = `/subscriptions/${encodeURIComponent(subscriptionId)}/providers/Microsoft.EventHub/namespaces`
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(path, '2024-01-01')
+  const locationFilter = location.trim().toLowerCase()
+  const filtered = locationFilter
+    ? raw.filter((item) => String(item.location ?? '').toLowerCase() === locationFilter)
+    : raw
+  return filtered.map((r): AzureEventHubNamespaceSummary => {
+    const props = (r.properties ?? {}) as Record<string, unknown>
+    const sku = (r.sku ?? {}) as Record<string, unknown>
+    return {
+      id: String(r.id ?? ''),
+      name: String(r.name ?? ''),
+      resourceGroup: extractResourceGroup(String(r.id ?? '')),
+      location: String(r.location ?? ''),
+      skuName: String(sku.name ?? ''),
+      skuTier: String(sku.tier ?? ''),
+      skuCapacity: Number(sku.capacity ?? 0),
+      isAutoInflateEnabled: Boolean(props.isAutoInflateEnabled),
+      maximumThroughputUnits: Number(props.maximumThroughputUnits ?? 0),
+      kafkaEnabled: Boolean(props.kafkaEnabled),
+      zoneRedundant: Boolean(props.zoneRedundant),
+      publicNetworkAccess: String(props.publicNetworkAccess ?? 'Enabled'),
+      provisioningState: String(props.provisioningState ?? 'Unknown'),
+      status: String(props.status ?? 'Unknown'),
+      serviceBusEndpoint: String(props.serviceBusEndpoint ?? ''),
+      tagCount: Object.keys((r.tags ?? {}) as Record<string, unknown>).length
+    }
+  })
+}
+
+export async function listAzureEventHubs(subscriptionId: string, resourceGroup: string, namespaceName: string): Promise<AzureEventHubSummary[]> {
+  const path = `/subscriptions/${encodeURIComponent(subscriptionId)}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.EventHub/namespaces/${encodeURIComponent(namespaceName)}/eventhubs`
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(path, '2024-01-01')
+  return raw.map((r): AzureEventHubSummary => {
+    const props = (r.properties ?? {}) as Record<string, unknown>
+    return {
+      id: String(r.id ?? ''),
+      name: String(r.name ?? ''),
+      partitionCount: Number(props.partitionCount ?? 0),
+      messageRetentionInDays: Number(props.messageRetentionInDays ?? 0),
+      status: String(props.status ?? 'Unknown'),
+      createdAt: String(props.createdAt ?? ''),
+      updatedAt: String(props.updatedAt ?? ''),
+      partitionIds: Array.isArray(props.partitionIds) ? (props.partitionIds as string[]) : []
+    }
+  })
+}
+
+export async function listAzureEventHubConsumerGroups(subscriptionId: string, resourceGroup: string, namespaceName: string, eventHubName: string): Promise<AzureEventHubConsumerGroupSummary[]> {
+  const path = `/subscriptions/${encodeURIComponent(subscriptionId)}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.EventHub/namespaces/${encodeURIComponent(namespaceName)}/eventhubs/${encodeURIComponent(eventHubName)}/consumergroups`
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(path, '2024-01-01')
+  return raw.map((r): AzureEventHubConsumerGroupSummary => {
+    const props = (r.properties ?? {}) as Record<string, unknown>
+    return {
+      id: String(r.id ?? ''),
+      name: String(r.name ?? ''),
+      userMetadata: String(props.userMetadata ?? ''),
+      createdAt: String(props.createdAt ?? ''),
+      updatedAt: String(props.updatedAt ?? '')
+    }
+  })
+}
+
+/* ── Azure App Service ──────────────────────────────────── */
+
+export async function listAzureAppServicePlans(subscriptionId: string, location: string): Promise<AzureAppServicePlanSummary[]> {
+  const path = `/subscriptions/${encodeURIComponent(subscriptionId)}/providers/Microsoft.Web/serverfarms`
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(path, '2023-12-01')
+  const locationFilter = location.trim().toLowerCase()
+  const filtered = locationFilter
+    ? raw.filter((item) => String(item.location ?? '').toLowerCase() === locationFilter)
+    : raw
+  return filtered.map((r): AzureAppServicePlanSummary => {
+    const props = (r.properties ?? {}) as Record<string, unknown>
+    const sku = (r.sku ?? {}) as Record<string, unknown>
+    return {
+      id: String(r.id ?? ''),
+      name: String(r.name ?? ''),
+      resourceGroup: extractResourceGroup(String(r.id ?? '')),
+      location: String(r.location ?? ''),
+      skuName: String(sku.name ?? ''),
+      skuTier: String(sku.tier ?? ''),
+      skuCapacity: Number(sku.capacity ?? 0),
+      kind: String(r.kind ?? ''),
+      numberOfWorkers: Number(props.numberOfWorkers ?? 0),
+      numberOfSites: Number(props.numberOfSites ?? 0),
+      status: String(props.status ?? 'Unknown'),
+      reserved: Boolean(props.reserved),
+      zoneRedundant: Boolean(props.zoneRedundant),
+      provisioningState: String(props.provisioningState ?? 'Unknown'),
+      tagCount: Object.keys((r.tags ?? {}) as Record<string, unknown>).length
+    }
+  })
+}
+
+export async function listAzureWebApps(subscriptionId: string, location: string): Promise<AzureWebAppSummary[]> {
+  const path = `/subscriptions/${encodeURIComponent(subscriptionId)}/providers/Microsoft.Web/sites`
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(path, '2023-12-01')
+  const locationFilter = location.trim().toLowerCase()
+  const filtered = locationFilter
+    ? raw.filter((item) => String(item.location ?? '').toLowerCase() === locationFilter)
+    : raw
+  return filtered.map((r): AzureWebAppSummary => {
+    const props = (r.properties ?? {}) as Record<string, unknown>
+    const siteConfig = (props.siteConfig ?? {}) as Record<string, unknown>
+    return {
+      id: String(r.id ?? ''),
+      name: String(r.name ?? ''),
+      resourceGroup: extractResourceGroup(String(r.id ?? '')),
+      location: String(r.location ?? ''),
+      kind: String(r.kind ?? ''),
+      state: String(props.state ?? 'Unknown'),
+      defaultHostName: String(props.defaultHostName ?? ''),
+      httpsOnly: Boolean(props.httpsOnly),
+      enabled: Boolean(props.enabled),
+      appServicePlanName: extractResourceName(String(props.serverFarmId ?? '')),
+      runtimeStack: String(siteConfig.linuxFxVersion ?? siteConfig.windowsFxVersion ?? siteConfig.netFrameworkVersion ?? ''),
+      ftpsState: String(siteConfig.ftpsState ?? ''),
+      http20Enabled: Boolean(siteConfig.http20Enabled),
+      minTlsVersion: String(siteConfig.minTlsVersion ?? ''),
+      publicNetworkAccess: String(props.publicNetworkAccess ?? 'Enabled'),
+      provisioningState: String(props.provisioningState ?? 'Unknown'),
+      lastModifiedTimeUtc: String(props.lastModifiedTimeUtc ?? ''),
+      tagCount: Object.keys((r.tags ?? {}) as Record<string, unknown>).length
+    }
+  })
+}
+
+export async function describeAzureWebApp(subscriptionId: string, resourceGroup: string, siteName: string): Promise<AzureWebAppSummary> {
+  const path = `/subscriptions/${encodeURIComponent(subscriptionId)}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.Web/sites/${encodeURIComponent(siteName)}`
+  const r = await fetchAzureArmJson<Record<string, unknown>>(path, '2023-12-01')
+  const props = (r.properties ?? {}) as Record<string, unknown>
+  const siteConfig = (props.siteConfig ?? {}) as Record<string, unknown>
+  return {
+    id: String(r.id ?? ''),
+    name: String(r.name ?? ''),
+    resourceGroup: extractResourceGroup(String(r.id ?? '')),
+    location: String(r.location ?? ''),
+    kind: String(r.kind ?? ''),
+    state: String(props.state ?? 'Unknown'),
+    defaultHostName: String(props.defaultHostName ?? ''),
+    httpsOnly: Boolean(props.httpsOnly),
+    enabled: Boolean(props.enabled),
+    appServicePlanName: extractResourceName(String(props.serverFarmId ?? '')),
+    runtimeStack: String(siteConfig.linuxFxVersion ?? siteConfig.windowsFxVersion ?? siteConfig.netFrameworkVersion ?? ''),
+    ftpsState: String(siteConfig.ftpsState ?? ''),
+    http20Enabled: Boolean(siteConfig.http20Enabled),
+    minTlsVersion: String(siteConfig.minTlsVersion ?? ''),
+    publicNetworkAccess: String(props.publicNetworkAccess ?? 'Enabled'),
+    provisioningState: String(props.provisioningState ?? 'Unknown'),
+    lastModifiedTimeUtc: String(props.lastModifiedTimeUtc ?? ''),
+    tagCount: Object.keys((r.tags ?? {}) as Record<string, unknown>).length
+  }
+}
+
+export async function listAzureWebAppSlots(subscriptionId: string, resourceGroup: string, siteName: string): Promise<AzureWebAppSlotSummary[]> {
+  const path = `/subscriptions/${encodeURIComponent(subscriptionId)}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.Web/sites/${encodeURIComponent(siteName)}/slots`
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(path, '2023-12-01')
+  return raw.map((r): AzureWebAppSlotSummary => {
+    const props = (r.properties ?? {}) as Record<string, unknown>
+    const fullName = String(r.name ?? '')
+    const slotName = fullName.includes('/') ? fullName.split('/').pop()! : fullName
+    return {
+      id: String(r.id ?? ''),
+      name: fullName,
+      slotName,
+      state: String(props.state ?? 'Unknown'),
+      hostName: String(props.defaultHostName ?? ''),
+      enabled: Boolean(props.enabled),
+      httpsOnly: Boolean(props.httpsOnly),
+      lastModifiedTimeUtc: String(props.lastModifiedTimeUtc ?? '')
+    }
+  })
+}
+
+export async function listAzureWebAppDeployments(subscriptionId: string, resourceGroup: string, siteName: string): Promise<AzureWebAppDeploymentSummary[]> {
+  const path = `/subscriptions/${encodeURIComponent(subscriptionId)}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.Web/sites/${encodeURIComponent(siteName)}/deployments`
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(path, '2023-12-01')
+  return raw.map((r): AzureWebAppDeploymentSummary => {
+    const props = (r.properties ?? {}) as Record<string, unknown>
+    return {
+      id: String(r.id ?? ''),
+      deploymentId: String(r.name ?? ''),
+      status: Number(props.status ?? 0),
+      message: String(props.message ?? ''),
+      author: String(props.author ?? ''),
+      deployer: String(props.deployer ?? ''),
+      startTime: String(props.start_time ?? props.startTime ?? ''),
+      endTime: String(props.end_time ?? props.endTime ?? ''),
+      active: Boolean(props.active)
+    }
+  })
 }

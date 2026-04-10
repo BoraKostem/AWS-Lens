@@ -27,13 +27,20 @@ import {
   getGcpGkeClusterDetail,
   getGcpProjectOverview,
   getGcpSqlInstanceDetail,
+  listGcpBigQueryDatasetsExported,
+  listGcpBigQueryTables,
   listGcpComputeInstances,
   listGcpEnabledApis,
+  listGcpFirestoreDatabases,
   listGcpFirewallRules,
   listGcpGkeClusters,
   listGcpGkeNodePools,
   listGcpGlobalAddresses,
+  listGcpMonitoringAlertPolicies,
+  listGcpMonitoringUptimeChecks,
   listGcpNetworks,
+  listGcpPubSubSubscriptions,
+  listGcpPubSubTopics,
   listGcpRouters,
   listGcpServiceAccounts,
   listGcpServiceNetworkingConnections,
@@ -67,6 +74,13 @@ type GcpLiveData = {
   sqlDatabases?: Awaited<ReturnType<typeof listGcpSqlDatabasesForInstances>>
   sqlUsers?: Awaited<ReturnType<typeof listGcpSqlUsers>>
   billingOverview?: Awaited<ReturnType<typeof getGcpBillingOverview>>
+  pubsubTopics?: Awaited<ReturnType<typeof listGcpPubSubTopics>>
+  pubsubSubscriptions?: Awaited<ReturnType<typeof listGcpPubSubSubscriptions>>
+  bigqueryDatasets?: Awaited<ReturnType<typeof listGcpBigQueryDatasetsExported>>
+  bigqueryTablesByDataset?: Record<string, Awaited<ReturnType<typeof listGcpBigQueryTables>>>
+  monitoringAlertPolicies?: Awaited<ReturnType<typeof listGcpMonitoringAlertPolicies>>
+  monitoringUptimeChecks?: Awaited<ReturnType<typeof listGcpMonitoringUptimeChecks>>
+  firestoreDatabases?: Awaited<ReturnType<typeof listGcpFirestoreDatabases>>
 }
 type GcpLiveErrors = Partial<Record<keyof GcpLiveData, string>>
 
@@ -199,6 +213,20 @@ function serviceConsoleUrl(resourceType: string, logicalName: string, context: G
       return gcpConsoleUrl(`sql/instances/${encodeURIComponent(locationHint)}/databases`, context.projectId)
     case 'google_sql_user':
       return gcpConsoleUrl(`sql/instances/${encodeURIComponent(locationHint)}/users`, context.projectId)
+    case 'google_pubsub_topic':
+      return gcpConsoleUrl(`cloudpubsub/topic/detail/${encodeURIComponent(logicalName)}`, context.projectId)
+    case 'google_pubsub_subscription':
+      return gcpConsoleUrl(`cloudpubsub/subscription/detail/${encodeURIComponent(logicalName)}`, context.projectId)
+    case 'google_bigquery_dataset':
+      return gcpConsoleUrl(`bigquery?d=${encodeURIComponent(logicalName)}&p=${encodeURIComponent(context.projectId)}`, context.projectId)
+    case 'google_bigquery_table':
+      return gcpConsoleUrl('bigquery', context.projectId)
+    case 'google_monitoring_alert_policy':
+      return gcpConsoleUrl('monitoring/alerting', context.projectId)
+    case 'google_monitoring_uptime_check_config':
+      return gcpConsoleUrl('monitoring/uptime', context.projectId)
+    case 'google_firestore_database':
+      return gcpConsoleUrl('firestore/databases', context.projectId)
     default:
       return gcpConsoleUrl('home/dashboard', context.projectId)
   }
@@ -788,7 +816,13 @@ async function loadLiveData(context: GcpTerraformContext): Promise<{ data: GcpLi
     ['globalAddresses', () => listGcpGlobalAddresses(context.projectId)],
     ['storageBuckets', () => listGcpStorageBuckets(context.projectId, context.location)],
     ['sqlInstances', () => listGcpSqlInstances(context.projectId, context.location)],
-    ['billingOverview', () => getGcpBillingOverview(context.projectId, [context.projectId])]
+    ['billingOverview', () => getGcpBillingOverview(context.projectId, [context.projectId])],
+    ['pubsubTopics', () => listGcpPubSubTopics(context.projectId)],
+    ['pubsubSubscriptions', () => listGcpPubSubSubscriptions(context.projectId)],
+    ['bigqueryDatasets', () => listGcpBigQueryDatasetsExported(context.projectId)],
+    ['monitoringAlertPolicies', () => listGcpMonitoringAlertPolicies(context.projectId)],
+    ['monitoringUptimeChecks', () => listGcpMonitoringUptimeChecks(context.projectId)],
+    ['firestoreDatabases', () => listGcpFirestoreDatabases(context.projectId)]
   ]
 
   const settled = await Promise.allSettled(loaders.map(async ([key, loader]) => ({ key, value: await loader() })))
@@ -825,7 +859,14 @@ function buildSupportedCoverage(): TerraformDriftCoverageItem[] {
     coverageItem('google_storage_bucket', ['Bucket exists', 'Location', 'Storage class', 'Versioning', 'Uniform bucket-level access'], [], ['Lifecycle rules and IAM are out of scope for this slice.']),
     coverageItem('google_sql_database', ['Database exists', 'Charset', 'Collation'], [], ['Databases are resolved against their parent Cloud SQL instance.']),
     coverageItem('google_sql_database_instance', ['Instance exists', 'Region', 'Database version', 'Availability type', 'Deletion protection'], [], ['Flags only fields that are typically set directly in Terraform.']),
-    coverageItem('google_sql_user', ['User exists', 'Host', 'Type'], [], ['Passwords and IAM auth wiring are intentionally excluded from drift output.'])
+    coverageItem('google_sql_user', ['User exists', 'Host', 'Type'], [], ['Passwords and IAM auth wiring are intentionally excluded from drift output.']),
+    coverageItem('google_pubsub_topic', ['Topic exists', 'Message retention duration', 'KMS key name'], [], ['Labels and schema settings are tracked when set in Terraform.']),
+    coverageItem('google_pubsub_subscription', ['Subscription exists', 'Topic binding', 'Ack deadline', 'Message retention', 'Push endpoint', 'Filter', 'Exactly-once delivery'], [], ['Dead-letter policy and retry policy are out of scope for this slice.']),
+    coverageItem('google_bigquery_dataset', ['Dataset exists', 'Location', 'Friendly name'], [], ['Access controls and default table expiration are out of scope for this slice.']),
+    coverageItem('google_bigquery_table', ['Table exists', 'Type'], [], ['Schema and partition configuration are out of scope for this slice.']),
+    coverageItem('google_monitoring_alert_policy', ['Alert policy exists', 'Enabled state', 'Condition count'], [], ['Condition details and notification channels are not individually compared.']),
+    coverageItem('google_monitoring_uptime_check_config', ['Uptime check exists', 'Protocol', 'Period', 'Timeout'], [], ['Selected regions and content matchers are out of scope for this slice.']),
+    coverageItem('google_firestore_database', ['Database exists', 'Location', 'Type', 'Concurrency mode', 'Delete protection'], [], ['Index and field configurations are managed by separate resource types.'])
   ]
 
   return items.sort((left, right) => left.resourceType.localeCompare(right.resourceType))
@@ -1032,6 +1073,21 @@ export async function getGcpTerraformDriftReport(
         live.gkeClusterDetails![key] = await getGcpGkeClusterDetail(context.projectId, target.location, target.clusterName)
       } catch (error) {
         errors.gkeClusterDetails = error instanceof Error ? error.message : String(error)
+      }
+    }))
+  }
+
+  const bigqueryTableTargets = unique(managedInventory
+    .filter((item) => item.type === 'google_bigquery_table')
+    .map((item) => str(item.values.dataset_id))
+    .filter(Boolean))
+  if (bigqueryTableTargets.length > 0) {
+    live.bigqueryTablesByDataset = {}
+    await Promise.all(bigqueryTableTargets.map(async (datasetId) => {
+      try {
+        live.bigqueryTablesByDataset![datasetId.toLowerCase()] = await listGcpBigQueryTables(context.projectId, datasetId)
+      } catch (error) {
+        errors.bigqueryTablesByDataset = error instanceof Error ? error.message : String(error)
       }
     }))
   }
@@ -1541,6 +1597,200 @@ export async function getGcpTerraformDriftReport(
               ? 'The live Cloud SQL user differs from the Terraform host or type.'
               : 'The live Cloud SQL user matches the tracked Terraform attributes.'
             : 'Terraform tracks a Cloud SQL user that is not present on the target instance.',
+          differences
+        }))
+        break
+      }
+      case 'google_pubsub_topic': {
+        if (errors.pubsubTopics) {
+          items.push(unsupportedItem(item, context, `Pub/Sub topics could not be loaded: ${errors.pubsubTopics}`))
+          break
+        }
+        const topicName = str(item.values.name) || item.name
+        const liveTopic = (live.pubsubTopics ?? []).find((entry) => entry.topicId === topicName || entry.name.endsWith(`/${topicName}`))
+        const differences: TerraformDriftDifference[] = []
+        compareValues(differences, 'messageRetentionDuration', 'Message Retention Duration', str(item.values.message_retention_duration), str(liveTopic?.messageRetentionDuration))
+        compareValues(differences, 'kmsKeyName', 'KMS Key Name', str(item.values.kms_key_name), str(liveTopic?.kmsKeyName))
+        items.push(buildTerraformItem(item, context, {
+          exists: Boolean(liveTopic),
+          cloudIdentifier: liveTopic?.topicId || topicName,
+          explanation: liveTopic
+            ? differences.length > 0
+              ? 'The live Pub/Sub topic differs from the Terraform configuration.'
+              : 'The live Pub/Sub topic matches the tracked Terraform attributes.'
+            : 'Terraform tracks a Pub/Sub topic that is not present in the live inventory.',
+          evidence: liveTopic?.schemaSettings ? [`Schema: ${liveTopic.schemaSettings}`] : [],
+          differences
+        }))
+        break
+      }
+      case 'google_pubsub_subscription': {
+        if (errors.pubsubSubscriptions) {
+          items.push(unsupportedItem(item, context, `Pub/Sub subscriptions could not be loaded: ${errors.pubsubSubscriptions}`))
+          break
+        }
+        const subName = str(item.values.name) || item.name
+        const liveSub = (live.pubsubSubscriptions ?? []).find((entry) => entry.subscriptionId === subName || entry.name.endsWith(`/${subName}`))
+        const differences: TerraformDriftDifference[] = []
+        const tfTopic = normalizeResourceBasename(str(item.values.topic))
+        const liveTopic = liveSub?.topicId || normalizeResourceBasename(str(liveSub?.topic))
+        compareValues(differences, 'topic', 'Topic', tfTopic, liveTopic)
+        compareValues(differences, 'ackDeadlineSeconds', 'Ack Deadline', str(item.values.ack_deadline_seconds), String(liveSub?.ackDeadlineSeconds ?? ''))
+        compareValues(differences, 'messageRetentionDuration', 'Message Retention Duration', str(item.values.message_retention_duration), str(liveSub?.messageRetentionDuration))
+        compareValues(differences, 'filter', 'Filter', str(item.values.filter), str(liveSub?.filter))
+        if (typeof item.values.enable_exactly_once_delivery === 'boolean') {
+          compareValues(differences, 'enableExactlyOnceDelivery', 'Exactly-Once Delivery', String(item.values.enable_exactly_once_delivery), String(Boolean(liveSub?.enableExactlyOnceDelivery)))
+        }
+        const tfPushEndpoint = str(getPathValue(item.values, ['push_config', 0, 'push_endpoint']))
+        if (tfPushEndpoint || liveSub?.pushEndpoint) {
+          compareValues(differences, 'pushEndpoint', 'Push Endpoint', tfPushEndpoint, str(liveSub?.pushEndpoint))
+        }
+        items.push(buildTerraformItem(item, context, {
+          exists: Boolean(liveSub),
+          cloudIdentifier: liveSub?.subscriptionId || subName,
+          explanation: liveSub
+            ? differences.length > 0
+              ? 'The live Pub/Sub subscription differs from the Terraform configuration.'
+              : 'The live Pub/Sub subscription matches the tracked Terraform attributes.'
+            : 'Terraform tracks a Pub/Sub subscription that is not present in the live inventory.',
+          evidence: unique([
+            liveSub?.deliveryType ? `Delivery: ${liveSub.deliveryType}` : '',
+            liveSub?.state ? `State: ${liveSub.state}` : ''
+          ].filter(Boolean)),
+          differences
+        }))
+        break
+      }
+      case 'google_bigquery_dataset': {
+        if (errors.bigqueryDatasets) {
+          items.push(unsupportedItem(item, context, `BigQuery datasets could not be loaded: ${errors.bigqueryDatasets}`))
+          break
+        }
+        const datasetId = str(item.values.dataset_id) || item.name
+        const liveDataset = (live.bigqueryDatasets ?? []).find((entry) => entry.datasetId === datasetId)
+        const differences: TerraformDriftDifference[] = []
+        compareValues(differences, 'location', 'Location', str(item.values.location), str(liveDataset?.location))
+        compareValues(differences, 'friendlyName', 'Friendly Name', str(item.values.friendly_name), str(liveDataset?.friendlyName))
+        items.push(buildTerraformItem(item, context, {
+          exists: Boolean(liveDataset),
+          cloudIdentifier: datasetId,
+          region: liveDataset?.location || context.location,
+          explanation: liveDataset
+            ? differences.length > 0
+              ? 'The live BigQuery dataset differs from the Terraform configuration.'
+              : 'The live BigQuery dataset matches the tracked Terraform attributes.'
+            : 'Terraform tracks a BigQuery dataset that is not present in the live inventory.',
+          evidence: liveDataset ? [`Tables: ${liveDataset.tableCount}`] : [],
+          differences
+        }))
+        break
+      }
+      case 'google_bigquery_table': {
+        if (errors.bigqueryTablesByDataset) {
+          items.push(unsupportedItem(item, context, `BigQuery tables could not be loaded: ${errors.bigqueryTablesByDataset}`))
+          break
+        }
+        const tableId = str(item.values.table_id) || item.name
+        const tableDatasetId = str(item.values.dataset_id)
+        const liveTables = live.bigqueryTablesByDataset?.[tableDatasetId.toLowerCase()] ?? []
+        const liveTable = liveTables.find((entry) => entry.tableId === tableId)
+        const differences: TerraformDriftDifference[] = []
+        compareValues(differences, 'type', 'Table Type', str(item.values.type) || 'TABLE', str(liveTable?.type))
+        items.push(buildTerraformItem(item, context, {
+          exists: Boolean(liveTable),
+          cloudIdentifier: `${tableDatasetId}.${tableId}`,
+          explanation: liveTable
+            ? differences.length > 0
+              ? 'The live BigQuery table differs from the Terraform configuration.'
+              : 'The live BigQuery table matches the tracked Terraform attributes.'
+            : 'Terraform tracks a BigQuery table that is not present in the live inventory.',
+          evidence: liveTable ? [`Rows: ${liveTable.rowCount}`, `Size: ${liveTable.sizeBytes} bytes`] : [],
+          differences
+        }))
+        break
+      }
+      case 'google_monitoring_alert_policy': {
+        if (errors.monitoringAlertPolicies) {
+          items.push(unsupportedItem(item, context, `Monitoring alert policies could not be loaded: ${errors.monitoringAlertPolicies}`))
+          break
+        }
+        const policyDisplayName = str(item.values.display_name) || item.name
+        const livePolicy = (live.monitoringAlertPolicies ?? []).find((entry) => entry.displayName === policyDisplayName)
+        const differences: TerraformDriftDifference[] = []
+        if (typeof item.values.enabled === 'boolean') {
+          compareValues(differences, 'enabled', 'Enabled', String(item.values.enabled), String(Boolean(livePolicy?.enabled)))
+        }
+        const tfConditionCount = Array.isArray(item.values.conditions) ? item.values.conditions.length : 0
+        if (livePolicy && tfConditionCount > 0) {
+          compareValues(differences, 'conditionCount', 'Condition Count', String(tfConditionCount), String(livePolicy.conditionCount))
+        }
+        items.push(buildTerraformItem(item, context, {
+          exists: Boolean(livePolicy),
+          cloudIdentifier: livePolicy?.name || policyDisplayName,
+          explanation: livePolicy
+            ? differences.length > 0
+              ? 'The live monitoring alert policy differs from the Terraform configuration.'
+              : 'The live monitoring alert policy matches the tracked Terraform attributes.'
+            : 'Terraform tracks a monitoring alert policy that is not present in the live inventory.',
+          evidence: livePolicy ? [`Combiner: ${livePolicy.combiner}`, `Notification channels: ${livePolicy.notificationChannelCount}`] : [],
+          differences
+        }))
+        break
+      }
+      case 'google_monitoring_uptime_check_config': {
+        if (errors.monitoringUptimeChecks) {
+          items.push(unsupportedItem(item, context, `Monitoring uptime checks could not be loaded: ${errors.monitoringUptimeChecks}`))
+          break
+        }
+        const checkDisplayName = str(item.values.display_name) || item.name
+        const liveCheck = (live.monitoringUptimeChecks ?? []).find((entry) => entry.displayName === checkDisplayName)
+        const differences: TerraformDriftDifference[] = []
+        compareValues(differences, 'period', 'Period', str(item.values.period), str(liveCheck?.period))
+        compareValues(differences, 'timeout', 'Timeout', str(item.values.timeout), str(liveCheck?.timeout))
+        const tfProtocol = str(getPathValue(item.values, ['http_check']) ? 'HTTP' : getPathValue(item.values, ['tcp_check']) ? 'TCP' : '')
+        if (tfProtocol) {
+          compareValues(differences, 'protocol', 'Protocol', tfProtocol, str(liveCheck?.protocol))
+        }
+        items.push(buildTerraformItem(item, context, {
+          exists: Boolean(liveCheck),
+          cloudIdentifier: liveCheck?.name || checkDisplayName,
+          explanation: liveCheck
+            ? differences.length > 0
+              ? 'The live uptime check differs from the Terraform configuration.'
+              : 'The live uptime check matches the tracked Terraform attributes.'
+            : 'Terraform tracks an uptime check that is not present in the live inventory.',
+          evidence: liveCheck ? [
+            `Monitored resource: ${liveCheck.monitoredResource}`,
+            `Regions: ${liveCheck.selectedRegions.join(', ') || 'default'}`
+          ] : [],
+          differences
+        }))
+        break
+      }
+      case 'google_firestore_database': {
+        if (errors.firestoreDatabases) {
+          items.push(unsupportedItem(item, context, `Firestore databases could not be loaded: ${errors.firestoreDatabases}`))
+          break
+        }
+        const dbName = str(item.values.name) || item.name || '(default)'
+        const liveDb = (live.firestoreDatabases ?? []).find((entry) => {
+          const liveName = entry.name.split('/').pop() || entry.name
+          return liveName === dbName
+        })
+        const differences: TerraformDriftDifference[] = []
+        compareValues(differences, 'locationId', 'Location', str(item.values.location_id), str(liveDb?.locationId))
+        compareValues(differences, 'type', 'Database Type', str(item.values.type), str(liveDb?.type))
+        compareValues(differences, 'concurrencyMode', 'Concurrency Mode', str(item.values.concurrency_mode), str(liveDb?.concurrencyMode))
+        compareValues(differences, 'deleteProtectionState', 'Delete Protection', str(item.values.delete_protection_state), str(liveDb?.deleteProtectionState))
+        items.push(buildTerraformItem(item, context, {
+          exists: Boolean(liveDb),
+          cloudIdentifier: liveDb?.uid || dbName,
+          region: liveDb?.locationId || context.location,
+          explanation: liveDb
+            ? differences.length > 0
+              ? 'The live Firestore database differs from the Terraform configuration.'
+              : 'The live Firestore database matches the tracked Terraform attributes.'
+            : 'Terraform tracks a Firestore database that is not present in the live inventory.',
           differences
         }))
         break

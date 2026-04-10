@@ -286,6 +286,12 @@
   color: #ffd9d0;
 }
 
+.rds-msg.info {
+  border: 1px solid rgba(74, 94, 126, 0.45);
+  background: linear-gradient(180deg, rgba(29, 36, 50, 0.96), rgba(20, 25, 36, 0.96));
+  color: #b8cce0;
+}
+
 .rds-empty {
   color: #9ca7b7;
   padding: 16px;

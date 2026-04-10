@@ -75,7 +75,12 @@ const GCP_PROJECT_CORE_API_HINTS = [
   { name: 'storage.googleapis.com', title: 'Cloud Storage API' },
   { name: 'sqladmin.googleapis.com', title: 'Cloud SQL Admin API' },
   { name: 'logging.googleapis.com', title: 'Cloud Logging API' },
-  { name: 'cloudbilling.googleapis.com', title: 'Cloud Billing API' }
+  { name: 'cloudbilling.googleapis.com', title: 'Cloud Billing API' },
+  { name: 'bigquery.googleapis.com', title: 'BigQuery API' },
+  { name: 'monitoring.googleapis.com', title: 'Cloud Monitoring API' },
+  { name: 'securitycenter.googleapis.com', title: 'Security Command Center API' },
+  { name: 'firestore.googleapis.com', title: 'Cloud Firestore API' },
+  { name: 'pubsub.googleapis.com', title: 'Pub/Sub API' }
 ]
 
 type GcpBillingProjectRecord = {
@@ -4282,5 +4287,931 @@ export async function getGcpBillingOverview(projectId: string, catalogProjectIds
       : 'cloudbilling.googleapis.com'
 
     throw buildGcpSdkError(`loading Billing overview for project "${normalizedProjectId}"`, error, serviceName)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pub/Sub
+// ---------------------------------------------------------------------------
+
+function buildPubSubApiUrl(pathname: string, query: Record<string, number | string | undefined> = {}): string {
+  const url = new URL(`https://pubsub.googleapis.com/v1/${pathname.replace(/^\/+/, '')}`)
+
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === '') {
+      continue
+    }
+
+    url.searchParams.set(key, String(value))
+  }
+
+  return url.toString()
+}
+
+export async function listGcpPubSubTopics(projectId: string): Promise<import('@shared/types').GcpPubSubTopicSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) return []
+
+  try {
+    const topics: import('@shared/types').GcpPubSubTopicSummary[] = []
+    let pageToken = ''
+
+    do {
+      const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+        url: buildPubSubApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/topics`, {
+          pageSize: 500,
+          pageToken: pageToken || undefined
+        })
+      })
+
+      for (const entry of Array.isArray(response.topics) ? response.topics : []) {
+        const record = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+        const name = asString(record.name)
+        if (!name) continue
+
+        const topicId = name.split('/').pop() ?? name
+        const labels = record.labels && typeof record.labels === 'object' ? record.labels as Record<string, string> : {}
+        const schemaSettings = record.schemaSettings && typeof record.schemaSettings === 'object'
+          ? asString((record.schemaSettings as Record<string, unknown>).schema)
+          : ''
+
+        topics.push({
+          name,
+          topicId,
+          labels,
+          messageRetentionDuration: asString(record.messageRetentionDuration),
+          kmsKeyName: asString(record.kmsKeyName),
+          schemaSettings
+        })
+      }
+
+      pageToken = asString(response.nextPageToken)
+    } while (pageToken)
+
+    return topics
+  } catch (error) {
+    throw buildGcpSdkError(`listing Pub/Sub topics for project "${normalizedProjectId}"`, error, 'pubsub.googleapis.com')
+  }
+}
+
+export async function listGcpPubSubSubscriptions(projectId: string): Promise<import('@shared/types').GcpPubSubSubscriptionSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) return []
+
+  try {
+    const subscriptions: import('@shared/types').GcpPubSubSubscriptionSummary[] = []
+    let pageToken = ''
+
+    do {
+      const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+        url: buildPubSubApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/subscriptions`, {
+          pageSize: 500,
+          pageToken: pageToken || undefined
+        })
+      })
+
+      for (const entry of Array.isArray(response.subscriptions) ? response.subscriptions : []) {
+        const record = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+        const name = asString(record.name)
+        if (!name) continue
+
+        const subscriptionId = name.split('/').pop() ?? name
+        const topic = asString(record.topic)
+        const topicId = topic.split('/').pop() ?? topic
+        const pushConfig = record.pushConfig && typeof record.pushConfig === 'object'
+          ? record.pushConfig as Record<string, unknown>
+          : null
+        const pushEndpoint = pushConfig ? asString(pushConfig.pushEndpoint) : ''
+        const bigqueryConfig = record.bigqueryConfig && typeof record.bigqueryConfig === 'object' ? record.bigqueryConfig : null
+        const cloudStorageConfig = record.cloudStorageConfig && typeof record.cloudStorageConfig === 'object' ? record.cloudStorageConfig : null
+
+        let deliveryType = 'pull'
+        if (pushEndpoint) deliveryType = 'push'
+        else if (bigqueryConfig) deliveryType = 'bigquery'
+        else if (cloudStorageConfig) deliveryType = 'cloud-storage'
+
+        subscriptions.push({
+          name,
+          subscriptionId,
+          topic,
+          topicId,
+          ackDeadlineSeconds: normalizeNumber(record.ackDeadlineSeconds),
+          messageRetentionDuration: asString(record.messageRetentionDuration),
+          pushEndpoint,
+          deliveryType,
+          filter: asString(record.filter),
+          enableExactlyOnceDelivery: asBoolean(record.enableExactlyOnceDelivery),
+          state: asString(record.state) || 'ACTIVE',
+          detached: asBoolean(record.detached)
+        })
+      }
+
+      pageToken = asString(response.nextPageToken)
+    } while (pageToken)
+
+    return subscriptions
+  } catch (error) {
+    throw buildGcpSdkError(`listing Pub/Sub subscriptions for project "${normalizedProjectId}"`, error, 'pubsub.googleapis.com')
+  }
+}
+
+export async function getGcpPubSubTopicDetail(projectId: string, topicId: string): Promise<import('@shared/types').GcpPubSubTopicDetail> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedTopicId = topicId.trim()
+
+  try {
+    const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: buildPubSubApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/topics/${encodeURIComponent(normalizedTopicId)}`)
+    })
+
+    const name = asString(response.name) || `projects/${normalizedProjectId}/topics/${normalizedTopicId}`
+    const labels = response.labels && typeof response.labels === 'object' ? response.labels as Record<string, string> : {}
+    const schemaSettings = response.schemaSettings && typeof response.schemaSettings === 'object'
+      ? asString((response.schemaSettings as Record<string, unknown>).schema)
+      : ''
+
+    const subscriptions = await listGcpPubSubSubscriptions(normalizedProjectId)
+    const subscriptionCount = subscriptions.filter((sub) => sub.topicId === normalizedTopicId).length
+
+    return {
+      name,
+      topicId: normalizedTopicId,
+      labels,
+      messageRetentionDuration: asString(response.messageRetentionDuration),
+      kmsKeyName: asString(response.kmsKeyName),
+      schemaSettings,
+      subscriptionCount
+    }
+  } catch (error) {
+    throw buildGcpSdkError(`getting Pub/Sub topic detail for "${normalizedTopicId}"`, error, 'pubsub.googleapis.com')
+  }
+}
+
+export async function getGcpPubSubSubscriptionDetail(projectId: string, subscriptionId: string): Promise<import('@shared/types').GcpPubSubSubscriptionDetail> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedSubscriptionId = subscriptionId.trim()
+
+  try {
+    const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: buildPubSubApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/subscriptions/${encodeURIComponent(normalizedSubscriptionId)}`)
+    })
+
+    const pushConfig = response.pushConfig && typeof response.pushConfig === 'object'
+      ? response.pushConfig as Record<string, unknown>
+      : null
+    const pushEndpoint = pushConfig ? asString(pushConfig.pushEndpoint) : ''
+    const pushAttributes = pushConfig && pushConfig.attributes && typeof pushConfig.attributes === 'object'
+      ? pushConfig.attributes as Record<string, string>
+      : {}
+
+    const deadLetterPolicy = response.deadLetterPolicy && typeof response.deadLetterPolicy === 'object'
+      ? response.deadLetterPolicy as Record<string, unknown>
+      : null
+
+    const retryPolicy = response.retryPolicy && typeof response.retryPolicy === 'object'
+      ? response.retryPolicy as Record<string, unknown>
+      : null
+
+    const expirationPolicy = response.expirationPolicy && typeof response.expirationPolicy === 'object'
+      ? response.expirationPolicy as Record<string, unknown>
+      : null
+
+    return {
+      name: asString(response.name),
+      subscriptionId: normalizedSubscriptionId,
+      topic: asString(response.topic),
+      ackDeadlineSeconds: normalizeNumber(response.ackDeadlineSeconds),
+      messageRetentionDuration: asString(response.messageRetentionDuration),
+      retainAckedMessages: asBoolean(response.retainAckedMessages),
+      pushConfig: pushEndpoint ? { pushEndpoint, attributes: pushAttributes } : null,
+      deadLetterPolicy: deadLetterPolicy
+        ? { deadLetterTopic: asString(deadLetterPolicy.deadLetterTopic), maxDeliveryAttempts: normalizeNumber(deadLetterPolicy.maxDeliveryAttempts) }
+        : null,
+      retryPolicy: retryPolicy
+        ? { minimumBackoff: asString(retryPolicy.minimumBackoff), maximumBackoff: asString(retryPolicy.maximumBackoff) }
+        : null,
+      filter: asString(response.filter),
+      enableExactlyOnceDelivery: asBoolean(response.enableExactlyOnceDelivery),
+      state: asString(response.state) || 'ACTIVE',
+      expirationTtl: expirationPolicy ? asString(expirationPolicy.ttl) : ''
+    }
+  } catch (error) {
+    throw buildGcpSdkError(`getting Pub/Sub subscription detail for "${normalizedSubscriptionId}"`, error, 'pubsub.googleapis.com')
+  }
+}
+
+// ---------------------------------------------------------------------------
+// BigQuery (exported wrappers around existing private helpers)
+// ---------------------------------------------------------------------------
+
+export async function listGcpBigQueryDatasetsExported(projectId: string): Promise<import('@shared/types').GcpBigQueryDatasetSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) return []
+
+  try {
+    const summaries: import('@shared/types').GcpBigQueryDatasetSummary[] = []
+    let pageToken = ''
+
+    do {
+      const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+        url: buildBigQueryApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/datasets`, {
+          all: 'true',
+          maxResults: 1000,
+          pageToken: pageToken || undefined
+        })
+      })
+
+      for (const entry of Array.isArray(response.datasets) ? response.datasets : []) {
+        const record = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+        const reference = record.datasetReference && typeof record.datasetReference === 'object'
+          ? record.datasetReference as Record<string, unknown>
+          : {}
+        const datasetId = asString(reference.datasetId)
+        if (!datasetId) continue
+
+        summaries.push({
+          datasetId,
+          projectId: asString(reference.projectId) || normalizedProjectId,
+          location: asString(record.location),
+          friendlyName: asString(record.friendlyName),
+          description: asString((record as Record<string, unknown>).description),
+          creationTime: asString(record.creationTime),
+          lastModifiedTime: asString(record.lastModifiedTime),
+          tableCount: 0
+        })
+      }
+
+      pageToken = asString(response.nextPageToken)
+    } while (pageToken)
+
+    return summaries
+  } catch (error) {
+    throw buildGcpSdkError(`listing BigQuery datasets for project "${normalizedProjectId}"`, error, 'bigquery.googleapis.com')
+  }
+}
+
+export async function listGcpBigQueryTables(projectId: string, datasetId: string): Promise<import('@shared/types').GcpBigQueryTableSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedDatasetId = datasetId.trim()
+  if (!normalizedProjectId || !normalizedDatasetId) return []
+
+  try {
+    const tables: import('@shared/types').GcpBigQueryTableSummary[] = []
+    let pageToken = ''
+
+    do {
+      const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+        url: buildBigQueryApiUrl(
+          `projects/${encodeURIComponent(normalizedProjectId)}/datasets/${encodeURIComponent(normalizedDatasetId)}/tables`,
+          { maxResults: 1000, pageToken: pageToken || undefined }
+        )
+      })
+
+      for (const entry of Array.isArray(response.tables) ? response.tables : []) {
+        const record = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+        const reference = record.tableReference && typeof record.tableReference === 'object'
+          ? record.tableReference as Record<string, unknown>
+          : {}
+        const tableId = asString(reference.tableId)
+        if (!tableId) continue
+
+        tables.push({
+          tableId,
+          datasetId: normalizedDatasetId,
+          projectId: normalizedProjectId,
+          type: asString(record.type),
+          creationTime: asString(record.creationTime),
+          expirationTime: asString(record.expirationTime),
+          rowCount: asString((record as Record<string, unknown>).numRows),
+          sizeBytes: asString((record as Record<string, unknown>).numBytes),
+          description: asString((record as Record<string, unknown>).description)
+        })
+      }
+
+      pageToken = asString(response.nextPageToken)
+    } while (pageToken)
+
+    return tables
+  } catch (error) {
+    throw buildGcpSdkError(`listing BigQuery tables for dataset "${normalizedDatasetId}"`, error, 'bigquery.googleapis.com')
+  }
+}
+
+export async function getGcpBigQueryTableDetail(projectId: string, datasetId: string, tableId: string): Promise<import('@shared/types').GcpBigQueryTableDetail> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedDatasetId = datasetId.trim()
+  const normalizedTableId = tableId.trim()
+
+  try {
+    const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: buildBigQueryApiUrl(
+        `projects/${encodeURIComponent(normalizedProjectId)}/datasets/${encodeURIComponent(normalizedDatasetId)}/tables/${encodeURIComponent(normalizedTableId)}`
+      )
+    })
+
+    const schema = response.schema && typeof response.schema === 'object' ? response.schema as Record<string, unknown> : {}
+    const fields = (Array.isArray(schema.fields) ? schema.fields : [])
+      .map((entry: unknown) => normalizeBigQuerySchemaField(entry))
+      .filter((field): field is import('@shared/types').GcpBigQuerySchemaFieldSummary => field !== null)
+
+    return {
+      tableId: normalizedTableId,
+      datasetId: normalizedDatasetId,
+      projectId: normalizedProjectId,
+      type: asString(response.type),
+      schema: fields,
+      rowCount: asString(response.numRows),
+      sizeBytes: asString(response.numBytes),
+      creationTime: asString(response.creationTime),
+      lastModifiedTime: asString(response.lastModifiedTime),
+      description: asString((response as Record<string, unknown>).description),
+      location: asString(response.location)
+    }
+  } catch (error) {
+    throw buildGcpSdkError(`getting BigQuery table detail for "${normalizedTableId}"`, error, 'bigquery.googleapis.com')
+  }
+}
+
+function normalizeBigQuerySchemaField(entry: unknown): import('@shared/types').GcpBigQuerySchemaFieldSummary | null {
+  if (!entry || typeof entry !== 'object') return null
+  const record = entry as Record<string, unknown>
+  const name = asString(record.name)
+  if (!name) return null
+
+  const subFields = Array.isArray(record.fields)
+    ? record.fields.map((child: unknown) => normalizeBigQuerySchemaField(child)).filter((f): f is import('@shared/types').GcpBigQuerySchemaFieldSummary => f !== null)
+    : []
+
+  return {
+    name,
+    type: asString(record.type),
+    mode: asString(record.mode),
+    description: asString(record.description),
+    fields: subFields
+  }
+}
+
+export async function runGcpBigQueryQuery(projectId: string, queryText: string, maxResults = 100): Promise<import('@shared/types').GcpBigQueryQueryResult> {
+  const normalizedProjectId = projectId.trim()
+
+  try {
+    const initial = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: buildBigQueryApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/queries`),
+      method: 'POST',
+      data: {
+        query: queryText,
+        useLegacySql: false,
+        timeoutMs: 20000,
+        maxResults
+      }
+    })
+
+    let response = initial
+    let attempts = 0
+    const jobReference = initial.jobReference && typeof initial.jobReference === 'object'
+      ? initial.jobReference as Record<string, unknown>
+      : {}
+    const jobId = asString(jobReference.jobId)
+
+    while (!asBoolean(response.jobComplete) && jobId && attempts < 12) {
+      attempts += 1
+      await sleep(500)
+      response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+        url: buildBigQueryApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/queries/${encodeURIComponent(jobId)}`, {
+          maxResults
+        })
+      })
+    }
+
+    const schemaObj = response.schema && typeof response.schema === 'object' ? response.schema as Record<string, unknown> : {}
+    const schemaFields = Array.isArray(schemaObj.fields) ? schemaObj.fields : []
+    const columns = schemaFields.map((field: unknown) => {
+      if (field && typeof field === 'object') return asString((field as Record<string, unknown>).name)
+      return ''
+    })
+
+    const rawRows = Array.isArray(response.rows) ? response.rows : []
+    const rows = rawRows.map((row: unknown) => {
+      if (!row || typeof row !== 'object') return []
+      const values = Array.isArray((row as Record<string, unknown>).f) ? (row as Record<string, unknown>).f as unknown[] : []
+      return values.map((cell: unknown) => {
+        if (!cell || typeof cell !== 'object') return ''
+        return asString((cell as Record<string, unknown>).v)
+      })
+    })
+
+    return {
+      columns,
+      rows,
+      totalRows: asString(response.totalRows),
+      jobComplete: asBoolean(response.jobComplete),
+      cacheHit: asBoolean(response.cacheHit)
+    }
+  } catch (error) {
+    throw buildGcpSdkError(`running BigQuery query for project "${normalizedProjectId}"`, error, 'bigquery.googleapis.com')
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Cloud Monitoring
+// ---------------------------------------------------------------------------
+
+function buildMonitoringApiUrl(pathname: string, query: Record<string, number | string | undefined> = {}): string {
+  const url = new URL(`https://monitoring.googleapis.com/v3/${pathname.replace(/^\/+/, '')}`)
+
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === '') {
+      continue
+    }
+
+    url.searchParams.set(key, String(value))
+  }
+
+  return url.toString()
+}
+
+export async function listGcpMonitoringAlertPolicies(projectId: string): Promise<import('@shared/types').GcpMonitoringAlertPolicySummary[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) return []
+
+  try {
+    const policies: import('@shared/types').GcpMonitoringAlertPolicySummary[] = []
+    let pageToken = ''
+
+    do {
+      const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+        url: buildMonitoringApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/alertPolicies`, {
+          pageSize: 500,
+          pageToken: pageToken || undefined
+        })
+      })
+
+      for (const entry of Array.isArray(response.alertPolicies) ? response.alertPolicies : []) {
+        const record = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+        const name = asString(record.name)
+        if (!name) continue
+
+        const conditions = Array.isArray(record.conditions) ? record.conditions : []
+        const channels = Array.isArray(record.notificationChannels) ? record.notificationChannels : []
+
+        policies.push({
+          name,
+          displayName: asString(record.displayName),
+          enabled: asBoolean(record.enabled),
+          conditionCount: conditions.length,
+          notificationChannelCount: channels.length,
+          combiner: asString(record.combiner),
+          creationTime: asString((record.creationRecord && typeof record.creationRecord === 'object' ? record.creationRecord as Record<string, unknown> : {}).mutateTime),
+          mutationTime: asString((record.mutationRecord && typeof record.mutationRecord === 'object' ? record.mutationRecord as Record<string, unknown> : {}).mutateTime)
+        })
+      }
+
+      pageToken = asString(response.nextPageToken)
+    } while (pageToken)
+
+    return policies
+  } catch (error) {
+    throw buildGcpSdkError(`listing Cloud Monitoring alert policies for project "${normalizedProjectId}"`, error, 'monitoring.googleapis.com')
+  }
+}
+
+export async function listGcpMonitoringUptimeChecks(projectId: string): Promise<import('@shared/types').GcpMonitoringUptimeCheckSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) return []
+
+  try {
+    const checks: import('@shared/types').GcpMonitoringUptimeCheckSummary[] = []
+    let pageToken = ''
+
+    do {
+      const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+        url: buildMonitoringApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/uptimeCheckConfigs`, {
+          pageSize: 500,
+          pageToken: pageToken || undefined
+        })
+      })
+
+      for (const entry of Array.isArray(response.uptimeCheckConfigs) ? response.uptimeCheckConfigs : []) {
+        const record = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+        const name = asString(record.name)
+        if (!name) continue
+
+        const monitoredResource = record.monitoredResource && typeof record.monitoredResource === 'object'
+          ? asString((record.monitoredResource as Record<string, unknown>).type)
+          : ''
+        const httpCheck = record.httpCheck && typeof record.httpCheck === 'object' ? record.httpCheck as Record<string, unknown> : null
+        const tcpCheck = record.tcpCheck && typeof record.tcpCheck === 'object' ? record.tcpCheck : null
+        const protocol = httpCheck ? (asBoolean(httpCheck.useSsl) ? 'HTTPS' : 'HTTP') : tcpCheck ? 'TCP' : 'UNKNOWN'
+
+        checks.push({
+          name,
+          displayName: asString(record.displayName),
+          monitoredResource,
+          protocol,
+          period: asString(record.period),
+          timeout: asString(record.timeout),
+          selectedRegions: asStringArray(record.selectedRegions),
+          isInternal: asBoolean(record.isInternal)
+        })
+      }
+
+      pageToken = asString(response.nextPageToken)
+    } while (pageToken)
+
+    return checks
+  } catch (error) {
+    throw buildGcpSdkError(`listing Cloud Monitoring uptime checks for project "${normalizedProjectId}"`, error, 'monitoring.googleapis.com')
+  }
+}
+
+export async function listGcpMonitoringMetricDescriptors(projectId: string, filter?: string): Promise<import('@shared/types').GcpMonitoringMetricDescriptorSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) return []
+
+  try {
+    const descriptors: import('@shared/types').GcpMonitoringMetricDescriptorSummary[] = []
+    let pageToken = ''
+
+    do {
+      const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+        url: buildMonitoringApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/metricDescriptors`, {
+          pageSize: 500,
+          filter: filter || undefined,
+          pageToken: pageToken || undefined
+        })
+      })
+
+      for (const entry of Array.isArray(response.metricDescriptors) ? response.metricDescriptors : []) {
+        const record = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+        const type = asString(record.type)
+        if (!type) continue
+
+        descriptors.push({
+          type,
+          displayName: asString(record.displayName),
+          description: asString(record.description),
+          metricKind: asString(record.metricKind),
+          valueType: asString(record.valueType),
+          unit: asString(record.unit),
+          launchStage: asString(record.launchStage)
+        })
+      }
+
+      pageToken = asString(response.nextPageToken)
+    } while (pageToken)
+
+    return descriptors
+  } catch (error) {
+    throw buildGcpSdkError(`listing Cloud Monitoring metric descriptors for project "${normalizedProjectId}"`, error, 'monitoring.googleapis.com')
+  }
+}
+
+export async function queryGcpMonitoringTimeSeries(
+  projectId: string,
+  metricType: string,
+  intervalMinutes: number
+): Promise<import('@shared/types').GcpMonitoringTimeSeriesResult[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) return []
+
+  try {
+    const now = new Date()
+    const startTime = new Date(now.getTime() - intervalMinutes * 60 * 1000)
+    const filter = `metric.type="${metricType}"`
+
+    const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: buildMonitoringApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/timeSeries`, {
+        filter,
+        'interval.startTime': startTime.toISOString(),
+        'interval.endTime': now.toISOString(),
+        pageSize: 100
+      })
+    })
+
+    const results: import('@shared/types').GcpMonitoringTimeSeriesResult[] = []
+    for (const entry of Array.isArray(response.timeSeries) ? response.timeSeries : []) {
+      const record = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+      const metricObj = record.metric && typeof record.metric === 'object' ? record.metric as Record<string, unknown> : {}
+      const resourceObj = record.resource && typeof record.resource === 'object' ? record.resource as Record<string, unknown> : {}
+      const rawPoints = Array.isArray(record.points) ? record.points : []
+
+      const points = rawPoints.map((point: unknown) => {
+        if (!point || typeof point !== 'object') return null
+        const p = point as Record<string, unknown>
+        const interval = p.interval && typeof p.interval === 'object' ? p.interval as Record<string, unknown> : {}
+        const value = p.value && typeof p.value === 'object' ? p.value as Record<string, unknown> : {}
+        const numericValue = normalizeNumber(value.int64Value ?? value.doubleValue ?? value.value ?? 0)
+        return {
+          timestamp: asString(interval.endTime),
+          value: numericValue
+        }
+      }).filter((p): p is import('@shared/types').GcpMonitoringTimeSeriesPoint => p !== null)
+
+      results.push({
+        metric: asString(metricObj.type),
+        resource: asString(resourceObj.type),
+        points
+      })
+    }
+
+    return results
+  } catch (error) {
+    throw buildGcpSdkError(`querying Cloud Monitoring time series for project "${normalizedProjectId}"`, error, 'monitoring.googleapis.com')
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Security Command Center
+// ---------------------------------------------------------------------------
+
+function buildSccApiUrl(pathname: string, query: Record<string, number | string | undefined> = {}): string {
+  const url = new URL(`https://securitycenter.googleapis.com/v1/${pathname.replace(/^\/+/, '')}`)
+
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === '') {
+      continue
+    }
+
+    url.searchParams.set(key, String(value))
+  }
+
+  return url.toString()
+}
+
+export async function listGcpSccFindings(projectId: string, filter?: string): Promise<import('@shared/types').GcpSccFindingSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) return []
+
+  try {
+    const findings: import('@shared/types').GcpSccFindingSummary[] = []
+    let pageToken = ''
+
+    do {
+      const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+        url: buildSccApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/sources/-/findings`, {
+          pageSize: 500,
+          filter: filter || 'state="ACTIVE"',
+          pageToken: pageToken || undefined
+        })
+      })
+
+      const listFindings = Array.isArray(response.listFindingsResults) ? response.listFindingsResults : []
+      for (const wrapper of listFindings) {
+        const wrapperObj = wrapper && typeof wrapper === 'object' ? wrapper as Record<string, unknown> : {}
+        const record = wrapperObj.finding && typeof wrapperObj.finding === 'object' ? wrapperObj.finding as Record<string, unknown> : {}
+        const name = asString(record.name)
+        if (!name) continue
+
+        const resource = record.resourceName ? record : (wrapperObj.resource && typeof wrapperObj.resource === 'object' ? wrapperObj.resource as Record<string, unknown> : {})
+
+        findings.push({
+          name,
+          category: asString(record.category),
+          state: asString(record.state),
+          severity: asString(record.severity),
+          resourceName: asString(resource.name ?? record.resourceName),
+          resourceType: asString((wrapperObj.resource && typeof wrapperObj.resource === 'object' ? wrapperObj.resource as Record<string, unknown> : {}).type),
+          sourceDisplayName: asString(record.canonicalName ? record.canonicalName : record.parent)?.split('/').slice(0, 4).join('/') ?? '',
+          eventTime: asString(record.eventTime),
+          createTime: asString(record.createTime),
+          description: asString(record.description),
+          externalUri: asString(record.externalUri)
+        })
+      }
+
+      pageToken = asString(response.nextPageToken)
+    } while (pageToken)
+
+    return findings
+  } catch (error) {
+    throw buildGcpSdkError(`listing Security Command Center findings for project "${normalizedProjectId}"`, error, 'securitycenter.googleapis.com')
+  }
+}
+
+export async function listGcpSccSources(projectId: string): Promise<import('@shared/types').GcpSccSourceSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) return []
+
+  try {
+    const sources: import('@shared/types').GcpSccSourceSummary[] = []
+    let pageToken = ''
+
+    do {
+      const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+        url: buildSccApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/sources`, {
+          pageSize: 500,
+          pageToken: pageToken || undefined
+        })
+      })
+
+      for (const entry of Array.isArray(response.sources) ? response.sources : []) {
+        const record = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+        const name = asString(record.name)
+        if (!name) continue
+
+        sources.push({
+          name,
+          displayName: asString(record.displayName),
+          description: asString(record.description)
+        })
+      }
+
+      pageToken = asString(response.nextPageToken)
+    } while (pageToken)
+
+    return sources
+  } catch (error) {
+    throw buildGcpSdkError(`listing Security Command Center sources for project "${normalizedProjectId}"`, error, 'securitycenter.googleapis.com')
+  }
+}
+
+export async function getGcpSccFindingDetail(projectId: string, findingName: string): Promise<import('@shared/types').GcpSccFindingDetail> {
+  const normalizedProjectId = projectId.trim()
+
+  try {
+    const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: buildSccApiUrl(findingName.trim())
+    })
+
+    const sourceProperties = response.sourceProperties && typeof response.sourceProperties === 'object'
+      ? Object.fromEntries(
+        Object.entries(response.sourceProperties as Record<string, unknown>).map(([key, value]) => [key, String(value ?? '')])
+      )
+      : {}
+
+    return {
+      name: asString(response.name),
+      category: asString(response.category),
+      state: asString(response.state),
+      severity: asString(response.severity),
+      resourceName: asString(response.resourceName),
+      resourceType: asString((response.resource && typeof response.resource === 'object' ? response.resource as Record<string, unknown> : {}).type),
+      sourceDisplayName: asString(response.sourceDisplayName),
+      sourceProperties,
+      eventTime: asString(response.eventTime),
+      createTime: asString(response.createTime),
+      description: asString(response.description),
+      nextSteps: asString(response.nextSteps),
+      externalUri: asString(response.externalUri),
+      mute: asString(response.mute)
+    }
+  } catch (error) {
+    throw buildGcpSdkError(`getting SCC finding detail for "${findingName}"`, error, 'securitycenter.googleapis.com')
+  }
+}
+
+export async function getGcpSccSeverityBreakdown(projectId: string): Promise<import('@shared/types').GcpSccSeverityBreakdown> {
+  const findings = await listGcpSccFindings(projectId, 'state="ACTIVE"')
+  const breakdown: import('@shared/types').GcpSccSeverityBreakdown = { critical: 0, high: 0, medium: 0, low: 0, unspecified: 0 }
+
+  for (const finding of findings) {
+    const severity = finding.severity.toUpperCase()
+    if (severity === 'CRITICAL') breakdown.critical++
+    else if (severity === 'HIGH') breakdown.high++
+    else if (severity === 'MEDIUM') breakdown.medium++
+    else if (severity === 'LOW') breakdown.low++
+    else breakdown.unspecified++
+  }
+
+  return breakdown
+}
+
+// ---------------------------------------------------------------------------
+// Firestore
+// ---------------------------------------------------------------------------
+
+function buildFirestoreApiUrl(pathname: string, query: Record<string, number | string | undefined> = {}): string {
+  const url = new URL(`https://firestore.googleapis.com/v1/${pathname.replace(/^\/+/, '')}`)
+
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === '') {
+      continue
+    }
+
+    url.searchParams.set(key, String(value))
+  }
+
+  return url.toString()
+}
+
+export async function listGcpFirestoreDatabases(projectId: string): Promise<import('@shared/types').GcpFirestoreDatabaseSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) return []
+
+  try {
+    const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: buildFirestoreApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/databases`)
+    })
+
+    const databases: import('@shared/types').GcpFirestoreDatabaseSummary[] = []
+    for (const entry of Array.isArray(response.databases) ? response.databases : []) {
+      const record = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+      const name = asString(record.name)
+      if (!name) continue
+
+      databases.push({
+        name,
+        uid: asString(record.uid),
+        locationId: asString(record.locationId),
+        type: asString(record.type),
+        concurrencyMode: asString(record.concurrencyMode),
+        deleteProtectionState: asString(record.deleteProtectionState),
+        earliestVersionTime: asString(record.earliestVersionTime)
+      })
+    }
+
+    return databases
+  } catch (error) {
+    throw buildGcpSdkError(`listing Firestore databases for project "${normalizedProjectId}"`, error, 'firestore.googleapis.com')
+  }
+}
+
+export async function listGcpFirestoreCollections(projectId: string, databaseId: string, parentDocumentPath?: string): Promise<import('@shared/types').GcpFirestoreCollectionSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedDatabaseId = databaseId.trim() || '(default)'
+
+  try {
+    const basePath = `projects/${encodeURIComponent(normalizedProjectId)}/databases/${encodeURIComponent(normalizedDatabaseId)}/documents`
+    const documentPath = parentDocumentPath?.trim() ? `${basePath}/${parentDocumentPath.trim()}` : basePath
+
+    const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: buildFirestoreApiUrl(`${documentPath}:listCollectionIds`),
+      method: 'POST',
+      data: { pageSize: 500 }
+    })
+
+    const collectionIds = Array.isArray(response.collectionIds) ? response.collectionIds : []
+    return collectionIds
+      .map((id: unknown) => asString(id))
+      .filter(Boolean)
+      .map((collectionId) => ({ collectionId, documentCount: 0 }))
+  } catch (error) {
+    throw buildGcpSdkError(`listing Firestore collections for project "${normalizedProjectId}"`, error, 'firestore.googleapis.com')
+  }
+}
+
+export async function listGcpFirestoreDocuments(projectId: string, databaseId: string, collectionId: string, pageSize = 100): Promise<import('@shared/types').GcpFirestoreDocumentSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedDatabaseId = databaseId.trim() || '(default)'
+  const normalizedCollectionId = collectionId.trim()
+  if (!normalizedProjectId || !normalizedCollectionId) return []
+
+  try {
+    const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: buildFirestoreApiUrl(
+        `projects/${encodeURIComponent(normalizedProjectId)}/databases/${encodeURIComponent(normalizedDatabaseId)}/documents/${encodeURIComponent(normalizedCollectionId)}`,
+        { pageSize }
+      )
+    })
+
+    const documents: import('@shared/types').GcpFirestoreDocumentSummary[] = []
+    for (const entry of Array.isArray(response.documents) ? response.documents : []) {
+      const record = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+      const name = asString(record.name)
+      if (!name) continue
+
+      const documentId = name.split('/').pop() ?? name
+      const fields = record.fields && typeof record.fields === 'object' ? record.fields as Record<string, unknown> : {}
+
+      documents.push({
+        name,
+        documentId,
+        createTime: asString(record.createTime),
+        updateTime: asString(record.updateTime),
+        fieldCount: Object.keys(fields).length
+      })
+    }
+
+    return documents
+  } catch (error) {
+    throw buildGcpSdkError(`listing Firestore documents for collection "${normalizedCollectionId}"`, error, 'firestore.googleapis.com')
+  }
+}
+
+export async function getGcpFirestoreDocumentDetail(projectId: string, databaseId: string, documentPath: string): Promise<import('@shared/types').GcpFirestoreDocumentDetail> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedDatabaseId = databaseId.trim() || '(default)'
+  const normalizedPath = documentPath.trim()
+
+  try {
+    const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: buildFirestoreApiUrl(
+        `projects/${encodeURIComponent(normalizedProjectId)}/databases/${encodeURIComponent(normalizedDatabaseId)}/documents/${normalizedPath}`
+      )
+    })
+
+    const name = asString(response.name)
+    const documentId = name.split('/').pop() ?? name
+    const fields = response.fields && typeof response.fields === 'object' ? response.fields as Record<string, unknown> : {}
+
+    return {
+      name,
+      documentId,
+      createTime: asString(response.createTime),
+      updateTime: asString(response.updateTime),
+      fields
+    }
+  } catch (error) {
+    throw buildGcpSdkError(`getting Firestore document detail for "${normalizedPath}"`, error, 'firestore.googleapis.com')
   }
 }

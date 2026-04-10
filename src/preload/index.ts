@@ -188,6 +188,37 @@ const awsLensApi = {
   listGcpSqlDatabases: (projectId: string, instanceName: string) => ipcRenderer.invoke('gcp:cloud-sql:databases:list', projectId, instanceName),
   listGcpSqlOperations: (projectId: string, instanceName: string) => ipcRenderer.invoke('gcp:cloud-sql:operations:list', projectId, instanceName),
   getGcpBillingOverview: (projectId: string, catalogProjectIds: string[]) => ipcRenderer.invoke('gcp:billing:get-overview', projectId, catalogProjectIds),
+
+  // Pub/Sub
+  listGcpPubSubTopics: (projectId: string) => ipcRenderer.invoke('gcp:pubsub:list-topics', projectId),
+  listGcpPubSubSubscriptions: (projectId: string) => ipcRenderer.invoke('gcp:pubsub:list-subscriptions', projectId),
+  getGcpPubSubTopicDetail: (projectId: string, topicId: string) => ipcRenderer.invoke('gcp:pubsub:get-topic-detail', projectId, topicId),
+  getGcpPubSubSubscriptionDetail: (projectId: string, subscriptionId: string) => ipcRenderer.invoke('gcp:pubsub:get-subscription-detail', projectId, subscriptionId),
+
+  // BigQuery
+  listGcpBigQueryDatasets: (projectId: string) => ipcRenderer.invoke('gcp:bigquery:list-datasets', projectId),
+  listGcpBigQueryTables: (projectId: string, datasetId: string) => ipcRenderer.invoke('gcp:bigquery:list-tables', projectId, datasetId),
+  getGcpBigQueryTableDetail: (projectId: string, datasetId: string, tableId: string) => ipcRenderer.invoke('gcp:bigquery:get-table-detail', projectId, datasetId, tableId),
+  runGcpBigQueryQuery: (projectId: string, queryText: string, maxResults?: number) => ipcRenderer.invoke('gcp:bigquery:run-query', projectId, queryText, maxResults),
+
+  // Cloud Monitoring
+  listGcpMonitoringAlertPolicies: (projectId: string) => ipcRenderer.invoke('gcp:monitoring:list-alert-policies', projectId),
+  listGcpMonitoringUptimeChecks: (projectId: string) => ipcRenderer.invoke('gcp:monitoring:list-uptime-checks', projectId),
+  listGcpMonitoringMetricDescriptors: (projectId: string, filter?: string) => ipcRenderer.invoke('gcp:monitoring:list-metric-descriptors', projectId, filter),
+  queryGcpMonitoringTimeSeries: (projectId: string, metricType: string, intervalMinutes: number) => ipcRenderer.invoke('gcp:monitoring:query-time-series', projectId, metricType, intervalMinutes),
+
+  // Security Command Center
+  listGcpSccFindings: (projectId: string, filter?: string) => ipcRenderer.invoke('gcp:scc:list-findings', projectId, filter),
+  listGcpSccSources: (projectId: string) => ipcRenderer.invoke('gcp:scc:list-sources', projectId),
+  getGcpSccFindingDetail: (projectId: string, findingName: string) => ipcRenderer.invoke('gcp:scc:get-finding-detail', projectId, findingName),
+  getGcpSccSeverityBreakdown: (projectId: string) => ipcRenderer.invoke('gcp:scc:get-severity-breakdown', projectId),
+
+  // Firestore
+  listGcpFirestoreDatabases: (projectId: string) => ipcRenderer.invoke('gcp:firestore:list-databases', projectId),
+  listGcpFirestoreCollections: (projectId: string, databaseId: string, parentDocumentPath?: string) => ipcRenderer.invoke('gcp:firestore:list-collections', projectId, databaseId, parentDocumentPath),
+  listGcpFirestoreDocuments: (projectId: string, databaseId: string, collectionId: string, pageSize?: number) => ipcRenderer.invoke('gcp:firestore:list-documents', projectId, databaseId, collectionId, pageSize),
+  getGcpFirestoreDocumentDetail: (projectId: string, databaseId: string, documentPath: string) => ipcRenderer.invoke('gcp:firestore:get-document-detail', projectId, databaseId, documentPath),
+
   listAzureSubscriptions: () => ipcRenderer.invoke('azure:subscriptions:list'),
   getAzureRbacOverview: (subscriptionId: string) => ipcRenderer.invoke('azure:rbac:get-overview', subscriptionId),
   listAzureRoleAssignments: (subscriptionId: string) => ipcRenderer.invoke('azure:rbac:list-assignments', subscriptionId),
@@ -207,6 +238,12 @@ const awsLensApi = {
     ipcRenderer.invoke('azure:aks:list-node-pools', subscriptionId, resourceGroup, clusterName),
   updateAzureAksNodePoolScaling: (subscriptionId: string, resourceGroup: string, clusterName: string, nodePoolName: string, min: number, desired: number, max: number) =>
     ipcRenderer.invoke('azure:aks:update-node-pool-scaling', subscriptionId, resourceGroup, clusterName, nodePoolName, min, desired, max),
+  toggleAzureAksNodePoolAutoscaling: (subscriptionId: string, resourceGroup: string, clusterName: string, nodePoolName: string, enable: boolean, minCount?: number, maxCount?: number) =>
+    ipcRenderer.invoke('azure:aks:toggle-node-pool-autoscaling', subscriptionId, resourceGroup, clusterName, nodePoolName, enable, minCount, maxCount),
+  addAksToKubeconfig: (subscriptionId: string, resourceGroup: string, clusterName: string, contextName: string, kubeconfigPath: string) =>
+    ipcRenderer.invoke('azure:aks:add-kubeconfig', subscriptionId, resourceGroup, clusterName, contextName, kubeconfigPath),
+  chooseAksKubeconfigPath: (currentPath?: string) =>
+    ipcRenderer.invoke('azure:aks:choose-kubeconfig-path', currentPath),
   listAzureStorageAccounts: (subscriptionId: string, location: string) => ipcRenderer.invoke('azure:storage-accounts:list', subscriptionId, location),
   listAzureStorageContainers: (subscriptionId: string, resourceGroup: string, accountName: string, blobEndpoint?: string) =>
     ipcRenderer.invoke('azure:storage-containers:list', subscriptionId, resourceGroup, accountName, blobEndpoint),
@@ -222,11 +259,69 @@ const awsLensApi = {
     ipcRenderer.invoke('azure:storage-blob:download', subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint),
   deleteAzureStorageBlob: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) =>
     ipcRenderer.invoke('azure:storage-blob:delete', subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint),
+  createAzureStorageContainer: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, blobEndpoint?: string) =>
+    ipcRenderer.invoke('azure:storage-container:create', subscriptionId, resourceGroup, accountName, containerName, blobEndpoint),
+  openAzureStorageBlob: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) =>
+    ipcRenderer.invoke('azure:storage-blob:open', subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint),
+  openAzureStorageBlobInVSCode: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) =>
+    ipcRenderer.invoke('azure:storage-blob:open-in-vscode', subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint),
+  getAzureStorageBlobSasUrl: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) =>
+    ipcRenderer.invoke('azure:storage-blob:sas-url', subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint),
   getAzureSqlEstate: (subscriptionId: string, location: string) => ipcRenderer.invoke('azure:sql:get-estate', subscriptionId, location),
   describeAzureSqlServer: (subscriptionId: string, resourceGroup: string, serverName: string) => ipcRenderer.invoke('azure:sql:describe-server', subscriptionId, resourceGroup, serverName),
+  getAzurePostgreSqlEstate: (subscriptionId: string, location: string) => ipcRenderer.invoke('azure:postgresql:get-estate', subscriptionId, location),
+  describeAzurePostgreSqlServer: (subscriptionId: string, resourceGroup: string, serverName: string) => ipcRenderer.invoke('azure:postgresql:describe-server', subscriptionId, resourceGroup, serverName),
   listAzureMonitorActivity: (subscriptionId: string, location: string, query: string, windowHours?: number) =>
     ipcRenderer.invoke('azure:monitor:list-activity', subscriptionId, location, query, windowHours),
   getAzureCostOverview: (subscriptionId: string) => ipcRenderer.invoke('azure:cost:get-overview', subscriptionId),
+  getAzureNetworkOverview: (subscriptionId: string, location: string) =>
+    ipcRenderer.invoke('azure:network:get-overview', subscriptionId, location),
+  listAzureVNetSubnets: (subscriptionId: string, resourceGroup: string, vnetName: string) =>
+    ipcRenderer.invoke('azure:network:list-subnets', subscriptionId, resourceGroup, vnetName),
+  listAzureNsgRules: (subscriptionId: string, resourceGroup: string, nsgName: string) =>
+    ipcRenderer.invoke('azure:network:list-nsg-rules', subscriptionId, resourceGroup, nsgName),
+  listAzureVmss: (subscriptionId: string, location: string) =>
+    ipcRenderer.invoke('azure:vmss:list', subscriptionId, location),
+  listAzureVmssInstances: (subscriptionId: string, resourceGroup: string, vmssName: string) =>
+    ipcRenderer.invoke('azure:vmss:list-instances', subscriptionId, resourceGroup, vmssName),
+  updateAzureVmssCapacity: (subscriptionId: string, resourceGroup: string, vmssName: string, capacity: number) =>
+    ipcRenderer.invoke('azure:vmss:update-capacity', subscriptionId, resourceGroup, vmssName, capacity),
+  runAzureVmssInstanceAction: (subscriptionId: string, resourceGroup: string, vmssName: string, instanceId: string, action: string) =>
+    ipcRenderer.invoke('azure:vmss:instance-action', subscriptionId, resourceGroup, vmssName, instanceId, action),
+  /* ── Application Insights ── */
+  listAzureAppInsightsComponents: (subscriptionId: string, location: string) =>
+    ipcRenderer.invoke('azure:app-insights:list', subscriptionId, location),
+
+  /* ── Key Vault ── */
+  listAzureKeyVaults: (subscriptionId: string, location: string) =>
+    ipcRenderer.invoke('azure:key-vault:list', subscriptionId, location),
+  describeAzureKeyVault: (subscriptionId: string, resourceGroup: string, vaultName: string) =>
+    ipcRenderer.invoke('azure:key-vault:describe', subscriptionId, resourceGroup, vaultName),
+  listAzureKeyVaultSecrets: (subscriptionId: string, resourceGroup: string, vaultName: string) =>
+    ipcRenderer.invoke('azure:key-vault:list-secrets', subscriptionId, resourceGroup, vaultName),
+  listAzureKeyVaultKeys: (subscriptionId: string, resourceGroup: string, vaultName: string) =>
+    ipcRenderer.invoke('azure:key-vault:list-keys', subscriptionId, resourceGroup, vaultName),
+
+  /* ── Event Hub ── */
+  listAzureEventHubNamespaces: (subscriptionId: string, location: string) =>
+    ipcRenderer.invoke('azure:event-hub:list-namespaces', subscriptionId, location),
+  listAzureEventHubs: (subscriptionId: string, resourceGroup: string, namespaceName: string) =>
+    ipcRenderer.invoke('azure:event-hub:list-hubs', subscriptionId, resourceGroup, namespaceName),
+  listAzureEventHubConsumerGroups: (subscriptionId: string, resourceGroup: string, namespaceName: string, eventHubName: string) =>
+    ipcRenderer.invoke('azure:event-hub:list-consumer-groups', subscriptionId, resourceGroup, namespaceName, eventHubName),
+
+  /* ── App Service ── */
+  listAzureAppServicePlans: (subscriptionId: string, location: string) =>
+    ipcRenderer.invoke('azure:app-service:list-plans', subscriptionId, location),
+  listAzureWebApps: (subscriptionId: string, location: string) =>
+    ipcRenderer.invoke('azure:app-service:list-web-apps', subscriptionId, location),
+  describeAzureWebApp: (subscriptionId: string, resourceGroup: string, siteName: string) =>
+    ipcRenderer.invoke('azure:app-service:describe-web-app', subscriptionId, resourceGroup, siteName),
+  listAzureWebAppSlots: (subscriptionId: string, resourceGroup: string, siteName: string) =>
+    ipcRenderer.invoke('azure:app-service:list-slots', subscriptionId, resourceGroup, siteName),
+  listAzureWebAppDeployments: (subscriptionId: string, resourceGroup: string, siteName: string) =>
+    ipcRenderer.invoke('azure:app-service:list-deployments', subscriptionId, resourceGroup, siteName),
+
   checkForAppUpdates: () => ipcRenderer.invoke('app:update:check'),
   downloadAppUpdate: () => ipcRenderer.invoke('app:update:download'),
   installAppUpdate: () => ipcRenderer.invoke('app:update:install'),
@@ -824,7 +919,14 @@ contextBridge.exposeInMainWorld('awsLens', awsLensApi)
 
 /* ── Terraform Workspace bridge ───────────────────────────── */
 
-const listenerMap = new Map<(event: unknown) => void, (...args: unknown[]) => void>()
+const terraformListeners = new Set<(event: unknown) => void>()
+const forwardTerraformEvent = (_event: unknown, payload: unknown) => {
+  for (const listener of terraformListeners) {
+    listener(payload)
+  }
+}
+
+ipcRenderer.on('terraform:event', forwardTerraformEvent)
 
 const api = {
   detectCli: () => ipcRenderer.invoke('terraform:cli:detect'),
@@ -907,17 +1009,10 @@ const api = {
     ipcRenderer.invoke('terraform:governance:run-checks', profileName, projectId, connection),
   getGovernanceReport: (projectId: string) => ipcRenderer.invoke('terraform:governance:get-report', projectId),
   subscribe: (listener: (event: unknown) => void) => {
-    const wrapped = (_event: unknown, payload: unknown) => listener(payload)
-    listenerMap.set(listener, wrapped)
-    ipcRenderer.on('terraform:event', wrapped)
+    terraformListeners.add(listener)
   },
   unsubscribe: (listener: (event: unknown) => void) => {
-    const wrapped = listenerMap.get(listener)
-    if (!wrapped) {
-      return
-    }
-    ipcRenderer.removeListener('terraform:event', wrapped)
-    listenerMap.delete(listener)
+    terraformListeners.delete(listener)
   }
 }
 

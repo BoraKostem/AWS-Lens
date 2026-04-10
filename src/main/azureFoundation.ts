@@ -22,7 +22,9 @@ const REQUIRED_PROVIDER_NAMESPACES = [
   'Microsoft.Compute',
   'Microsoft.Storage',
   'Microsoft.ContainerService',
-  'Microsoft.Monitor'
+  'Microsoft.Monitor',
+  'Microsoft.DBforPostgreSQL',
+  'Microsoft.Sql'
 ]
 
 type AzureCatalogData = {
@@ -34,6 +36,12 @@ type AzureCatalogData = {
 
 type AzureCredentialSource = 'azure-cli'
 
+type CatalogCache = {
+  subscriptionId: string
+  data: AzureCatalogData
+  cliPath: string
+}
+
 type RuntimeState = {
   auth: AzureAuthSessionState
   credentialSource: AzureCredentialSource | null
@@ -42,6 +50,7 @@ type RuntimeState = {
   authProcess: ChildProcessWithoutNullStreams | null
   ambientCredentialDiscovery: Promise<boolean> | null
   skipAmbientDiscoveryOnce: boolean
+  catalogCache: CatalogCache | null
 }
 
 const runtimeState: RuntimeState = {
@@ -57,7 +66,8 @@ const runtimeState: RuntimeState = {
   authFlow: null,
   authProcess: null,
   ambientCredentialDiscovery: null,
-  skipAmbientDiscoveryOnce: false
+  skipAmbientDiscoveryOnce: false,
+  catalogCache: null
 }
 
 const execFileAsync = promisify(execFile)
@@ -94,6 +104,7 @@ function resetAuthState(message = 'No local az login session was found. Start br
   runtimeState.credentialSource = null
   runtimeState.authRunId += 1
   runtimeState.authFlow = null
+  runtimeState.catalogCache = null
   return writeAuthState({
     status: 'signed-out',
     message,
@@ -613,29 +624,37 @@ async function buildAzureProviderContextSnapshot(): Promise<AzureProviderContext
   let providerRegistrations: AzureProviderRegistrationSummary[] = []
 
   if (authenticated) {
-    const catalog = await loadAzureCatalogData(store.activeSubscriptionId.trim())
-    tenants = catalog.tenants
-    subscriptions = catalog.subscriptions
-
-    const activeTenantId = selectActiveTenantId(store, tenants, subscriptions)
-    const scopedSubscriptions = filterSubscriptionsByTenant(subscriptions, activeTenantId)
-    const activeSubscription = selectActiveSubscription(store, scopedSubscriptions)
-    const activeSubscriptionId = activeSubscription?.subscriptionId ?? ''
-
-    if (activeSubscriptionId && activeSubscriptionId !== store.activeSubscriptionId) {
-      const refreshed = updateAzureFoundationStore({
-        activeTenantId,
-        activeSubscriptionId,
-        recentSubscriptionIds: mergeRecentSubscriptionIds(store.recentSubscriptionIds, activeSubscriptionId)
-      })
-      const refreshedCatalog = await loadAzureCatalogData(refreshed.activeSubscriptionId)
-      tenants = refreshedCatalog.tenants
-      subscriptions = refreshedCatalog.subscriptions
-      locations = refreshedCatalog.locations
-      providerRegistrations = refreshedCatalog.providerRegistrations
+    const existingCache = runtimeState.catalogCache
+    if (existingCache && existingCache.subscriptionId === store.activeSubscriptionId.trim()) {
+      tenants = existingCache.data.tenants
+      subscriptions = existingCache.data.subscriptions
+      locations = existingCache.data.locations
+      providerRegistrations = existingCache.data.providerRegistrations
     } else {
-      locations = catalog.locations
-      providerRegistrations = catalog.providerRegistrations
+      const catalog = await loadAzureCatalogData(store.activeSubscriptionId.trim())
+      tenants = catalog.tenants
+      subscriptions = catalog.subscriptions
+
+      const activeTenantId = selectActiveTenantId(store, tenants, subscriptions)
+      const scopedSubscriptions = filterSubscriptionsByTenant(subscriptions, activeTenantId)
+      const activeSubscription = selectActiveSubscription(store, scopedSubscriptions)
+      const activeSubscriptionId = activeSubscription?.subscriptionId ?? ''
+
+      if (activeSubscriptionId && activeSubscriptionId !== store.activeSubscriptionId) {
+        const refreshed = updateAzureFoundationStore({
+          activeTenantId,
+          activeSubscriptionId,
+          recentSubscriptionIds: mergeRecentSubscriptionIds(store.recentSubscriptionIds, activeSubscriptionId)
+        })
+        const refreshedCatalog = await loadAzureCatalogData(refreshed.activeSubscriptionId)
+        tenants = refreshedCatalog.tenants
+        subscriptions = refreshedCatalog.subscriptions
+        locations = refreshedCatalog.locations
+        providerRegistrations = refreshedCatalog.providerRegistrations
+      } else {
+        locations = catalog.locations
+        providerRegistrations = catalog.providerRegistrations
+      }
     }
   }
 
@@ -646,6 +665,14 @@ async function buildAzureProviderContextSnapshot(): Promise<AzureProviderContext
   const activeSubscriptionId = activeSubscription?.subscriptionId ?? ''
   const activeLocation = selectActiveLocation(refreshedStore, locations)
   const activeTenant = tenants.find((entry) => entry.tenantId === activeTenantId) ?? null
+
+  if (authenticated && activeSubscriptionId) {
+    runtimeState.catalogCache = {
+      subscriptionId: activeSubscriptionId,
+      data: { tenants, subscriptions, locations, providerRegistrations },
+      cliPath
+    }
+  }
   const activeAccountLabel = activeSubscription
     ? `${activeSubscription.displayName} (${activeSubscription.subscriptionId})`
     : activeTenant
@@ -666,6 +693,83 @@ async function buildAzureProviderContextSnapshot(): Promise<AzureProviderContext
     || recentSubscriptionIds.join('|') !== refreshedStore.recentSubscriptionIds.join('|')
     || recentSubscriptions.map((entry) => `${entry.subscriptionId}:${entry.displayName}:${entry.tenantId}`).join('|')
       !== refreshedStore.recentSubscriptions.map((entry) => `${entry.subscriptionId}:${entry.displayName}:${entry.tenantId}`).join('|')
+  ) {
+    updateAzureFoundationStore({
+      activeTenantId,
+      activeSubscriptionId,
+      activeLocation,
+      recentSubscriptionIds,
+      recentSubscriptions: recentSubscriptions.map((entry) => ({
+        subscriptionId: entry.subscriptionId,
+        displayName: entry.displayName,
+        tenantId: entry.tenantId
+      }))
+    })
+  }
+
+  return {
+    loadedAt: new Date().toISOString(),
+    auth: runtimeState.auth,
+    cloudName: 'AzureCloud',
+    cliPath,
+    activeTenantId,
+    activeSubscriptionId,
+    activeLocation,
+    activeAccountLabel,
+    tenants,
+    subscriptions: orderedSubscriptions,
+    locations,
+    recentSubscriptionIds,
+    recentSubscriptions,
+    providerRegistrations,
+    diagnostics: buildDiagnostics({
+      auth: runtimeState.auth,
+      cliPath,
+      activeTenantId,
+      activeSubscriptionId,
+      subscriptions: orderedSubscriptions,
+      providerRegistrations
+    })
+  }
+}
+
+function buildSnapshotFromCache(
+  cache: CatalogCache,
+  store: AzureFoundationStore
+): AzureProviderContextSnapshot {
+  const { tenants, subscriptions, locations, providerRegistrations } = cache.data
+  const cliPath = cache.cliPath
+
+  const activeTenantId = selectActiveTenantId(store, tenants, subscriptions)
+  const scopedSubscriptions = filterSubscriptionsByTenant(subscriptions, activeTenantId)
+  const activeSubscription = selectActiveSubscription(store, scopedSubscriptions)
+  const activeSubscriptionId = activeSubscription?.subscriptionId ?? ''
+  const activeLocation = selectActiveLocation(store, locations)
+  const activeTenant = tenants.find((entry) => entry.tenantId === activeTenantId) ?? null
+  const activeAccountLabel = activeSubscription
+    ? `${activeSubscription.displayName} (${activeSubscription.subscriptionId})`
+    : activeTenant
+      ? activeTenant.displayName || activeTenant.tenantId
+      : 'Azure account context pending'
+  const recentSubscriptionIds = activeSubscriptionId
+    ? mergeRecentSubscriptionIds(store.recentSubscriptionIds, activeSubscriptionId)
+    : store.recentSubscriptionIds.filter((entry) =>
+        scopedSubscriptions.some((sub) => sub.subscriptionId === entry)
+      )
+  const recentSubscriptions = mergeRecentSubscriptions(
+    store.recentSubscriptions,
+    scopedSubscriptions,
+    activeSubscriptionId
+  )
+  const orderedSubscriptions = sortSubscriptionsByRecent(scopedSubscriptions, recentSubscriptions)
+
+  if (
+    activeTenantId !== store.activeTenantId
+    || activeSubscriptionId !== store.activeSubscriptionId
+    || activeLocation !== store.activeLocation
+    || recentSubscriptionIds.join('|') !== store.recentSubscriptionIds.join('|')
+    || recentSubscriptions.map((e) => `${e.subscriptionId}:${e.displayName}:${e.tenantId}`).join('|')
+      !== store.recentSubscriptions.map((e) => `${e.subscriptionId}:${e.displayName}:${e.tenantId}`).join('|')
   ) {
     updateAzureFoundationStore({
       activeTenantId,
@@ -868,6 +972,7 @@ export async function signOutAzureProvider(): Promise<AzureProviderContextSnapsh
 }
 
 export async function setAzureActiveTenant(tenantId: string): Promise<AzureProviderContextSnapshot> {
+  runtimeState.catalogCache = null
   updateAzureFoundationStore({
     activeTenantId: tenantId.trim(),
     activeSubscriptionId: '',
@@ -877,6 +982,7 @@ export async function setAzureActiveTenant(tenantId: string): Promise<AzureProvi
 }
 
 export async function setAzureActiveSubscription(subscriptionId: string): Promise<AzureProviderContextSnapshot> {
+  runtimeState.catalogCache = null
   const normalizedSubscriptionId = subscriptionId.trim()
   const matchedSubscription = (await getAzureProviderContext()).subscriptions.find((entry) => entry.subscriptionId === normalizedSubscriptionId) ?? null
   const currentStore = readAzureFoundationStore()
@@ -900,5 +1006,17 @@ export async function setAzureActiveLocation(location: string): Promise<AzurePro
   updateAzureFoundationStore({
     activeLocation: location.trim()
   })
+
+  const cache = runtimeState.catalogCache
+  const store = readAzureFoundationStore()
+  if (
+    cache
+    && cache.subscriptionId === store.activeSubscriptionId.trim()
+    && runtimeState.credentialSource === 'azure-cli'
+    && runtimeState.auth.status === 'authenticated'
+  ) {
+    return buildSnapshotFromCache(cache, store)
+  }
+
   return getAzureProviderContext()
 }
