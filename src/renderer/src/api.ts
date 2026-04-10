@@ -1004,7 +1004,7 @@ function normalizeUserFacingError(rawError: string): AwsLensApiError {
 
   if (normalized.includes('accessdenied') || normalized.includes('access denied') || normalized.includes('not authorized')) {
     return new AwsLensApiError(
-      'AWS denied this request. Check the active IAM role or policy scope for the selected account and region.',
+      'Access denied. Check the active credentials or policy scope for the selected account and region.',
       rawError,
       'Access Denied'
     )
@@ -1012,7 +1012,7 @@ function normalizeUserFacingError(rawError: string): AwsLensApiError {
 
   if (normalized.includes('expired token') || normalized.includes('expiredtoken') || normalized.includes('security token')) {
     return new AwsLensApiError(
-      'The current AWS session has expired. Refresh credentials or assume the role again, then retry.',
+      'The current session has expired. Refresh credentials or re-authenticate, then retry.',
       rawError,
       'Session Expired'
     )
@@ -1020,7 +1020,7 @@ function normalizeUserFacingError(rawError: string): AwsLensApiError {
 
   if (normalized.includes('throttl') || normalized.includes('rate exceeded') || normalized.includes('too many requests')) {
     return new AwsLensApiError(
-      'AWS is rate-limiting this operation. Retry in a moment or narrow the request scope.',
+      'The cloud provider is rate-limiting this operation. Retry in a moment or narrow the request scope.',
       rawError,
       'Request Throttled'
     )
@@ -1028,7 +1028,7 @@ function normalizeUserFacingError(rawError: string): AwsLensApiError {
 
   if (normalized.includes('timed out') || normalized.includes('timeout')) {
     return new AwsLensApiError(
-      'The operation timed out before AWS or the local tool completed. Retry or reduce the amount of data being requested.',
+      'The operation timed out. Retry or reduce the amount of data being requested.',
       rawError,
       'Operation Timed Out'
     )

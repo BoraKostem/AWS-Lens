@@ -685,3 +685,59 @@
   border-color: rgba(0, 120, 212, 0.32);
   background: linear-gradient(180deg, rgba(0, 120, 212, 0.18), rgba(0, 120, 212, 0.08));
 }
+
+.azure-load-balancers-theme .asg-hero,
+.azure-load-balancers-theme .asg-detail-hero {
+  background:
+    radial-gradient(circle at top left, rgba(0, 120, 212, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(56, 139, 253, 0.10), transparent 30%),
+    linear-gradient(180deg, rgba(22, 30, 40, 0.98), rgba(11, 17, 25, 0.98));
+}
+
+.azure-load-balancers-theme .eyebrow,
+.azure-load-balancers-theme .asg-pane-kicker {
+  color: #8fc7ff;
+}
+
+.azure-load-balancers-theme .asg-stat-card-accent {
+  border-color: rgba(0, 120, 212, 0.32);
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(22, 35, 52, 0.96), rgba(14, 24, 38, 0.96));
+}
+
+.azure-load-balancers-theme .asg-groups-pane,
+.azure-load-balancers-theme .asg-detail-pane,
+.azure-load-balancers-theme .asg-tab-bar,
+.azure-load-balancers-theme .asg-capacity-panel,
+.azure-load-balancers-theme .asg-filter-panel,
+.azure-load-balancers-theme .asg-table-area {
+  border-color: rgba(0, 120, 212, 0.14);
+}
+
+.azure-load-balancers-theme .asg-group-card:hover {
+  border-color: rgba(0, 120, 212, 0.24);
+}
+
+.azure-load-balancers-theme .asg-group-card.active {
+  border-color: rgba(0, 120, 212, 0.34);
+  background:
+    radial-gradient(circle at top right, rgba(0, 120, 212, 0.12), transparent 40%),
+    linear-gradient(180deg, rgba(28, 40, 55, 0.98), rgba(14, 23, 34, 0.98));
+  box-shadow: inset 0 0 0 1px rgba(0, 120, 212, 0.08);
+}
+
+.azure-load-balancers-theme .asg-group-card-badge {
+  background: rgba(0, 120, 212, 0.16);
+  color: #7db8f5;
+}
+
+.azure-load-balancers-theme .svc-btn.primary {
+  background: linear-gradient(135deg, #0078d4, #50a0e6);
+  border-color: rgba(80, 160, 230, 0.24);
+}
+
+.azure-load-balancers-theme .svc-tab.active {
+  border-color: rgba(0, 120, 212, 0.32);
+  background: linear-gradient(180deg, rgba(0, 120, 212, 0.18), rgba(0, 120, 212, 0.08));
+}
