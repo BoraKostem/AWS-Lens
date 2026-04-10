@@ -185,7 +185,7 @@ function formatVariableValue(value: unknown): string {
 }
 
 function cloneInputConfig(config: TerraformInputConfiguration): TerraformInputConfiguration {
-  return JSON.parse(JSON.stringify(config)) as TerraformInputConfiguration
+  return structuredClone(config)
 }
 
 function emptyVariableLayer(): TerraformVariableLayer {
