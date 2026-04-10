@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, session } from 'electron'
 
 import { LEGACY_APP_DATA_DIRECTORY, PRODUCT_BRAND_NAME } from '@shared/branding'
 import { hasPendingAwsCredentialActivity, waitForAwsCredentialActivity } from './aws/client'
@@ -201,6 +201,17 @@ function createWindow(): void {
       nodeIntegration: false,
       sandbox: false
     }
+  })
+
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+        ]
+      }
+    })
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
