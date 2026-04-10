@@ -82,7 +82,7 @@ async function readEntryPublicKey(entryId: string): Promise<{ publicKey: string;
 
   const secret = revealVaultEntrySecret(entry.id)
   const extension = path.extname(entry.metadata.fileName || entry.name) || (entry.kind === 'pem' ? '.pem' : '.key')
-  const targetDir = path.join(app.getPath('temp'), 'aws-lens', 'ssh-keys')
+  const targetDir = path.join(app.getPath('temp'), 'infra-lens', 'ssh-keys')
   const targetPath = path.join(targetDir, `${randomUUID()}${extension}`)
 
   await fs.mkdir(targetDir, { recursive: true })
@@ -118,7 +118,7 @@ async function inspectPublicKey(publicKey: string): Promise<{ fingerprintSha256:
     }
   }
 
-  const targetDir = path.join(app.getPath('temp'), 'aws-lens', 'ssh-keys')
+  const targetDir = path.join(app.getPath('temp'), 'infra-lens', 'ssh-keys')
   const targetPath = path.join(targetDir, `${randomUUID()}.pub`)
 
   await fs.mkdir(targetDir, { recursive: true })
@@ -174,7 +174,7 @@ export async function stageVaultSshPrivateKey(entryId: string): Promise<string> 
 
   const secret = revealVaultEntrySecret(entry.id)
   const extension = path.extname(entry.metadata.fileName || entry.name) || (entry.kind === 'pem' ? '.pem' : '.key')
-  const targetDir = path.join(app.getPath('temp'), 'aws-lens', 'ssh-keys')
+  const targetDir = path.join(app.getPath('temp'), 'infra-lens', 'ssh-keys')
   const targetPath = path.join(targetDir, `${randomUUID()}${extension}`)
 
   await fs.mkdir(targetDir, { recursive: true })

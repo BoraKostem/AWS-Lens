@@ -204,7 +204,7 @@ export async function createRoute53HostedZone(
   const output = await client.send(
     new CreateHostedZoneCommand({
       Name: domainName,
-      CallerReference: `aws-lens-${randomUUID()}`,
+      CallerReference: `infra-lens-${randomUUID()}`,
       HostedZoneConfig: {
         Comment: input.comment.trim() || undefined,
         PrivateZone: input.privateZone

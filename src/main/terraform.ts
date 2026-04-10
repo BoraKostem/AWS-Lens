@@ -2436,7 +2436,7 @@ function prepareStateCommandVarFile(project: StoredProject, runtimeInputs?: Terr
   }
 
   const tempPath = temporaryStateVarFilePath(project.rootPath)
-  const backupPath = `${tempPath}.aws-lens-backup`
+  const backupPath = `${tempPath}.infra-lens-backup`
   const hadExistingFile = fs.existsSync(tempPath)
 
   if (hadExistingFile) {

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, session } from 'electron'
 
-import { LEGACY_APP_DATA_DIRECTORY, PRODUCT_BRAND_NAME } from '@shared/branding'
+import { APP_DATA_DIRECTORY, PRODUCT_BRAND_NAME } from '@shared/branding'
 import { hasPendingAwsCredentialActivity, waitForAwsCredentialActivity } from './aws/client'
 import { assertEnterpriseAccess, recordEnterpriseAuditEvent } from './enterprise'
 import { registerIpcHandlers } from './ipc'
@@ -22,7 +22,7 @@ function ensureDirectory(targetPath: string): void {
 
 function configureAppStoragePaths(): void {
   const appDataPath = app.getPath('appData')
-  const rootDataPath = path.join(appDataPath, LEGACY_APP_DATA_DIRECTORY)
+  const rootDataPath = path.join(appDataPath, APP_DATA_DIRECTORY)
   const sessionDataPath = path.join(rootDataPath, 'session')
   const cachePath = path.join(sessionDataPath, 'Cache')
   const gpuCachePath = path.join(sessionDataPath, 'GPUCache')
@@ -158,7 +158,7 @@ function resolveIconPath(forDock = false): string {
   const ext = process.platform === 'darwin'
     ? (forDock ? 'png' : 'icns')
     : process.platform === 'win32' ? 'ico' : 'png'
-  const filename = forDock ? 'aws-lens-logo-dock' : 'aws-lens-logo'
+  const filename = forDock ? 'infra-lens-logo-dock' : 'infra-lens-logo'
   const candidates = [
     path.join(process.resourcesPath, 'assets', `${filename}.${ext}`),
     path.join(app.getAppPath(), `assets/${filename}.${ext}`),

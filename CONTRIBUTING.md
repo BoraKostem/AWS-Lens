@@ -1,6 +1,6 @@
-# Contributing to AWS Lens
+# Contributing to InfraLens
 
-This repository is the Electron migration of [AWS Lens](https://github.com/BoraKostem/AWS-Lens-old). Contributions should match the current app architecture: Electron main process, preload bridge, React renderer, shared types, AWS SDK v3 integrations, and Terraform workspace support.
+This repository is the Electron migration of [InfraLens](https://github.com/BoraKostem/InfraLens-old). Contributions should match the current app architecture: Electron main process, preload bridge, React renderer, shared types, AWS SDK v3 integrations, and Terraform workspace support.
 
 ## Development Setup
 

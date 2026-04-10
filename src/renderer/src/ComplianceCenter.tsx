@@ -67,7 +67,7 @@ function buildComplianceReportMarkdown(
   policyPackTitles: Map<string, string>
 ): string {
   const lines: string[] = [
-    '# AWS Lens Remediation Report',
+    '# InfraLens Remediation Report',
     '',
     `Generated: ${new Date().toISOString()}`,
     `Context: ${(connection.profile || 'session')} / ${connection.region || 'global'}`,
@@ -143,7 +143,7 @@ function buildReportFilename(connection: AwsConnection): string {
   const context = (connection.profile || 'session').replace(/[^a-z0-9-_]+/gi, '-').toLowerCase()
   const region = (connection.region || 'global').replace(/[^a-z0-9-_]+/gi, '-').toLowerCase()
   const stamp = new Date().toISOString().slice(0, 10)
-  return `aws-lens-remediation-report-${context}-${region}-${stamp}.md`
+  return `infra-lens-remediation-report-${context}-${region}-${stamp}.md`
 }
 
 export function ComplianceCenter({

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import appLogoUrl from '../../../assets/aws-lens-logo.png'
+import appLogoUrl from '../../../assets/infra-lens-logo.png'
 import {
-  LEGACY_BLOCKED_ACTION_EVENT,
-  LEGACY_STORAGE_NAMESPACE,
+  BLOCKED_ACTION_EVENT,
+  STORAGE_NAMESPACE,
   PRODUCT_BRAND_NAME
 } from '@shared/branding'
 import type {
@@ -187,14 +187,14 @@ type AuditSummary = {
   blocked: number
   failed: number
 }
-const PINNED_SERVICES_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:pinned-services`
-const ENVIRONMENT_ONBOARDING_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:environment-onboarding-v1`
-const GCP_CONNECTION_CONTEXT_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:gcp-connection-context-v1`
-const GCP_CLI_CONTEXT_CACHE_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:gcp-cli-context-cache-v1`
-const GCP_RECENT_PROJECTS_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:gcp-recent-projects-v1`
-const PREVIEW_MODE_SELECTION_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:provider-preview-mode-selection-v1`
-const AZURE_CONNECTION_CONTEXT_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:azure-connection-context-v1`
-const AZURE_CONTEXT_CACHE_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:azure-context-cache-v1`
+const PINNED_SERVICES_STORAGE_KEY = `${STORAGE_NAMESPACE}:pinned-services`
+const ENVIRONMENT_ONBOARDING_STORAGE_KEY = `${STORAGE_NAMESPACE}:environment-onboarding-v1`
+const GCP_CONNECTION_CONTEXT_STORAGE_KEY = `${STORAGE_NAMESPACE}:gcp-connection-context-v1`
+const GCP_CLI_CONTEXT_CACHE_STORAGE_KEY = `${STORAGE_NAMESPACE}:gcp-cli-context-cache-v1`
+const GCP_RECENT_PROJECTS_STORAGE_KEY = `${STORAGE_NAMESPACE}:gcp-recent-projects-v1`
+const PREVIEW_MODE_SELECTION_STORAGE_KEY = `${STORAGE_NAMESPACE}:provider-preview-mode-selection-v1`
+const AZURE_CONNECTION_CONTEXT_STORAGE_KEY = `${STORAGE_NAMESPACE}:azure-connection-context-v1`
+const AZURE_CONTEXT_CACHE_STORAGE_KEY = `${STORAGE_NAMESPACE}:azure-context-cache-v1`
 type EnvironmentOnboardingStep = 'profile' | 'region' | 'tooling' | 'access'
 type EnvironmentOnboardingState = {
   dismissed: boolean
@@ -575,36 +575,36 @@ function buildPreviewProviderTerminalEnv(
   }
 ): Record<string, string> {
   const baseEnv = {
-    CLOUD_LENS_PROVIDER: providerId,
-    CLOUD_LENS_PROVIDER_LABEL: providerLabel,
-    CLOUD_LENS_CONTEXT: `${providerLabel} | ${mode.label}`,
-    CLOUD_LENS_CONNECTION_MODE: mode.label,
-    CLOUD_LENS_CONNECTION_MODE_ID: mode.id
+    INFRA_LENS_PROVIDER: providerId,
+    INFRA_LENS_PROVIDER_LABEL: providerLabel,
+    INFRA_LENS_CONTEXT: `${providerLabel} | ${mode.label}`,
+    INFRA_LENS_CONNECTION_MODE: mode.label,
+    INFRA_LENS_CONNECTION_MODE_ID: mode.id
   }
 
   if (providerId === 'gcp') {
     return {
       ...baseEnv,
-      CLOUD_LENS_GCP_MODE: mode.label,
-      CLOUD_LENS_GCP_MODE_ID: mode.id,
-      CLOUD_LENS_GCP_PROJECT: options?.gcpContext?.projectId.trim() || '',
-      CLOUD_LENS_GCP_LOCATION: options?.gcpContext?.location.trim() || '',
-      CLOUD_LENS_GCP_CREDENTIAL_HINT: options?.gcpContext?.credentialHint.trim() || '',
-      CLOUD_LENS_GCP_CLI_PATH: options?.gcpCliPath?.trim() || ''
+      INFRA_LENS_GCP_MODE: mode.label,
+      INFRA_LENS_GCP_MODE_ID: mode.id,
+      INFRA_LENS_GCP_PROJECT: options?.gcpContext?.projectId.trim() || '',
+      INFRA_LENS_GCP_LOCATION: options?.gcpContext?.location.trim() || '',
+      INFRA_LENS_GCP_CREDENTIAL_HINT: options?.gcpContext?.credentialHint.trim() || '',
+      INFRA_LENS_GCP_CLI_PATH: options?.gcpCliPath?.trim() || ''
     }
   }
 
   return {
     ...baseEnv,
-    CLOUD_LENS_AZURE_MODE: mode.label,
-    CLOUD_LENS_AZURE_MODE_ID: mode.id,
-    CLOUD_LENS_AZURE_SUBSCRIPTION: options?.azureDraftContext?.subscriptionId.trim() || options?.azureProviderContext?.activeSubscriptionId.trim() || '',
-    CLOUD_LENS_AZURE_SUBSCRIPTION_LABEL: options?.azureDraftContext?.subscriptionLabel.trim() || '',
-    CLOUD_LENS_AZURE_TENANT: options?.azureProviderContext?.activeTenantId.trim() || options?.azureDraftContext?.tenantId.trim() || '',
-    CLOUD_LENS_AZURE_LOCATION: options?.azureDraftContext?.location.trim() || options?.azureProviderContext?.activeLocation.trim() || '',
-    CLOUD_LENS_AZURE_ACCOUNT_LABEL: options?.azureProviderContext?.activeAccountLabel.trim() || '',
-    CLOUD_LENS_AZURE_CREDENTIAL_HINT: options?.azureDraftContext?.credentialHint.trim() || '',
-    CLOUD_LENS_AZURE_CLI_PATH: options?.azureCliPath?.trim() || ''
+    INFRA_LENS_AZURE_MODE: mode.label,
+    INFRA_LENS_AZURE_MODE_ID: mode.id,
+    INFRA_LENS_AZURE_SUBSCRIPTION: options?.azureDraftContext?.subscriptionId.trim() || options?.azureProviderContext?.activeSubscriptionId.trim() || '',
+    INFRA_LENS_AZURE_SUBSCRIPTION_LABEL: options?.azureDraftContext?.subscriptionLabel.trim() || '',
+    INFRA_LENS_AZURE_TENANT: options?.azureProviderContext?.activeTenantId.trim() || options?.azureDraftContext?.tenantId.trim() || '',
+    INFRA_LENS_AZURE_LOCATION: options?.azureDraftContext?.location.trim() || options?.azureProviderContext?.activeLocation.trim() || '',
+    INFRA_LENS_AZURE_ACCOUNT_LABEL: options?.azureProviderContext?.activeAccountLabel.trim() || '',
+    INFRA_LENS_AZURE_CREDENTIAL_HINT: options?.azureDraftContext?.credentialHint.trim() || '',
+    INFRA_LENS_AZURE_CLI_PATH: options?.azureCliPath?.trim() || ''
   }
 }
 
@@ -1618,7 +1618,7 @@ function GcpLoggingConsole({
   onRunTerminalCommand: (command: string) => void
   canRunTerminalCommand: boolean
 }) {
-  const storageKey = `cloud-lens:gcp-logging-saved:${projectId}`
+  const storageKey = `infra-lens:gcp-logging-saved:${projectId}`
   const [queryDraft, setQueryDraft] = useState('')
   const [appliedQuery, setAppliedQuery] = useState('')
   const [savedQueries, setSavedQueries] = useState<string[]>([])
@@ -4752,8 +4752,8 @@ export function App() {
       setGlobalWarning(detail)
     }
 
-    window.addEventListener(LEGACY_BLOCKED_ACTION_EVENT, handleBlockedAction)
-    return () => window.removeEventListener(LEGACY_BLOCKED_ACTION_EVENT, handleBlockedAction)
+    window.addEventListener(BLOCKED_ACTION_EVENT, handleBlockedAction)
+    return () => window.removeEventListener(BLOCKED_ACTION_EVENT, handleBlockedAction)
   }, [])
 
   useEffect(() => {
@@ -5393,12 +5393,12 @@ export function App() {
   } else {
     if (isAwsProviderActive) {
       onboardingTitle = 'Connect a profile before you explore AWS workflows.'
-      onboardingDescription = 'AWS Lens keeps one active account and region context across the shell, service consoles, and embedded terminal.'
+      onboardingDescription = 'InfraLens keeps one active account and region context across the shell, service consoles, and embedded terminal.'
       onboardingSummary = `Detected ${connectionState.profiles.length} local AWS profile${connectionState.profiles.length === 1 ? '' : 's'}. ${connectionState.selectedProfile?.name ? `Current selection: ${connectionState.selectedProfile.name}.` : 'No profile is selected yet.'}`
 
       if (connectionState.profiles.length === 0) {
         onboardingTitle = 'Load or create a profile before you explore AWS workflows.'
-        onboardingDescription = 'AWS Lens needs one local AWS profile or vault credential before overview, service consoles, Session Hub, and direct access can share a common context.'
+        onboardingDescription = 'InfraLens needs one local AWS profile or vault credential before overview, service consoles, Session Hub, and direct access can share a common context.'
         onboardingSummary = 'No local AWS profiles were detected yet. Import your AWS config or save credentials into the encrypted local vault to create the first operator context.'
         onboardingPrimaryActionLabel = 'Import AWS config'
         onboardingPrimaryAction = () => {
@@ -6920,7 +6920,7 @@ export function App() {
           onCheckForUpdates={() => void handleCheckForUpdates()}
           onDownloadUpdate={() => void handleDownloadUpdate()}
           onInstallUpdate={() => void handleInstallUpdate()}
-          onOpenReleasePage={() => void openExternalUrl(releaseInfo?.latestRelease.url || releaseInfo?.releaseUrl || 'https://github.com/BoraKostem/AWS-Lens/releases/')}
+          onOpenReleasePage={() => void openExternalUrl(releaseInfo?.latestRelease.url || releaseInfo?.releaseUrl || 'https://github.com/BoraKostem/InfraLens/releases/')}
           onRefreshEnvironment={() => void handleRefreshEnvironmentHealth()}
         />
       )

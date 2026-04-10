@@ -684,7 +684,7 @@ export async function stopTask(
     new StopTaskCommand({
       cluster: clusterArn,
       task: taskArn,
-      reason: reason || 'Stopped from AWS Lens console'
+      reason: reason || 'Stopped from InfraLens console'
     })
   )
 }

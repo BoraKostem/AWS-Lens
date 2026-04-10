@@ -135,7 +135,7 @@ spec:
     metadata:
       labels:
         app: otel-collector
-        aws-lens.scope: "${clusterName}"
+        infra-lens.scope: "${clusterName}"
     spec:
       containers:
         - name: otel-collector
@@ -210,7 +210,7 @@ function makeFisJson(scopeName: string): string {
         stop_one_target: {
           actionId: 'aws:ecs:stop-task',
           description: 'Stop a single running target to verify alarms and rollout behavior.',
-          parameters: { reason: 'aws-lens resilience lab validation' },
+          parameters: { reason: 'infra-lens resilience lab validation' },
           targets: { Tasks: 'oneRandomTask' }
         }
       },
@@ -245,7 +245,7 @@ function makeTerraformAlarmSnippet(name: string): string {
 
 function makeTerraformLogRetentionSnippet(name: string): string {
   return `resource "aws_cloudwatch_log_group" "service_logs_${name.replace(/[^a-zA-Z0-9_]/g, '_')}" {
-  name              = "/aws-lens/${name}"
+  name              = "/infra-lens/${name}"
   retention_in_days = 30
 }`
 }

@@ -630,7 +630,7 @@ function normalizeStorageObjectContentType(entry: unknown): { contentType: strin
 }
 
 async function createTempGcpStorageFile(key: string, content: string): Promise<string> {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'cloud-lens-gcs-'))
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'infra-lens-gcs-'))
   const fileName = path.basename(key.trim()) || 'object.txt'
   const filePath = path.join(tempDir, fileName)
   await writeFile(filePath, content, 'utf8')

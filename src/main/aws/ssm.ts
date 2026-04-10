@@ -47,9 +47,9 @@ import type {
   SsmStartSessionRequest
 } from '@shared/types'
 
-const TEMP_PURPOSE_TAG = 'aws-lens:purpose'
+const TEMP_PURPOSE_TAG = 'infra-lens:purpose'
 const TEMP_PURPOSE_EBS_INSPECTION = 'ebs-inspection'
-const TEMP_SOURCE_VOLUME_TAG = 'aws-lens:source-volume-id'
+const TEMP_SOURCE_VOLUME_TAG = 'infra-lens:source-volume-id'
 const SSM_MANAGED_POLICY_ARN = 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
 const TERMINAL_COMMAND_TIMEOUTS = new Set([
   'Success',

@@ -97,21 +97,21 @@ import type {
 } from '@shared/types'
 import { getSsmConnectionTarget } from './ssm'
 
-const BASTION_TAG_PREFIX = 'aws-lens-bastion/'
-const LEGACY_BASTION_TAG_PREFIX = 'aws-lens-bastion#'
-const BASTION_PURPOSE_TAG = 'aws-lens:purpose'
-const BASTION_UUID_TAG = 'aws-lens:bastion-uuid'
-const BASTION_TARGET_INSTANCE_TAG = 'aws-lens:bastion-target-instance-id'
-const BASTION_MANAGED_SG_TAG = 'aws-lens:bastion-managed-sg'
-const TEMP_TAG_PREFIX = 'aws-lens-temp/'
-const LEGACY_TEMP_TAG_PREFIX = 'aws-lens-temp#'
-const TEMP_PURPOSE_TAG = 'aws-lens:purpose'
-const TEMP_UUID_TAG = 'aws-lens:temp-uuid'
-const TEMP_SOURCE_VOLUME_TAG = 'aws-lens:source-volume-id'
+const BASTION_TAG_PREFIX = 'infra-lens-bastion/'
+const LEGACY_BASTION_TAG_PREFIX = 'infra-lens-bastion#'
+const BASTION_PURPOSE_TAG = 'infra-lens:purpose'
+const BASTION_UUID_TAG = 'infra-lens:bastion-uuid'
+const BASTION_TARGET_INSTANCE_TAG = 'infra-lens:bastion-target-instance-id'
+const BASTION_MANAGED_SG_TAG = 'infra-lens:bastion-managed-sg'
+const TEMP_TAG_PREFIX = 'infra-lens-temp/'
+const LEGACY_TEMP_TAG_PREFIX = 'infra-lens-temp#'
+const TEMP_PURPOSE_TAG = 'infra-lens:purpose'
+const TEMP_UUID_TAG = 'infra-lens:temp-uuid'
+const TEMP_SOURCE_VOLUME_TAG = 'infra-lens:source-volume-id'
 const TEMP_PURPOSE_EBS_INSPECTION = 'ebs-inspection'
-const TEMP_MANAGED_SG_TAG = 'aws-lens:temp-managed-sg'
-const TEMP_MANAGED_ROLE_TAG = 'aws-lens:temp-managed-role'
-const TEMP_MANAGED_INSTANCE_PROFILE_TAG = 'aws-lens:temp-managed-instance-profile'
+const TEMP_MANAGED_SG_TAG = 'infra-lens:temp-managed-sg'
+const TEMP_MANAGED_ROLE_TAG = 'infra-lens:temp-managed-role'
+const TEMP_MANAGED_INSTANCE_PROFILE_TAG = 'infra-lens:temp-managed-instance-profile'
 const TEMP_ATTACH_DEVICE = '/dev/sdf'
 const GOVERNANCE_TAG_KEYS = ['Owner', 'Environment', 'Project', 'CostCenter'] as const
 const SSM_MANAGED_POLICY_ARN = 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
@@ -256,14 +256,14 @@ async function createManagedBastionSecurityGroup(
   const tagKey = buildBastionTagKey(uuid)
   const output = await client.send(
     new CreateSecurityGroupCommand({
-      GroupName: `aws-lens-bastion-${uuid}`,
-      Description: `AWS Lens bastion access for ${targetInstanceId}`,
+      GroupName: `infra-lens-bastion-${uuid}`,
+      Description: `InfraLens bastion access for ${targetInstanceId}`,
       VpcId: vpcId,
       TagSpecifications: [
         {
           ResourceType: 'security-group',
           Tags: Object.entries(mergeWithGovernanceDefaults({
-            Name: `aws-lens-bastion-${uuid}`,
+            Name: `infra-lens-bastion-${uuid}`,
             [tagKey]: 'true',
             [BASTION_PURPOSE_TAG]: 'bastion',
             [BASTION_UUID_TAG]: uuid,
@@ -296,7 +296,7 @@ async function allowManagedBastionToReachTarget(
         UserIdGroupPairs: [
           {
             GroupId: bastionSecurityGroupId,
-            Description: `AWS Lens bastion access on port ${port}`
+            Description: `InfraLens bastion access on port ${port}`
           }
         ]
       },
@@ -307,7 +307,7 @@ async function allowManagedBastionToReachTarget(
         UserIdGroupPairs: [
           {
             GroupId: bastionSecurityGroupId,
-            Description: 'AWS Lens bastion ping access'
+            Description: 'InfraLens bastion ping access'
           }
         ]
       }
@@ -381,7 +381,7 @@ async function findBastionConnectionByUuid(
     new DescribeInstancesCommand({
       Filters: [
         { Name: `tag:${tagKey}`, Values: ['true'] },
-        { Name: 'tag:aws-lens:purpose', Values: ['bastion'] },
+        { Name: 'tag:infra-lens:purpose', Values: ['bastion'] },
         { Name: 'instance-state-name', Values: ['pending', 'running', 'stopping', 'stopped'] }
       ]
     })
@@ -398,7 +398,7 @@ async function findBastionConnectionByUuid(
       const tags = readTags(instance.Tags)
       targetInstanceId = targetInstanceId || tags[BASTION_TARGET_INSTANCE_TAG] || ''
       const managedGroup = (instance.SecurityGroups ?? []).find(
-        (group) => group.GroupId && (group.GroupName ?? '').startsWith(`aws-lens-bastion-${uuid}`)
+        (group) => group.GroupId && (group.GroupName ?? '').startsWith(`infra-lens-bastion-${uuid}`)
       )
       bastionSecurityGroupId = bastionSecurityGroupId || managedGroup?.GroupId || ''
     }
@@ -483,7 +483,7 @@ async function findTempInspectionEnvironmentByUuid(
         continue
       }
       const tags = readTags(instance.Tags)
-      const managedGroup = (instance.SecurityGroups ?? []).find((group) => group.GroupId && group.GroupName?.startsWith(`aws-lens-ebs-inspection-${uuid}`))
+      const managedGroup = (instance.SecurityGroups ?? []).find((group) => group.GroupId && group.GroupName?.startsWith(`infra-lens-ebs-inspection-${uuid}`))
       return {
         tempUuid: uuid,
         purpose: tags[TEMP_PURPOSE_TAG] ?? TEMP_PURPOSE_EBS_INSPECTION,
@@ -716,14 +716,14 @@ async function createManagedInspectionSecurityGroup(
 ): Promise<string> {
   const output = await client.send(
     new CreateSecurityGroupCommand({
-      GroupName: `aws-lens-ebs-inspection-${uuid}`,
-      Description: `AWS Lens temporary EBS inspection for ${volumeId}`,
+      GroupName: `infra-lens-ebs-inspection-${uuid}`,
+      Description: `InfraLens temporary EBS inspection for ${volumeId}`,
       VpcId: vpcId,
       TagSpecifications: [
         {
           ResourceType: 'security-group',
           Tags: Object.entries({
-            Name: `aws-lens-ebs-inspection-${uuid}`,
+            Name: `infra-lens-ebs-inspection-${uuid}`,
             ...buildTempTags(uuid, volumeId, {
               [TEMP_MANAGED_SG_TAG]: 'true'
             })
@@ -765,7 +765,7 @@ async function ensureInspectionRole(
     new CreateRoleCommand({
       RoleName: roleName,
       AssumeRolePolicyDocument: trustPolicy,
-      Description: `AWS Lens temporary EBS inspection role for ${volumeId}`,
+      Description: `InfraLens temporary EBS inspection role for ${volumeId}`,
       Tags: tags
     })
   )
@@ -1369,7 +1369,7 @@ export async function createEc2Snapshot(
         {
           ResourceType: 'snapshot',
           Tags: Object.entries(mergeWithGovernanceDefaults({
-            CreatedBy: 'aws-lens'
+            CreatedBy: 'infra-lens'
           })).map(([Key, Value]) => ({ Key, Value }))
         }
       ]
@@ -1496,7 +1496,7 @@ export async function launchBastion(connection: AwsConnection, config: BastionLa
           {
             ResourceType: 'instance',
             Tags: Object.entries(mergeWithGovernanceDefaults({
-              Name: `aws-lens-bastion-${uuid}`,
+              Name: `infra-lens-bastion-${uuid}`,
               [tagKey]: 'true',
               [BASTION_PURPOSE_TAG]: 'bastion',
               [BASTION_UUID_TAG]: uuid,
@@ -1535,7 +1535,7 @@ export async function listBastions(connection: AwsConnection): Promise<Ec2Instan
   const output = await client.send(
     new DescribeInstancesCommand({
       Filters: [
-        { Name: 'tag:aws-lens:purpose', Values: ['bastion'] },
+        { Name: 'tag:infra-lens:purpose', Values: ['bastion'] },
         { Name: 'instance-state-name', Values: ['pending', 'running', 'stopping', 'stopped'] }
       ]
     })
@@ -1713,7 +1713,7 @@ export async function createTempInspectionEnvironment(
             'systemctl restart amazon-ssm-agent || systemctl start amazon-ssm-agent || true',
             'systemctl status amazon-ssm-agent --no-pager || true',
             `cat >/etc/motd <<'EOF'`,
-            `AWS Lens attached ${volumeId} to this instance.`,
+            `InfraLens attached ${volumeId} to this instance.`,
             'Connect via SSM, inspect the extra device, and mount it under /mnt if needed.',
             'Nitro instances may expose the attached EBS device as /dev/nvme*n1 instead of the AWS attachment name.',
             'EOF'
@@ -1723,14 +1723,14 @@ export async function createTempInspectionEnvironment(
           {
             ResourceType: 'instance',
             Tags: Object.entries({
-              Name: `aws-lens-ebs-inspection-${uuid}`,
+              Name: `infra-lens-ebs-inspection-${uuid}`,
               ...tags
             }).map(([Key, Value]) => ({ Key, Value }))
           },
           {
             ResourceType: 'volume',
             Tags: Object.entries({
-              Name: `aws-lens-ebs-inspection-root-${uuid}`,
+              Name: `infra-lens-ebs-inspection-root-${uuid}`,
               ...tags
             }).map(([Key, Value]) => ({ Key, Value }))
           }
@@ -2103,7 +2103,7 @@ export async function launchFromSnapshot(connection: AwsConnection, config: Snap
           ResourceType: 'instance',
           Tags: Object.entries(mergeWithGovernanceDefaults({
             Name: `launched-from-${config.snapshotId}`,
-            'aws-lens:source-snapshot': config.snapshotId
+            'infra-lens:source-snapshot': config.snapshotId
           })).map(([Key, Value]) => ({ Key, Value }))
         }
       ]

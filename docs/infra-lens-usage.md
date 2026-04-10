@@ -1,10 +1,10 @@
-# AWS Lens Usage and Security
+# InfraLens Usage and Security
 
-This guide documents the enterprise-oriented operating model for AWS Lens.
+This guide documents the enterprise-oriented operating model for InfraLens.
 
 ## Installation and first run
 
-AWS Lens starts with a shared account-and-region shell:
+InfraLens starts with a shared account-and-region shell:
 
 - Import profiles from existing AWS config and credentials files when you need to reuse workstation state.
 - App-created credentials are stored in the local encrypted vault instead of being written back to `~/.aws/credentials`.
@@ -13,7 +13,7 @@ AWS Lens starts with a shared account-and-region shell:
 
 ## Permission model
 
-AWS Lens now distinguishes between two runtime access modes:
+InfraLens now distinguishes between two runtime access modes:
 
 - `read-only`
   - Intended for users who should inspect resources, review posture, or gather context.
@@ -24,17 +24,17 @@ AWS Lens now distinguishes between two runtime access modes:
   - Critical command-execution flows are enabled.
   - Audit export is available so actions can be reviewed outside the app.
 
-The access mode is stored locally in secure app state and applies across the entire AWS Lens shell.
+The access mode is stored locally in secure app state and applies across the entire InfraLens shell.
 
 ## AWS credential model
 
-AWS Lens supports two credential sources:
+InfraLens supports two credential sources:
 
 - External AWS config / credentials files
   - Existing workstation files continue to load as-is.
   - The app does not silently rewrite imported credentials.
 - App-managed credentials
-  - Credentials created or saved inside AWS Lens are written to the encrypted local vault.
+  - Credentials created or saved inside InfraLens are written to the encrypted local vault.
   - This keeps app-created access keys out of plaintext credential files.
 
 Temporary access is handled through Session Hub:
@@ -56,7 +56,7 @@ This keeps Terraform command execution aligned with the same operator boundary u
 
 ## Security boundaries
 
-AWS Lens is a local desktop control plane, not a managed SaaS boundary. The current security model is:
+InfraLens is a local desktop control plane, not a managed SaaS boundary. The current security model is:
 
 - local secure storage for enterprise settings and audit trail
 - local secure storage for app-created credentials and sensitive workspace metadata

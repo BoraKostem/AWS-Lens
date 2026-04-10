@@ -389,7 +389,7 @@ export async function createReachabilityPath(
       TagSpecifications: [
         {
           ResourceType: 'network-insights-path',
-          Tags: [{ Key: 'Name', Value: `aws-lens-${Date.now()}` }]
+          Tags: [{ Key: 'Name', Value: `infra-lens-${Date.now()}` }]
         }
       ]
     })

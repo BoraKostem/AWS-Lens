@@ -1,5 +1,5 @@
-appId: com.awslens.desktop
-productName: AWS Lens
+appId: com.infralens.desktop
+productName: InfraLens
 generateUpdatesFilesForAllChannels: true
 
 directories:
@@ -18,13 +18,13 @@ asarUnpack:
 publish:
   provider: github
   owner: BoraKostem
-  repo: AWS-Lens
+  repo: InfraLens
 
 win:
-  artifactName: AWS-Lens-Setup-${version}.${ext}
+  artifactName: InfraLens-Setup-${version}.${ext}
   target:
     - nsis
-  icon: assets/aws-lens-logo.ico
+  icon: assets/infra-lens-logo.ico
   signtoolOptions:
     sign: build/win-custom-sign.cjs
 
@@ -35,12 +35,12 @@ nsis:
   createStartMenuShortcut: true
 
 mac:
-  artifactName: AWS-Lens-${version}-${arch}.${ext}
+  artifactName: InfraLens-${version}-${arch}.${ext}
   category: public.app-category.developer-tools
   target:
     - dmg
     - zip
-  icon: assets/aws-lens-logo.icns
+  icon: assets/infra-lens-logo.icns
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: assets/entitlements.mac.plist
@@ -48,10 +48,10 @@ mac:
   notarize: true
 
 linux:
-  artifactName: aws-lens_${version}_${arch}.${ext}
+  artifactName: infra-lens_${version}_${arch}.${ext}
   category: Development
   maintainer: Bora Kostem <BoraKostem@users.noreply.github.com>
   target:
     - deb
     - AppImage
-  icon: assets/aws-lens-logo.png
+  icon: assets/infra-lens-logo.png

@@ -294,8 +294,8 @@ function buildShellEnvCommands(env: Record<string, string>): string[] {
 function buildProviderCliBindingCommands(providerId: Exclude<CloudProviderId, 'aws'>, env: Record<string, string>): string[] {
   const shell = getShellConfig()
   const cliPath = providerId === 'gcp'
-    ? env.CLOUD_LENS_GCP_CLI_PATH?.trim()
-    : env.CLOUD_LENS_AZURE_CLI_PATH?.trim()
+    ? env.INFRA_LENS_GCP_CLI_PATH?.trim()
+    : env.INFRA_LENS_AZURE_CLI_PATH?.trim()
   const commandName = providerId === 'gcp' ? 'gcloud' : 'az'
 
   if (!cliPath) {

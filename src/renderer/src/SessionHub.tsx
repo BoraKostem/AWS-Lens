@@ -83,7 +83,7 @@ function emptyDraft(profile: string, region: string): Omit<AwsAssumeRoleTarget, 
   return {
     label: '',
     roleArn: '',
-    defaultSessionName: 'aws-lens',
+    defaultSessionName: 'infra-lens',
     externalId: '',
     sourceProfile: profile,
     defaultRegion: region,

@@ -5,7 +5,7 @@ import { safeStorage } from 'electron'
 
 import { logWarn } from './observability'
 
-const SECURE_FILE_PREFIX = 'aws-lens-secure:v1:'
+const SECURE_FILE_PREFIX = 'infra-lens-secure:v1:'
 
 type ReadOptions<T> = {
   fallback: T

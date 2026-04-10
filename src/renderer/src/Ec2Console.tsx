@@ -141,8 +141,8 @@ function resolveConfiguredGovernanceTags(governanceDefaults: GovernanceTagDefaul
   )
 }
 
-const BASTION_PURPOSE_TAG = 'aws-lens:purpose'
-const BASTION_TARGET_INSTANCE_TAG = 'aws-lens:bastion-target-instance-id'
+const BASTION_PURPOSE_TAG = 'infra-lens:purpose'
+const BASTION_TARGET_INSTANCE_TAG = 'infra-lens:bastion-target-instance-id'
 const GOVERNANCE_TAG_KEYS: GovernanceTagKey[] = ['Owner', 'Environment', 'Project', 'CostCenter']
 
 const SSM_COMMAND_PRESETS = [
@@ -1363,7 +1363,7 @@ export function Ec2Console({
         await selectVolume(currentVolumeId).catch(() => undefined)
       }
       if (detail?.instanceId === target) {
-        await selectInstance(detail.tags['aws-lens:source-volume-id'] || detail.instanceId).catch(() => undefined)
+        await selectInstance(detail.tags['infra-lens:source-volume-id'] || detail.instanceId).catch(() => undefined)
       }
       setMsg('Temporary inspection resources deleted')
       setVolumeWorkflowStatus((current) => current ? { ...current, stage: 'completed', message: 'Temporary inspection resources were deleted.' } : null)
@@ -1721,9 +1721,9 @@ export function Ec2Console({
     : null
   const selectedVolumeTempSsmStatus = volumeTempSsmTarget?.status
     ?? (volumeDetail?.tempEnvironment?.ssmReady ? 'managed-online' : 'not-managed')
-  const hasManagedBastionTag = Object.keys(detail?.tags ?? {}).some((key) => key.startsWith('aws-lens-bastion/') || key.startsWith('aws-lens-bastion#'))
+  const hasManagedBastionTag = Object.keys(detail?.tags ?? {}).some((key) => key.startsWith('infra-lens-bastion/') || key.startsWith('infra-lens-bastion#'))
   const isSelectedBastion = bastions.some((instance) => instance.instanceId === selectedId)
-  const isSelectedTempInspectionInstance = detail?.tags?.['aws-lens:purpose'] === 'ebs-inspection'
+  const isSelectedTempInspectionInstance = detail?.tags?.['infra-lens:purpose'] === 'ebs-inspection'
   const bastionLaunchBusy = bastionLaunchStatus !== null && !['completed', 'failed'].includes(bastionLaunchStatus.stage)
   const volumeWorkflowBusy = volumeWorkflowStatus !== null && !['completed', 'failed'].includes(volumeWorkflowStatus.stage)
   const ssmHistory = selectedId ? (ssmCommandHistory[selectedId] ?? []) : []
@@ -2076,7 +2076,7 @@ export function Ec2Console({
                         </ConfirmButton>
                       )}
                       {isSelectedTempInspectionInstance && detail?.instanceId && (
-                        <ConfirmButton className="ec2-action-btn remove" type="button" onConfirm={() => void doDeleteTempInspection(detail.instanceId, detail.tags['aws-lens:source-volume-id'])}>
+                        <ConfirmButton className="ec2-action-btn remove" type="button" onConfirm={() => void doDeleteTempInspection(detail.instanceId, detail.tags['infra-lens:source-volume-id'])}>
                           Delete Temp Instance
                         </ConfirmButton>
                       )}
@@ -2886,7 +2886,7 @@ export function Ec2Console({
                         <div>{value}</div>
                         <div />
                         <div>
-                          {!key.startsWith('aws-lens:') && (
+                          {!key.startsWith('infra-lens:') && (
                             <ConfirmButton className="ec2-action-btn remove" type="button" onConfirm={() => void doUntagVolume(key)}>
                               Remove
                             </ConfirmButton>

@@ -1,12 +1,12 @@
 {
-  "name": "aws-lens",
+  "name": "infralens",
   "version": "0.1.0",
   "private": true,
   "author": {
     "name": "Bora Fenari Kostem",
     "email": "fenari.kostem@gmail.com"
   },
-  "description": "AWS Lens — unified management console for AWS resources.",
+  "description": "InfraLens — unified management console for cloud resources.",
   "main": "out/main/index.js",
   "type": "module",
   "scripts": {

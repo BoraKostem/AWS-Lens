@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { LEGACY_BLOCKED_ACTION_EVENT } from '@shared/branding'
+import { BLOCKED_ACTION_EVENT } from '@shared/branding'
 import type {
   AwsCapabilitySnapshot,
   AwsCapabilitySubject,
@@ -1115,7 +1115,7 @@ function normalizeUserFacingError(rawError: string): AwsLensApiError {
 function unwrap<T>(result: Wrapped<T>): T {
   if (!result.ok) {
     if (typeof window !== 'undefined' && result.error.includes('read-only mode')) {
-        window.dispatchEvent(new CustomEvent(LEGACY_BLOCKED_ACTION_EVENT, { detail: result.error }))
+        window.dispatchEvent(new CustomEvent(BLOCKED_ACTION_EVENT, { detail: result.error }))
     }
     throw normalizeUserFacingError(result.error)
   }

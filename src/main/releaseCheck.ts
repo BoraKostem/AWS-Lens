@@ -6,10 +6,10 @@ import { getAppSettings } from './appSettings'
 import { executeOperation } from './operations'
 import { logError, logInfo, logWarn } from './observability'
 
-const RELEASES_URL = 'https://github.com/BoraKostem/AWS-Lens/releases/'
-const LATEST_RELEASE_API_URL = 'https://api.github.com/repos/BoraKostem/AWS-Lens/releases/latest'
-declare const __AWS_LENS_BUILD_HASH__: string
-declare const __AWS_LENS_RELEASE_CHANNEL__: string
+const RELEASES_URL = 'https://github.com/BoraKostem/InfraLens/releases/'
+const LATEST_RELEASE_API_URL = 'https://api.github.com/repos/BoraKostem/InfraLens/releases/latest'
+declare const __INFRA_LENS_BUILD_HASH__: string
+declare const __INFRA_LENS_RELEASE_CHANNEL__: string
 
 function normalizeVersion(value: string): string {
   return value.trim().replace(/^[^\d]*/, '')
@@ -35,7 +35,7 @@ function configuredReleaseChannel(currentVersion: string): 'stable' | 'preview' 
     return preferred
   }
 
-  const configured = typeof __AWS_LENS_RELEASE_CHANNEL__ === 'string' ? __AWS_LENS_RELEASE_CHANNEL__.trim().toLowerCase() : ''
+  const configured = typeof __INFRA_LENS_RELEASE_CHANNEL__ === 'string' ? __INFRA_LENS_RELEASE_CHANNEL__.trim().toLowerCase() : ''
 
   if (configured === 'stable' || configured === 'preview') {
     return configured
@@ -45,8 +45,8 @@ function configuredReleaseChannel(currentVersion: string): 'stable' | 'preview' 
 }
 
 function currentBuildHash(): string | null {
-  const rawValue = (typeof __AWS_LENS_BUILD_HASH__ === 'string' ? __AWS_LENS_BUILD_HASH__ : '')
-    || process.env.AWS_LENS_BUILD_HASH
+  const rawValue = (typeof __INFRA_LENS_BUILD_HASH__ === 'string' ? __INFRA_LENS_BUILD_HASH__ : '')
+    || process.env.INFRA_LENS_BUILD_HASH
     || process.env.GITHUB_SHA
     || process.env.VERCEL_GIT_COMMIT_SHA
     || ''
@@ -378,7 +378,7 @@ async function fetchLatestReleaseInfo(): Promise<AppReleaseInfo> {
       await fetch(LATEST_RELEASE_API_URL, {
         headers: {
           Accept: 'application/vnd.github+json',
-          'User-Agent': 'AWS-Lens'
+          'User-Agent': 'InfraLens'
         }
       }), {
       timeoutMs: 12000,

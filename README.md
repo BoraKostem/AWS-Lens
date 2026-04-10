@@ -1,8 +1,8 @@
-# Cloud Lens
+# InfraLens
 
-Cloud Lens is an Electron desktop app for cloud operators who want the provider console view, Terraform context, and a working terminal in the same place. The codebase already uses the `Cloud Lens` brand, while some repository, package, and installer metadata still carry `AWS Lens` or `aws-lens` during the rename migration.
+InfraLens is an Electron desktop app for cloud operators who want the provider console view, Terraform context, and a working terminal in the same place. The codebase already uses the `InfraLens` brand, while some repository, package, and installer metadata still carry `InfraLens` or `aws-lens` during the rename migration.
 
-![Cloud Lens overview](images/overview.png)
+![InfraLens overview](images/overview.png)
 
 ## What The App Covers
 
@@ -59,4 +59,4 @@ There is no dedicated automated test suite in the repository yet. The current co
 
 ## Further Reading
 
-The `docs/` directory covers the operating model in more detail, especially around [AWS usage and security](docs/aws-lens-usage.md), [Session Hub](docs/session-hub-usage.md), [Terraform workspace management](docs/terraform-workspace-management.md), [Terraform drift reconciliation](docs/terraform-drift-reconciliation.md), [Terraform state operations center](docs/terraform-state-operations-center.md), and the [observability and resilience lab](docs/observability-and-resilience-lab.md).
+The `docs/` directory covers the operating model in more detail, especially around [AWS usage and security](docs/infra-lens-usage.md), [Session Hub](docs/session-hub-usage.md), [Terraform workspace management](docs/terraform-workspace-management.md), [Terraform drift reconciliation](docs/terraform-drift-reconciliation.md), [Terraform state operations center](docs/terraform-state-operations-center.md), and the [observability and resilience lab](docs/observability-and-resilience-lab.md).

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The Observability and Resilience Lab is a beta operator-assistant surface inside AWS Lens. It analyzes the currently selected AWS or Terraform scope and generates a structured posture report with:
+The Observability and Resilience Lab is a beta operator-assistant surface inside InfraLens. It analyzes the currently selected AWS or Terraform scope and generates a structured posture report with:
 
 - summary cards across logs, metrics, traces, deployment resilience, and rollback readiness
 - prioritized findings with evidence and impact statements

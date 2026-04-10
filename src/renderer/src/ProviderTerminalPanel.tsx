@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 
-import { LEGACY_STORAGE_NAMESPACE } from '@shared/branding'
+import { STORAGE_NAMESPACE } from '@shared/branding'
 import { FitAddon } from 'xterm-addon-fit'
 import { Terminal } from 'xterm'
 
@@ -38,7 +38,7 @@ type TerminalQuickCommand = {
 const DEFAULT_PANEL_HEIGHT = 320
 const MIN_PANEL_HEIGHT = 220
 const MAX_PANEL_HEIGHT = 640
-const HEIGHT_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:provider-terminal-height`
+const HEIGHT_STORAGE_KEY = `${STORAGE_NAMESPACE}:provider-terminal-height`
 
 function makeTerminalId(): string {
   return `terminal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -63,8 +63,8 @@ function escapeShellArg(value: string): string {
 
 function buildQuickCommands(target: ProviderTerminalTarget): TerminalQuickCommand[] {
   if (target.providerId === 'gcp') {
-    const projectId = target.env.CLOUD_LENS_GCP_PROJECT?.trim() || ''
-    const location = target.env.CLOUD_LENS_GCP_LOCATION?.trim() || ''
+    const projectId = target.env.INFRA_LENS_GCP_PROJECT?.trim() || ''
+    const location = target.env.INFRA_LENS_GCP_LOCATION?.trim() || ''
     if (!projectId) {
       return []
     }
@@ -109,8 +109,8 @@ function buildQuickCommands(target: ProviderTerminalTarget): TerminalQuickComman
   }
 
   if (target.providerId === 'azure') {
-    const subscriptionId = target.env.CLOUD_LENS_AZURE_SUBSCRIPTION?.trim() || ''
-    const location = target.env.CLOUD_LENS_AZURE_LOCATION?.trim() || ''
+    const subscriptionId = target.env.INFRA_LENS_AZURE_SUBSCRIPTION?.trim() || ''
+    const location = target.env.INFRA_LENS_AZURE_LOCATION?.trim() || ''
     const quotedSubscription = subscriptionId ? `"${escapeShellArg(subscriptionId)}"` : '""'
     const quotedLocation = location ? `"${escapeShellArg(location)}"` : '""'
 
@@ -565,8 +565,8 @@ export function ProviderTerminalPanel({
         <div className="terminal-command-strip">
           <div className="terminal-command-context">
             <span className="terminal-command-provider">{target.providerId.toUpperCase()}</span>
-            <strong>{target.env.CLOUD_LENS_GCP_PROJECT || target.label}</strong>
-            <span>{target.env.CLOUD_LENS_GCP_LOCATION || 'location pending'}</span>
+            <strong>{target.env.INFRA_LENS_GCP_PROJECT || target.label}</strong>
+            <span>{target.env.INFRA_LENS_GCP_LOCATION || 'location pending'}</span>
           </div>
           <div className="terminal-command-actions">
             {quickCommands.map((entry) => (

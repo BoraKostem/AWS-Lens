@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 
-import { LEGACY_STORAGE_NAMESPACE } from '@shared/branding'
+import { STORAGE_NAMESPACE } from '@shared/branding'
 import { FitAddon } from 'xterm-addon-fit'
 import { Terminal } from 'xterm'
 
@@ -32,7 +32,7 @@ type TerminalTab = {
 const DEFAULT_PANEL_HEIGHT = 320
 const MIN_PANEL_HEIGHT = 220
 const MAX_PANEL_HEIGHT = 640
-const HEIGHT_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:terminal-height`
+const HEIGHT_STORAGE_KEY = `${STORAGE_NAMESPACE}:terminal-height`
 
 function makeTerminalId(): string {
   return `terminal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`

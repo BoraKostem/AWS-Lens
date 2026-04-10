@@ -220,8 +220,8 @@ function resolveBucketConnection(connection: AwsConnection, buckets: S3BucketSum
 
 function bucketStorageKey(connection: AwsConnection): string {
   return connection.kind === 'profile'
-    ? `aws-lens:s3-known-buckets:profile:${connection.profile}`
-    : `aws-lens:s3-known-buckets:assumed-role:${connection.profile}:${connection.roleArn}`
+    ? `infra-lens:s3-known-buckets:profile:${connection.profile}`
+    : `infra-lens:s3-known-buckets:assumed-role:${connection.profile}:${connection.roleArn}`
 }
 
 function loadStoredBuckets(connection: AwsConnection): S3BucketSummary[] {

@@ -57,7 +57,7 @@ export function StsConsole({ connection }: { connection: AwsConnection }) {
   const [accessKeyId, setAccessKeyId] = useState('')
   const [ownership, setOwnership] = useState<AccessKeyOwnership | null>(null)
   const [roleArn, setRoleArn] = useState('')
-  const [sessionName, setSessionName] = useState('aws-lens-session')
+  const [sessionName, setSessionName] = useState('infra-lens-session')
   const [externalId, setExternalId] = useState('')
   const [assumed, setAssumed] = useState<AssumeRoleResult | null>(null)
   const [assumedSecrets, setAssumedSecrets] = useState<{ secretAccessKey: string; sessionToken: string } | null>(null)

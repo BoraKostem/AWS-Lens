@@ -284,8 +284,8 @@ export function AzureMonitorConsole({
   onOpenDirectAccess: () => void
   onOpenService: (serviceId: 'azure-virtual-machines' | 'azure-aks' | 'azure-storage-accounts' | 'azure-sql' | 'azure-rbac') => void
 }): JSX.Element {
-  const savedKey = `cloud-lens:azure-monitor-saved:${subscriptionId}`
-  const historyKey = `cloud-lens:azure-monitor-history:${subscriptionId}`
+  const savedKey = `infra-lens:azure-monitor-saved:${subscriptionId}`
+  const historyKey = `infra-lens:azure-monitor-history:${subscriptionId}`
 
   const [timeRange, setTimeRange] = useState<MonitorTimeRange>(24)
   const [tabs, setTabs] = useState<MonitorTab[]>([{ type: 'overview' }])
