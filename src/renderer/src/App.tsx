@@ -257,8 +257,8 @@ const NAV_PRIORITY_SERVICE_IDS: ServiceId[] = ['overview', 'session-hub']
 const NAV_SECTION_EXCLUDED_SERVICE_IDS = new Set<ServiceId>(NAV_PRIORITY_SERVICE_IDS)
 const ENVIRONMENT_ONBOARDING_STEPS: EnvironmentOnboardingStep[] = ['profile', 'region', 'tooling', 'access']
 const ENVIRONMENT_ONBOARDING_STEP_LABELS: Record<EnvironmentOnboardingStep, string> = {
-  profile: 'Profile',
-  region: 'Region',
+  profile: 'Provider',
+  region: 'Location',
   tooling: 'Tooling',
   access: 'Access mode'
 }
@@ -5243,9 +5243,9 @@ export function App() {
     dismissEnvironmentOnboarding('profiles')
   }
 
-  let onboardingTitle = `Connect a ${providerProfileLabel} before you explore workspace flows.`
-  let onboardingDescription = `The shell keeps one active ${providerProfileLabel} and ${providerLocationLabel} context across service workspaces and the embedded terminal.`
-  let onboardingSummary = `Detected ${connectionState.profiles.length} local ${providerProfileLabel}${connectionState.profiles.length === 1 ? '' : 's'}. ${connectionState.selectedProfile?.name ? `Current selection: ${connectionState.selectedProfile.name}.` : `No ${providerProfileLabel} is selected yet.`}`
+  let onboardingTitle = 'Choose a cloud provider and connect your first context.'
+  let onboardingDescription = 'InfraLens supports AWS, Google Cloud, and Azure in a unified workspace. Pick a provider, then connect a profile, project, or subscription to start exploring service consoles.'
+  let onboardingSummary = `Active provider: ${activeProvider.label}. ${connectionState.selectedProfile?.name ? `Current ${providerProfileLabel}: ${connectionState.selectedProfile.name}.` : `No ${providerProfileLabel} is connected yet.`}`
   let onboardingPrimaryActionLabel = 'Open profile catalog'
   let onboardingPrimaryAction: (() => void) | null = () => setScreen('profiles')
   let onboardingSecondaryActionLabel = 'Continue here'
@@ -5275,11 +5275,11 @@ export function App() {
     onboardingDetailContent = (
       <div className="environment-onboarding-grid">
         <section className="environment-onboarding-section environment-onboarding-section-wide">
-          <div className="eyebrow">Region Model</div>
+          <div className="eyebrow">Location Model</div>
           <div className="settings-environment-row">
             <div>
-              <strong>Shell-wide region context</strong>
-              <p>Switching region in the sidebar updates the context used by overview, deep links, and new service loads.</p>
+              <strong>Shell-wide location context</strong>
+              <p>Switching the {providerLocationLabel} in the sidebar updates the context used by overview, deep links, and new service loads.</p>
             </div>
             <div className="settings-environment-meta">
               <code>{connectionState.region}</code>
@@ -5288,7 +5288,7 @@ export function App() {
           <div className="settings-environment-row">
             <div>
               <strong>Saved startup defaults</strong>
-              <p>Settings already support default profile, default region, and launch screen. Use them if you want the shell to boot into a predictable operator context.</p>
+              <p>Settings already support default {providerProfileLabel}, default {providerLocationLabel}, and launch screen. Use them if you want the shell to boot into a predictable operator context.</p>
             </div>
             <div className="settings-environment-meta">
               <span className="settings-status-pill settings-status-pill-stable">{appSettings?.general.launchScreen ?? 'profiles'}</span>
@@ -5391,105 +5391,69 @@ export function App() {
       </div>
     )
   } else {
-    if (isAwsProviderActive) {
-      onboardingTitle = 'Connect a profile before you explore AWS workflows.'
-      onboardingDescription = 'InfraLens keeps one active account and region context across the shell, service consoles, and embedded terminal.'
-      onboardingSummary = `Detected ${connectionState.profiles.length} local AWS profile${connectionState.profiles.length === 1 ? '' : 's'}. ${connectionState.selectedProfile?.name ? `Current selection: ${connectionState.selectedProfile.name}.` : 'No profile is selected yet.'}`
+    onboardingGuidance = [
+      'Switch between AWS, Google Cloud, and Azure using the provider selector in the sidebar.',
+      'Each provider keeps its own connection context — switching providers does not leak state.',
+      'Pin frequent accounts so they stay visible in the rail for fast switching.'
+    ]
 
-      if (connectionState.profiles.length === 0) {
-        onboardingTitle = 'Load or create a profile before you explore AWS workflows.'
-        onboardingDescription = 'InfraLens needs one local AWS profile or vault credential before overview, service consoles, Session Hub, and direct access can share a common context.'
-        onboardingSummary = 'No local AWS profiles were detected yet. Import your AWS config or save credentials into the encrypted local vault to create the first operator context.'
-        onboardingPrimaryActionLabel = 'Import AWS config'
-        onboardingPrimaryAction = () => {
-          dismissEnvironmentOnboarding('profiles')
-          void handleLoadAwsConfig()
-        }
-        onboardingSecondaryActionLabel = 'Add credentials'
-        onboardingSecondaryAction = () => openManualCredentialsFlowFromOnboarding()
-        onboardingGuidance = [
-          'Import existing ~/.aws config when you already have named workstation profiles.',
-          'Use vault-backed credentials when you want the app to store them locally and encrypted.',
-          'After the first profile is loaded, pin frequent accounts so switching is faster.'
-        ]
-      } else {
-        onboardingGuidance = [
-          'Open the profile catalog to switch AWS accounts without losing your current workspace.',
-          'Pin the accounts you use most so they stay visible in the rail.',
-          'Overview, Session Hub, Compare, and the terminal all reuse the same active AWS context.'
-        ]
+    if (isAwsProviderActive && connectionState.profiles.length === 0) {
+      onboardingTitle = 'Connect your first cloud provider to get started.'
+      onboardingDescription = 'InfraLens needs at least one provider context — an AWS profile, GCP project, or Azure subscription — before overview, service consoles, and the terminal can share a common context.'
+      onboardingSummary = 'No local AWS profiles were detected yet. Import your AWS config, switch to another provider, or save credentials into the encrypted local vault.'
+      onboardingPrimaryActionLabel = 'Import AWS config'
+      onboardingPrimaryAction = () => {
+        dismissEnvironmentOnboarding('profiles')
+        void handleLoadAwsConfig()
       }
-
-      onboardingDetailContent = (
-        <div className="environment-onboarding-grid">
-          <section className="environment-onboarding-section">
-            <div className="eyebrow">Profile Catalog</div>
-            <div className="settings-environment-row">
-              <div>
-                <strong>Import or select a base profile</strong>
-                <p>Profiles are loaded from local config files or created inside the app. The selected profile becomes the source context for overview, service consoles, Session Hub, and terminal flows.</p>
-              </div>
-              <div className="settings-environment-meta">
-                <code>{connectionState.profiles.length} discovered</code>
-              </div>
-            </div>
-            <div className="settings-environment-row">
-              <div>
-                <strong>First-run paths</strong>
-                <p>{connectionState.profiles.length > 0 ? 'Your catalog already has profiles to choose from. If you need more, import the AWS config file or add a vault-backed credential from the catalog.' : 'No profile inventory is available yet. Start by importing the local AWS config file or by creating a vault-backed credential inside the catalog.'}</p>
-              </div>
-              <div className="settings-environment-meta">
-                <span className={`settings-status-pill settings-status-pill-${connectionState.profiles.length > 0 ? 'stable' : 'unknown'}`}>{connectionState.profiles.length > 0 ? 'ready' : 'pending'}</span>
-              </div>
-            </div>
-            <div className="settings-environment-row">
-              <div>
-                <strong>Current selection</strong>
-                <p>{connectionState.selectedProfile?.name ? `The shell is currently scoped to ${connectionState.selectedProfile.name}.` : 'No AWS profile is selected yet. Open the catalog and choose a base profile before loading service data.'}</p>
-              </div>
-              <div className="settings-environment-meta">
-                <code>{selectedProfileCount} pinned</code>
-              </div>
-            </div>
-          </section>
-        </div>
-      )
-    } else {
-      onboardingDetailContent = (
-        <div className="environment-onboarding-grid">
-          <section className="environment-onboarding-section">
-            <div className="eyebrow">Profile Catalog</div>
-            <div className="settings-environment-row">
-              <div>
-                <strong>Import or select a base profile</strong>
-                <p>Profiles are loaded from local config files or created inside the app. The selected profile becomes the source context for overview, service consoles, Session Hub, and terminal flows.</p>
-              </div>
-              <div className="settings-environment-meta">
-                <code>{connectionState.profiles.length} discovered</code>
-              </div>
-            </div>
-            <div className="settings-environment-row">
-              <div>
-                <strong>Pinned profile rail</strong>
-                <p>Once you pin frequently used profiles they stay in the left rail, so switching account context does not require reopening the full catalog.</p>
-              </div>
-              <div className="settings-environment-meta">
-                <code>{selectedProfileCount} pinned</code>
-              </div>
-            </div>
-            <div className="settings-environment-row">
-              <div>
-                <strong>Current selection</strong>
-                <p>{connectionState.selectedProfile?.name ? `The shell is currently scoped to ${connectionState.selectedProfile.name}.` : `No ${providerProfileLabel} is selected yet. Open the catalog and choose a base profile before loading service data.`}</p>
-              </div>
-              <div className="settings-environment-meta">
-                <span className={`settings-status-pill settings-status-pill-${connectionState.selectedProfile ? 'stable' : 'unknown'}`}>{connectionState.selectedProfile ? 'selected' : 'pending'}</span>
-              </div>
-            </div>
-          </section>
-        </div>
-      )
+      onboardingSecondaryActionLabel = 'Add credentials'
+      onboardingSecondaryAction = () => openManualCredentialsFlowFromOnboarding()
+      onboardingGuidance = [
+        'Import existing ~/.aws config when you already have named workstation profiles.',
+        'Switch to Google Cloud or Azure using the provider selector if those are your primary platforms.',
+        'After the first context is connected, pin frequent accounts so switching is faster.'
+      ]
     }
+
+    onboardingDetailContent = (
+      <div className="environment-onboarding-grid">
+        <section className="environment-onboarding-section">
+          <div className="eyebrow">Available Providers</div>
+          {providers.map((provider) => (
+            <div key={provider.id} className="settings-environment-row">
+              <div>
+                <strong>{provider.label}</strong>
+                <p>{provider.id === 'aws' ? `${provider.profileLabel}-based access with region-scoped service consoles.` : provider.id === 'gcp' ? `${provider.profileLabel}-based access with location-scoped service consoles.` : `${provider.profileLabel}-based access with location-scoped service consoles.`}</p>
+              </div>
+              <div className="settings-environment-meta">
+                <span className={`settings-status-pill settings-status-pill-${provider.id === activeProviderId ? 'stable' : 'unknown'}`}>{provider.id === activeProviderId ? 'active' : 'available'}</span>
+              </div>
+            </div>
+          ))}
+        </section>
+        <section className="environment-onboarding-section">
+          <div className="eyebrow">Current Context</div>
+          <div className="settings-environment-row">
+            <div>
+              <strong>{activeProvider.label} {activeProvider.profileLabel}</strong>
+              <p>{connectionState.selectedProfile?.name ? `Connected as ${connectionState.selectedProfile.name}.` : `No ${providerProfileLabel} is selected yet. Open the profile catalog to connect.`}</p>
+            </div>
+            <div className="settings-environment-meta">
+              <code>{totalProfiles} discovered</code>
+            </div>
+          </div>
+          <div className="settings-environment-row">
+            <div>
+              <strong>Pinned contexts</strong>
+              <p>Pin frequently used profiles, projects, or subscriptions so they stay visible in the rail for fast switching.</p>
+            </div>
+            <div className="settings-environment-meta">
+              <code>{selectedProfileCount} pinned</code>
+            </div>
+          </div>
+        </section>
+      </div>
+    )
   }
 
   const showOnboardingPrimaryAction =
