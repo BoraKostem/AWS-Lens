@@ -2411,12 +2411,12 @@ function writeTemporaryVarFile(rootPath: string, values: Record<string, unknown>
 
   const tempDir = path.join(os.tmpdir(), 'terraform-workspace-runtime-inputs')
   try {
-    fs.mkdirSync(tempDir, { recursive: true })
+    fs.mkdirSync(tempDir, { recursive: true, mode: 0o700 })
   } catch {
     /* ok */
   }
   const filePath = path.join(tempDir, `${path.basename(rootPath)}.${suffix}.${randomUUID()}.tfvars.json`)
-  fs.writeFileSync(filePath, JSON.stringify(values, null, 2) + '\n', 'utf-8')
+  fs.writeFileSync(filePath, JSON.stringify(values, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 })
   return {
     filePath,
     cleanup: () => {

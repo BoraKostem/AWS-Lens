@@ -31,7 +31,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { app, BrowserWindow, dialog, shell } from 'electron'
 import { createWriteStream, watchFile, unwatchFile } from 'fs'
-import { readFile, writeFile } from 'fs/promises'
+import { chmod, readFile, writeFile } from 'fs/promises'
 import { basename, join } from 'path'
 import { pipeline } from 'stream/promises'
 import { Readable } from 'stream'
@@ -779,11 +779,11 @@ export async function downloadObject(
   const filePath = join(tempDir, `s3-${Date.now()}-${fileName}`)
 
   if (output.Body instanceof Readable) {
-    const ws = createWriteStream(filePath)
+    const ws = createWriteStream(filePath, { mode: 0o600 })
     await pipeline(output.Body, ws)
   } else if (output.Body) {
     const bytes = await output.Body.transformToByteArray()
-    await writeFile(filePath, Buffer.from(bytes))
+    await writeFile(filePath, Buffer.from(bytes), { mode: 0o600 })
   }
 
   return filePath
