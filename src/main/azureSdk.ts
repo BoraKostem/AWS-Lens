@@ -9,7 +9,15 @@ import { pipeline } from 'node:stream/promises'
 import { promisify } from 'node:util'
 
 import { BlobSASPermissions, BlobServiceClient, generateBlobSASQueryParameters, StorageSharedKeyCredential } from '@azure/storage-blob'
-import { DefaultAzureCredential } from '@azure/identity'
+
+import {
+  getAzureCredential,
+  getAzureAccessToken,
+  classifyAzureError,
+  fetchAzureArmJson,
+  fetchAzureArmCollection,
+  mapWithConcurrency
+} from './azure/client'
 
 import type {
   AzureAksClusterDetail,
@@ -152,7 +160,11 @@ function resolveKubeconfigPath(kubeconfigPath: string): string {
   return resolve(homedir(), trimmed)
 }
 
-let azureCredential: DefaultAzureCredential | null = null
+// getAzureCredential(), getAzureAccessToken(), fetchAzureArmJson(),
+// fetchAzureArmCollection(), and mapWithConcurrency() are now imported from
+// './azure/client' with LRU token caching, automatic retry for 429/5xx, and
+// pagination safety (max 200 pages).
+
 const azureBlobServiceClientCache = new Map<string, Promise<BlobServiceClient>>()
 const AZURE_RISKY_ROLE_MARKERS = [
   'owner',
@@ -161,13 +173,7 @@ const AZURE_RISKY_ROLE_MARKERS = [
   'role based access control administrator'
 ] as const
 
-function getAzureCredential(): DefaultAzureCredential {
-  if (!azureCredential) {
-    azureCredential = new DefaultAzureCredential()
-  }
-
-  return azureCredential
-}
+// getAzureCredential is now imported from './azure/client'
 
 function normalizeLocationList(locations: string[]): string[] {
   return [...new Set(
@@ -177,48 +183,11 @@ function normalizeLocationList(locations: string[]): string[] {
   )].sort((left, right) => left.localeCompare(right))
 }
 
-async function getAzureAccessToken(): Promise<string> {
-  const token = await getAzureCredential().getToken('https://management.azure.com/.default')
-  if (!token?.token) {
-    throw new Error('Azure credential chain did not return a management-plane access token.')
-  }
+// getAzureAccessToken is now imported from './azure/client' with token caching
 
-  return token.token
-}
+// fetchAzureArmJson is now imported from './azure/client' with retry logic
 
-async function fetchAzureArmJson<T>(path: string, apiVersion: string, init?: RequestInit): Promise<T> {
-  const url = /^https?:\/\//i.test(path)
-    ? path
-    : `https://management.azure.com${path}${path.includes('?') ? '&' : '?'}api-version=${encodeURIComponent(apiVersion)}`
-  const response: Response = await fetch(url, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${await getAzureAccessToken()}`,
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {})
-    }
-  })
-
-  if (!response.ok) {
-    const body = await response.text()
-    throw new Error(`Azure ARM request failed (${response.status} ${response.statusText}): ${body || path}`)
-  }
-
-  return await response.json() as T
-}
-
-async function fetchAzureArmCollection<T>(path: string, apiVersion: string): Promise<T[]> {
-  const items: T[] = []
-  let nextLink: string | null = path
-
-  while (nextLink) {
-    const page: { value?: T[]; nextLink?: string } = await fetchAzureArmJson(nextLink, apiVersion)
-    items.push(...(page.value ?? []))
-    nextLink = page.nextLink ?? null
-  }
-
-  return items
-}
+// fetchAzureArmCollection is now imported from './azure/client' with pagination safety
 
 function extractResourceGroup(resourceId: string): string {
   const match = resourceId.match(/\/resourceGroups\/([^/]+)/i)
@@ -240,28 +209,7 @@ function extractProvisioningState(statuses: Array<{ code?: string; displayStatus
   return match?.displayStatus?.trim() || fallback.trim() || 'Unknown'
 }
 
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  fn: (item: T, index: number) => Promise<R>
-): Promise<R[]> {
-  const results: R[] = new Array(items.length)
-  let cursor = 0
-
-  async function worker(): Promise<void> {
-    while (cursor < items.length) {
-      const index = cursor
-      cursor += 1
-      results[index] = await fn(items[index], index)
-    }
-  }
-
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, items.length) }, () => worker())
-  )
-
-  return results
-}
+// mapWithConcurrency is now imported from './azure/client'
 
 function inferScopeKind(scope: string, subscriptionScope: string): AzureRoleAssignmentSummary['scopeKind'] {
   const normalizedScope = scope.toLowerCase()
