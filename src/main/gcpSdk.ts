@@ -1,10 +1,19 @@
 import path from 'node:path'
 import { readFile, writeFile } from 'node:fs/promises'
 import { BrowserWindow, dialog } from 'electron'
-import { GoogleAuth } from 'google-auth-library'
 import { google } from 'googleapis'
 
 import { logWarn } from './observability'
+import {
+  GCP_SDK_SCOPES,
+  MAX_PAGINATION_PAGES,
+  paginationGuard,
+  getGcpAuth,
+  classifyGcpError,
+  outputIndicatesApiDisabled,
+  requestGcp,
+  type GcpRequestOptions
+} from './gcp/client'
 
 import type {
   GcpBillingCapabilityHint,
@@ -69,7 +78,7 @@ import type {
   GcpSecurityPolicyDetail
 } from '@shared/types'
 
-const GCP_SDK_SCOPES = ['https://www.googleapis.com/auth/cloud-platform']
+// GCP_SDK_SCOPES is now imported from './gcp/client'
 const GCP_REGION_PATTERN = /^[a-z]+(?:-[a-z0-9]+)+\d$/
 const GCP_ZONE_PATTERN = /^[a-z]+(?:-[a-z0-9]+)+\d-[a-z]$/
 const GCP_BILLING_OWNERSHIP_KEYS = ['owner', 'team', 'cost-center', 'cost_center', 'environment', 'env', 'application', 'app', 'service']
@@ -131,13 +140,7 @@ type GcpSqlUserSummary = {
   type: string
 }
 
-type GcpRequestOptions = {
-  data?: unknown
-  headers?: Record<string, string>
-  method?: 'DELETE' | 'GET' | 'PATCH' | 'POST'
-  responseType?: 'arraybuffer' | 'json' | 'text'
-  url: string
-}
+// GcpRequestOptions type is now imported from './gcp/client'
 
 type GcpBigQueryDatasetRecord = {
   projectId: string
@@ -385,90 +388,14 @@ function isGcpPublicPrincipal(member: string): boolean {
   return normalized === 'allUsers' || normalized === 'allAuthenticatedUsers'
 }
 
-function outputIndicatesApiDisabled(output: string): boolean {
-  const normalized = output.toLowerCase()
-  return normalized.includes('api has not been used in project')
-    || normalized.includes('it is disabled')
-    || normalized.includes('enable it by visiting')
-    || normalized.includes('service disabled')
-}
+// Error classification functions (outputIndicatesApiDisabled, outputIndicatesAdcIssue,
+// outputIndicatesPermissionIssue, extractProjectIdFromOutput, buildGcpSdkError) have been
+// centralised into src/main/gcp/client.ts as classifyGcpError().
+// Alias for backward compatibility within this file:
+const buildGcpSdkError = classifyGcpError
 
-function outputIndicatesAdcIssue(output: string): boolean {
-  const normalized = output.toLowerCase()
-  return normalized.includes('application default credentials')
-    || normalized.includes('could not load the default credentials')
-    || normalized.includes('default credentials')
-    || normalized.includes('could not authenticate')
-    || normalized.includes('login required')
-}
-
-function outputIndicatesPermissionIssue(output: string): boolean {
-  const normalized = output.toLowerCase()
-  return normalized.includes('permission denied')
-    || normalized.includes('forbidden')
-    || normalized.includes('does not have permission')
-    || normalized.includes('insufficient authentication scopes')
-    || normalized.includes('permission')
-}
-
-function extractProjectIdFromOutput(output: string): string {
-  const quotedMatch = output.match(/project\s+"([^"]+)"/i)
-  if (quotedMatch?.[1]) {
-    return quotedMatch[1].trim()
-  }
-
-  const plainMatch = output.match(/project\s+([a-z0-9-]+)/i)
-  return plainMatch?.[1]?.trim() ?? ''
-}
-
-function buildGcpSdkError(label: string, error: unknown, apiServiceName = 'compute.googleapis.com'): Error {
-  const detail = error instanceof Error ? error.message.trim() : String(error).trim()
-
-  if (outputIndicatesApiDisabled(detail)) {
-    const projectId = extractProjectIdFromOutput(detail)
-    const enableCommand = projectId
-      ? `gcloud services enable ${apiServiceName} --project ${projectId}`
-      : `gcloud services enable ${apiServiceName} --project <project-id>`
-
-    return new Error(
-      `Google Cloud API access failed while ${label}. The required API is disabled for the selected project. Run "${enableCommand}", wait for propagation, and retry.${detail ? ` ${detail}` : ''}`
-    )
-  }
-
-  if (outputIndicatesAdcIssue(detail)) {
-    return new Error(
-      `Google Cloud SDK authorization failed while ${label}. Run "gcloud auth application-default login" or provide GOOGLE_APPLICATION_CREDENTIALS, then try again.${detail ? ` ${detail}` : ''}`
-    )
-  }
-
-  if (outputIndicatesPermissionIssue(detail)) {
-    return new Error(
-      `Google Cloud SDK authorization failed while ${label}. Verify the selected credentials have the required IAM access for this project.${detail ? ` ${detail}` : ''}`
-    )
-  }
-
-  return new Error(`Google Cloud SDK failed while ${label}.${detail ? ` ${detail}` : ''}`)
-}
-
-function getGcpAuth(projectId = ''): GoogleAuth {
-  return new GoogleAuth({
-    projectId: projectId.trim() || undefined,
-    scopes: GCP_SDK_SCOPES
-  })
-}
-
-async function requestGcp<T>(projectId: string, options: GcpRequestOptions): Promise<T> {
-  const client = await getGcpAuth(projectId).getClient()
-  const response = await client.request<T>({
-    url: options.url,
-    method: options.method ?? 'GET',
-    headers: options.headers,
-    data: options.data,
-    responseType: options.responseType
-  })
-
-  return response.data
-}
+// getGcpAuth() and requestGcp() are now imported from './gcp/client' with LRU
+// pooling and automatic retry for transient failures (429, 503).
 
 function buildStorageApiUrl(pathname: string, query: Record<string, number | string | undefined> = {}): string {
   const url = new URL(`https://storage.googleapis.com${pathname}`)
@@ -1347,32 +1274,41 @@ async function getGcpProjectMetadata(projectId: string): Promise<{
   }
 }
 
+/** Requires: serviceusage.services.list — API: serviceusage.googleapis.com */
 export async function listGcpEnabledApis(projectId: string): Promise<GcpEnabledApiSummary[]> {
-  const services: GcpEnabledApiSummary[] = []
-  let pageToken = ''
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) return []
 
-  do {
-    const response = await requestGcp<{ services?: Array<Record<string, unknown>>; nextPageToken?: string }>(projectId, {
-      url: `https://serviceusage.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/services?filter=state:ENABLED&pageSize=50${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`
-    })
+  try {
+    const services: GcpEnabledApiSummary[] = []
+    let pageToken = ''
+    const canPage = paginationGuard()
 
-    for (const entry of response.services ?? []) {
-      const config = toRecord(entry.config)
-      const name = asString(entry.name).replace(/^projects\/[^/]+\/services\//, '')
-      if (!name) {
-        continue
+    do {
+      const response = await requestGcp<{ services?: Array<Record<string, unknown>>; nextPageToken?: string }>(normalizedProjectId, {
+        url: `https://serviceusage.googleapis.com/v1/projects/${encodeURIComponent(normalizedProjectId)}/services?filter=state:ENABLED&pageSize=50${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`
+      })
+
+      for (const entry of response.services ?? []) {
+        const config = toRecord(entry.config)
+        const name = asString(entry.name).replace(/^projects\/[^/]+\/services\//, '')
+        if (!name) {
+          continue
+        }
+
+        services.push({
+          name,
+          title: asString(config.title) || titleFromApiName(name)
+        })
       }
 
-      services.push({
-        name,
-        title: asString(config.title) || titleFromApiName(name)
-      })
-    }
+      pageToken = asString(response.nextPageToken)
+    } while (pageToken && canPage())
 
-    pageToken = asString(response.nextPageToken)
-  } while (pageToken)
-
-  return services.sort((left, right) => left.title.localeCompare(right.title))
+    return services.sort((left, right) => left.title.localeCompare(right.title))
+  } catch (error) {
+    throw buildGcpSdkError(`listing enabled APIs for project "${normalizedProjectId}"`, error, 'serviceusage.googleapis.com')
+  }
 }
 
 async function getGcpProjectIamPolicy(projectId: string): Promise<Record<string, unknown>> {
@@ -1387,34 +1323,43 @@ async function getGcpProjectIamPolicy(projectId: string): Promise<Record<string,
   })
 }
 
+/** Requires: iam.serviceAccounts.list — API: iam.googleapis.com */
 export async function listGcpServiceAccounts(projectId: string): Promise<GcpServiceAccountSummary[]> {
-  const accounts: GcpServiceAccountSummary[] = []
-  let pageToken = ''
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) return []
 
-  do {
-    const response = await requestGcp<{ accounts?: Array<Record<string, unknown>>; nextPageToken?: string }>(projectId, {
-      url: `https://iam.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/serviceAccounts?pageSize=100${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`
-    })
+  try {
+    const accounts: GcpServiceAccountSummary[] = []
+    let pageToken = ''
+    const canPage = paginationGuard()
 
-    for (const entry of response.accounts ?? []) {
-      const email = asString(entry.email)
-      if (!email) {
-        continue
+    do {
+      const response = await requestGcp<{ accounts?: Array<Record<string, unknown>>; nextPageToken?: string }>(normalizedProjectId, {
+        url: `https://iam.googleapis.com/v1/projects/${encodeURIComponent(normalizedProjectId)}/serviceAccounts?pageSize=100${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`
+      })
+
+      for (const entry of response.accounts ?? []) {
+        const email = asString(entry.email)
+        if (!email) {
+          continue
+        }
+
+        accounts.push({
+          email,
+          displayName: asString(entry.displayName),
+          uniqueId: asString(entry.uniqueId),
+          description: asString(entry.description),
+          disabled: asBoolean(entry.disabled)
+        })
       }
 
-      accounts.push({
-        email,
-        displayName: asString(entry.displayName),
-        uniqueId: asString(entry.uniqueId),
-        description: asString(entry.description),
-        disabled: asBoolean(entry.disabled)
-      })
-    }
+      pageToken = asString(response.nextPageToken)
+    } while (pageToken && canPage())
 
-    pageToken = asString(response.nextPageToken)
-  } while (pageToken)
-
-  return accounts.sort((left, right) => left.email.localeCompare(right.email))
+    return accounts.sort((left, right) => left.email.localeCompare(right.email))
+  } catch (error) {
+    throw buildGcpSdkError(`listing service accounts for project "${normalizedProjectId}"`, error, 'iam.googleapis.com')
+  }
 }
 
 function buildGcpIamBindings(policy: Record<string, unknown>): GcpIamBindingSummary[] {
@@ -1904,6 +1849,7 @@ async function listGcpBigQueryDatasets(projectId: string): Promise<GcpBigQueryDa
   const datasets: GcpBigQueryDatasetRecord[] = []
   let pageToken = ''
 
+  const canPage = paginationGuard()
   do {
     const response = await requestGcp<Record<string, unknown>>(projectId, {
       url: buildBigQueryApiUrl(`projects/${encodeURIComponent(projectId)}/datasets`, {
@@ -1931,7 +1877,7 @@ async function listGcpBigQueryDatasets(projectId: string): Promise<GcpBigQueryDa
     }
 
     pageToken = asString(response.nextPageToken)
-  } while (pageToken)
+  } while (pageToken && canPage())
 
   return datasets
 }
@@ -1940,6 +1886,7 @@ async function listGcpBigQueryBillingExportTables(dataset: GcpBigQueryDatasetRec
   const tables: GcpBigQueryExportTableRecord[] = []
   let pageToken = ''
 
+  const canPage = paginationGuard()
   do {
     const response = await requestGcp<Record<string, unknown>>(dataset.projectId, {
       url: buildBigQueryApiUrl(
@@ -1973,7 +1920,7 @@ async function listGcpBigQueryBillingExportTables(dataset: GcpBigQueryDatasetRec
     }
 
     pageToken = asString(response.nextPageToken)
-  } while (pageToken)
+  } while (pageToken && canPage())
 
   return tables
 }
@@ -2503,6 +2450,7 @@ export async function listGcpComputeInstances(projectId: string, location: strin
     const instances: GcpComputeInstanceSummary[] = []
     let pageToken: string | undefined
 
+    const canPage = paginationGuard()
     do {
       const response = await compute.instances.aggregatedList({ project: normalizedProjectId, maxResults: 500, pageToken })
       for (const scoped of Object.values(response.data.items ?? {})) {
@@ -2523,7 +2471,7 @@ export async function listGcpComputeInstances(projectId: string, location: strin
         }
       }
       pageToken = asString(response.data.nextPageToken) || undefined
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return filterComputeInstancesByLocation(instances, location)
       .sort((left, right) => left.zone.localeCompare(right.zone) || left.name.localeCompare(right.name))
@@ -2570,6 +2518,7 @@ export async function listGcpComputeMachineTypes(projectId: string, zone: string
     const machineTypes: GcpComputeMachineTypeOption[] = []
     let pageToken: string | undefined
 
+    const canPage = paginationGuard()
     do {
       const response = await compute.machineTypes.list({
         project: normalizedProjectId,
@@ -2586,7 +2535,7 @@ export async function listGcpComputeMachineTypes(projectId: string, zone: string
       }
 
       pageToken = asString(response.data.nextPageToken) || undefined
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return machineTypes.sort((left, right) =>
       left.guestCpus - right.guestCpus
@@ -2825,6 +2774,7 @@ export async function listGcpFirewallRules(projectId: string): Promise<GcpFirewa
     const items: GcpFirewallRuleSummary[] = []
     let pageToken = ''
 
+    const canPage = paginationGuard()
     do {
       const response = await requestGcp<{ items?: unknown[]; nextPageToken?: string }>(normalizedProjectId, {
         url: buildComputeApiUrl(normalizedProjectId, 'global/firewalls', {
@@ -2840,7 +2790,7 @@ export async function listGcpFirewallRules(projectId: string): Promise<GcpFirewa
       )
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return items.sort((left, right) => left.name.localeCompare(right.name))
   } catch (error) {
@@ -2858,6 +2808,7 @@ export async function listGcpNetworks(projectId: string): Promise<GcpNetworkSumm
     const items: GcpNetworkSummary[] = []
     let pageToken = ''
 
+    const canPage = paginationGuard()
     do {
       const response = await requestGcp<{ items?: unknown[]; nextPageToken?: string }>(normalizedProjectId, {
         url: buildComputeApiUrl(normalizedProjectId, 'global/networks', {
@@ -2873,7 +2824,7 @@ export async function listGcpNetworks(projectId: string): Promise<GcpNetworkSumm
       )
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return items.sort((left, right) => left.name.localeCompare(right.name))
   } catch (error) {
@@ -2891,6 +2842,7 @@ export async function listGcpSubnetworks(projectId: string, location: string): P
     const items: GcpSubnetworkSummary[] = []
     let pageToken = ''
 
+    const canPage = paginationGuard()
     do {
       const response = await requestGcp<{ items?: Record<string, { subnetworks?: unknown[] }>; nextPageToken?: string }>(normalizedProjectId, {
         url: buildComputeApiUrl(normalizedProjectId, 'aggregated/subnetworks', {
@@ -2909,7 +2861,7 @@ export async function listGcpSubnetworks(projectId: string, location: string): P
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return filterSubnetworksByLocation(items, location)
       .sort((left, right) => left.region.localeCompare(right.region) || left.name.localeCompare(right.name))
@@ -2929,6 +2881,7 @@ export async function listGcpRouters(projectId: string, location: string): Promi
     const nats: GcpRouterNatSummary[] = []
     let pageToken = ''
 
+    const canPage = paginationGuard()
     do {
       const response = await requestGcp<{ items?: Record<string, { routers?: unknown[] }>; nextPageToken?: string }>(normalizedProjectId, {
         url: buildComputeApiUrl(normalizedProjectId, 'aggregated/routers', {
@@ -2956,7 +2909,7 @@ export async function listGcpRouters(projectId: string, location: string): Promi
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return {
       routers: filterRoutersByLocation(routers, location)
@@ -2979,6 +2932,7 @@ export async function listGcpGlobalAddresses(projectId: string): Promise<GcpGlob
     const items: GcpGlobalAddressSummary[] = []
     let pageToken = ''
 
+    const canPage = paginationGuard()
     do {
       const response = await requestGcp<{ items?: unknown[]; nextPageToken?: string }>(normalizedProjectId, {
         url: buildComputeApiUrl(normalizedProjectId, 'global/addresses', {
@@ -2994,7 +2948,7 @@ export async function listGcpGlobalAddresses(projectId: string): Promise<GcpGlob
       )
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return items.sort((left, right) => left.name.localeCompare(right.name))
   } catch (error) {
@@ -3307,6 +3261,7 @@ export async function listGcpRoles(projectId: string, scope: 'custom' | 'all'): 
   try {
     const roles: GcpIamRoleSummary[] = []
     let pageToken = ''
+    const canPage = paginationGuard()
     do {
       const result = await requestGcp<{ roles?: Array<Record<string, unknown>>; nextPageToken?: string }>(normalizedProjectId, {
         url: `https://iam.googleapis.com/v1/projects/${encodeURIComponent(normalizedProjectId)}/roles?view=FULL&pageSize=100${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`
@@ -3325,7 +3280,7 @@ export async function listGcpRoles(projectId: string, scope: 'custom' | 'all'): 
         } satisfies GcpIamRoleSummary)
       }
       pageToken = asString(result.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     if (scope === 'all') {
       let predefinedPageToken = ''
@@ -4332,6 +4287,7 @@ export async function listGcpPubSubTopics(projectId: string): Promise<import('@s
     const topics: import('@shared/types').GcpPubSubTopicSummary[] = []
     let pageToken = ''
 
+    const canPage = paginationGuard()
     do {
       const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
         url: buildPubSubApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/topics`, {
@@ -4362,7 +4318,7 @@ export async function listGcpPubSubTopics(projectId: string): Promise<import('@s
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return topics
   } catch (error) {
@@ -4378,6 +4334,7 @@ export async function listGcpPubSubSubscriptions(projectId: string): Promise<imp
     const subscriptions: import('@shared/types').GcpPubSubSubscriptionSummary[] = []
     let pageToken = ''
 
+    const canPage = paginationGuard()
     do {
       const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
         url: buildPubSubApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/subscriptions`, {
@@ -4423,7 +4380,7 @@ export async function listGcpPubSubSubscriptions(projectId: string): Promise<imp
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return subscriptions
   } catch (error) {
@@ -4528,6 +4485,7 @@ export async function listGcpBigQueryDatasetsExported(projectId: string): Promis
     const summaries: import('@shared/types').GcpBigQueryDatasetSummary[] = []
     let pageToken = ''
 
+    const canPage = paginationGuard()
     do {
       const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
         url: buildBigQueryApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/datasets`, {
@@ -4558,7 +4516,7 @@ export async function listGcpBigQueryDatasetsExported(projectId: string): Promis
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return summaries
   } catch (error) {
@@ -4575,6 +4533,7 @@ export async function listGcpBigQueryTables(projectId: string, datasetId: string
     const tables: import('@shared/types').GcpBigQueryTableSummary[] = []
     let pageToken = ''
 
+    const canPage = paginationGuard()
     do {
       const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
         url: buildBigQueryApiUrl(
@@ -4605,7 +4564,7 @@ export async function listGcpBigQueryTables(projectId: string, datasetId: string
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return tables
   } catch (error) {
@@ -4754,6 +4713,7 @@ export async function listGcpMonitoringAlertPolicies(projectId: string): Promise
     const policies: import('@shared/types').GcpMonitoringAlertPolicySummary[] = []
     let pageToken = ''
 
+    const canPage = paginationGuard()
     do {
       const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
         url: buildMonitoringApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/alertPolicies`, {
@@ -4783,7 +4743,7 @@ export async function listGcpMonitoringAlertPolicies(projectId: string): Promise
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return policies
   } catch (error) {
@@ -4799,6 +4759,7 @@ export async function listGcpMonitoringUptimeChecks(projectId: string): Promise<
     const checks: import('@shared/types').GcpMonitoringUptimeCheckSummary[] = []
     let pageToken = ''
 
+    const canPage = paginationGuard()
     do {
       const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
         url: buildMonitoringApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/uptimeCheckConfigs`, {
@@ -4832,7 +4793,7 @@ export async function listGcpMonitoringUptimeChecks(projectId: string): Promise<
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return checks
   } catch (error) {
@@ -4848,6 +4809,7 @@ export async function listGcpMonitoringMetricDescriptors(projectId: string, filt
     const descriptors: import('@shared/types').GcpMonitoringMetricDescriptorSummary[] = []
     let pageToken = ''
 
+    const canPage = paginationGuard()
     do {
       const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
         url: buildMonitoringApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/metricDescriptors`, {
@@ -4874,7 +4836,7 @@ export async function listGcpMonitoringMetricDescriptors(projectId: string, filt
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return descriptors
   } catch (error) {
@@ -4962,6 +4924,7 @@ export async function listGcpSccFindings(projectId: string, _location?: string, 
     const findings: import('@shared/types').GcpSccFindingSummary[] = []
     let pageToken = ''
 
+    const canPage = paginationGuard()
     do {
       const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
         url: buildSccApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/sources/-/locations/global/findings`, {
@@ -4996,7 +4959,7 @@ export async function listGcpSccFindings(projectId: string, _location?: string, 
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return findings
   } catch (error) {
@@ -5013,6 +4976,7 @@ export async function listGcpSccSources(projectId: string, location?: string): P
     const sources: import('@shared/types').GcpSccSourceSummary[] = []
     let pageToken = ''
 
+    const canPage = paginationGuard()
     do {
       const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
         url: buildSccApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/sources`, {
@@ -5034,7 +4998,7 @@ export async function listGcpSccSources(projectId: string, location?: string): P
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return sources
   } catch (error) {
@@ -5078,20 +5042,25 @@ export async function getGcpSccFindingDetail(projectId: string, findingName: str
   }
 }
 
+/** Requires: securitycenter.findings.list — API: securitycenter.googleapis.com */
 export async function getGcpSccSeverityBreakdown(projectId: string, location?: string): Promise<import('@shared/types').GcpSccSeverityBreakdown> {
-  const findings = await listGcpSccFindings(projectId, location, 'state="ACTIVE"')
-  const breakdown: import('@shared/types').GcpSccSeverityBreakdown = { critical: 0, high: 0, medium: 0, low: 0, unspecified: 0 }
+  try {
+    const findings = await listGcpSccFindings(projectId, location, 'state="ACTIVE"')
+    const breakdown: import('@shared/types').GcpSccSeverityBreakdown = { critical: 0, high: 0, medium: 0, low: 0, unspecified: 0 }
 
-  for (const finding of findings) {
-    const severity = finding.severity.toUpperCase()
-    if (severity === 'CRITICAL') breakdown.critical++
-    else if (severity === 'HIGH') breakdown.high++
-    else if (severity === 'MEDIUM') breakdown.medium++
-    else if (severity === 'LOW') breakdown.low++
-    else breakdown.unspecified++
+    for (const finding of findings) {
+      const severity = finding.severity.toUpperCase()
+      if (severity === 'CRITICAL') breakdown.critical++
+      else if (severity === 'HIGH') breakdown.high++
+      else if (severity === 'MEDIUM') breakdown.medium++
+      else if (severity === 'LOW') breakdown.low++
+      else breakdown.unspecified++
+    }
+
+    return breakdown
+  } catch (error) {
+    throw buildGcpSdkError(`loading SCC severity breakdown for project "${projectId}"`, error, 'securitycenter.googleapis.com')
   }
-
-  return breakdown
 }
 
 // ---------------------------------------------------------------------------
@@ -5273,6 +5242,7 @@ export async function listGcpCloudRunServices(projectId: string, location: strin
 
   try {
     let pageToken = ''
+    const canPage = paginationGuard()
     do {
       const query: Record<string, string> = {}
       if (pageToken) query.pageToken = pageToken
@@ -5327,7 +5297,7 @@ export async function listGcpCloudRunServices(projectId: string, location: strin
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return services
   } catch (error) {
@@ -5342,6 +5312,7 @@ export async function listGcpCloudRunRevisions(projectId: string, location: stri
 
   try {
     let pageToken = ''
+    const canPage = paginationGuard()
     do {
       const query: Record<string, string> = {}
       if (pageToken) query.pageToken = pageToken
@@ -5386,7 +5357,7 @@ export async function listGcpCloudRunRevisions(projectId: string, location: stri
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return revisions
   } catch (error) {
@@ -5401,6 +5372,7 @@ export async function listGcpCloudRunJobs(projectId: string, location: string): 
 
   try {
     let pageToken = ''
+    const canPage = paginationGuard()
     do {
       const query: Record<string, string> = {}
       if (pageToken) query.pageToken = pageToken
@@ -5446,7 +5418,7 @@ export async function listGcpCloudRunJobs(projectId: string, location: string): 
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return jobs
   } catch (error) {
@@ -5461,6 +5433,7 @@ export async function listGcpCloudRunExecutions(projectId: string, location: str
 
   try {
     let pageToken = ''
+    const canPage = paginationGuard()
     do {
       const query: Record<string, string> = {}
       if (pageToken) query.pageToken = pageToken
@@ -5494,7 +5467,7 @@ export async function listGcpCloudRunExecutions(projectId: string, location: str
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return executions
   } catch (error) {
@@ -5509,6 +5482,7 @@ export async function listGcpCloudRunDomainMappings(projectId: string, location:
 
   try {
     let pageToken = ''
+    const canPage = paginationGuard()
     do {
       const query: Record<string, string> = {}
       if (pageToken) query.pageToken = pageToken
@@ -5541,7 +5515,7 @@ export async function listGcpCloudRunDomainMappings(projectId: string, location:
       }
 
       pageToken = asString(response.metadata && typeof response.metadata === 'object' ? (response.metadata as Record<string, unknown>).continue : '')
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return mappings
   } catch (error) {
@@ -5600,6 +5574,7 @@ export async function listGcpFirebaseWebApps(projectId: string): Promise<import(
 
   try {
     let pageToken = ''
+    const canPage = paginationGuard()
     do {
       const query: Record<string, string> = {}
       if (pageToken) query.pageToken = pageToken
@@ -5623,7 +5598,7 @@ export async function listGcpFirebaseWebApps(projectId: string): Promise<import(
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return apps
   } catch (error) {
@@ -5637,6 +5612,7 @@ export async function listGcpFirebaseAndroidApps(projectId: string): Promise<imp
 
   try {
     let pageToken = ''
+    const canPage = paginationGuard()
     do {
       const query: Record<string, string> = {}
       if (pageToken) query.pageToken = pageToken
@@ -5661,7 +5637,7 @@ export async function listGcpFirebaseAndroidApps(projectId: string): Promise<imp
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return apps
   } catch (error) {
@@ -5675,6 +5651,7 @@ export async function listGcpFirebaseIosApps(projectId: string): Promise<import(
 
   try {
     let pageToken = ''
+    const canPage = paginationGuard()
     do {
       const query: Record<string, string> = {}
       if (pageToken) query.pageToken = pageToken
@@ -5699,7 +5676,7 @@ export async function listGcpFirebaseIosApps(projectId: string): Promise<import(
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return apps
   } catch (error) {
@@ -5713,6 +5690,7 @@ export async function listGcpFirebaseHostingSites(projectId: string): Promise<im
 
   try {
     let pageToken = ''
+    const canPage = paginationGuard()
     do {
       const query: Record<string, string> = {}
       if (pageToken) query.pageToken = pageToken
@@ -5736,7 +5714,7 @@ export async function listGcpFirebaseHostingSites(projectId: string): Promise<im
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return sites
   } catch (error) {
@@ -5751,6 +5729,7 @@ export async function listGcpFirebaseHostingReleases(projectId: string, siteId: 
 
   try {
     let pageToken = ''
+    const canPage = paginationGuard()
     do {
       const query: Record<string, string> = { pageSize: '25' }
       if (pageToken) query.pageToken = pageToken
@@ -5779,7 +5758,7 @@ export async function listGcpFirebaseHostingReleases(projectId: string, siteId: 
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return releases
   } catch (error) {
@@ -6022,6 +6001,7 @@ export async function listGcpMemorystoreInstances(projectId: string, location: s
     const instances: GcpMemorystoreInstanceSummary[] = []
     let pageToken = ''
 
+    const canPage = paginationGuard()
     do {
       const response = await requestGcp<{ instances?: unknown[]; nextPageToken?: string }>(normalizedProjectId, {
         url: buildMemorystoreApiUrl(
@@ -6036,7 +6016,7 @@ export async function listGcpMemorystoreInstances(projectId: string, location: s
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return instances.sort((a, b) => a.displayName.localeCompare(b.displayName))
   } catch (error) {
@@ -6134,6 +6114,7 @@ export async function listGcpUrlMaps(projectId: string): Promise<GcpUrlMapSummar
     const items: GcpUrlMapSummary[] = []
     let pageToken = ''
 
+    const canPage = paginationGuard()
     do {
       const response = await requestGcp<{ items?: Record<string, { urlMaps?: unknown[] }>; nextPageToken?: string }>(normalizedProjectId, {
         url: buildComputeApiUrl(normalizedProjectId, 'aggregated/urlMaps', {
@@ -6163,7 +6144,7 @@ export async function listGcpUrlMaps(projectId: string): Promise<GcpUrlMapSummar
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return items.sort((a, b) => a.name.localeCompare(b.name))
   } catch (error) {
@@ -6221,6 +6202,7 @@ export async function listGcpBackendServices(projectId: string): Promise<GcpBack
     const items: GcpBackendServiceSummary[] = []
     let pageToken = ''
 
+    const canPage = paginationGuard()
     do {
       const response = await requestGcp<{ items?: Record<string, { backendServices?: unknown[] }>; nextPageToken?: string }>(normalizedProjectId, {
         url: buildComputeApiUrl(normalizedProjectId, 'aggregated/backendServices', {
@@ -6255,7 +6237,7 @@ export async function listGcpBackendServices(projectId: string): Promise<GcpBack
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return items.sort((a, b) => a.name.localeCompare(b.name))
   } catch (error) {
@@ -6271,6 +6253,7 @@ export async function listGcpForwardingRules(projectId: string): Promise<GcpForw
     const items: GcpForwardingRuleSummary[] = []
     let pageToken = ''
 
+    const canPage = paginationGuard()
     do {
       const response = await requestGcp<{ items?: Record<string, { forwardingRules?: unknown[] }>; nextPageToken?: string }>(normalizedProjectId, {
         url: buildComputeApiUrl(normalizedProjectId, 'aggregated/forwardingRules', {
@@ -6302,7 +6285,7 @@ export async function listGcpForwardingRules(projectId: string): Promise<GcpForw
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return items.sort((a, b) => a.name.localeCompare(b.name))
   } catch (error) {
@@ -6318,6 +6301,7 @@ export async function listGcpHealthChecks(projectId: string): Promise<GcpHealthC
     const items: GcpHealthCheckSummary[] = []
     let pageToken = ''
 
+    const canPage = paginationGuard()
     do {
       const response = await requestGcp<{ items?: Record<string, { healthChecks?: unknown[] }>; nextPageToken?: string }>(normalizedProjectId, {
         url: buildComputeApiUrl(normalizedProjectId, 'aggregated/healthChecks', {
@@ -6345,7 +6329,7 @@ export async function listGcpHealthChecks(projectId: string): Promise<GcpHealthC
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return items.sort((a, b) => a.name.localeCompare(b.name))
   } catch (error) {
@@ -6361,6 +6345,7 @@ export async function listGcpSecurityPolicies(projectId: string): Promise<GcpSec
     const items: GcpSecurityPolicySummary[] = []
     let pageToken = ''
 
+    const canPage = paginationGuard()
     do {
       const response = await requestGcp<{ items?: unknown[]; nextPageToken?: string }>(normalizedProjectId, {
         url: buildComputeApiUrl(normalizedProjectId, 'global/securityPolicies', {
@@ -6388,7 +6373,7 @@ export async function listGcpSecurityPolicies(projectId: string): Promise<GcpSec
       }
 
       pageToken = asString(response.nextPageToken)
-    } while (pageToken)
+    } while (pageToken && canPage())
 
     return items.sort((a, b) => a.name.localeCompare(b.name))
   } catch (error) {
