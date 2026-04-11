@@ -139,6 +139,26 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     wrap<AzureProviderContextSnapshot>(async () => setAzureActiveLocation(location))
   )
   ipcMain.handle('gcp:cli-context', async () => wrap(() => getGcpCliContext()))
+  ipcMain.handle('gcp:auth:status', async (_event, projectId: string) =>
+    wrap(async () => {
+      const { getCredentialStatus } = await import('./gcp/auth')
+      return getCredentialStatus(projectId)
+    })
+  )
+  ipcMain.handle('gcp:auth:refresh', async (_event, projectId: string) =>
+    wrap(async () => {
+      const { refreshCredentials } = await import('./gcp/auth')
+      refreshCredentials(projectId)
+      return { refreshed: true }
+    })
+  )
+  ipcMain.handle('gcp:auth:set-impersonation', async (_event, targetServiceAccount: string | null) =>
+    wrap(async () => {
+      const { setImpersonationTarget } = await import('./gcp/auth')
+      setImpersonationTarget(targetServiceAccount)
+      return { target: targetServiceAccount }
+    })
+  )
   ipcMain.handle('gcp:projects', async () => wrap(() => listGcpProjects()))
   ipcMain.handle('gcp:projects:get-overview', async (_event, projectId: string) =>
     wrap(async () => (await loadGcpSdk()).getGcpProjectOverview(projectId))

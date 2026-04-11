@@ -9,3 +9,13 @@ export {
   requestGcp,
   type GcpRequestOptions
 } from './client'
+
+export {
+  getCredentialAuth,
+  getCredentialClient,
+  refreshCredentials,
+  setImpersonationTarget,
+  getImpersonationTarget,
+  getCredentialStatus,
+  type GcpCredentialStatus
+} from './auth'

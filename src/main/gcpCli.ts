@@ -3,9 +3,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { BrowserWindow, dialog } from 'electron'
-import { GoogleAuth } from 'google-auth-library'
 
 import { logWarn } from './observability'
+import { getCredentialAuth } from './gcp/auth'
 
 import type {
   GcpCliConfiguration,
@@ -124,6 +124,13 @@ function outputIndicatesAuthIssue(output: string): boolean {
     || normalized.includes('unauthorized')
     || normalized.includes('access token')
     || normalized.includes('credentials')
+    || normalized.includes('token_expired')
+    || normalized.includes('token has been expired')
+    || normalized.includes('token has been revoked')
+    || normalized.includes('access_denied')
+    || normalized.includes('refresh token')
+    || normalized.includes('could not load the default credentials')
+    || normalized.includes('application default credentials')
 }
 
 function outputIndicatesApiDisabled(output: string): boolean {
@@ -199,41 +206,13 @@ function outputIndicatesPermissionIssue(output: string): boolean {
     || normalized.includes('insufficient authentication scopes')
 }
 
-function buildGcpSdkError(label: string, error: unknown, apiServiceName = 'cloudresourcemanager.googleapis.com'): Error {
-  const detail = error instanceof Error ? error.message.trim() : String(error).trim()
+// buildGcpSdkError is now centralised in src/main/gcp/client.ts as classifyGcpError.
+// Import and alias for backward compatibility within this file.
+import { classifyGcpError as buildGcpSdkError } from './gcp/client'
 
-  if (outputIndicatesApiDisabled(detail)) {
-    const projectId = extractProjectIdFromOutput(detail)
-    const enableCommand = projectId
-      ? `gcloud services enable ${apiServiceName} --project ${projectId}`
-      : `gcloud services enable ${apiServiceName} --project <project-id>`
-
-    return new Error(
-      `Google Cloud API access failed while ${label}. The required API is disabled for the selected project. Run "${enableCommand}", wait for propagation, and retry.${detail ? ` ${detail}` : ''}`
-    )
-  }
-
-  if (outputIndicatesAdcIssue(detail)) {
-    return new Error(
-      `Google Cloud SDK authorization failed while ${label}. Run "gcloud auth application-default login" or provide GOOGLE_APPLICATION_CREDENTIALS, then try again.${detail ? ` ${detail}` : ''}`
-    )
-  }
-
-  if (outputIndicatesPermissionIssue(detail)) {
-    return new Error(
-      `Google Cloud SDK authorization failed while ${label}. Verify the selected credentials have the required IAM access for this project.${detail ? ` ${detail}` : ''}`
-    )
-  }
-
-  return new Error(`Google Cloud SDK failed while ${label}.${detail ? ` ${detail}` : ''}`)
-}
-
-function getGcpSdkAuth(projectId = ''): GoogleAuth {
-  return new GoogleAuth({
-    projectId: projectId.trim() || undefined,
-    scopes: ['https://www.googleapis.com/auth/cloud-platform']
-  })
-}
+// getGcpSdkAuth is replaced by getCredentialAuth from './gcp/auth' which
+// uses pooled credentials with proactive refresh and impersonation support.
+const getGcpSdkAuth = getCredentialAuth
 
 function isWindowsBatchCommand(command: string): boolean {
   if (process.platform !== 'win32') {
