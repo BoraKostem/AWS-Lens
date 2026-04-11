@@ -19,3 +19,18 @@ export {
   getCredentialStatus,
   type GcpCredentialStatus
 } from './auth'
+
+export {
+  GCP_TTL_COMPUTE,
+  GCP_TTL_NETWORK,
+  GCP_TTL_DATA,
+  GCP_TTL_IAM,
+  GCP_TTL_BILLING,
+  GCP_TTL_MONITOR,
+  getOrFetch,
+  forceRefresh,
+  invalidateKey,
+  invalidatePrefix,
+  clearAllCache,
+  getCacheStats
+} from './cache'
