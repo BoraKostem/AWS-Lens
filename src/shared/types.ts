@@ -2078,6 +2078,106 @@ export type GcpBillingOverview = {
   lastUpdatedAt: string
 }
 
+// ── GCP Billing & Cost Analysis Extended Types ──────────────────────────────────
+
+export type GcpBillingAccountSummary = {
+  name: string
+  displayName: string
+  open: boolean
+  masterBillingAccount: string
+}
+
+export type GcpBillingCostTrendMonth = {
+  month: string
+  totalAmount: number
+  currency: string
+  topServices: { service: string; amount: number }[]
+}
+
+export type GcpBillingCostTrend = {
+  projectId: string
+  months: GcpBillingCostTrendMonth[]
+  currency: string
+  message: string
+}
+
+export type GcpBillingDailyCostEntry = {
+  date: string
+  amount: number
+  currency: string
+}
+
+export type GcpBillingDailyCostTrend = {
+  projectId: string
+  days: GcpBillingDailyCostEntry[]
+  currency: string
+  message: string
+}
+
+export type GcpBillingLabelCostEntry = {
+  labelValue: string
+  amount: number
+  currency: string
+  sharePercent: number
+}
+
+export type GcpBillingCostByLabel = {
+  projectId: string
+  labelKey: string
+  entries: GcpBillingLabelCostEntry[]
+  totalAmount: number
+  currency: string
+  message: string
+}
+
+export type GcpBillingSkuCostEntry = {
+  skuDescription: string
+  amount: number
+  currency: string
+  sharePercent: number
+}
+
+export type GcpBillingSkuBreakdown = {
+  projectId: string
+  serviceName: string
+  entries: GcpBillingSkuCostEntry[]
+  totalAmount: number
+  currency: string
+  message: string
+}
+
+export type GcpBillingBudgetSummary = {
+  name: string
+  displayName: string
+  budgetAmount: number
+  currency: string
+  scopeProjectIds: string[]
+  thresholdPercents: number[]
+  calendarPeriod: string
+}
+
+export type GcpBillingCostForecast = {
+  projectId: string
+  currentMonthSpend: number
+  forecastedMonthEnd: number
+  averageDailySpend: number
+  daysElapsed: number
+  daysRemaining: number
+  currency: string
+  confidence: 'low' | 'medium' | 'high'
+  message: string
+}
+
+export type GcpBillingCostAnomaly = {
+  service: string
+  currentAmount: number
+  previousAmount: number
+  absoluteChange: number
+  percentChange: number
+  severity: 'info' | 'warning' | 'critical'
+  comparisonBasis: string
+}
+
 export type GcpBigQueryDatasetSummary = {
   datasetId: string
   projectId: string

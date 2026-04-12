@@ -17,6 +17,14 @@ import type {
   CloudProviderId,
   GcpComputeInstanceAction,
   GcpDnsRecordUpsertInput,
+  GcpBillingAccountSummary,
+  GcpBillingBudgetSummary,
+  GcpBillingCostAnomaly,
+  GcpBillingCostByLabel,
+  GcpBillingCostForecast,
+  GcpBillingCostTrend,
+  GcpBillingDailyCostTrend,
+  GcpBillingSkuBreakdown,
   GcpIamAuditEntry,
   GcpIamPolicyAnalysisResult,
   GcpIamRecommendation,
@@ -78,10 +86,12 @@ const wrap: <T>(
 
 type GcpSdkModule = typeof import('./gcpSdk')
 type GcpIamModule = typeof import('./gcp/iam')
+type GcpBillingModule = typeof import('./gcp/billing')
 type AzureSdkModule = typeof import('./azureSdk')
 
 let gcpSdkPromise: Promise<GcpSdkModule> | null = null
 let gcpIamPromise: Promise<GcpIamModule> | null = null
+let gcpBillingPromise: Promise<GcpBillingModule> | null = null
 let azureSdkPromise: Promise<AzureSdkModule> | null = null
 
 function loadGcpSdk(): Promise<GcpSdkModule> {
@@ -98,6 +108,14 @@ function loadGcpIam(): Promise<GcpIamModule> {
   }
 
   return gcpIamPromise
+}
+
+function loadGcpBilling(): Promise<GcpBillingModule> {
+  if (!gcpBillingPromise) {
+    gcpBillingPromise = import('./gcp/billing')
+  }
+
+  return gcpBillingPromise
 }
 
 function loadAzureSdk(): Promise<AzureSdkModule> {
@@ -475,6 +493,32 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   )
   ipcMain.handle('gcp:billing:get-overview', async (_event, projectId: string, catalogProjectIds: string[]) =>
     wrap(() => cachedGcp(`${projectId}:billing:${catalogProjectIds.join(',')}`, GCP_TTL.BILLING, async () => (await loadGcpSdk()).getGcpBillingOverview(projectId, catalogProjectIds)))
+  )
+
+  // ── GCP Billing & Cost Analysis Extended ─────────────────────────────────────
+  ipcMain.handle('gcp:billing:list-accounts', async (_event, projectId: string) =>
+    wrap<GcpBillingAccountSummary[]>(() => cachedGcp(`${projectId}:billing-accounts`, GCP_TTL.BILLING, async () => (await loadGcpBilling()).listGcpBillingAccounts(projectId)))
+  )
+  ipcMain.handle('gcp:billing:cost-trend', async (_event, projectId: string, months?: number, catalogProjectIds?: string[]) =>
+    wrap<GcpBillingCostTrend>(() => cachedGcp(`${projectId}:cost-trend:${months ?? 6}`, GCP_TTL.BILLING, async () => (await loadGcpBilling()).getGcpCostTrend(projectId, months, catalogProjectIds)))
+  )
+  ipcMain.handle('gcp:billing:daily-cost-trend', async (_event, projectId: string, days?: number, catalogProjectIds?: string[]) =>
+    wrap<GcpBillingDailyCostTrend>(() => cachedGcp(`${projectId}:daily-cost:${days ?? 30}`, GCP_TTL.BILLING, async () => (await loadGcpBilling()).getGcpDailyCostTrend(projectId, days, catalogProjectIds)))
+  )
+  ipcMain.handle('gcp:billing:cost-by-label', async (_event, projectId: string, labelKey: string, catalogProjectIds?: string[]) =>
+    wrap<GcpBillingCostByLabel>(async () => (await loadGcpBilling()).getGcpCostByLabel(projectId, labelKey, catalogProjectIds))
+  )
+  ipcMain.handle('gcp:billing:sku-breakdown', async (_event, projectId: string, serviceName: string, catalogProjectIds?: string[]) =>
+    wrap<GcpBillingSkuBreakdown>(async () => (await loadGcpBilling()).getGcpSkuCostBreakdown(projectId, serviceName, catalogProjectIds))
+  )
+  ipcMain.handle('gcp:billing:list-budgets', async (_event, projectId: string, billingAccountName: string) =>
+    wrap<GcpBillingBudgetSummary[]>(() => cachedGcp(`${projectId}:budgets:${billingAccountName}`, GCP_TTL.BILLING, async () => (await loadGcpBilling()).listGcpBillingBudgets(projectId, billingAccountName)))
+  )
+  ipcMain.handle('gcp:billing:cost-forecast', async (_event, projectId: string, catalogProjectIds?: string[]) =>
+    wrap<GcpBillingCostForecast>(() => cachedGcp(`${projectId}:cost-forecast`, GCP_TTL.BILLING, async () => (await loadGcpBilling()).getGcpCostForecast(projectId, catalogProjectIds)))
+  )
+  ipcMain.handle('gcp:billing:cost-anomalies', async (_event, projectId: string, catalogProjectIds?: string[]) =>
+    wrap<GcpBillingCostAnomaly[]>(() => cachedGcp(`${projectId}:cost-anomalies`, GCP_TTL.BILLING, async () => (await loadGcpBilling()).getGcpCostAnomalies(projectId, catalogProjectIds)))
   )
 
   // Pub/Sub

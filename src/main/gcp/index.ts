@@ -49,3 +49,14 @@ export {
   listGcpIamRecommendations,
   analyzeGcpIamPolicy
 } from './iam'
+
+export {
+  listGcpBillingAccounts,
+  getGcpCostTrend,
+  getGcpDailyCostTrend,
+  getGcpCostByLabel,
+  getGcpSkuCostBreakdown,
+  listGcpBillingBudgets,
+  getGcpCostForecast,
+  getGcpCostAnomalies
+} from './billing'
