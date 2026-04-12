@@ -48,6 +48,7 @@ import type {
   TerraformInputConfiguration,
   TerraformCommandRequest,
   TerraformInputValidationResult,
+  LoadBalancerLogQuery,
   TerraformDriftSchedule,
   TerraformRunHistoryFilter,
   VaultEntryFilter,
@@ -467,6 +468,12 @@ const awsLensApi = {
   /* ── Azure Load Balancers (detail) ── */
   describeAzureLoadBalancer: (subscriptionId: string, resourceGroup: string, lbName: string) =>
     ipcRenderer.invoke('azure:load-balancers:describe', subscriptionId, resourceGroup, lbName),
+
+  /* ── Load Balancer Log Viewer ── */
+  queryLoadBalancerLogs: (connection: AwsConnection | undefined, query: LoadBalancerLogQuery, providerContext?: { gcpProjectId?: string; azureWorkspaceId?: string }) =>
+    ipcRenderer.invoke('lb:logs:query', connection, query, providerContext),
+  getAlbAccessLogConfig: (connection: AwsConnection, loadBalancerArn: string) =>
+    ipcRenderer.invoke('lb:logs:access-log-config', connection, loadBalancerArn),
 
   checkForAppUpdates: () => ipcRenderer.invoke('app:update:check'),
   downloadAppUpdate: () => ipcRenderer.invoke('app:update:download'),

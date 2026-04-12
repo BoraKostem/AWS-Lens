@@ -67,7 +67,8 @@ import type {
   GcpServiceAccountDetail,
   GcpServiceAccountKeyReport,
   GcpWorkloadIdentityPoolSummary,
-  GcpWorkloadIdentityProviderSummary
+  GcpWorkloadIdentityProviderSummary,
+  LoadBalancerLogQuery
 } from '@shared/types'
 import { getAppSettings, resetAppSettings, updateAppSettings } from './appSettings'
 import { importAwsConfigFile } from './aws/profiles'
@@ -124,12 +125,18 @@ type GcpIamModule = typeof import('./gcp/iam')
 type GcpBillingModule = typeof import('./gcp/billing')
 type GcpMonitoringModule = typeof import('./gcp/monitoring')
 type AzureSdkModule = typeof import('./azureSdk')
+type AwsLbLogsModule = typeof import('./aws/loadBalancerLogs')
+type GcpLbLogsModule = typeof import('./gcp/loadBalancerLogs')
+type AzureLbLogsModule = typeof import('./azure/loadBalancerLogs')
 
 let gcpSdkPromise: Promise<GcpSdkModule> | null = null
 let gcpIamPromise: Promise<GcpIamModule> | null = null
 let gcpBillingPromise: Promise<GcpBillingModule> | null = null
 let gcpMonitoringPromise: Promise<GcpMonitoringModule> | null = null
 let azureSdkPromise: Promise<AzureSdkModule> | null = null
+let awsLbLogsPromise: Promise<AwsLbLogsModule> | null = null
+let gcpLbLogsPromise: Promise<GcpLbLogsModule> | null = null
+let azureLbLogsPromise: Promise<AzureLbLogsModule> | null = null
 
 function loadGcpSdk(): Promise<GcpSdkModule> {
   if (!gcpSdkPromise) {
@@ -169,6 +176,21 @@ function loadAzureSdk(): Promise<AzureSdkModule> {
   }
 
   return azureSdkPromise
+}
+
+function loadAwsLbLogs(): Promise<AwsLbLogsModule> {
+  if (!awsLbLogsPromise) awsLbLogsPromise = import('./aws/loadBalancerLogs')
+  return awsLbLogsPromise
+}
+
+function loadGcpLbLogs(): Promise<GcpLbLogsModule> {
+  if (!gcpLbLogsPromise) gcpLbLogsPromise = import('./gcp/loadBalancerLogs')
+  return gcpLbLogsPromise
+}
+
+function loadAzureLbLogs(): Promise<AzureLbLogsModule> {
+  if (!azureLbLogsPromise) azureLbLogsPromise = import('./azure/loadBalancerLogs')
+  return azureLbLogsPromise
 }
 
 // ── GCP Cached Wrapper ──────────────────────────────────────────────────────────
@@ -1220,6 +1242,30 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   /* ── Azure Load Balancers (detail) ── */
   ipcMain.handle('azure:load-balancers:describe', async (_event, subscriptionId: string, resourceGroup: string, lbName: string) =>
     wrap(async () => (await loadAzureSdk()).describeAzureLoadBalancer(subscriptionId, resourceGroup, lbName))
+  )
+
+  /* ── Load Balancer Log Viewer (multi-cloud) ── */
+  ipcMain.handle('lb:logs:query', async (_event, connection: AwsConnection | undefined, query: LoadBalancerLogQuery, providerContext?: { gcpProjectId?: string; azureWorkspaceId?: string }) =>
+    wrap(async () => {
+      switch (query.provider) {
+        case 'aws': {
+          if (!connection) throw new Error('AWS connection is required for ALB/NLB log queries')
+          return (await loadAwsLbLogs()).queryAlbAccessLogs(connection, query)
+        }
+        case 'gcp': {
+          const projectId = providerContext?.gcpProjectId ?? ''
+          return (await loadGcpLbLogs()).queryGcpLoadBalancerLogs(projectId, query)
+        }
+        case 'azure': {
+          return (await loadAzureLbLogs()).queryAzureLoadBalancerLogs(providerContext?.azureWorkspaceId ?? '', query)
+        }
+        default:
+          throw new Error(`Unsupported provider for LB logs: ${query.provider}`)
+      }
+    }, 'lb:logs:query', { timeoutMs: 120_000 })
+  )
+  ipcMain.handle('lb:logs:access-log-config', async (_event, connection: AwsConnection, loadBalancerArn: string) =>
+    wrap(async () => (await loadAwsLbLogs()).getAlbAccessLogConfig(connection, loadBalancerArn))
   )
 
   ipcMain.handle('app:update:check', async () => wrap(() => checkForAppUpdates()))

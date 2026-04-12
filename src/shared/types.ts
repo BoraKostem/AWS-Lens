@@ -3676,6 +3676,68 @@ export type LoadBalancerWorkspace = {
   timeline: LoadBalancerTimelineEvent[]
 }
 
+/* ── Load Balancer Log Viewer types ──────────────────────── */
+
+export type LoadBalancerLogEntry = {
+  timestamp: string
+  clientIp: string
+  clientPort: number
+  targetIp: string
+  targetPort: number
+  httpMethod: string
+  requestUrl: string
+  statusCode: number
+  targetStatusCode: number
+  sentBytes: number
+  receivedBytes: number
+  requestProcessingTime: number
+  targetProcessingTime: number
+  responseProcessingTime: number
+  userAgent: string
+  sslCipher: string
+  sslProtocol: string
+  targetGroupArn: string
+  traceId: string
+  domainName: string
+  actionsExecuted: string
+  redirectUrl: string
+  errorReason: string
+  provider: CloudProviderId
+  raw: string
+}
+
+export type LoadBalancerLogFilter = {
+  statusCodeRange?: '2xx' | '3xx' | '4xx' | '5xx' | ''
+  clientIp?: string
+  requestUrlPattern?: string
+  minResponseTimeMs?: number
+  httpMethod?: string
+  targetIp?: string
+  searchText?: string
+}
+
+export type LoadBalancerLogTimeRange = {
+  startTime: string
+  endTime: string
+}
+
+export type LoadBalancerLogQuery = {
+  loadBalancerIdentifier: string
+  provider: CloudProviderId
+  timeRange: LoadBalancerLogTimeRange
+  filter: LoadBalancerLogFilter
+  maxResults: number
+  nextToken?: string
+}
+
+export type LoadBalancerLogResult = {
+  entries: LoadBalancerLogEntry[]
+  totalScanned: number
+  nextToken?: string
+  statusCodeDistribution: Record<string, number>
+  notes: string[]
+}
+
 export type ServiceId =
   | 'terraform'
   | 'overview'
