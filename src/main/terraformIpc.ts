@@ -49,6 +49,9 @@ import { detectGovernanceTools, getCachedGovernanceToolkit, getGovernanceReport,
 import { deleteRunRecord, getRunOutput, listRunRecords } from './terraformHistoryStore'
 import { generateTerraformObservabilityReport as generateAwsTerraformObservabilityReport } from './aws/observabilityLab'
 import { generateGcpTerraformObservabilityReport, getGcpTerraformDriftReport } from './gcpTerraformInsights'
+import { getDriftProvider, resolveDriftProviderId } from './terraformDriftProvider'
+import { getDriftSchedule, updateDriftSchedule, runScheduledDriftCheck, initDriftScheduler } from './terraformDriftScheduler'
+import type { TerraformDriftSchedule } from '@shared/types'
 
 type HandlerResult<T> = { ok: true; data: T } | { ok: false; error: string }
 const execFileAsync = promisify(execFile)
@@ -167,13 +170,8 @@ export function registerTerraformIpcHandlers(getWindow: () => BrowserWindow | nu
   )
   ipcMain.handle('terraform:drift:get', async (_event, profileName: string, projectId: string, connection: AwsConnection, options?: { forceRefresh?: boolean }) =>
     wrap(() => {
-      if (connection?.providerId === 'gcp' || profileName.startsWith('provider:gcp:terraform:')) {
-        return getGcpTerraformDriftReport(profileName, projectId, connection, options)
-      }
-      if (connection?.providerId === 'azure' || profileName.startsWith('provider:azure:terraform:')) {
-        return getAzureTerraformDriftReport(profileName, projectId, connection, options)
-      }
-      return getAwsTerraformDriftReport(profileName, projectId, connection, options)
+      const providerId = resolveDriftProviderId(profileName, connection)
+      return getDriftProvider(providerId).getDriftReport(profileName, projectId, connection, options)
     })
   )
   ipcMain.handle('terraform:observability-report:get', async (_event, profileName: string, projectId: string, connection: AwsConnection) =>
@@ -265,4 +263,18 @@ export function registerTerraformIpcHandlers(getWindow: () => BrowserWindow | nu
   ipcMain.handle('terraform:governance:get-report', async (_event, projectId: string) =>
     wrap(() => getGovernanceReport(projectId))
   )
+
+  // Drift scheduling handlers
+  ipcMain.handle('terraform:drift:schedule:get', async () =>
+    wrap(() => getDriftSchedule())
+  )
+  ipcMain.handle('terraform:drift:schedule:update', async (_event, update: Partial<TerraformDriftSchedule>) =>
+    wrap(() => updateDriftSchedule(update))
+  )
+  ipcMain.handle('terraform:drift:schedule:run-now', async () =>
+    wrap(() => runScheduledDriftCheck())
+  )
+
+  // Initialize drift scheduler with access to main window
+  initDriftScheduler(getWindow)
 }

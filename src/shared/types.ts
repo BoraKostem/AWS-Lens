@@ -6425,6 +6425,8 @@ export type TerraformDriftStatus =
   | 'drifted'
   | 'missing_in_aws'
   | 'unmanaged_in_aws'
+  | 'missing_in_cloud'
+  | 'unmanaged_in_cloud'
   | 'unsupported'
 
 export type TerraformDriftAssessment = 'verified' | 'inferred' | 'unsupported'
@@ -6455,7 +6457,7 @@ export type TerraformDriftTrend = 'improving' | 'worsening' | 'unchanged' | 'ins
 export type TerraformDriftSnapshot = {
   id: string
   scannedAt: string
-  trigger: 'manual' | 'initial'
+  trigger: 'manual' | 'initial' | 'scheduled'
   summary: TerraformDriftSummary
   items: TerraformDriftItem[]
 }
@@ -6482,6 +6484,7 @@ export type TerraformDriftItem = {
   differences: TerraformDriftDifference[]
   evidence: string[]
   relatedTerraformAddresses: string[]
+  remediationSuggestions?: TerraformDriftRemediationSuggestion[]
 }
 
 export type TerraformDriftSummary = {
@@ -6504,6 +6507,28 @@ export type TerraformDriftReport = {
   items: TerraformDriftItem[]
   history: TerraformDriftHistory
   fromCache: boolean
+}
+
+export type TerraformDriftRemediationAction = 'update-terraform' | 'apply-terraform' | 'ignore-with-annotation'
+
+export type TerraformDriftRemediationSuggestion = {
+  action: TerraformDriftRemediationAction
+  riskLevel: 'low' | 'medium' | 'high'
+  description: string
+  codeSnippet?: string
+  terraformCommand?: string
+  lifecycleBlock?: string
+}
+
+export type TerraformDriftScheduleInterval = 'hourly' | 'daily' | 'weekly'
+
+export type TerraformDriftSchedule = {
+  enabled: boolean
+  interval: TerraformDriftScheduleInterval
+  providers: CloudProviderId[]
+  projectIds: string[]
+  lastRunAt: string
+  nextRunAt: string
 }
 
 export type TerraformProject = {

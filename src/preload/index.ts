@@ -48,6 +48,7 @@ import type {
   TerraformInputConfiguration,
   TerraformCommandRequest,
   TerraformInputValidationResult,
+  TerraformDriftSchedule,
   TerraformRunHistoryFilter,
   VaultEntryFilter,
   VaultEntryInput,
@@ -1153,6 +1154,13 @@ const api = {
   runGovernanceChecks: (profileName: string, projectId: string, connection?: AwsConnection) =>
     ipcRenderer.invoke('terraform:governance:run-checks', profileName, projectId, connection),
   getGovernanceReport: (projectId: string) => ipcRenderer.invoke('terraform:governance:get-report', projectId),
+  getDriftSchedule: () => ipcRenderer.invoke('terraform:drift:schedule:get'),
+  updateDriftSchedule: (update: Partial<TerraformDriftSchedule>) => ipcRenderer.invoke('terraform:drift:schedule:update', update),
+  runDriftScheduleNow: () => ipcRenderer.invoke('terraform:drift:schedule:run-now'),
+  onDriftNotification: (listener: (event: unknown, data: unknown) => void) => {
+    ipcRenderer.on('terraform:drift:notification', listener)
+    return () => ipcRenderer.removeListener('terraform:drift:notification', listener)
+  },
   subscribe: (listener: (event: unknown) => void) => {
     terraformListeners.add(listener)
   },

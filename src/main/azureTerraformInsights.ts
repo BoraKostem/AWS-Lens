@@ -31,7 +31,9 @@ import {
   listAzureStorageAccounts,
   listAzureVirtualMachines,
   listAzureVmss,
-  listAzureWebApps
+  listAzureWebApps,
+  listAzureCosmosDbEstate,
+  listAzureDnsZones
 } from './azureSdk'
 import { getProject } from './terraform'
 import { logWarn } from './observability'
@@ -55,6 +57,8 @@ type AzureLiveData = {
   networkOverview?: Awaited<ReturnType<typeof listAzureNetworkOverview>>
   appInsights?: Awaited<ReturnType<typeof listAzureAppInsightsComponents>>
   aksNodePoolsByCluster?: Map<string, AzureAksNodePoolSummary[]>
+  cosmosDbEstate?: Awaited<ReturnType<typeof listAzureCosmosDbEstate>>
+  dnsZones?: Awaited<ReturnType<typeof listAzureDnsZones>>
 }
 type AzureLiveErrors = Partial<Record<keyof AzureLiveData, string>>
 
@@ -212,7 +216,9 @@ async function loadAzureLiveData(subscriptionId: string, location: string): Prom
     ['appServicePlans', () => listAzureAppServicePlans(subscriptionId, location)],
     ['webApps', () => listAzureWebApps(subscriptionId, location)],
     ['networkOverview', () => listAzureNetworkOverview(subscriptionId, location)],
-    ['appInsights', () => listAzureAppInsightsComponents(subscriptionId, location)]
+    ['appInsights', () => listAzureAppInsightsComponents(subscriptionId, location)],
+    ['cosmosDbEstate', () => listAzureCosmosDbEstate(subscriptionId, location)],
+    ['dnsZones', () => listAzureDnsZones(subscriptionId, location)]
   ]
 
   const settled = await Promise.allSettled(loaders.map(async ([key, loader]) => ({ key, value: await loader() })))
@@ -510,6 +516,8 @@ function summarizeItems(items: TerraformDriftItem[], scannedAt: string): Terrafo
     drifted: 0,
     missing_in_aws: 0,
     unmanaged_in_aws: 0,
+    missing_in_cloud: 0,
+    unmanaged_in_cloud: 0,
     unsupported: 0
   }
   const resourceTypeCounts = new Map<string, number>()
@@ -1111,6 +1119,100 @@ export async function getAzureTerraformDriftReport(
             ? `Detected ${differences.length} verified drift signal${differences.length === 1 ? '' : 's'} for Application Insights "${tfName}".`
             : `Terraform state and live Azure Application Insights "${tfName}" match on tracked attributes.`,
           evidence: [`Matched live Application Insights "${tfName}" by name.`, ...differences.map((d) => `${d.label}: terraform=${d.terraformValue || '-'} azure=${d.liveValue || '-'}`)],
+          differences
+        })
+      }
+
+      case 'azurerm_resource_group': {
+        const tfName = str(item.values.name)
+        const tfLocation = str(item.values.location)
+        const allResourceGroups = new Set<string>()
+        for (const vm of live.virtualMachines ?? []) allResourceGroups.add(vm.resourceGroup.toLowerCase())
+        for (const sa of live.storageAccounts ?? []) allResourceGroups.add(sa.resourceGroup.toLowerCase())
+        for (const vnet of live.networkOverview?.vnets ?? []) allResourceGroups.add(vnet.resourceGroup.toLowerCase())
+        const exists = allResourceGroups.has(tfName.toLowerCase())
+        return buildVerifiedAzureItem(item, context.location, {
+          exists,
+          cloudIdentifier: resourceId(item) || tfName,
+          explanation: exists
+            ? `Resource group "${tfName}" exists in live Azure inventory.`
+            : `Resource group "${tfName}" exists in Terraform state but was not found in live Azure inventory.`,
+          evidence: exists
+            ? [`Resource group "${tfName}" confirmed via resource discovery.`, `Location: ${tfLocation || 'not set'}`]
+            : [`Terraform address: ${item.address}`, `Resource group "${tfName}" not found in live discovery.`]
+        })
+      }
+
+      case 'azurerm_subnet': {
+        if (!live.networkOverview) return buildDriftItem(item, context.location)
+        const tfName = str(item.values.name)
+        const tfVnetName = str(item.values.virtual_network_name)
+        const tfPrefix = str(item.values.address_prefix) || (Array.isArray(item.values.address_prefixes) ? str((item.values.address_prefixes as unknown[])[0]) : '')
+        const parentVnet = live.networkOverview.vnets.find((v) => v.name.toLowerCase() === tfVnetName.toLowerCase())
+        const exists = Boolean(parentVnet)
+        const differences: TerraformDriftDifference[] = []
+        return buildVerifiedAzureItem(item, context.location, {
+          exists,
+          cloudIdentifier: resourceId(item) || `${tfVnetName}/${tfName}`,
+          explanation: exists
+            ? `Subnet "${tfName}" parent VNet "${tfVnetName}" exists in live Azure inventory.`
+            : `Subnet "${tfName}" parent VNet "${tfVnetName}" was not found in live Azure inventory.`,
+          evidence: [
+            `Terraform address: ${item.address}`,
+            `VNet: ${tfVnetName}`,
+            `Address prefix: ${tfPrefix || 'not set'}`
+          ],
+          differences
+        })
+      }
+
+      case 'azurerm_cosmosdb_account': {
+        if (!live.cosmosDbEstate) return buildDriftItem(item, context.location)
+        const tfName = str(item.values.name)
+        const liveAccount = live.cosmosDbEstate.accounts.find((a) => a.name.toLowerCase() === tfName.toLowerCase())
+        if (!liveAccount) {
+          return buildVerifiedAzureItem(item, context.location, {
+            exists: false,
+            cloudIdentifier: resourceId(item) || tfName,
+            explanation: `Cosmos DB account "${tfName}" exists in Terraform state but was not found in live Azure inventory.`,
+            evidence: [`Terraform address: ${item.address}`, `Cosmos DB account "${tfName}" not found.`]
+          })
+        }
+        const differences: TerraformDriftDifference[] = []
+        compareValues(differences, 'kind', 'Kind', str(item.values.kind), liveAccount.kind || '')
+        compareValues(differences, 'offer_type', 'Offer Type', str(item.values.offer_type), liveAccount.databaseAccountOfferType || '')
+        return buildVerifiedAzureItem(item, context.location, {
+          exists: true,
+          cloudIdentifier: liveAccount.id || tfName,
+          explanation: differences.length > 0
+            ? `Detected ${differences.length} verified drift signal${differences.length === 1 ? '' : 's'} for Cosmos DB account "${tfName}".`
+            : `Terraform state and live Azure Cosmos DB account "${tfName}" match on tracked attributes.`,
+          evidence: [`Matched live Cosmos DB account "${tfName}" by name.`, ...differences.map((d) => `${d.label}: terraform=${d.terraformValue || '-'} azure=${d.liveValue || '-'}`)],
+          differences
+        })
+      }
+
+      case 'azurerm_dns_zone': {
+        if (!live.dnsZones) return buildDriftItem(item, context.location)
+        const tfName = str(item.values.name)
+        const liveZone = live.dnsZones.find((z) => z.name.toLowerCase() === tfName.toLowerCase())
+        if (!liveZone) {
+          return buildVerifiedAzureItem(item, context.location, {
+            exists: false,
+            cloudIdentifier: resourceId(item) || tfName,
+            explanation: `DNS zone "${tfName}" exists in Terraform state but was not found in live Azure inventory.`,
+            evidence: [`Terraform address: ${item.address}`, `DNS zone "${tfName}" not found.`]
+          })
+        }
+        const differences: TerraformDriftDifference[] = []
+        compareValues(differences, 'zone_type', 'Zone Type', str(item.values.zone_type), liveZone.zoneType || '')
+        return buildVerifiedAzureItem(item, context.location, {
+          exists: true,
+          cloudIdentifier: liveZone.id || tfName,
+          explanation: differences.length > 0
+            ? `Detected ${differences.length} verified drift signal${differences.length === 1 ? '' : 's'} for DNS zone "${tfName}".`
+            : `Terraform state and live Azure DNS zone "${tfName}" match on tracked attributes.`,
+          evidence: [`Matched live DNS zone "${tfName}" by name.`, ...differences.map((d) => `${d.label}: terraform=${d.terraformValue || '-'} azure=${d.liveValue || '-'}`)],
           differences
         })
       }

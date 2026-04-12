@@ -2830,14 +2830,16 @@ const DRIFT_STATUS_LABELS: Record<TerraformDriftStatus, string> = {
   drifted: 'Drifted',
   missing_in_aws: 'Missing In AWS',
   unmanaged_in_aws: 'Unmanaged In AWS',
+  missing_in_cloud: 'Missing In Cloud',
+  unmanaged_in_cloud: 'Unmanaged In Cloud',
   unsupported: 'Unsupported'
 }
 
 function driftStatusLabel(status: TerraformDriftStatus, providerId: TerraformProviderId): string {
   if (providerId !== 'aws') {
     const cloud = providerId === 'gcp' ? 'GCP' : 'Azure'
-    if (status === 'missing_in_aws') return `Missing In ${cloud}`
-    if (status === 'unmanaged_in_aws') return `Unmanaged In ${cloud}`
+    if (status === 'missing_in_aws' || status === 'missing_in_cloud') return `Missing In ${cloud}`
+    if (status === 'unmanaged_in_aws' || status === 'unmanaged_in_cloud') return `Unmanaged In ${cloud}`
   }
   return DRIFT_STATUS_LABELS[status]
 }
@@ -2952,8 +2954,8 @@ function DriftTab({
   )
   const summaryCards = report ? [
     { label: 'Drifted', value: report.summary.statusCounts.drifted, tone: 'warning' },
-    { label: 'Missing', value: report.summary.statusCounts.missing_in_aws, tone: 'danger' },
-    { label: 'Unmanaged', value: report.summary.statusCounts.unmanaged_in_aws, tone: 'info' },
+    { label: 'Missing', value: report.summary.statusCounts.missing_in_aws + report.summary.statusCounts.missing_in_cloud, tone: 'danger' },
+    { label: 'Unmanaged', value: report.summary.statusCounts.unmanaged_in_aws + report.summary.statusCounts.unmanaged_in_cloud, tone: 'info' },
     { label: 'In Sync', value: report.summary.statusCounts.in_sync, tone: 'success' }
   ] : []
 

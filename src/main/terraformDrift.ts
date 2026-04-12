@@ -378,8 +378,10 @@ function sortItems(items: TerraformDriftItem[]): TerraformDriftItem[] {
   const statusOrder: Record<TerraformDriftStatus, number> = {
     drifted: 0,
     missing_in_aws: 1,
+    missing_in_cloud: 1,
     in_sync: 2,
     unmanaged_in_aws: 3,
+    unmanaged_in_cloud: 3,
     unsupported: 4
   }
   return [...items].sort((left, right) =>
@@ -466,6 +468,8 @@ function buildSummary(items: TerraformDriftItem[], coverage: TerraformDriftCover
     drifted: 0,
     missing_in_aws: 0,
     unmanaged_in_aws: 0,
+    missing_in_cloud: 0,
+    unmanaged_in_cloud: 0,
     unsupported: 0
   }
   const resourceTypeMap = new Map<string, number>()
