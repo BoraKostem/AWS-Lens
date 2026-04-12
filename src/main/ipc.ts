@@ -8,6 +8,8 @@ import type {
   AppSecuritySummary,
   AppSettings,
   AwsConnection,
+  AzureCrossSubscriptionQueryResult,
+  AzureManagementGroupSummary,
   AzureProviderContextSnapshot,
   AzureVmAction,
   AzureWebAppAction,
@@ -31,11 +33,14 @@ import { getVaultEntryCounts } from './localVault'
 import { createHandlerWrapper, type OperationOptions } from './operations'
 import {
   getAzureProviderContext,
+  listAzureManagementGroups,
+  queryCrossSubscriptionResources,
   setAzureActiveLocation,
   setAzureActiveSubscription,
   setAzureActiveTenant,
   signOutAzureProvider,
-  startAzureDeviceCodeSignIn
+  startAzureDeviceCodeSignIn,
+  toggleAzureFavoriteSubscription
 } from './azureFoundation'
 import { checkForAppUpdates, downloadAppUpdate, getReleaseInfo, installAppUpdate } from './releaseCheck'
 import { listProviders } from './providerRegistry'
@@ -179,6 +184,15 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
       const { getAzureCredentialStatus } = await import('./azure/auth')
       return getAzureCredentialStatus()
     })
+  )
+  ipcMain.handle('azure:context:toggle-favorite-subscription', async (_event, subscriptionId: string) =>
+    wrap<AzureProviderContextSnapshot>(async () => toggleAzureFavoriteSubscription(subscriptionId))
+  )
+  ipcMain.handle('azure:context:list-management-groups', async () =>
+    wrap<AzureManagementGroupSummary[]>(async () => listAzureManagementGroups())
+  )
+  ipcMain.handle('azure:context:cross-subscription-query', async (_event, subscriptionIds: string[], query: string) =>
+    wrap<AzureCrossSubscriptionQueryResult>(async () => queryCrossSubscriptionResources(subscriptionIds, query))
   )
   ipcMain.handle('gcp:cli-context', async () => wrap(() => getGcpCliContext()))
   ipcMain.handle('gcp:auth:status', async (_event, projectId: string) =>

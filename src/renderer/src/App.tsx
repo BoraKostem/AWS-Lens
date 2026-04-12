@@ -2809,6 +2809,8 @@ function readAzureContextCache(): AzureProviderContextSnapshot | null {
       locations,
       recentSubscriptionIds: sanitizeCachedStringArray(parsed.recentSubscriptionIds),
       recentSubscriptions,
+      favoriteSubscriptionIds: sanitizeCachedStringArray(parsed.favoriteSubscriptionIds),
+      managementGroups: [],
       providerRegistrations: [],
       diagnostics: []
     }

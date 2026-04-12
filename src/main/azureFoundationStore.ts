@@ -14,6 +14,7 @@ export type AzureFoundationStore = {
     displayName: string
     tenantId: string
   }>
+  favoriteSubscriptionIds: string[]
   lastSignedInAt: string
   lastError: string
   authMethod: string
@@ -27,6 +28,7 @@ const DEFAULT_AZURE_FOUNDATION_STORE: AzureFoundationStore = {
   activeLocation: '',
   recentSubscriptionIds: [],
   recentSubscriptions: [],
+  favoriteSubscriptionIds: [],
   lastSignedInAt: '',
   lastError: '',
   authMethod: '',
@@ -93,6 +95,7 @@ function sanitizeAzureFoundationStore(value: unknown): AzureFoundationStore {
     activeLocation: sanitizeString(raw.activeLocation),
     recentSubscriptionIds: sanitizeRecentSubscriptionIds(raw.recentSubscriptionIds),
     recentSubscriptions: sanitizeRecentSubscriptions(raw.recentSubscriptions),
+    favoriteSubscriptionIds: sanitizeRecentSubscriptionIds(raw.favoriteSubscriptionIds),
     lastSignedInAt: sanitizeString(raw.lastSignedInAt),
     lastError: sanitizeString(raw.lastError),
     authMethod: sanitizeString(raw.authMethod),

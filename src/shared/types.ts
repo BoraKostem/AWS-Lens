@@ -709,6 +709,22 @@ export type AzureAuthSessionState = {
   lastError: string
 }
 
+export type AzureManagementGroupSummary = {
+  id: string
+  name: string
+  displayName: string
+  tenantId: string
+  parentId: string
+  parentDisplayName: string
+  childSubscriptionIds: string[]
+  childGroupIds: string[]
+}
+
+export type AzureCrossSubscriptionQueryResult = {
+  totalRecords: number
+  data: Record<string, unknown>[]
+}
+
 export type AzureProviderContextSnapshot = {
   loadedAt: string
   auth: AzureAuthSessionState
@@ -723,6 +739,8 @@ export type AzureProviderContextSnapshot = {
   locations: AzureLocationSummary[]
   recentSubscriptionIds: string[]
   recentSubscriptions: AzureSubscriptionSummary[]
+  favoriteSubscriptionIds: string[]
+  managementGroups: AzureManagementGroupSummary[]
   providerRegistrations: AzureProviderRegistrationSummary[]
   diagnostics: AzureContextDiagnostic[]
 }
