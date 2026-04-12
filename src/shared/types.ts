@@ -1484,6 +1484,131 @@ export type AzureCostOverview = {
   notes: string[]
 }
 
+// ── Azure Cost Management Extended Types ────────────────────────────────────────
+
+export type AzureCostTrendMonth = {
+  month: string
+  totalAmount: number
+  currency: string
+  topServices: { service: string; amount: number }[]
+}
+
+export type AzureCostTrend = {
+  subscriptionId: string
+  months: AzureCostTrendMonth[]
+  currency: string
+  message: string
+}
+
+export type AzureCostResourceGroupEntry = {
+  resourceGroup: string
+  amount: number
+  currency: string
+  sharePercent: number
+  topServices: { service: string; amount: number }[]
+}
+
+export type AzureCostByResourceGroup = {
+  subscriptionId: string
+  entries: AzureCostResourceGroupEntry[]
+  totalAmount: number
+  currency: string
+  message: string
+}
+
+export type AzureCostMeterEntry = {
+  meterCategory: string
+  meterSubCategory: string
+  amount: number
+  currency: string
+  sharePercent: number
+}
+
+export type AzureCostByMeterCategory = {
+  subscriptionId: string
+  entries: AzureCostMeterEntry[]
+  totalAmount: number
+  currency: string
+  message: string
+}
+
+export type AzureCostTagEntry = {
+  tagValue: string
+  amount: number
+  currency: string
+  sharePercent: number
+}
+
+export type AzureCostByTag = {
+  subscriptionId: string
+  tagKey: string
+  entries: AzureCostTagEntry[]
+  totalAmount: number
+  currency: string
+  message: string
+}
+
+export type AzureCostForecastEntry = {
+  date: string
+  amount: number
+  costType: 'actual' | 'forecast'
+  currency: string
+}
+
+export type AzureCostForecast = {
+  subscriptionId: string
+  actualTotal: number
+  forecastTotal: number
+  entries: AzureCostForecastEntry[]
+  currency: string
+  confidence: 'low' | 'medium' | 'high'
+  message: string
+}
+
+export type AzureBudgetSummary = {
+  name: string
+  id: string
+  amount: number
+  timeGrain: string
+  currency: string
+  startDate: string
+  endDate: string
+  currentSpend: number
+  forecastSpend: number
+  thresholdPercents: number[]
+  category: string
+  utilizationPercent: number
+}
+
+export type AzureReservationEntry = {
+  reservationId: string
+  reservationOrderId: string
+  skuName: string
+  avgUtilizationPercent: number
+  minUtilizationPercent: number
+  maxUtilizationPercent: number
+  reservedHours: number
+  usedHours: number
+  usageDate: string
+}
+
+export type AzureReservationUtilization = {
+  subscriptionId: string
+  entries: AzureReservationEntry[]
+  averageUtilization: number
+  message: string
+}
+
+export type AzureCostAnomaly = {
+  service: string
+  currentAmount: number
+  previousAmount: number
+  absoluteChange: number
+  percentChange: number
+  severity: 'info' | 'warning' | 'critical'
+  comparisonBasis: string
+}
+
 export type GcpProjectLabelSummary = {
   key: string
   value: string

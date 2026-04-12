@@ -8,9 +8,17 @@ import type {
   AppSecuritySummary,
   AppSettings,
   AwsConnection,
+  AzureBudgetSummary,
+  AzureCostAnomaly,
+  AzureCostByMeterCategory,
+  AzureCostByResourceGroup,
+  AzureCostByTag,
+  AzureCostForecast,
+  AzureCostTrend,
   AzureCrossSubscriptionQueryResult,
   AzureManagementGroupSummary,
   AzureProviderContextSnapshot,
+  AzureReservationUtilization,
   AzureVmAction,
   AzureWebAppAction,
   AzureDnsRecordUpsertInput,
@@ -819,6 +827,57 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('azure:cost:get-overview', async (_event, subscriptionId: string) =>
     wrap(async () => (await loadAzureSdk()).getAzureCostOverview(subscriptionId))
   )
+
+  // ── Azure Cost Management Extended ─────────────────────────────────────────────
+  ipcMain.handle('azure:cost:trend', async (_event, subscriptionId: string, months?: number) =>
+    wrap<AzureCostTrend>(async () => {
+      const { getAzureCostTrend } = await import('./azure/cost')
+      return getAzureCostTrend(subscriptionId, months)
+    })
+  )
+  ipcMain.handle('azure:cost:by-resource-group', async (_event, subscriptionId: string) =>
+    wrap<AzureCostByResourceGroup>(async () => {
+      const { getAzureCostByResourceGroup } = await import('./azure/cost')
+      return getAzureCostByResourceGroup(subscriptionId)
+    })
+  )
+  ipcMain.handle('azure:cost:by-meter-category', async (_event, subscriptionId: string) =>
+    wrap<AzureCostByMeterCategory>(async () => {
+      const { getAzureCostByMeterCategory } = await import('./azure/cost')
+      return getAzureCostByMeterCategory(subscriptionId)
+    })
+  )
+  ipcMain.handle('azure:cost:by-tag', async (_event, subscriptionId: string, tagKey: string) =>
+    wrap<AzureCostByTag>(async () => {
+      const { getAzureCostByTag } = await import('./azure/cost')
+      return getAzureCostByTag(subscriptionId, tagKey)
+    })
+  )
+  ipcMain.handle('azure:cost:forecast', async (_event, subscriptionId: string) =>
+    wrap<AzureCostForecast>(async () => {
+      const { getAzureCostForecast } = await import('./azure/cost')
+      return getAzureCostForecast(subscriptionId)
+    })
+  )
+  ipcMain.handle('azure:cost:list-budgets', async (_event, subscriptionId: string) =>
+    wrap<AzureBudgetSummary[]>(async () => {
+      const { listAzureBudgets } = await import('./azure/cost')
+      return listAzureBudgets(subscriptionId)
+    })
+  )
+  ipcMain.handle('azure:cost:reservation-utilization', async (_event, subscriptionId: string) =>
+    wrap<AzureReservationUtilization>(async () => {
+      const { getAzureReservationUtilization } = await import('./azure/cost')
+      return getAzureReservationUtilization(subscriptionId)
+    })
+  )
+  ipcMain.handle('azure:cost:anomalies', async (_event, subscriptionId: string) =>
+    wrap<AzureCostAnomaly[]>(async () => {
+      const { getAzureCostAnomalies } = await import('./azure/cost')
+      return getAzureCostAnomalies(subscriptionId)
+    })
+  )
+
   ipcMain.handle('azure:network:get-overview', async (_event, subscriptionId: string, location: string) =>
     wrap(async () => (await loadAzureSdk()).listAzureNetworkOverview(subscriptionId, location))
   )

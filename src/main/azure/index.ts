@@ -20,3 +20,14 @@ export {
   type AzureCredentialStatus,
   type DeviceCodePromptInfo
 } from './auth'
+
+export {
+  getAzureCostTrend,
+  getAzureCostByResourceGroup,
+  getAzureCostByMeterCategory,
+  getAzureCostByTag,
+  getAzureCostForecast,
+  listAzureBudgets,
+  getAzureReservationUtilization,
+  getAzureCostAnomalies
+} from './cost'
