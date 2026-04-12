@@ -7809,3 +7809,220 @@ export type AzureServiceHealthEvent = {
   isHIR: boolean
   priority: number
 }
+
+/* ── Azure Network Topology types ──────────────────────── */
+
+export type AzureApplicationGatewaySummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  skuName: string
+  skuTier: string
+  skuCapacity: number
+  provisioningState: string
+  operationalState: string
+  httpListenerCount: number
+  requestRoutingRuleCount: number
+  backendPoolCount: number
+  backendSettingsCount: number
+  frontendIpCount: number
+  frontendPortCount: number
+  sslCertificateCount: number
+  probeCount: number
+  wafEnabled: boolean
+  zones: string[]
+}
+
+export type AzureVpnGatewaySummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  gatewayType: string
+  vpnType: string
+  vpnGatewayGeneration: string
+  skuName: string
+  skuTier: string
+  enableBgp: boolean
+  bgpAsn: number
+  activeActive: boolean
+  ipConfigurationCount: number
+  connectedVNetId: string
+  vpnClientAddressPrefixes: string[]
+  provisioningState: string
+  zones: string[]
+}
+
+export type AzureExpressRouteCircuitSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  skuName: string
+  skuTier: string
+  skuFamily: string
+  circuitProvisioningState: string
+  serviceProviderProvisioningState: string
+  serviceProviderName: string
+  peeringLocation: string
+  bandwidthInMbps: number
+  peeringCount: number
+  authorizationCount: number
+  allowClassicOperations: boolean
+  globalReachEnabled: boolean
+  provisioningState: string
+}
+
+export type AzurePrivateDnsZoneSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  numberOfRecordSets: number
+  maxNumberOfRecordSets: number
+  numberOfVirtualNetworkLinks: number
+  maxNumberOfVirtualNetworkLinks: number
+  provisioningState: string
+}
+
+export type AzurePrivateDnsVNetLink = {
+  id: string
+  name: string
+  virtualNetworkId: string
+  registrationEnabled: boolean
+  provisioningState: string
+}
+
+export type AzureEffectiveRoute = {
+  source: string
+  state: string
+  addressPrefixes: string[]
+  nextHopType: string
+  nextHopIpAddress: string[]
+  disableBgpRoutePropagation: boolean
+}
+
+export type AzureEffectiveNsgRule = {
+  nsgId: string
+  name: string
+  protocol: string
+  sourcePortRange: string
+  destinationPortRange: string
+  sourceAddressPrefixes: string[]
+  destinationAddressPrefixes: string[]
+  access: 'Allow' | 'Deny'
+  priority: number
+  direction: 'Inbound' | 'Outbound'
+}
+
+export type AzureNetworkTopologyNode = {
+  id: string
+  name: string
+  type:
+    | 'vnet'
+    | 'subnet'
+    | 'nsg'
+    | 'publicIp'
+    | 'loadBalancer'
+    | 'applicationGateway'
+    | 'vpnGateway'
+    | 'firewall'
+    | 'privateEndpoint'
+    | 'natGateway'
+    | 'expressRoute'
+  resourceGroup: string
+  location: string
+  properties: Record<string, unknown>
+}
+
+export type AzureNetworkTopologyEdge = {
+  source: string
+  target: string
+  type:
+    | 'contains'
+    | 'peering'
+    | 'secures'
+    | 'routes'
+    | 'egress'
+    | 'frontend'
+    | 'deployed'
+    | 'gateway'
+    | 'assignedTo'
+    | 'privateLink'
+  label: string
+}
+
+export type AzureNetworkTopologySummary = {
+  vnetCount: number
+  subnetCount: number
+  nsgCount: number
+  publicIpCount: number
+  loadBalancerCount: number
+  applicationGatewayCount: number
+  vpnGatewayCount: number
+  firewallCount: number
+  privateEndpointCount: number
+  natGatewayCount: number
+  expressRouteCount: number
+  peeringCount: number
+  totalNodeCount: number
+  totalEdgeCount: number
+}
+
+export type AzureNetworkTopology = {
+  subscriptionId: string
+  location: string
+  nodes: AzureNetworkTopologyNode[]
+  edges: AzureNetworkTopologyEdge[]
+  summary: AzureNetworkTopologySummary
+}
+
+export type AzureVNetTopologySubnetDetail = {
+  id: string
+  name: string
+  addressPrefix: string
+  nsgId: string
+  nsgName: string
+  routeTableId: string
+  routeTableName: string
+  natGatewayId: string
+  delegations: string[]
+  serviceEndpoints: string[]
+  privateEndpointCount: number
+  connectedNicCount: number
+  connectedNics: Array<{
+    id: string
+    name: string
+    privateIp: string
+    attachedVmName: string
+  }>
+}
+
+export type AzureVNetTopologyPeering = {
+  id: string
+  name: string
+  peeringState: string
+  remoteVNetId: string
+  remoteVNetName: string
+  allowVirtualNetworkAccess: boolean
+  allowForwardedTraffic: boolean
+  allowGatewayTransit: boolean
+  useRemoteGateways: boolean
+}
+
+export type AzureVNetTopologyDetail = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  addressPrefixes: string[]
+  dnsServers: string[]
+  enableDdosProtection: boolean
+  subnets: AzureVNetTopologySubnetDetail[]
+  peerings: AzureVNetTopologyPeering[]
+  hasGatewaySubnet: boolean
+  hasFirewallSubnet: boolean
+  totalNicCount: number
+  provisioningState: string
+}

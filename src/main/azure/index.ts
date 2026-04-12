@@ -46,3 +46,15 @@ export {
   listAzureResourceHealth,
   listAzureServiceHealthEvents
 } from './monitor'
+
+export {
+  listAzureApplicationGateways,
+  listAzureVpnGateways,
+  listAzureExpressRouteCircuits,
+  listAzurePrivateDnsZones,
+  listAzurePrivateDnsVNetLinks,
+  getAzureEffectiveRoutes,
+  getAzureEffectiveNsgRules,
+  getAzureNetworkTopology,
+  getAzureVNetTopologyDetail
+} from './network'

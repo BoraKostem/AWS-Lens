@@ -15,21 +15,30 @@ import type {
   AzureCostByTag,
   AzureCostForecast,
   AzureActionGroupSummary,
+  AzureApplicationGatewaySummary,
   AzureCostTrend,
   AzureCrossSubscriptionQueryResult,
   AzureDiagnosticSettingSummary,
+  AzureEffectiveNsgRule,
+  AzureEffectiveRoute,
+  AzureExpressRouteCircuitSummary,
   AzureLogAnalyticsHistoryEntry,
   AzureLogAnalyticsQueryTemplate,
   AzureLogAnalyticsQueryWithMeta,
   AzureManagementGroupSummary,
   AzureMetricAlertRuleSummary,
   AzureMetricQueryResult,
+  AzureNetworkTopology,
+  AzurePrivateDnsVNetLink,
+  AzurePrivateDnsZoneSummary,
   AzureProviderContextSnapshot,
   AzureReservationUtilization,
   AzureResourceHealthSummary,
   AzureScheduledQueryRuleSummary,
   AzureServiceHealthEvent,
   AzureVmAction,
+  AzureVNetTopologyDetail,
+  AzureVpnGatewaySummary,
   AzureWebAppAction,
   AzureDnsRecordUpsertInput,
   CloudProviderId,
@@ -959,6 +968,62 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     wrap<AzureServiceHealthEvent[]>(async () => {
       const { listAzureServiceHealthEvents } = await import('./azure/monitor')
       return listAzureServiceHealthEvents(subscriptionId, eventType as 'ServiceIssue' | 'PlannedMaintenance' | 'HealthAdvisory' | 'SecurityAdvisory' | undefined)
+    })
+  )
+
+  // ── Azure Network Topology Extended ───────────────────────────────────────────
+  ipcMain.handle('azure:network:list-application-gateways', async (_event, subscriptionId: string, location?: string) =>
+    wrap<AzureApplicationGatewaySummary[]>(async () => {
+      const { listAzureApplicationGateways } = await import('./azure/network')
+      return listAzureApplicationGateways(subscriptionId, location)
+    })
+  )
+  ipcMain.handle('azure:network:list-vpn-gateways', async (_event, subscriptionId: string, location?: string) =>
+    wrap<AzureVpnGatewaySummary[]>(async () => {
+      const { listAzureVpnGateways } = await import('./azure/network')
+      return listAzureVpnGateways(subscriptionId, location)
+    })
+  )
+  ipcMain.handle('azure:network:list-express-route-circuits', async (_event, subscriptionId: string, location?: string) =>
+    wrap<AzureExpressRouteCircuitSummary[]>(async () => {
+      const { listAzureExpressRouteCircuits } = await import('./azure/network')
+      return listAzureExpressRouteCircuits(subscriptionId, location)
+    })
+  )
+  ipcMain.handle('azure:network:list-private-dns-zones', async (_event, subscriptionId: string) =>
+    wrap<AzurePrivateDnsZoneSummary[]>(async () => {
+      const { listAzurePrivateDnsZones } = await import('./azure/network')
+      return listAzurePrivateDnsZones(subscriptionId)
+    })
+  )
+  ipcMain.handle('azure:network:list-private-dns-vnet-links', async (_event, subscriptionId: string, resourceGroup: string, zoneName: string) =>
+    wrap<AzurePrivateDnsVNetLink[]>(async () => {
+      const { listAzurePrivateDnsVNetLinks } = await import('./azure/network')
+      return listAzurePrivateDnsVNetLinks(subscriptionId, resourceGroup, zoneName)
+    })
+  )
+  ipcMain.handle('azure:network:effective-routes', async (_event, subscriptionId: string, resourceGroup: string, nicName: string) =>
+    wrap<AzureEffectiveRoute[]>(async () => {
+      const { getAzureEffectiveRoutes } = await import('./azure/network')
+      return getAzureEffectiveRoutes(subscriptionId, resourceGroup, nicName)
+    })
+  )
+  ipcMain.handle('azure:network:effective-nsg-rules', async (_event, subscriptionId: string, resourceGroup: string, nicName: string) =>
+    wrap<AzureEffectiveNsgRule[]>(async () => {
+      const { getAzureEffectiveNsgRules } = await import('./azure/network')
+      return getAzureEffectiveNsgRules(subscriptionId, resourceGroup, nicName)
+    })
+  )
+  ipcMain.handle('azure:network:topology', async (_event, subscriptionId: string, location?: string) =>
+    wrap<AzureNetworkTopology>(async () => {
+      const { getAzureNetworkTopology } = await import('./azure/network')
+      return getAzureNetworkTopology(subscriptionId, location)
+    })
+  )
+  ipcMain.handle('azure:network:vnet-topology-detail', async (_event, subscriptionId: string, resourceGroup: string, vnetName: string) =>
+    wrap<AzureVNetTopologyDetail>(async () => {
+      const { getAzureVNetTopologyDetail } = await import('./azure/network')
+      return getAzureVNetTopologyDetail(subscriptionId, resourceGroup, vnetName)
     })
   )
 
