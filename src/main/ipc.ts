@@ -16,7 +16,15 @@ import type {
   AzureDnsRecordUpsertInput,
   CloudProviderId,
   GcpComputeInstanceAction,
-  GcpDnsRecordUpsertInput
+  GcpDnsRecordUpsertInput,
+  GcpIamAuditEntry,
+  GcpIamPolicyAnalysisResult,
+  GcpIamRecommendation,
+  GcpIamRoleSummary,
+  GcpServiceAccountDetail,
+  GcpServiceAccountKeyReport,
+  GcpWorkloadIdentityPoolSummary,
+  GcpWorkloadIdentityProviderSummary
 } from '@shared/types'
 import { getAppSettings, resetAppSettings, updateAppSettings } from './appSettings'
 import { importAwsConfigFile } from './aws/profiles'
@@ -69,9 +77,11 @@ const wrap: <T>(
 ) => Promise<HandlerResult<T>> = createHandlerWrapper('ipc', { timeoutMs: 60000 })
 
 type GcpSdkModule = typeof import('./gcpSdk')
+type GcpIamModule = typeof import('./gcp/iam')
 type AzureSdkModule = typeof import('./azureSdk')
 
 let gcpSdkPromise: Promise<GcpSdkModule> | null = null
+let gcpIamPromise: Promise<GcpIamModule> | null = null
 let azureSdkPromise: Promise<AzureSdkModule> | null = null
 
 function loadGcpSdk(): Promise<GcpSdkModule> {
@@ -80,6 +90,14 @@ function loadGcpSdk(): Promise<GcpSdkModule> {
   }
 
   return gcpSdkPromise
+}
+
+function loadGcpIam(): Promise<GcpIamModule> {
+  if (!gcpIamPromise) {
+    gcpIamPromise = import('./gcp/iam')
+  }
+
+  return gcpIamPromise
 }
 
 function loadAzureSdk(): Promise<AzureSdkModule> {
@@ -271,6 +289,45 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('gcp:iam:test-permissions', async (_event, projectId: string, permissions: string[]) =>
     wrap(async () => (await loadGcpSdk()).testGcpIamPermissions(projectId, permissions))
   )
+
+  // ── GCP IAM Extended (Console Feature Parity) ──────────────────────────────────
+  ipcMain.handle('gcp:iam:get-service-account-detail', async (_event, projectId: string, email: string) =>
+    wrap<GcpServiceAccountDetail>(() => cachedGcp(`${projectId}:sa-detail:${email}`, GCP_TTL.IAM, async () => (await loadGcpIam()).getGcpServiceAccountDetail(projectId, email)))
+  )
+  ipcMain.handle('gcp:iam:update-service-account', async (_event, projectId: string, email: string, displayName: string, description: string) =>
+    wrap(async () => (await loadGcpIam()).updateGcpServiceAccount(projectId, email, displayName, description))
+  )
+  ipcMain.handle('gcp:iam:add-service-account-iam-binding', async (_event, projectId: string, email: string, role: string, member: string) =>
+    wrap(async () => (await loadGcpIam()).addGcpServiceAccountIamBinding(projectId, email, role, member))
+  )
+  ipcMain.handle('gcp:iam:remove-service-account-iam-binding', async (_event, projectId: string, email: string, role: string, member: string) =>
+    wrap(async () => (await loadGcpIam()).removeGcpServiceAccountIamBinding(projectId, email, role, member))
+  )
+  ipcMain.handle('gcp:iam:update-custom-role', async (_event, projectId: string, roleName: string, title: string, description: string, stage: string, permissions: string[]) =>
+    wrap<GcpIamRoleSummary>(async () => (await loadGcpIam()).updateGcpCustomRole(projectId, roleName, title, description, stage, permissions))
+  )
+  ipcMain.handle('gcp:iam:undelete-custom-role', async (_event, projectId: string, roleName: string) =>
+    wrap<GcpIamRoleSummary>(async () => (await loadGcpIam()).undeleteGcpCustomRole(projectId, roleName))
+  )
+  ipcMain.handle('gcp:iam:list-audit-entries', async (_event, projectId: string, windowHours?: number) =>
+    wrap<GcpIamAuditEntry[]>(() => cachedGcp(`${projectId}:iam-audit:${windowHours ?? 24}`, GCP_TTL.IAM, async () => (await loadGcpIam()).listGcpIamAuditEntries(projectId, windowHours)))
+  )
+  ipcMain.handle('gcp:iam:generate-key-report', async (_event, projectId: string) =>
+    wrap<GcpServiceAccountKeyReport>(() => cachedGcp(`${projectId}:sa-key-report`, GCP_TTL.IAM, async () => (await loadGcpIam()).generateGcpServiceAccountKeyReport(projectId)))
+  )
+  ipcMain.handle('gcp:iam:list-workload-identity-pools', async (_event, projectId: string) =>
+    wrap<GcpWorkloadIdentityPoolSummary[]>(() => cachedGcp(`${projectId}:wi-pools`, GCP_TTL.IAM, async () => (await loadGcpIam()).listGcpWorkloadIdentityPools(projectId)))
+  )
+  ipcMain.handle('gcp:iam:list-workload-identity-providers', async (_event, projectId: string, poolId: string) =>
+    wrap<GcpWorkloadIdentityProviderSummary[]>(() => cachedGcp(`${projectId}:wi-providers:${poolId}`, GCP_TTL.IAM, async () => (await loadGcpIam()).listGcpWorkloadIdentityProviders(projectId, poolId)))
+  )
+  ipcMain.handle('gcp:iam:list-recommendations', async (_event, projectId: string) =>
+    wrap<GcpIamRecommendation[]>(() => cachedGcp(`${projectId}:iam-recommendations`, GCP_TTL.IAM, async () => (await loadGcpIam()).listGcpIamRecommendations(projectId)))
+  )
+  ipcMain.handle('gcp:iam:analyze-policy', async (_event, projectId: string, fullResourceName: string, permissions: string[], identity?: string) =>
+    wrap<GcpIamPolicyAnalysisResult>(async () => (await loadGcpIam()).analyzeGcpIamPolicy(projectId, fullResourceName, permissions, identity))
+  )
+
   ipcMain.handle('gcp:compute-engine:list', async (_event, projectId: string, location: string) =>
     wrap(() => cachedGcp(`${projectId}:compute:${location}`, GCP_TTL.COMPUTE, async () => (await loadGcpSdk()).listGcpComputeInstances(projectId, location)))
   )

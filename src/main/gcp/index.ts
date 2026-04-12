@@ -34,3 +34,18 @@ export {
   clearAllCache,
   getCacheStats
 } from './cache'
+
+export {
+  getGcpServiceAccountDetail,
+  updateGcpServiceAccount,
+  addGcpServiceAccountIamBinding,
+  removeGcpServiceAccountIamBinding,
+  updateGcpCustomRole,
+  undeleteGcpCustomRole,
+  listGcpIamAuditEntries,
+  generateGcpServiceAccountKeyReport,
+  listGcpWorkloadIdentityPools,
+  listGcpWorkloadIdentityProviders,
+  listGcpIamRecommendations,
+  analyzeGcpIamPolicy
+} from './iam'

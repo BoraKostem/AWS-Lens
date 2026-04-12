@@ -1589,6 +1589,123 @@ export type GcpIamOverview = {
   notes: string[]
 }
 
+// ── GCP IAM Extended Types (Console Feature Parity) ─────────────────────────────
+
+export type GcpServiceAccountIamBinding = {
+  role: string
+  members: string[]
+  conditionTitle: string
+  conditionExpression: string
+}
+
+export type GcpServiceAccountDetail = {
+  email: string
+  displayName: string
+  uniqueId: string
+  description: string
+  disabled: boolean
+  oauth2ClientId: string
+  projectId: string
+  iamBindings: GcpServiceAccountIamBinding[]
+  keys: {
+    keyId: string
+    keyType: string
+    keyOrigin: string
+    validAfterTime: string
+    validBeforeTime: string
+    disabled: boolean
+  }[]
+  keyCount: number
+  oldestKeyAgeDays: number
+}
+
+export type GcpServiceAccountKeyReportEntry = {
+  email: string
+  displayName: string
+  disabled: boolean
+  keys: {
+    keyId: string
+    validAfterTime: string
+    validBeforeTime: string
+    ageDays: number
+    disabled: boolean
+  }[]
+  keyCount: number
+  oldestKeyAgeDays: number
+}
+
+export type GcpServiceAccountKeyReport = {
+  projectId: string
+  generatedAt: string
+  entries: GcpServiceAccountKeyReportEntry[]
+  summary: {
+    totalAccounts: number
+    totalKeys: number
+    keysOlderThan90Days: number
+    keysOlderThan365Days: number
+    disabledAccounts: number
+  }
+}
+
+export type GcpIamAuditEntry = {
+  timestamp: string
+  severity: string
+  methodName: string
+  principalEmail: string
+  callerIp: string
+  resourceName: string
+  serviceName: string
+  statusCode: number
+  statusMessage: string
+}
+
+export type GcpWorkloadIdentityPoolSummary = {
+  name: string
+  displayName: string
+  description: string
+  state: string
+  disabled: boolean
+  expireTime: string
+}
+
+export type GcpWorkloadIdentityProviderSummary = {
+  name: string
+  displayName: string
+  description: string
+  state: string
+  disabled: boolean
+  providerType: string
+  attributeMapping: Record<string, string>
+  attributeCondition: string
+}
+
+export type GcpIamRecommendation = {
+  name: string
+  description: string
+  priority: string
+  recommenderSubtype: string
+  state: string
+  category: string
+  affectedMember: string
+  currentRole: string
+  recommendedRole: string
+  lastRefreshTime: string
+}
+
+export type GcpIamPolicyAnalysisAccessEntry = {
+  role: string
+  members: string[]
+  identities: string[]
+  resources: string[]
+  accesses: string[]
+  conditionTitle: string
+}
+
+export type GcpIamPolicyAnalysisResult = {
+  analysisResults: GcpIamPolicyAnalysisAccessEntry[]
+  fullyExplored: boolean
+}
+
 export type GcpComputeInstanceSummary = {
   name: string
   zone: string
