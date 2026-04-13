@@ -11,7 +11,19 @@ import type {
 } from '@shared/types'
 import { getProject } from './terraform'
 
-const SUPPORTED_TARGET_TYPES = new Set<TerraformAdoptionTarget['resourceType']>(['aws_instance'])
+const SUPPORTED_TARGET_TYPES = new Set<TerraformAdoptionTarget['resourceType']>([
+  'aws_instance',
+  'google_compute_instance', 'google_compute_network', 'google_compute_subnetwork',
+  'google_compute_firewall', 'google_storage_bucket', 'google_sql_database_instance',
+  'google_container_cluster', 'google_cloud_run_service', 'google_pubsub_topic',
+  'google_pubsub_subscription', 'google_dns_managed_zone', 'google_project_iam_member',
+  'google_service_account',
+  'azurerm_virtual_machine', 'azurerm_resource_group', 'azurerm_virtual_network',
+  'azurerm_subnet', 'azurerm_network_security_group', 'azurerm_storage_account',
+  'azurerm_sql_server', 'azurerm_kubernetes_cluster', 'azurerm_app_service',
+  'azurerm_cosmosdb_account', 'azurerm_key_vault', 'azurerm_dns_zone',
+  'azurerm_eventhub_namespace', 'azurerm_postgresql_flexible_server'
+])
 const EKS_CLUSTER_TAG_KEYS = ['eks:cluster-name', 'aws:eks:cluster-name', 'alpha.eksctl.io/cluster-name']
 const EKS_NODEGROUP_TAG_KEYS = ['eks:nodegroup-name', 'alpha.eksctl.io/nodegroup-name']
 
@@ -95,7 +107,16 @@ function parseProviderSuggestion(providerAddress: string, source: TerraformAdopt
   }
 }
 
-function hasAwsProvider(providerAddress: string): boolean {
+function detectProviderPrefix(resourceType: string): string {
+  if (resourceType.startsWith('google_')) return 'google'
+  if (resourceType.startsWith('azurerm_')) return 'azurerm'
+  return 'aws'
+}
+
+function hasMatchingProvider(providerAddress: string, resourceType: string): boolean {
+  const prefix = detectProviderPrefix(resourceType)
+  if (prefix === 'google') return providerAddress.includes('/google')
+  if (prefix === 'azurerm') return providerAddress.includes('/azurerm')
   return providerAddress.includes('/aws')
 }
 
@@ -109,7 +130,7 @@ function providerScore(
   const relatedAddressSet = new Set(relatedResources.map((resource) => resource.address))
 
   for (const item of inventory) {
-    if (!item.provider || !hasAwsProvider(item.provider)) continue
+    if (!item.provider || !hasMatchingProvider(item.provider, resourceType)) continue
     if (normalizePath(item.modulePath) !== normalizePath(modulePath)) continue
 
     let score = 1
@@ -140,10 +161,10 @@ function providerScore(
   )
 }
 
-function buildUniqueResourceName(project: TerraformProject, baseName: string, modulePath: string): string {
+function buildUniqueResourceName(project: TerraformProject, baseName: string, modulePath: string, resourceType: string): string {
   const existingNames = new Set(
     project.inventory
-      .filter((item) => item.mode === 'managed' && item.type === 'aws_instance' && normalizePath(item.modulePath) === normalizePath(modulePath))
+      .filter((item) => item.mode === 'managed' && item.type === resourceType && normalizePath(item.modulePath) === normalizePath(modulePath))
       .map((item) => item.name)
   )
 
@@ -269,6 +290,187 @@ function detectEc2RelatedResources(project: TerraformProject, target: TerraformA
   )
 }
 
+function detectGcpRelatedResources(project: TerraformProject, target: TerraformAdoptionTarget): WeightedRelatedMatch[] {
+  const related: WeightedRelatedMatch[] = []
+  const gcpNetwork = target.resourceContext?.gcpNetwork?.trim() ?? ''
+  const gcpSubnetwork = target.resourceContext?.gcpSubnetwork?.trim() ?? ''
+  const gcpServiceAccount = target.resourceContext?.gcpServiceAccountEmail?.trim() ?? ''
+
+  for (const item of project.inventory) {
+    const values = item.values ?? {}
+    const modulePath = normalizePath(item.modulePath)
+    const valueSelfLink = readString(values.self_link)
+    const valueName = readString(values.name)
+    const valueEmail = readString(values.email)
+
+    if (gcpNetwork && item.type === 'google_compute_network' && (valueSelfLink === gcpNetwork || valueName === gcpNetwork)) {
+      related.push({
+        address: item.address, resourceType: item.type, modulePath, mode: item.mode,
+        matchedOn: 'gcp-network', matchedValue: gcpNetwork,
+        weight: item.mode === 'managed' ? 5 : 3
+      })
+    }
+
+    if (gcpSubnetwork && item.type === 'google_compute_subnetwork' && (valueSelfLink === gcpSubnetwork || valueName === gcpSubnetwork)) {
+      related.push({
+        address: item.address, resourceType: item.type, modulePath, mode: item.mode,
+        matchedOn: 'gcp-subnetwork', matchedValue: gcpSubnetwork,
+        weight: item.mode === 'managed' ? 6 : 4
+      })
+    }
+
+    if (gcpServiceAccount && item.type === 'google_service_account' && valueEmail === gcpServiceAccount) {
+      related.push({
+        address: item.address, resourceType: item.type, modulePath, mode: item.mode,
+        matchedOn: 'gcp-service-account', matchedValue: gcpServiceAccount,
+        weight: item.mode === 'managed' ? 4 : 2
+      })
+    }
+
+    if (target.resourceType === 'google_container_cluster' && item.type === 'google_compute_network' && gcpNetwork && (valueSelfLink === gcpNetwork || valueName === gcpNetwork)) {
+      related.push({
+        address: item.address, resourceType: item.type, modulePath, mode: item.mode,
+        matchedOn: 'gke-cluster', matchedValue: gcpNetwork,
+        weight: item.mode === 'managed' ? 7 : 5
+      })
+    }
+  }
+
+  const deduped = new Map<string, WeightedRelatedMatch>()
+  for (const match of related) {
+    const key = `${match.address}:${match.matchedOn}:${match.matchedValue}`
+    const existing = deduped.get(key)
+    if (!existing || existing.weight < match.weight) deduped.set(key, match)
+  }
+  return [...deduped.values()].sort((left, right) =>
+    right.weight - left.weight || left.address.localeCompare(right.address)
+  )
+}
+
+function detectAzureRelatedResources(project: TerraformProject, target: TerraformAdoptionTarget): WeightedRelatedMatch[] {
+  const related: WeightedRelatedMatch[] = []
+  const azureVnet = target.resourceContext?.azureVnetId?.trim() ?? ''
+  const azureSubnet = target.resourceContext?.azureSubnetId?.trim() ?? ''
+  const azureResourceGroup = target.resourceContext?.azureResourceGroup?.trim() ?? ''
+
+  for (const item of project.inventory) {
+    const values = item.values ?? {}
+    const modulePath = normalizePath(item.modulePath)
+    const valueId = readString(values.id)
+    const valueName = readString(values.name)
+    const valueRgName = readString(values.resource_group_name)
+
+    if (azureResourceGroup && item.type === 'azurerm_resource_group' && valueName.toLowerCase() === azureResourceGroup.toLowerCase()) {
+      related.push({
+        address: item.address, resourceType: item.type, modulePath, mode: item.mode,
+        matchedOn: 'azure-resource-group', matchedValue: azureResourceGroup,
+        weight: item.mode === 'managed' ? 3 : 2
+      })
+    }
+
+    if (azureVnet && item.type === 'azurerm_virtual_network' && (valueId.toLowerCase() === azureVnet.toLowerCase() || valueName === azureVnet)) {
+      related.push({
+        address: item.address, resourceType: item.type, modulePath, mode: item.mode,
+        matchedOn: 'azure-vnet', matchedValue: azureVnet,
+        weight: item.mode === 'managed' ? 5 : 3
+      })
+    }
+
+    if (azureSubnet && item.type === 'azurerm_subnet' && (valueId.toLowerCase() === azureSubnet.toLowerCase() || valueName === azureSubnet)) {
+      related.push({
+        address: item.address, resourceType: item.type, modulePath, mode: item.mode,
+        matchedOn: 'azure-subnet', matchedValue: azureSubnet,
+        weight: item.mode === 'managed' ? 6 : 4
+      })
+    }
+
+    if (item.type === 'azurerm_network_security_group' && azureResourceGroup && valueRgName.toLowerCase() === azureResourceGroup.toLowerCase()) {
+      related.push({
+        address: item.address, resourceType: item.type, modulePath, mode: item.mode,
+        matchedOn: 'azure-nsg', matchedValue: valueRgName,
+        weight: item.mode === 'managed' ? 4 : 2
+      })
+    }
+
+    if (target.resourceType === 'azurerm_kubernetes_cluster' && item.type === 'azurerm_virtual_network' && azureVnet && (valueId.toLowerCase() === azureVnet.toLowerCase() || valueName === azureVnet)) {
+      related.push({
+        address: item.address, resourceType: item.type, modulePath, mode: item.mode,
+        matchedOn: 'aks-cluster', matchedValue: azureVnet,
+        weight: item.mode === 'managed' ? 7 : 5
+      })
+    }
+  }
+
+  const deduped = new Map<string, WeightedRelatedMatch>()
+  for (const match of related) {
+    const key = `${match.address}:${match.matchedOn}:${match.matchedValue}`
+    const existing = deduped.get(key)
+    if (!existing || existing.weight < match.weight) deduped.set(key, match)
+  }
+  return [...deduped.values()].sort((left, right) =>
+    right.weight - left.weight || left.address.localeCompare(right.address)
+  )
+}
+
+function detectRelatedResources(project: TerraformProject, target: TerraformAdoptionTarget): WeightedRelatedMatch[] {
+  const prefix = detectProviderPrefix(target.resourceType)
+  if (prefix === 'google') return detectGcpRelatedResources(project, target)
+  if (prefix === 'azurerm') return detectAzureRelatedResources(project, target)
+  return detectEc2RelatedResources(project, target)
+}
+
+function buildImportId(target: TerraformAdoptionTarget): string {
+  const ctx = target.resourceContext
+  const prefix = detectProviderPrefix(target.resourceType)
+
+  if (prefix === 'google') {
+    const project = ctx?.gcpProject ?? ''
+    const zone = ctx?.gcpZone ?? ''
+    const name = target.name || target.identifier
+    switch (target.resourceType) {
+      case 'google_compute_instance': return `projects/${project}/zones/${zone}/instances/${name}`
+      case 'google_compute_network': return `projects/${project}/global/networks/${name}`
+      case 'google_compute_subnetwork': return `projects/${project}/regions/${target.region}/subnetworks/${name}`
+      case 'google_compute_firewall': return `projects/${project}/global/firewalls/${name}`
+      case 'google_storage_bucket': return name
+      case 'google_sql_database_instance': return `projects/${project}/instances/${name}`
+      case 'google_container_cluster': return `projects/${project}/locations/${zone || target.region}/clusters/${name}`
+      case 'google_cloud_run_service': return `locations/${target.region}/namespaces/${project}/services/${name}`
+      case 'google_pubsub_topic': return `projects/${project}/topics/${name}`
+      case 'google_pubsub_subscription': return `projects/${project}/subscriptions/${name}`
+      case 'google_dns_managed_zone': return `projects/${project}/managedZones/${name}`
+      case 'google_project_iam_member': return target.identifier
+      case 'google_service_account': return `projects/${project}/serviceAccounts/${ctx?.gcpServiceAccountEmail || name}`
+      default: return target.identifier
+    }
+  }
+
+  if (prefix === 'azurerm') {
+    const sub = ctx?.azureSubscriptionId ?? ''
+    const rg = ctx?.azureResourceGroup ?? ''
+    const name = target.name || target.identifier
+    switch (target.resourceType) {
+      case 'azurerm_resource_group': return `/subscriptions/${sub}/resourceGroups/${name}`
+      case 'azurerm_virtual_machine': return `/subscriptions/${sub}/resourceGroups/${rg}/providers/Microsoft.Compute/virtualMachines/${name}`
+      case 'azurerm_virtual_network': return `/subscriptions/${sub}/resourceGroups/${rg}/providers/Microsoft.Network/virtualNetworks/${name}`
+      case 'azurerm_subnet': return `/subscriptions/${sub}/resourceGroups/${rg}/providers/Microsoft.Network/virtualNetworks/${target.identifier.split('/')[0] || name}/subnets/${name}`
+      case 'azurerm_network_security_group': return `/subscriptions/${sub}/resourceGroups/${rg}/providers/Microsoft.Network/networkSecurityGroups/${name}`
+      case 'azurerm_storage_account': return `/subscriptions/${sub}/resourceGroups/${rg}/providers/Microsoft.Storage/storageAccounts/${name}`
+      case 'azurerm_sql_server': return `/subscriptions/${sub}/resourceGroups/${rg}/providers/Microsoft.Sql/servers/${name}`
+      case 'azurerm_kubernetes_cluster': return `/subscriptions/${sub}/resourceGroups/${rg}/providers/Microsoft.ContainerService/managedClusters/${name}`
+      case 'azurerm_app_service': return `/subscriptions/${sub}/resourceGroups/${rg}/providers/Microsoft.Web/sites/${name}`
+      case 'azurerm_cosmosdb_account': return `/subscriptions/${sub}/resourceGroups/${rg}/providers/Microsoft.DocumentDB/databaseAccounts/${name}`
+      case 'azurerm_key_vault': return `/subscriptions/${sub}/resourceGroups/${rg}/providers/Microsoft.KeyVault/vaults/${name}`
+      case 'azurerm_dns_zone': return `/subscriptions/${sub}/resourceGroups/${rg}/providers/Microsoft.Network/dnszones/${name}`
+      case 'azurerm_eventhub_namespace': return `/subscriptions/${sub}/resourceGroups/${rg}/providers/Microsoft.EventHub/namespaces/${name}`
+      case 'azurerm_postgresql_flexible_server': return `/subscriptions/${sub}/resourceGroups/${rg}/providers/Microsoft.DBforPostgreSQL/flexibleServers/${name}`
+      default: return target.identifier
+    }
+  }
+
+  return target.identifier
+}
+
 function chooseModulePath(
   project: TerraformProject,
   target: TerraformAdoptionTarget,
@@ -336,11 +538,12 @@ function chooseProviderSuggestion(
   const candidate = candidates[0]
 
   if (!candidate) {
-    warnings.push('No provider alias evidence was found for the suggested module. The mapping falls back to the default aws provider.')
+    const defaultProvider = detectProviderPrefix(resourceType)
+    warnings.push(`No provider alias evidence was found for the suggested module. The mapping falls back to the default ${defaultProvider} provider.`)
     return {
       providerAddress: '',
       alias: '',
-      displayName: 'aws (default)',
+      displayName: `${defaultProvider} (default)`,
       source: 'default'
     }
   }
@@ -389,31 +592,46 @@ export async function mapTerraformAdoption(
   }
 
   const relatedResources = supported
-    ? detectEc2RelatedResources(project, target)
+    ? detectRelatedResources(project, target)
     : []
 
   const module = chooseModulePath(project, target, relatedResources, reasons, warnings)
   const provider = chooseProviderSuggestion(project, module.modulePath, target.resourceType, relatedResources, reasons, warnings)
   const baseName = normalizeTerraformName(target.name || target.displayName || target.identifier)
-  const suggestedResourceName = buildUniqueResourceName(project, baseName, module.modulePath)
+  const suggestedResourceName = buildUniqueResourceName(project, baseName, module.modulePath, target.resourceType)
   const suggestedAddress = buildAddress(module.modulePath, target.resourceType, suggestedResourceName)
 
   if (suggestedResourceName !== baseName) {
     warnings.push(`Resource name ${baseName} already exists in ${moduleDisplayPath(module.modulePath)}, so the mapping uses ${suggestedResourceName}.`)
   }
 
-  if (!relatedResources.some((resource) => resource.matchedOn === 'subnet-id')) {
-    warnings.push('No matching aws_subnet resource was found in the selected project. Generated HCL may need a data source or variable reference for subnet_id.')
-  }
-
-  if (!relatedResources.some((resource) => resource.matchedOn === 'security-group')) {
-    warnings.push('No matching aws_security_group resource was found in the selected project. Generated HCL may need data sources or variable references for vpc_security_group_ids.')
+  const providerPrefix = detectProviderPrefix(target.resourceType)
+  if (providerPrefix === 'aws') {
+    if (!relatedResources.some((resource) => resource.matchedOn === 'subnet-id')) {
+      warnings.push('No matching aws_subnet resource was found in the selected project. Generated HCL may need a data source or variable reference for subnet_id.')
+    }
+    if (!relatedResources.some((resource) => resource.matchedOn === 'security-group')) {
+      warnings.push('No matching aws_security_group resource was found in the selected project. Generated HCL may need data sources or variable references for vpc_security_group_ids.')
+    }
+  } else if (providerPrefix === 'google') {
+    if (!relatedResources.some((resource) => resource.matchedOn === 'gcp-network' || resource.matchedOn === 'gcp-subnetwork')) {
+      warnings.push('No matching google_compute_network or google_compute_subnetwork resource was found. Generated HCL may need a data source or variable reference for network configuration.')
+    }
+  } else if (providerPrefix === 'azurerm') {
+    if (!relatedResources.some((resource) => resource.matchedOn === 'azure-resource-group')) {
+      warnings.push('No matching azurerm_resource_group resource was found. Generated HCL may need a data source or variable reference for resource_group_name.')
+    }
   }
 
   const confidence = determineConfidence(relatedResources, module.source, provider.source)
+  const importId = buildImportId(target)
 
   if (target.resourceType === 'aws_instance') {
     reasons.unshift(`EC2 adoption maps to Terraform resource type aws_instance with import ID ${target.identifier}.`)
+  } else if (providerPrefix === 'google') {
+    reasons.unshift(`GCP adoption maps to Terraform resource type ${target.resourceType} with import ID ${importId}.`)
+  } else if (providerPrefix === 'azurerm') {
+    reasons.unshift(`Azure adoption maps to Terraform resource type ${target.resourceType} with import ID ${importId}.`)
   }
 
   return {
@@ -423,7 +641,7 @@ export async function mapTerraformAdoption(
     projectName: project.name,
     target,
     recommendedResourceType: target.resourceType,
-    importId: target.identifier,
+    importId,
     suggestedResourceName,
     suggestedAddress,
     module: {

@@ -273,6 +273,8 @@ import type {
   KmsKeySummary,
   AutoScalingGroupSummary,
   AutoScalingInstanceSummary,
+  LoadBalancerLogQuery,
+  LoadBalancerLogResult,
   LoadBalancerWorkspace,
   RdsClusterDetail,
   RdsClusterSummary,
@@ -2871,6 +2873,14 @@ export async function listLoadBalancerWorkspaces(connection: AwsConnection): Pro
 
 export async function deleteLoadBalancer(connection: AwsConnection, loadBalancerArn: string): Promise<void> {
   return unwrap((await awsBridge().deleteLoadBalancer(connection, loadBalancerArn)) as Wrapped<void>)
+}
+
+export async function queryLoadBalancerLogs(connection: AwsConnection | undefined, query: LoadBalancerLogQuery, providerContext?: { gcpProjectId?: string; azureWorkspaceId?: string }): Promise<LoadBalancerLogResult> {
+  return unwrap((await rawAwsBridge().queryLoadBalancerLogs(connection, query, providerContext)) as Wrapped<LoadBalancerLogResult>)
+}
+
+export async function getAlbAccessLogConfig(connection: AwsConnection, loadBalancerArn: string): Promise<{ enabled: boolean; bucket: string; prefix: string }> {
+  return unwrap((await rawAwsBridge().getAlbAccessLogConfig(connection, loadBalancerArn)) as Wrapped<{ enabled: boolean; bucket: string; prefix: string }>)
 }
 
 export async function listProjects(profileName: string): Promise<TerraformProjectListItem[]> {

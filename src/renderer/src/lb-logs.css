@@ -1,0 +1,46 @@
+.lb-logs { padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; height: 100%; }
+.lb-logs-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.lb-logs-controls select,
+.lb-logs-controls input { padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-panel); color: var(--text); font-size: 12px; }
+.lb-logs-controls select { min-width: 100px; -webkit-appearance: none; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238a95a6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; padding-right: 24px; }
+.lb-logs-controls select option { background: #1d222a; color: #eef0f4; }
+.lb-logs-controls input[type="text"] { min-width: 120px; flex: 1; }
+.lb-logs-controls input[type="datetime-local"] { min-width: 180px; }
+.lb-logs-controls input[type="number"] { width: 80px; }
+.lb-logs-controls input::-webkit-calendar-picker-indicator { filter: invert(0.7); }
+.lb-logs-controls button { padding: 4px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--accent); color: #fff; cursor: pointer; font-size: 12px; white-space: nowrap; }
+.lb-logs-controls button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.lb-logs-summary { display: flex; gap: 12px; align-items: center; font-size: 12px; color: var(--muted); }
+.lb-logs-summary .lb-status-chip { padding: 2px 8px; border-radius: 10px; font-weight: 600; font-size: 11px; }
+.lb-status-2xx { background: rgba(46,160,67,0.15); color: #2ea043; }
+.lb-status-3xx { background: rgba(54,154,230,0.15); color: #369ae6; }
+.lb-status-4xx { background: rgba(210,153,34,0.15); color: #d29922; }
+.lb-status-5xx { background: rgba(218,54,51,0.15); color: #da3633; }
+
+.lb-logs-notes { font-size: 12px; color: var(--muted); padding: 6px 10px; background: var(--bg-panel); border-radius: 4px; }
+
+.lb-logs-table-wrap { flex: 1; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
+.lb-logs-table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: auto; }
+.lb-logs-table th { position: sticky; top: 0; background: var(--bg-panel-strong); padding: 6px 8px; text-align: left; font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap; cursor: pointer; user-select: none; }
+.lb-logs-table th:hover { background: var(--bg-soft); }
+.lb-logs-table td { padding: 4px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; max-width: 400px; overflow: hidden; text-overflow: ellipsis; }
+.lb-logs-table tr:hover td { background: var(--bg-panel); }
+.lb-logs-table .lb-col-url { max-width: 500px; }
+.lb-logs-table .lb-col-ua { max-width: 300px; }
+
+.lb-logs-detail { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100; display: flex; align-items: center; justify-content: center; }
+.lb-logs-detail-panel { background: var(--bg); border-radius: 8px; padding: 16px; max-width: 800px; width: 90%; max-height: 80vh; overflow: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
+.lb-logs-detail-panel h3 { margin: 0 0 12px; }
+.lb-logs-detail-panel pre { font-size: 11px; background: var(--bg-panel); padding: 10px; border-radius: 4px; overflow: auto; max-height: 200px; }
+.lb-logs-detail-panel table { width: 100%; font-size: 12px; border-collapse: collapse; margin-bottom: 12px; }
+.lb-logs-detail-panel td { padding: 4px 8px; border-bottom: 1px solid var(--border); }
+.lb-logs-detail-panel td:first-child { font-weight: 600; white-space: nowrap; width: 180px; color: var(--muted); }
+.lb-logs-detail-close { margin-top: 10px; padding: 6px 16px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-panel); color: var(--text); cursor: pointer; }
+
+.lb-logs-loading { padding: 40px; text-align: center; color: var(--muted); }
+.lb-logs-empty { padding: 40px; text-align: center; color: var(--muted); }
+.lb-logs-error { padding: 12px; background: rgba(218,54,51,0.1); border: 1px solid rgba(218,54,51,0.3); border-radius: 6px; color: var(--text); font-size: 13px; }
+
+.lb-logs-load-more { text-align: center; padding: 8px; }
+.lb-logs-load-more button { padding: 6px 20px; }

@@ -48,6 +48,8 @@ import type {
   TerraformInputConfiguration,
   TerraformCommandRequest,
   TerraformInputValidationResult,
+  LoadBalancerLogQuery,
+  TerraformDriftSchedule,
   TerraformRunHistoryFilter,
   VaultEntryFilter,
   VaultEntryInput,
@@ -466,6 +468,12 @@ const awsLensApi = {
   /* ── Azure Load Balancers (detail) ── */
   describeAzureLoadBalancer: (subscriptionId: string, resourceGroup: string, lbName: string) =>
     ipcRenderer.invoke('azure:load-balancers:describe', subscriptionId, resourceGroup, lbName),
+
+  /* ── Load Balancer Log Viewer ── */
+  queryLoadBalancerLogs: (connection: AwsConnection | undefined, query: LoadBalancerLogQuery, providerContext?: { gcpProjectId?: string; azureWorkspaceId?: string }) =>
+    ipcRenderer.invoke('lb:logs:query', connection, query, providerContext),
+  getAlbAccessLogConfig: (connection: AwsConnection, loadBalancerArn: string) =>
+    ipcRenderer.invoke('lb:logs:access-log-config', connection, loadBalancerArn),
 
   checkForAppUpdates: () => ipcRenderer.invoke('app:update:check'),
   downloadAppUpdate: () => ipcRenderer.invoke('app:update:download'),
@@ -1153,6 +1161,13 @@ const api = {
   runGovernanceChecks: (profileName: string, projectId: string, connection?: AwsConnection) =>
     ipcRenderer.invoke('terraform:governance:run-checks', profileName, projectId, connection),
   getGovernanceReport: (projectId: string) => ipcRenderer.invoke('terraform:governance:get-report', projectId),
+  getDriftSchedule: () => ipcRenderer.invoke('terraform:drift:schedule:get'),
+  updateDriftSchedule: (update: Partial<TerraformDriftSchedule>) => ipcRenderer.invoke('terraform:drift:schedule:update', update),
+  runDriftScheduleNow: () => ipcRenderer.invoke('terraform:drift:schedule:run-now'),
+  onDriftNotification: (listener: (event: unknown, data: unknown) => void) => {
+    ipcRenderer.on('terraform:drift:notification', listener)
+    return () => ipcRenderer.removeListener('terraform:drift:notification', listener)
+  },
   subscribe: (listener: (event: unknown) => void) => {
     terraformListeners.add(listener)
   },

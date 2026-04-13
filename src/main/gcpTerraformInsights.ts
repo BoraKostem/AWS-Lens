@@ -48,7 +48,9 @@ import {
   listGcpSqlInstances,
   listGcpSqlUsers,
   listGcpSubnetworks,
-  listGcpStorageBuckets
+  listGcpStorageBuckets,
+  listGcpCloudRunServices,
+  listGcpDnsManagedZones
 } from './gcpSdk'
 
 type GcpTerraformContext = { projectId: string; location: string }
@@ -81,6 +83,8 @@ type GcpLiveData = {
   monitoringAlertPolicies?: Awaited<ReturnType<typeof listGcpMonitoringAlertPolicies>>
   monitoringUptimeChecks?: Awaited<ReturnType<typeof listGcpMonitoringUptimeChecks>>
   firestoreDatabases?: Awaited<ReturnType<typeof listGcpFirestoreDatabases>>
+  cloudRunServices?: Awaited<ReturnType<typeof listGcpCloudRunServices>>
+  dnsManagedZones?: Awaited<ReturnType<typeof listGcpDnsManagedZones>>
 }
 type GcpLiveErrors = Partial<Record<keyof GcpLiveData, string>>
 
@@ -227,6 +231,10 @@ function serviceConsoleUrl(resourceType: string, logicalName: string, context: G
       return gcpConsoleUrl('monitoring/uptime', context.projectId)
     case 'google_firestore_database':
       return gcpConsoleUrl('firestore/databases', context.projectId)
+    case 'google_cloud_run_service':
+      return gcpConsoleUrl(`run/detail/${encodeURIComponent(locationHint)}/${encodeURIComponent(logicalName)}`, context.projectId)
+    case 'google_dns_managed_zone':
+      return gcpConsoleUrl(`net-services/dns/zones/${encodeURIComponent(logicalName)}`, context.projectId)
     default:
       return gcpConsoleUrl('home/dashboard', context.projectId)
   }
@@ -746,6 +754,8 @@ function buildSummary(items: TerraformDriftItem[], coverage: TerraformDriftCover
     drifted: 0,
     missing_in_aws: 0,
     unmanaged_in_aws: 0,
+    missing_in_cloud: 0,
+    unmanaged_in_cloud: 0,
     unsupported: 0
   }
   const resourceTypeMap = new Map<string, number>()
@@ -822,7 +832,9 @@ async function loadLiveData(context: GcpTerraformContext): Promise<{ data: GcpLi
     ['bigqueryDatasets', () => listGcpBigQueryDatasetsExported(context.projectId)],
     ['monitoringAlertPolicies', () => listGcpMonitoringAlertPolicies(context.projectId)],
     ['monitoringUptimeChecks', () => listGcpMonitoringUptimeChecks(context.projectId)],
-    ['firestoreDatabases', () => listGcpFirestoreDatabases(context.projectId)]
+    ['firestoreDatabases', () => listGcpFirestoreDatabases(context.projectId)],
+    ['cloudRunServices', () => listGcpCloudRunServices(context.projectId, context.location)],
+    ['dnsManagedZones', () => listGcpDnsManagedZones(context.projectId)]
   ]
 
   const settled = await Promise.allSettled(loaders.map(async ([key, loader]) => ({ key, value: await loader() })))
@@ -866,7 +878,9 @@ function buildSupportedCoverage(): TerraformDriftCoverageItem[] {
     coverageItem('google_bigquery_table', ['Table exists', 'Type'], [], ['Schema and partition configuration are out of scope for this slice.']),
     coverageItem('google_monitoring_alert_policy', ['Alert policy exists', 'Enabled state', 'Condition count'], [], ['Condition details and notification channels are not individually compared.']),
     coverageItem('google_monitoring_uptime_check_config', ['Uptime check exists', 'Protocol', 'Period', 'Timeout'], [], ['Selected regions and content matchers are out of scope for this slice.']),
-    coverageItem('google_firestore_database', ['Database exists', 'Location', 'Type', 'Concurrency mode', 'Delete protection'], [], ['Index and field configurations are managed by separate resource types.'])
+    coverageItem('google_firestore_database', ['Database exists', 'Location', 'Type', 'Concurrency mode', 'Delete protection'], [], ['Index and field configurations are managed by separate resource types.']),
+    coverageItem('google_cloud_run_service', ['Service exists', 'Location'], [], ['Container image and traffic configuration are out of scope for this slice. GCP API responses may lag due to eventual consistency.']),
+    coverageItem('google_dns_managed_zone', ['Zone exists', 'DNS name', 'Visibility'], [], ['Record sets and DNSSEC configuration are managed by separate resource types.'])
   ]
 
   return items.sort((left, right) => left.resourceType.localeCompare(right.resourceType))
@@ -1791,6 +1805,52 @@ export async function getGcpTerraformDriftReport(
               ? 'The live Firestore database differs from the Terraform configuration.'
               : 'The live Firestore database matches the tracked Terraform attributes.'
             : 'Terraform tracks a Firestore database that is not present in the live inventory.',
+          differences
+        }))
+        break
+      }
+      case 'google_cloud_run_service': {
+        if (errors.cloudRunServices) {
+          items.push(unsupportedItem(item, context, `Cloud Run services could not be loaded: ${errors.cloudRunServices}`))
+          break
+        }
+        const runName = str(item.values.name) || item.name
+        const liveService = (live.cloudRunServices ?? []).find((entry) => entry.name === runName)
+        const differences: TerraformDriftDifference[] = []
+        const liveLocation = liveService?.name ? (liveService.name.split('/')[3] || '') : ''
+        compareValues(differences, 'location', 'Location', str(item.values.location), liveLocation)
+        items.push(buildTerraformItem(item, context, {
+          exists: Boolean(liveService),
+          cloudIdentifier: liveService?.name || runName,
+          region: liveLocation || context.location,
+          explanation: liveService
+            ? differences.length > 0
+              ? 'The live Cloud Run service differs from the Terraform configuration.'
+              : 'The live Cloud Run service matches the tracked Terraform attributes.'
+            : 'Terraform tracks a Cloud Run service that is not present in the live inventory.',
+          differences
+        }))
+        break
+      }
+      case 'google_dns_managed_zone': {
+        if (errors.dnsManagedZones) {
+          items.push(unsupportedItem(item, context, `DNS managed zones could not be loaded: ${errors.dnsManagedZones}`))
+          break
+        }
+        const zoneName = str(item.values.name) || item.name
+        const liveZone = (live.dnsManagedZones ?? []).find((entry) => entry.name === zoneName)
+        const differences: TerraformDriftDifference[] = []
+        compareValues(differences, 'dnsName', 'DNS Name', str(item.values.dns_name), str(liveZone?.dnsName))
+        compareValues(differences, 'visibility', 'Visibility', str(item.values.visibility), str(liveZone?.visibility))
+        items.push(buildTerraformItem(item, context, {
+          exists: Boolean(liveZone),
+          cloudIdentifier: liveZone?.name || zoneName,
+          region: context.location,
+          explanation: liveZone
+            ? differences.length > 0
+              ? 'The live DNS managed zone differs from the Terraform configuration.'
+              : 'The live DNS managed zone matches the tracked Terraform attributes.'
+            : 'Terraform tracks a DNS managed zone that is not present in the live inventory.',
           differences
         }))
         break

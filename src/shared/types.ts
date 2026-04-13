@@ -3676,6 +3676,68 @@ export type LoadBalancerWorkspace = {
   timeline: LoadBalancerTimelineEvent[]
 }
 
+/* ── Load Balancer Log Viewer types ──────────────────────── */
+
+export type LoadBalancerLogEntry = {
+  timestamp: string
+  clientIp: string
+  clientPort: number
+  targetIp: string
+  targetPort: number
+  httpMethod: string
+  requestUrl: string
+  statusCode: number
+  targetStatusCode: number
+  sentBytes: number
+  receivedBytes: number
+  requestProcessingTime: number
+  targetProcessingTime: number
+  responseProcessingTime: number
+  userAgent: string
+  sslCipher: string
+  sslProtocol: string
+  targetGroupArn: string
+  traceId: string
+  domainName: string
+  actionsExecuted: string
+  redirectUrl: string
+  errorReason: string
+  provider: CloudProviderId
+  raw: string
+}
+
+export type LoadBalancerLogFilter = {
+  statusCodeRange?: '2xx' | '3xx' | '4xx' | '5xx' | ''
+  clientIp?: string
+  requestUrlPattern?: string
+  minResponseTimeMs?: number
+  httpMethod?: string
+  targetIp?: string
+  searchText?: string
+}
+
+export type LoadBalancerLogTimeRange = {
+  startTime: string
+  endTime: string
+}
+
+export type LoadBalancerLogQuery = {
+  loadBalancerIdentifier: string
+  provider: CloudProviderId
+  timeRange: LoadBalancerLogTimeRange
+  filter: LoadBalancerLogFilter
+  maxResults: number
+  nextToken?: string
+}
+
+export type LoadBalancerLogResult = {
+  entries: LoadBalancerLogEntry[]
+  totalScanned: number
+  nextToken?: string
+  statusCodeDistribution: Record<string, number>
+  notes: string[]
+}
+
 export type ServiceId =
   | 'terraform'
   | 'overview'
@@ -6425,6 +6487,8 @@ export type TerraformDriftStatus =
   | 'drifted'
   | 'missing_in_aws'
   | 'unmanaged_in_aws'
+  | 'missing_in_cloud'
+  | 'unmanaged_in_cloud'
   | 'unsupported'
 
 export type TerraformDriftAssessment = 'verified' | 'inferred' | 'unsupported'
@@ -6455,7 +6519,7 @@ export type TerraformDriftTrend = 'improving' | 'worsening' | 'unchanged' | 'ins
 export type TerraformDriftSnapshot = {
   id: string
   scannedAt: string
-  trigger: 'manual' | 'initial'
+  trigger: 'manual' | 'initial' | 'scheduled'
   summary: TerraformDriftSummary
   items: TerraformDriftItem[]
 }
@@ -6482,6 +6546,7 @@ export type TerraformDriftItem = {
   differences: TerraformDriftDifference[]
   evidence: string[]
   relatedTerraformAddresses: string[]
+  remediationSuggestions?: TerraformDriftRemediationSuggestion[]
 }
 
 export type TerraformDriftSummary = {
@@ -6504,6 +6569,28 @@ export type TerraformDriftReport = {
   items: TerraformDriftItem[]
   history: TerraformDriftHistory
   fromCache: boolean
+}
+
+export type TerraformDriftRemediationAction = 'update-terraform' | 'apply-terraform' | 'ignore-with-annotation'
+
+export type TerraformDriftRemediationSuggestion = {
+  action: TerraformDriftRemediationAction
+  riskLevel: 'low' | 'medium' | 'high'
+  description: string
+  codeSnippet?: string
+  terraformCommand?: string
+  lifecycleBlock?: string
+}
+
+export type TerraformDriftScheduleInterval = 'hourly' | 'daily' | 'weekly'
+
+export type TerraformDriftSchedule = {
+  enabled: boolean
+  interval: TerraformDriftScheduleInterval
+  providers: CloudProviderId[]
+  projectIds: string[]
+  lastRunAt: string
+  nextRunAt: string
 }
 
 export type TerraformProject = {
@@ -6577,6 +6664,33 @@ export type TerraformAdoptionResourceType =
   | 'aws_kms_key'
   | 'aws_sqs_queue'
   | 'aws_sns_topic'
+  | 'google_compute_instance'
+  | 'google_compute_network'
+  | 'google_compute_subnetwork'
+  | 'google_compute_firewall'
+  | 'google_storage_bucket'
+  | 'google_sql_database_instance'
+  | 'google_container_cluster'
+  | 'google_cloud_run_service'
+  | 'google_pubsub_topic'
+  | 'google_pubsub_subscription'
+  | 'google_dns_managed_zone'
+  | 'google_project_iam_member'
+  | 'google_service_account'
+  | 'azurerm_virtual_machine'
+  | 'azurerm_resource_group'
+  | 'azurerm_virtual_network'
+  | 'azurerm_subnet'
+  | 'azurerm_network_security_group'
+  | 'azurerm_storage_account'
+  | 'azurerm_sql_server'
+  | 'azurerm_kubernetes_cluster'
+  | 'azurerm_app_service'
+  | 'azurerm_cosmosdb_account'
+  | 'azurerm_key_vault'
+  | 'azurerm_dns_zone'
+  | 'azurerm_eventhub_namespace'
+  | 'azurerm_postgresql_flexible_server'
 
 export type TerraformAdoptionTarget = {
   serviceId: ServiceId
@@ -6595,13 +6709,25 @@ export type TerraformAdoptionTarget = {
     availabilityZone?: string
     instanceType?: string
     imageId?: string
+    gcpProject?: string
+    gcpZone?: string
+    gcpMachineType?: string
+    gcpNetwork?: string
+    gcpSubnetwork?: string
+    gcpServiceAccountEmail?: string
+    azureSubscriptionId?: string
+    azureResourceGroup?: string
+    azureLocation?: string
+    azureVmSize?: string
+    azureVnetId?: string
+    azureSubnetId?: string
   }
 }
 
 export type TerraformAdoptionStateMatch = {
   address: string
   resourceType: string
-  matchedOn: 'identifier' | 'arn' | 'name' | 'eks-nodegroup'
+  matchedOn: 'identifier' | 'arn' | 'name' | 'eks-nodegroup' | 'self-link' | 'azure-resource-id'
   matchedValue: string
 }
 
@@ -6646,6 +6772,8 @@ export type TerraformAdoptionRelatedResourceMatch = {
   modulePath: string
   mode: 'managed' | 'data'
   matchedOn: 'subnet-id' | 'vpc-id' | 'security-group' | 'iam-instance-profile' | 'eks-nodegroup'
+    | 'gcp-network' | 'gcp-subnetwork' | 'gcp-service-account' | 'gke-cluster'
+    | 'azure-vnet' | 'azure-subnet' | 'azure-nsg' | 'azure-resource-group' | 'aks-cluster'
   matchedValue: string
 }
 

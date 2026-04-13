@@ -580,41 +580,94 @@ async function resolveAzureVmNetworkSummary(
 }
 
 export async function listAzureVirtualMachines(subscriptionId: string, location: string): Promise<AzureVirtualMachineSummary[]> {
-  const allVms = await fetchAzureArmCollection<{
-    id?: string
-    name?: string
-    location?: string
-    tags?: Record<string, string>
-    properties?: {
-      provisioningState?: string
-      storageProfile?: { osDisk?: { osType?: string } }
-      hardwareProfile?: { vmSize?: string }
-      diagnosticsProfile?: { bootDiagnostics?: { enabled?: boolean } }
-      networkProfile?: { networkInterfaces?: Array<{ id?: string }> }
-    }
-    identity?: { type?: string }
-  }>(`/subscriptions/${subscriptionId.trim()}/providers/Microsoft.Compute/virtualMachines`, '2023-09-01')
+  const subPath = `/subscriptions/${subscriptionId.trim()}`
+  const networkApiVersion = '2023-11-01'
+
+  // Fetch VMs, NICs, and public IPs in three parallel bulk calls instead of
+  // N+1 per-VM requests.  Power state is resolved via a lightweight batch of
+  // instanceView calls with higher concurrency (no NIC/IP overhead per VM).
+  const [allVms, allNics, allPublicIps] = await Promise.all([
+    fetchAzureArmCollection<{
+      id?: string
+      name?: string
+      location?: string
+      tags?: Record<string, string>
+      properties?: {
+        provisioningState?: string
+        storageProfile?: { osDisk?: { osType?: string } }
+        hardwareProfile?: { vmSize?: string }
+        diagnosticsProfile?: { bootDiagnostics?: { enabled?: boolean } }
+        networkProfile?: { networkInterfaces?: Array<{ id?: string }> }
+      }
+      identity?: { type?: string }
+    }>(`${subPath}/providers/Microsoft.Compute/virtualMachines`, '2023-09-01'),
+    fetchAzureArmCollection<Record<string, unknown>>(`${subPath}/providers/Microsoft.Network/networkInterfaces`, networkApiVersion),
+    fetchAzureArmCollection<Record<string, unknown>>(`${subPath}/providers/Microsoft.Network/publicIPAddresses`, networkApiVersion)
+  ])
+
+  // Build a lookup: public IP resource id (lowercase) → ip address string
+  const publicIpById = new Map<string, string>()
+  for (const pip of allPublicIps) {
+    const id = String(pip.id ?? '').toLowerCase()
+    const addr = String(((pip.properties ?? {}) as Record<string, unknown>).ipAddress ?? '')
+    if (id && addr) publicIpById.set(id, addr)
+  }
+
+  // Build a lookup: VM resource id (lowercase) → primary NIC network info
+  type VmNetInfo = { privateIp: string; publicIp: string; hasPublicIp: boolean; subnetName: string; nicCount: number }
+  const vmNetworkByVmId = new Map<string, VmNetInfo>()
+  // Group NICs by attached VM
+  const nicsByVmId = new Map<string, Array<Record<string, unknown>>>()
+  for (const nic of allNics) {
+    const props = (nic.properties ?? {}) as Record<string, unknown>
+    const vmRef = (props.virtualMachine ?? null) as Record<string, unknown> | null
+    if (!vmRef) continue
+    const vmId = String(vmRef.id ?? '').toLowerCase()
+    if (!vmId) continue
+    const list = nicsByVmId.get(vmId) ?? []
+    list.push(nic)
+    nicsByVmId.set(vmId, list)
+  }
+  for (const [vmId, nics] of nicsByVmId) {
+    const primaryNic = nics.find((n) => {
+      const p = (n.properties ?? {}) as Record<string, unknown>
+      return p.primary === true
+    }) ?? nics[0]
+    const nicProps = (primaryNic.properties ?? {}) as Record<string, unknown>
+    const ipConfigs = (nicProps.ipConfigurations ?? []) as Array<Record<string, unknown>>
+    const primaryIpConfig = ipConfigs[0] ?? {}
+    const ipProps = ((primaryIpConfig as Record<string, unknown>).properties ?? {}) as Record<string, unknown>
+    const privateIp = String(ipProps.privateIPAddress ?? '')
+    const subnetRef = (ipProps.subnet ?? null) as Record<string, unknown> | null
+    const subnetName = subnetRef ? extractResourceName(String(subnetRef.id ?? '')) : ''
+    const publicIpRef = (ipProps.publicIPAddress ?? null) as Record<string, unknown> | null
+    const publicIpId = publicIpRef ? String(publicIpRef.id ?? '').toLowerCase() : ''
+    const publicIp = publicIpId ? (publicIpById.get(publicIpId) ?? '') : ''
+    vmNetworkByVmId.set(vmId, {
+      privateIp,
+      publicIp,
+      hasPublicIp: Boolean(publicIp),
+      subnetName,
+      nicCount: nics.length
+    })
+  }
 
   const normalizedLocation = location.trim().toLowerCase()
   const filtered = normalizedLocation
     ? allVms.filter((vm) => (vm.location?.trim().toLowerCase() ?? '') === normalizedLocation)
     : allVms
 
-  const results = await mapWithConcurrency(filtered, 5, async (vm) => {
-    const nicIds = (vm.properties?.networkProfile?.networkInterfaces ?? [])
-      .map((item) => item.id?.trim() || '')
-      .filter(Boolean)
+  // Batch-fetch instanceView for power state with high concurrency.
+  // NIC and public IP are already resolved from the bulk maps above,
+  // so each per-VM call is a single lightweight request.
+  const results = await mapWithConcurrency(filtered, 15, async (vm) => {
+    const vmIdLower = (vm.id ?? '').toLowerCase()
+    const network = vmNetworkByVmId.get(vmIdLower) ?? { privateIp: '', publicIp: '', hasPublicIp: false, subnetName: '', nicCount: 0 }
+    const nicIds = (vm.properties?.networkProfile?.networkInterfaces ?? []).map((item) => item.id?.trim() || '').filter(Boolean)
 
-    const [instanceView, network] = await Promise.all([
-      fetchAzureArmJson<{
-        statuses?: Array<{ code?: string; displayStatus?: string }>
-      }>(`${vm.id}/instanceView`, '2023-09-01').catch((error) => {
-        logWarn('azureSdk.listAzureVirtualMachines', `Failed to fetch instanceView for VM ${vm.name ?? vm.id}.`, { vmId: vm.id }, error)
-        return null
-      }),
-      resolveAzureVmNetworkSummary(nicIds)
-    ])
-
+    const instanceView = await fetchAzureArmJson<{
+      statuses?: Array<{ code?: string; displayStatus?: string }>
+    }>(`${vm.id}/instanceView`, '2023-09-01').catch(() => null)
     const statuses = instanceView?.statuses ?? []
 
     return {
@@ -635,7 +688,7 @@ export async function listAzureVirtualMachines(subscriptionId: string, location:
       publicIp: network.publicIp,
       hasPublicIp: network.hasPublicIp,
       subnetName: network.subnetName,
-      networkInterfaceCount: nicIds.length,
+      networkInterfaceCount: nicIds.length || network.nicCount,
       diagnosticsState: vm.properties?.diagnosticsProfile?.bootDiagnostics?.enabled ? 'Boot diagnostics enabled' : 'Boot diagnostics off',
       tagCount: Object.keys(vm.tags ?? {}).length
     } satisfies AzureVirtualMachineSummary

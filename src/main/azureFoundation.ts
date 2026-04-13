@@ -1249,14 +1249,28 @@ export async function setAzureActiveSubscription(subscriptionId: string): Promis
   // Keep catalog cache (tenants/subscriptions list stays valid).
   // Subscription detail cache for the new subscription will be fetched if not already cached.
   const normalizedSubscriptionId = subscriptionId.trim()
-  const matchedSubscription = (await getAzureProviderContext()).subscriptions.find((entry) => entry.subscriptionId === normalizedSubscriptionId) ?? null
+
+  // Try to resolve subscription from the cached catalog first to avoid a full context rebuild.
+  const cachedCatalog = runtimeState.multiTenantCache.catalog
+  let matchedSubscription: AzureSubscriptionSummary | null = null
+  if (cachedCatalog) {
+    matchedSubscription = cachedCatalog.subscriptions.find((entry) => entry.subscriptionId === normalizedSubscriptionId) ?? null
+  }
+  if (!matchedSubscription) {
+    matchedSubscription = (await getAzureProviderContext()).subscriptions.find((entry) => entry.subscriptionId === normalizedSubscriptionId) ?? null
+  }
+
   const currentStore = readAzureFoundationStore()
   const nextRecentSubscriptions = mergeRecentSubscriptions(currentStore.recentSubscriptions, matchedSubscription ? [matchedSubscription] : [], normalizedSubscriptionId)
 
+  // Preserve the current location when re-selecting the same subscription or
+  // when the user already picked a location.  Only clear it when the
+  // subscription actually changes (locations may differ between subscriptions).
+  const locationChanged = currentStore.activeSubscriptionId !== normalizedSubscriptionId
   updateAzureFoundationStore({
     activeTenantId: matchedSubscription?.tenantId ?? currentStore.activeTenantId,
     activeSubscriptionId: normalizedSubscriptionId,
-    activeLocation: '',
+    activeLocation: locationChanged ? '' : currentStore.activeLocation,
     recentSubscriptionIds: mergeRecentSubscriptionIds(currentStore.recentSubscriptionIds, normalizedSubscriptionId),
     recentSubscriptions: nextRecentSubscriptions.map((entry) => ({
       subscriptionId: entry.subscriptionId,

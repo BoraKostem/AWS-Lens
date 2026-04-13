@@ -35,7 +35,34 @@ const SUPPORTED_STATE_TYPES: Record<TerraformAdoptionTarget['resourceType'], str
   aws_secretsmanager_secret: ['aws_secretsmanager_secret'],
   aws_kms_key: ['aws_kms_key'],
   aws_sqs_queue: ['aws_sqs_queue'],
-  aws_sns_topic: ['aws_sns_topic']
+  aws_sns_topic: ['aws_sns_topic'],
+  google_compute_instance: ['google_compute_instance'],
+  google_compute_network: ['google_compute_network'],
+  google_compute_subnetwork: ['google_compute_subnetwork'],
+  google_compute_firewall: ['google_compute_firewall'],
+  google_storage_bucket: ['google_storage_bucket'],
+  google_sql_database_instance: ['google_sql_database_instance'],
+  google_container_cluster: ['google_container_cluster'],
+  google_cloud_run_service: ['google_cloud_run_service'],
+  google_pubsub_topic: ['google_pubsub_topic'],
+  google_pubsub_subscription: ['google_pubsub_subscription'],
+  google_dns_managed_zone: ['google_dns_managed_zone'],
+  google_project_iam_member: ['google_project_iam_member'],
+  google_service_account: ['google_service_account'],
+  azurerm_virtual_machine: ['azurerm_virtual_machine', 'azurerm_linux_virtual_machine', 'azurerm_windows_virtual_machine'],
+  azurerm_resource_group: ['azurerm_resource_group'],
+  azurerm_virtual_network: ['azurerm_virtual_network'],
+  azurerm_subnet: ['azurerm_subnet'],
+  azurerm_network_security_group: ['azurerm_network_security_group'],
+  azurerm_storage_account: ['azurerm_storage_account'],
+  azurerm_sql_server: ['azurerm_sql_server', 'azurerm_mssql_server'],
+  azurerm_kubernetes_cluster: ['azurerm_kubernetes_cluster'],
+  azurerm_app_service: ['azurerm_app_service', 'azurerm_linux_web_app', 'azurerm_windows_web_app'],
+  azurerm_cosmosdb_account: ['azurerm_cosmosdb_account'],
+  azurerm_key_vault: ['azurerm_key_vault'],
+  azurerm_dns_zone: ['azurerm_dns_zone'],
+  azurerm_eventhub_namespace: ['azurerm_eventhub_namespace'],
+  azurerm_postgresql_flexible_server: ['azurerm_postgresql_flexible_server']
 }
 
 const CONFIG_FILE_EXTENSIONS = new Set(['.tf', '.tfvars', '.hcl', '.json'])
@@ -123,6 +150,15 @@ function resourceIdentifierCandidates(values: Record<string, unknown>, tags: Rec
     stringCandidate(values, 'service_name'),
     stringCandidate(values, 'cluster_name'),
     stringCandidate(values, 'instance_id'),
+    stringCandidate(values, 'self_link'),
+    stringCandidate(values, 'project'),
+    stringCandidate(values, 'network'),
+    stringCandidate(values, 'subnetwork'),
+    stringCandidate(values, 'account_id'),
+    stringCandidate(values, 'email'),
+    stringCandidate(values, 'dns_name'),
+    stringCandidate(values, 'resource_group_name'),
+    stringCandidate(values, 'namespace_name'),
     tags.Name?.trim() ?? ''
   ].filter(Boolean)
 }
@@ -142,8 +178,78 @@ function resourceNameCandidates(values: Record<string, unknown>, tags: Record<st
     stringCandidate(values, 'queue_name'),
     stringCandidate(values, 'service_name'),
     stringCandidate(values, 'cluster_name'),
+    stringCandidate(values, 'display_name'),
+    stringCandidate(values, 'account_id'),
+    stringCandidate(values, 'email'),
+    stringCandidate(values, 'dns_name'),
+    stringCandidate(values, 'resource_group_name'),
     tags.Name?.trim() ?? ''
   ].filter(Boolean)
+}
+
+const GKE_CLUSTER_LABEL_KEYS = ['goog-k8s-cluster-name']
+const AKS_CLUSTER_TAG_KEYS = ['aks-managed-cluster-name']
+
+function inferGkeClusterName(labels: Record<string, string> | undefined): string {
+  return valueFromTagKeys(labels, GKE_CLUSTER_LABEL_KEYS)
+}
+
+function inferAksClusterName(tags: Record<string, string> | undefined): string {
+  return valueFromTagKeys(tags, AKS_CLUSTER_TAG_KEYS)
+}
+
+function detectGkeNodePoolStateMatches(
+  inventory: TerraformResourceInventoryItem[],
+  target: TerraformAdoptionTarget
+): TerraformAdoptionStateMatch[] {
+  const clusterName = inferGkeClusterName(target.tags)
+  if (!clusterName) return []
+
+  return inventory.flatMap((item) => {
+    if (item.mode !== 'managed') return []
+    if (item.type !== 'google_container_node_pool') return []
+
+    const values = item.values ?? {}
+    const inventoryCluster = typeof values.cluster === 'string' ? values.cluster.trim() : ''
+
+    if (!inventoryCluster.endsWith(`/${clusterName}`) && inventoryCluster !== clusterName) {
+      return []
+    }
+
+    return [{
+      address: item.address,
+      resourceType: item.type,
+      matchedOn: 'self-link' as const,
+      matchedValue: clusterName
+    }]
+  })
+}
+
+function detectAksNodePoolStateMatches(
+  inventory: TerraformResourceInventoryItem[],
+  target: TerraformAdoptionTarget
+): TerraformAdoptionStateMatch[] {
+  const clusterName = inferAksClusterName(target.tags)
+  if (!clusterName) return []
+
+  return inventory.flatMap((item) => {
+    if (item.mode !== 'managed') return []
+    if (item.type !== 'azurerm_kubernetes_cluster_node_pool') return []
+
+    const values = item.values ?? {}
+    const inventoryClusterId = typeof values.kubernetes_cluster_id === 'string' ? values.kubernetes_cluster_id.trim() : ''
+
+    if (!inventoryClusterId.toLowerCase().endsWith(`/managedclusters/${clusterName.toLowerCase()}`)) {
+      return []
+    }
+
+    return [{
+      address: item.address,
+      resourceType: item.type,
+      matchedOn: 'azure-resource-id' as const,
+      matchedValue: clusterName
+    }]
+  })
 }
 
 function detectEksNodegroupStateMatches(
@@ -212,6 +318,24 @@ function detectStateMatches(
       })
     }
 
+    if (typeof values.self_link === 'string' && target.identifier && values.self_link === target.identifier) {
+      matches.push({
+        address: item.address,
+        resourceType: item.type,
+        matchedOn: 'self-link',
+        matchedValue: target.identifier
+      })
+    }
+
+    if (typeof values.id === 'string' && target.identifier && values.id.startsWith('/subscriptions/') && values.id.toLowerCase() === target.identifier.toLowerCase()) {
+      matches.push({
+        address: item.address,
+        resourceType: item.type,
+        matchedOn: 'azure-resource-id',
+        matchedValue: target.identifier
+      })
+    }
+
     if (target.name) {
       const stateNames = resourceNameCandidates(values, tags)
       if (stateNames.includes(target.name)) {
@@ -229,7 +353,9 @@ function detectStateMatches(
 
   return dedupeStateMatches([
     ...directMatches,
-    ...detectEksNodegroupStateMatches(inventory, target)
+    ...detectEksNodegroupStateMatches(inventory, target),
+    ...detectGkeNodePoolStateMatches(inventory, target),
+    ...detectAksNodePoolStateMatches(inventory, target)
   ])
 }
 

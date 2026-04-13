@@ -9,6 +9,7 @@ import {
   listAzureLoadBalancers,
   describeAzureLoadBalancer,
 } from './api'
+import { LoadBalancerLogViewer } from './LoadBalancerLogViewer'
 import { SvcState } from './SvcState'
 
 /* ── Helpers ── */
@@ -33,7 +34,7 @@ function skuBadge(sku: string): JSX.Element {
 
 /* ── Component ── */
 
-type TabId = 'loadBalancers' | 'rules' | 'probes' | 'backends'
+type TabId = 'loadBalancers' | 'rules' | 'probes' | 'backends' | 'logs'
 
 export function AzureLoadBalancersConsole({
   subscriptionId,
@@ -173,6 +174,7 @@ export function AzureLoadBalancersConsole({
         <button className={`svc-tab ${activeTab === 'rules' ? 'active' : ''}`} type="button" onClick={() => setActiveTab('rules')}>Rules ({detail ? detail.rules.length + detail.inboundNatRules.length : 0})</button>
         <button className={`svc-tab ${activeTab === 'probes' ? 'active' : ''}`} type="button" onClick={() => setActiveTab('probes')}>Health Probes ({detail?.probes.length ?? 0})</button>
         <button className={`svc-tab ${activeTab === 'backends' ? 'active' : ''}`} type="button" onClick={() => setActiveTab('backends')}>Backend Pools ({detail?.backendPools.length ?? 0})</button>
+        <button className={`svc-tab ${activeTab === 'logs' ? 'active' : ''}`} type="button" onClick={() => setActiveTab('logs')}>Logs</button>
         <button className="svc-tab right" type="button" onClick={refreshAll}>Refresh</button>
       </div>
 
@@ -453,6 +455,19 @@ export function AzureLoadBalancersConsole({
           )}
           {selectedLb && !detailLoading && detail && detail.backendPools.length === 0 && (
             <SvcState variant="empty" message="No backend pools found for the selected load balancer." />
+          )}
+        </div>
+      )}
+
+      {/* ── Logs tab ── */}
+      {activeTab === 'logs' && (
+        <div style={{ padding: '16px' }}>
+          {!selectedLb && <SvcState variant="empty" message="Select a load balancer from the Load Balancers tab to view logs." />}
+          {selectedLb && (
+            <LoadBalancerLogViewer
+              provider="azure"
+              loadBalancerIdentifier={selectedLb.id}
+            />
           )}
         </div>
       )}

@@ -17,18 +17,20 @@ import {
   listGcpSecurityPolicies,
   getGcpSecurityPolicyDetail
 } from './api'
+import { LoadBalancerLogViewer } from './LoadBalancerLogViewer'
 import { SvcState } from './SvcState'
 import './gcp-runtime-consoles.css'
 
 /* ── Helpers ──────────────────────────────────────────────── */
 
-type LbTab = 'load-balancers' | 'backends' | 'health-checks' | 'cloud-armor'
+type LbTab = 'load-balancers' | 'backends' | 'health-checks' | 'cloud-armor' | 'logs'
 
 const MAIN_TABS: Array<{ id: LbTab; label: string }> = [
   { id: 'load-balancers', label: 'Load Balancers' },
   { id: 'backends', label: 'Backends' },
   { id: 'health-checks', label: 'Health Checks' },
-  { id: 'cloud-armor', label: 'Cloud Armor' }
+  { id: 'cloud-armor', label: 'Cloud Armor' },
+  { id: 'logs', label: 'Logs' }
 ]
 
 function extractQuotedCommand(value: string): string | null {
@@ -704,6 +706,17 @@ export function GcpLoadBalancerConsole({
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ══════════════ LOGS TAB ══════════════ */}
+      {!loading && !error && mainTab === 'logs' && (
+        <div className="overview-surface">
+          <LoadBalancerLogViewer
+            provider="gcp"
+            loadBalancerIdentifier={selectedUrlMap?.name ?? ''}
+            gcpProjectId={projectId}
+          />
         </div>
       )}
     </div>

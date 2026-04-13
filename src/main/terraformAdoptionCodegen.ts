@@ -119,6 +119,8 @@ function resolveModuleDirectory(project: TerraformProject, modulePath: string): 
 function classifyFileName(fileName: string): number {
   let score = 0
   if (/(^|[-_.])(ec2|instance|instances|compute|server)([-_.]|$)/i.test(fileName)) score += 22
+  if (/(^|[-_.])(gcp|google|gke|cloudsql|cloud[-_]?run|pubsub)([-_.]|$)/i.test(fileName)) score += 22
+  if (/(^|[-_.])(azure|azurerm|aks|webapp|cosmosdb|keyvault)([-_.]|$)/i.test(fileName)) score += 22
   if (/^(main|resources)\.tf$/i.test(fileName)) score += 14
   if (/^(providers?|versions?|variables?|outputs?|locals?|backend)\.tf$/i.test(fileName)) score -= 18
   if (/adoption|adopted/i.test(fileName)) score += 10
@@ -133,7 +135,7 @@ function chooseTargetFile(moduleDirectory: string, mapping: TerraformAdoptionMap
     let score = classifyFileName(fileName)
 
     if (contents.includes(`resource "${mapping.recommendedResourceType}"`)) score += 40
-    if (contents.includes('resource "aws_')) score += 8
+    if (contents.includes('resource "aws_') || contents.includes('resource "google_') || contents.includes('resource "azurerm_')) score += 8
     if (mapping.relatedResources.some((resource) => contents.includes(resource.address.split('.').slice(-2).join('.')))) score += 10
 
     return { filePath, fileName, score }
@@ -155,7 +157,7 @@ function chooseTargetFile(moduleDirectory: string, mapping: TerraformAdoptionMap
     }
   }
 
-  const suggestedFileName = mapping.recommendedResourceType === 'aws_instance' ? 'ec2_adoption.tf' : 'adoption.tf'
+  const suggestedFileName = suggestedAdoptionFileName(mapping.recommendedResourceType)
   return {
     moduleDirectory,
     moduleDisplayPath: moduleDisplayPath(mapping.module.modulePath),
@@ -191,6 +193,12 @@ function nonAwsTags(tags: Record<string, string> | undefined): Array<[string, st
     .sort((left, right) => left[0].localeCompare(right[0]))
 }
 
+function nonGcpLabels(tags: Record<string, string> | undefined): Array<[string, string]> {
+  return Object.entries(tags ?? {})
+    .filter(([key]) => !key.startsWith('goog-') && !key.startsWith('google-'))
+    .sort((left, right) => left[0].localeCompare(right[0]))
+}
+
 function renderTagsBlock(tags: Record<string, string> | undefined): string[] {
   const entries = nonAwsTags(tags)
   if (entries.length === 0) return []
@@ -200,6 +208,24 @@ function renderTagsBlock(tags: Record<string, string> | undefined): string[] {
     ...entries.map(([key, value]) => `    ${key} = ${quote(value)}`),
     '  }'
   ]
+}
+
+function renderLabelsBlock(tags: Record<string, string> | undefined): string[] {
+  const entries = nonGcpLabels(tags)
+  if (entries.length === 0) return []
+
+  return [
+    '  labels = {',
+    ...entries.map(([key, value]) => `    ${key} = ${quote(value)}`),
+    '  }'
+  ]
+}
+
+function suggestedAdoptionFileName(resourceType: string): string {
+  if (resourceType === 'aws_instance') return 'ec2_adoption.tf'
+  if (resourceType.startsWith('google_')) return 'gcp_adoption.tf'
+  if (resourceType.startsWith('azurerm_')) return 'azure_adoption.tf'
+  return 'adoption.tf'
 }
 
 function buildSubnetExpression(mapping: TerraformAdoptionMappingResult, target: TerraformAdoptionTarget): string {
@@ -230,7 +256,7 @@ function buildIamProfileExpression(mapping: TerraformAdoptionMappingResult, targ
   return profile ? quote(profile.split('/').pop() ?? profile) : ''
 }
 
-function buildResourceBlock(_project: TerraformProject, mapping: TerraformAdoptionMappingResult): string {
+function buildAwsResourceBlock(mapping: TerraformAdoptionMappingResult): string {
   const target = mapping.target
   const lines: string[] = [
     `resource "${mapping.recommendedResourceType}" "${mapping.suggestedResourceName}" {`
@@ -279,6 +305,303 @@ function buildResourceBlock(_project: TerraformProject, mapping: TerraformAdopti
   return `${lines.join('\n')}\n`
 }
 
+function buildGcpResourceBlock(mapping: TerraformAdoptionMappingResult): string {
+  const target = mapping.target
+  const ctx = target.resourceContext
+  const lines: string[] = [
+    `resource "${mapping.recommendedResourceType}" "${mapping.suggestedResourceName}" {`
+  ]
+
+  if (mapping.provider.alias) {
+    lines.push(`  provider = google.${mapping.provider.alias}`)
+  }
+
+  switch (target.resourceType) {
+    case 'google_compute_instance':
+      lines.push(`  name         = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  machine_type = ${quote(ctx?.gcpMachineType || 'e2-medium')}`)
+      lines.push(`  zone         = ${quote(ctx?.gcpZone || target.region)}`)
+      lines.push('')
+      lines.push('  boot_disk {')
+      lines.push('    initialize_params {')
+      lines.push(`      image = ${quote(ctx?.imageId || 'REVIEW_ME')}`)
+      lines.push('    }')
+      lines.push('  }')
+      lines.push('')
+      lines.push('  network_interface {')
+      lines.push(`    network    = ${quote(ctx?.gcpNetwork || 'default')}`)
+      if (ctx?.gcpSubnetwork) lines.push(`    subnetwork = ${quote(ctx.gcpSubnetwork)}`)
+      lines.push('  }')
+      if (ctx?.gcpServiceAccountEmail) {
+        lines.push('')
+        lines.push('  service_account {')
+        lines.push(`    email  = ${quote(ctx.gcpServiceAccountEmail)}`)
+        lines.push('    scopes = ["cloud-platform"]')
+        lines.push('  }')
+      }
+      break
+
+    case 'google_compute_network':
+      lines.push(`  name                    = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push('  auto_create_subnetworks = false')
+      break
+
+    case 'google_compute_subnetwork':
+      lines.push(`  name          = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  ip_cidr_range = "REVIEW_ME"`)
+      lines.push(`  region        = ${quote(target.region)}`)
+      lines.push(`  network       = ${quote(ctx?.gcpNetwork || 'REVIEW_ME')}`)
+      break
+
+    case 'google_compute_firewall':
+      lines.push(`  name    = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  network = ${quote(ctx?.gcpNetwork || 'REVIEW_ME')}`)
+      lines.push('')
+      lines.push('  allow {')
+      lines.push('    protocol = "tcp"')
+      lines.push('    ports    = ["REVIEW_ME"]')
+      lines.push('  }')
+      break
+
+    case 'google_storage_bucket':
+      lines.push(`  name     = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  location = ${quote(target.region)}`)
+      break
+
+    case 'google_sql_database_instance':
+      lines.push(`  name             = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  database_version = "REVIEW_ME"`)
+      lines.push(`  region           = ${quote(target.region)}`)
+      lines.push('')
+      lines.push('  settings {')
+      lines.push('    tier = "REVIEW_ME"')
+      lines.push('  }')
+      break
+
+    case 'google_container_cluster':
+      lines.push(`  name     = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  location = ${quote(ctx?.gcpZone || target.region)}`)
+      lines.push('')
+      lines.push('  # Remove default node pool after creation')
+      lines.push('  remove_default_node_pool = true')
+      lines.push('  initial_node_count       = 1')
+      break
+
+    case 'google_cloud_run_service':
+      lines.push(`  name     = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  location = ${quote(target.region)}`)
+      lines.push('')
+      lines.push('  template {')
+      lines.push('    spec {')
+      lines.push('      containers {')
+      lines.push(`        image = "REVIEW_ME"`)
+      lines.push('      }')
+      lines.push('    }')
+      lines.push('  }')
+      break
+
+    case 'google_pubsub_topic':
+      lines.push(`  name = ${quote(target.name || 'REVIEW_ME')}`)
+      break
+
+    case 'google_pubsub_subscription':
+      lines.push(`  name  = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  topic = "REVIEW_ME"`)
+      break
+
+    case 'google_dns_managed_zone':
+      lines.push(`  name     = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  dns_name = "REVIEW_ME."`)
+      break
+
+    case 'google_project_iam_member':
+      lines.push(`  project = ${quote(ctx?.gcpProject || 'REVIEW_ME')}`)
+      lines.push(`  role    = "REVIEW_ME"`)
+      lines.push(`  member  = "REVIEW_ME"`)
+      break
+
+    case 'google_service_account':
+      lines.push(`  account_id   = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  display_name = ${quote(target.displayName || target.name || '')}`)
+      break
+
+    default:
+      lines.push(`  name = ${quote(target.name || 'REVIEW_ME')}`)
+      break
+  }
+
+  if (ctx?.gcpProject) {
+    lines.push(`  project = ${quote(ctx.gcpProject)}`)
+  }
+
+  const labelsBlock = renderLabelsBlock(target.tags)
+  if (labelsBlock.length > 0) {
+    lines.push('', ...labelsBlock)
+  }
+
+  lines.push('}')
+  return `${lines.join('\n')}\n`
+}
+
+function buildAzureResourceBlock(mapping: TerraformAdoptionMappingResult): string {
+  const target = mapping.target
+  const ctx = target.resourceContext
+  const lines: string[] = [
+    `resource "${mapping.recommendedResourceType}" "${mapping.suggestedResourceName}" {`
+  ]
+
+  if (mapping.provider.alias) {
+    lines.push(`  provider = azurerm.${mapping.provider.alias}`)
+  }
+
+  switch (target.resourceType) {
+    case 'azurerm_resource_group':
+      lines.push(`  name     = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  location = ${quote(ctx?.azureLocation || target.region)}`)
+      break
+
+    case 'azurerm_virtual_machine':
+      lines.push(`  name                = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  location            = ${quote(ctx?.azureLocation || target.region)}`)
+      lines.push(`  resource_group_name = ${quote(ctx?.azureResourceGroup || 'REVIEW_ME')}`)
+      lines.push(`  vm_size             = ${quote(ctx?.azureVmSize || 'Standard_B2s')}`)
+      lines.push('')
+      lines.push(`  network_interface_ids = ["REVIEW_ME"]`)
+      lines.push('')
+      lines.push('  os_disk {')
+      lines.push('    caching              = "ReadWrite"')
+      lines.push('    storage_account_type = "Standard_LRS"')
+      lines.push('  }')
+      break
+
+    case 'azurerm_virtual_network':
+      lines.push(`  name                = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  location            = ${quote(ctx?.azureLocation || target.region)}`)
+      lines.push(`  resource_group_name = ${quote(ctx?.azureResourceGroup || 'REVIEW_ME')}`)
+      lines.push(`  address_space       = ["REVIEW_ME"]`)
+      break
+
+    case 'azurerm_subnet':
+      lines.push(`  name                 = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  resource_group_name  = ${quote(ctx?.azureResourceGroup || 'REVIEW_ME')}`)
+      lines.push(`  virtual_network_name = "REVIEW_ME"`)
+      lines.push(`  address_prefixes     = ["REVIEW_ME"]`)
+      break
+
+    case 'azurerm_network_security_group':
+      lines.push(`  name                = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  location            = ${quote(ctx?.azureLocation || target.region)}`)
+      lines.push(`  resource_group_name = ${quote(ctx?.azureResourceGroup || 'REVIEW_ME')}`)
+      break
+
+    case 'azurerm_storage_account':
+      lines.push(`  name                     = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  location                 = ${quote(ctx?.azureLocation || target.region)}`)
+      lines.push(`  resource_group_name      = ${quote(ctx?.azureResourceGroup || 'REVIEW_ME')}`)
+      lines.push('  account_tier             = "Standard"')
+      lines.push('  account_replication_type = "LRS"')
+      break
+
+    case 'azurerm_sql_server':
+      lines.push(`  name                         = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  location                     = ${quote(ctx?.azureLocation || target.region)}`)
+      lines.push(`  resource_group_name          = ${quote(ctx?.azureResourceGroup || 'REVIEW_ME')}`)
+      lines.push(`  version                      = "12.0"`)
+      lines.push(`  administrator_login          = "REVIEW_ME"`)
+      lines.push(`  administrator_login_password = "REVIEW_ME"`)
+      break
+
+    case 'azurerm_kubernetes_cluster':
+      lines.push(`  name                = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  location            = ${quote(ctx?.azureLocation || target.region)}`)
+      lines.push(`  resource_group_name = ${quote(ctx?.azureResourceGroup || 'REVIEW_ME')}`)
+      lines.push(`  dns_prefix          = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push('')
+      lines.push('  default_node_pool {')
+      lines.push(`    name       = "default"`)
+      lines.push('    node_count = 1')
+      lines.push(`    vm_size    = ${quote(ctx?.azureVmSize || 'Standard_DS2_v2')}`)
+      lines.push('  }')
+      lines.push('')
+      lines.push('  identity {')
+      lines.push('    type = "SystemAssigned"')
+      lines.push('  }')
+      break
+
+    case 'azurerm_app_service':
+      lines.push(`  name                = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  location            = ${quote(ctx?.azureLocation || target.region)}`)
+      lines.push(`  resource_group_name = ${quote(ctx?.azureResourceGroup || 'REVIEW_ME')}`)
+      lines.push(`  service_plan_id     = "REVIEW_ME"`)
+      break
+
+    case 'azurerm_cosmosdb_account':
+      lines.push(`  name                = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  location            = ${quote(ctx?.azureLocation || target.region)}`)
+      lines.push(`  resource_group_name = ${quote(ctx?.azureResourceGroup || 'REVIEW_ME')}`)
+      lines.push('  offer_type          = "Standard"')
+      lines.push('  kind                = "GlobalDocumentDB"')
+      lines.push('')
+      lines.push('  consistency_policy {')
+      lines.push('    consistency_level = "Session"')
+      lines.push('  }')
+      lines.push('')
+      lines.push('  geo_location {')
+      lines.push(`    location          = ${quote(ctx?.azureLocation || target.region)}`)
+      lines.push('    failover_priority = 0')
+      lines.push('  }')
+      break
+
+    case 'azurerm_key_vault':
+      lines.push(`  name                = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  location            = ${quote(ctx?.azureLocation || target.region)}`)
+      lines.push(`  resource_group_name = ${quote(ctx?.azureResourceGroup || 'REVIEW_ME')}`)
+      lines.push(`  tenant_id           = "REVIEW_ME"`)
+      lines.push('  sku_name            = "standard"')
+      break
+
+    case 'azurerm_dns_zone':
+      lines.push(`  name                = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  resource_group_name = ${quote(ctx?.azureResourceGroup || 'REVIEW_ME')}`)
+      break
+
+    case 'azurerm_eventhub_namespace':
+      lines.push(`  name                = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  location            = ${quote(ctx?.azureLocation || target.region)}`)
+      lines.push(`  resource_group_name = ${quote(ctx?.azureResourceGroup || 'REVIEW_ME')}`)
+      lines.push('  sku                 = "Standard"')
+      break
+
+    case 'azurerm_postgresql_flexible_server':
+      lines.push(`  name                = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  location            = ${quote(ctx?.azureLocation || target.region)}`)
+      lines.push(`  resource_group_name = ${quote(ctx?.azureResourceGroup || 'REVIEW_ME')}`)
+      lines.push('  sku_name            = "REVIEW_ME"')
+      lines.push('  version             = "REVIEW_ME"')
+      break
+
+    default:
+      lines.push(`  name                = ${quote(target.name || 'REVIEW_ME')}`)
+      lines.push(`  location            = ${quote(ctx?.azureLocation || target.region)}`)
+      lines.push(`  resource_group_name = ${quote(ctx?.azureResourceGroup || 'REVIEW_ME')}`)
+      break
+  }
+
+  const tagsBlock = renderTagsBlock(target.tags)
+  if (tagsBlock.length > 0) {
+    lines.push('', ...tagsBlock)
+  }
+
+  lines.push('}')
+  return `${lines.join('\n')}\n`
+}
+
+function buildResourceBlock(_project: TerraformProject, mapping: TerraformAdoptionMappingResult): string {
+  if (mapping.recommendedResourceType.startsWith('google_')) return buildGcpResourceBlock(mapping)
+  if (mapping.recommendedResourceType.startsWith('azurerm_')) return buildAzureResourceBlock(mapping)
+  return buildAwsResourceBlock(mapping)
+}
+
 function buildImportCommand(project: TerraformProject, mapping: TerraformAdoptionMappingResult): string {
   const workspaceSegment = project.currentWorkspace && project.currentWorkspace !== 'default'
     ? `terraform workspace select ${project.currentWorkspace} && `
@@ -298,12 +621,14 @@ export async function generateTerraformAdoptionCode(
   const filePlan = chooseTargetFile(moduleDirectoryResolution.directory, mapping)
   const resourceBlock = buildResourceBlock(project, mapping)
   const importCommand = buildImportCommand(project, mapping)
+  const providerPrefix = mapping.recommendedResourceType.startsWith('google_') ? 'google'
+    : mapping.recommendedResourceType.startsWith('azurerm_') ? 'azurerm' : 'aws'
   const notes = [
     filePlan.reason,
     `Working directory for the next import step is ${moduleDirectoryResolution.directory}.`,
     mapping.provider.alias
-      ? `The generated HCL pins provider alias aws.${mapping.provider.alias} to match the selected module context.`
-      : 'The generated HCL uses the default aws provider because no alias evidence was required.'
+      ? `The generated HCL pins provider alias ${providerPrefix}.${mapping.provider.alias} to match the selected module context.`
+      : `The generated HCL uses the default ${providerPrefix} provider because no alias evidence was required.`
   ]
 
   const warnings = [...mapping.warnings]

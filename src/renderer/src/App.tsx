@@ -3050,7 +3050,7 @@ function buildAzureDraftFromProviderSnapshot(
     subscriptionId: snapshot.activeSubscriptionId.trim() || baseDraft.subscriptionId,
     subscriptionLabel: activeSubscription?.displayName || baseDraft.subscriptionLabel,
     tenantId: snapshot.activeTenantId.trim() || baseDraft.tenantId,
-    location: snapshot.activeLocation.trim() || baseDraft.location || availableLocations[0] || '',
+    location: snapshot.activeLocation.trim() || current?.location.trim() || baseDraft.location || availableLocations[0] || '',
     availableLocations,
     credentialHint: baseDraft.credentialHint || snapshot.activeAccountLabel.trim()
   }
@@ -4572,8 +4572,26 @@ export function App() {
     setPendingTerminalCommand(null)
     setTerminalOpen(false)
     setSelectedPreviewModeIds((current) => ({ ...current, azure: 'azure-subscription' }))
-    setAzureContextBusy(true)
     setAzureContextError('')
+
+    // Optimistically apply the subscription from the cached context so the UI
+    // updates immediately instead of blocking on the IPC round-trip.
+    if (azureProviderContext) {
+      const matched = azureProviderContext.subscriptions.find((s) => s.subscriptionId === subscriptionId)
+      if (matched) {
+        const keepLocation = azureProviderContext.activeSubscriptionId === subscriptionId
+        applyAzureSnapshot({
+          ...azureProviderContext,
+          activeSubscriptionId: subscriptionId,
+          activeTenantId: matched.tenantId || azureProviderContext.activeTenantId,
+          activeLocation: keepLocation ? azureProviderContext.activeLocation : ''
+        })
+        setNavOpen(true)
+      }
+    }
+
+    // Persist the selection and refresh the full context in the background.
+    setAzureContextBusy(true)
     try {
       applyAzureSnapshot(await setAzureActiveSubscription(subscriptionId))
       setNavOpen(true)
@@ -6738,7 +6756,9 @@ export function App() {
         if (activeProviderId === 'gcp' && targetScreen === 'terraform') {
           const gcpTerraformProjectId = activeGcpConnectionDraft?.projectId.trim() ?? ''
           const gcpTerraformLocation = activeGcpConnectionDraft?.location.trim() ?? ''
-          const gcpTerraformContextKey = `provider:gcp:terraform:${gcpTerraformProjectId || 'unscoped'}:${gcpTerraformLocation || 'global'}`
+          // Terraform projects are global within a GCP project — don't scope by
+          // location so switching regions doesn't hide/reload workspaces.
+          const gcpTerraformContextKey = `provider:gcp:terraform:${gcpTerraformProjectId || 'unscoped'}:global`
           const gcpTerraformContextLabel = gcpTerraformProjectId
             || gcpCliContext?.activeProjectId
             || gcpCliContext?.activeConfigurationName

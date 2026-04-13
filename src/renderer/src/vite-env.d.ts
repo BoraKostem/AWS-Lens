@@ -31,6 +31,7 @@ import type {
   EbsTempInspectionProgress,
   EcsFargateServiceConfig,
   LambdaCreateConfig,
+  LoadBalancerLogQuery,
   Route53HostedZoneCreateInput,
   SsmSendCommandRequest,
   SsmStartSessionRequest,
@@ -281,6 +282,8 @@ declare global {
       listAzureFirewalls: (subscriptionId: string, location: string) => Promise<unknown>
       describeAzureFirewall: (subscriptionId: string, resourceGroup: string, firewallName: string) => Promise<unknown>
       describeAzureLoadBalancer: (subscriptionId: string, resourceGroup: string, lbName: string) => Promise<unknown>
+      queryLoadBalancerLogs: (connection: AwsConnection | undefined, query: LoadBalancerLogQuery, providerContext?: { gcpProjectId?: string; azureWorkspaceId?: string }) => Promise<unknown>
+      getAlbAccessLogConfig: (connection: AwsConnection, loadBalancerArn: string) => Promise<unknown>
       listAzureDnsZones: (subscriptionId: string, location: string) => Promise<unknown>
       listAzureDnsRecordSets: (subscriptionId: string, resourceGroup: string, zoneName: string) => Promise<unknown>
       upsertAzureDnsRecord: (subscriptionId: string, resourceGroup: string, zoneName: string, input: unknown) => Promise<unknown>

@@ -2830,16 +2830,42 @@ const DRIFT_STATUS_LABELS: Record<TerraformDriftStatus, string> = {
   drifted: 'Drifted',
   missing_in_aws: 'Missing In AWS',
   unmanaged_in_aws: 'Unmanaged In AWS',
+  missing_in_cloud: 'Missing In Cloud',
+  unmanaged_in_cloud: 'Unmanaged In Cloud',
   unsupported: 'Unsupported'
 }
 
 function driftStatusLabel(status: TerraformDriftStatus, providerId: TerraformProviderId): string {
   if (providerId !== 'aws') {
     const cloud = providerId === 'gcp' ? 'GCP' : 'Azure'
-    if (status === 'missing_in_aws') return `Missing In ${cloud}`
-    if (status === 'unmanaged_in_aws') return `Unmanaged In ${cloud}`
+    if (status === 'missing_in_aws' || status === 'missing_in_cloud') return `Missing In ${cloud}`
+    if (status === 'unmanaged_in_aws' || status === 'unmanaged_in_cloud') return `Unmanaged In ${cloud}`
   }
   return DRIFT_STATUS_LABELS[status]
+}
+
+/** For non-AWS providers, missing_in_aws/missing_in_cloud and
+ *  unmanaged_in_aws/unmanaged_in_cloud map to the same label.
+ *  Return deduplicated filter keys so only one button renders. */
+function driftStatusFilterKeys(providerId: TerraformProviderId): TerraformDriftStatus[] {
+  const all = Object.keys(DRIFT_STATUS_LABELS) as TerraformDriftStatus[]
+  if (providerId === 'aws') return all
+  // For GCP/Azure: keep the _cloud variants, drop the _aws duplicates
+  return all.filter((s) => s !== 'missing_in_aws' && s !== 'unmanaged_in_aws')
+}
+
+/** Check whether an item matches the selected status filter,
+ *  treating the _aws and _cloud variants as equivalent for non-AWS. */
+function matchesDriftStatusFilter(itemStatus: TerraformDriftStatus, filter: 'all' | TerraformDriftStatus, providerId: TerraformProviderId): boolean {
+  if (filter === 'all') return true
+  if (itemStatus === filter) return true
+  if (providerId === 'aws') return false
+  // Merge _aws and _cloud variants for GCP/Azure
+  if (filter === 'missing_in_cloud' && itemStatus === 'missing_in_aws') return true
+  if (filter === 'missing_in_aws' && itemStatus === 'missing_in_cloud') return true
+  if (filter === 'unmanaged_in_cloud' && itemStatus === 'unmanaged_in_aws') return true
+  if (filter === 'unmanaged_in_aws' && itemStatus === 'unmanaged_in_cloud') return true
+  return false
 }
 
 function driftCloudLabel(providerId: TerraformProviderId): string {
@@ -2939,12 +2965,15 @@ function DriftTab({
     () => report?.summary.resourceTypeCounts.map((entry) => entry.resourceType) ?? [],
     [report]
   )
+  const isUnmanaged = (s: TerraformDriftStatus) => s === 'unmanaged_in_aws' || s === 'unmanaged_in_cloud'
   const filteredItems = useMemo(
-    () => items.filter((item) =>
-      (statusFilter === 'all' || item.status === statusFilter) &&
-      (typeFilter === 'all' || item.resourceType === typeFilter)
-    ),
-    [items, statusFilter, typeFilter]
+    () => items.filter((item) => {
+      // Hide unmanaged items unless the user explicitly selects that filter
+      if (statusFilter === 'all' && isUnmanaged(item.status)) return false
+      return matchesDriftStatusFilter(item.status, statusFilter, providerId) &&
+        (typeFilter === 'all' || item.resourceType === typeFilter)
+    }),
+    [items, statusFilter, typeFilter, providerId]
   )
   const selectedItem = useMemo(
     () => filteredItems.find((item) => driftItemKey(item) === selectedKey) ?? filteredItems[0] ?? null,
@@ -2952,8 +2981,8 @@ function DriftTab({
   )
   const summaryCards = report ? [
     { label: 'Drifted', value: report.summary.statusCounts.drifted, tone: 'warning' },
-    { label: 'Missing', value: report.summary.statusCounts.missing_in_aws, tone: 'danger' },
-    { label: 'Unmanaged', value: report.summary.statusCounts.unmanaged_in_aws, tone: 'info' },
+    { label: 'Missing', value: report.summary.statusCounts.missing_in_aws + report.summary.statusCounts.missing_in_cloud, tone: 'danger' },
+    { label: 'Unmanaged', value: report.summary.statusCounts.unmanaged_in_aws + report.summary.statusCounts.unmanaged_in_cloud, tone: 'info' },
     { label: 'In Sync', value: report.summary.statusCounts.in_sync, tone: 'success' }
   ] : []
 
@@ -3001,7 +3030,7 @@ function DriftTab({
         <div className="tf-drift-filters">
           <div className="tf-drift-status-row">
             <button type="button" className={statusFilter === 'all' ? 'active' : ''} onClick={() => onStatusFilterChange('all')}>All</button>
-            {(Object.keys(DRIFT_STATUS_LABELS) as TerraformDriftStatus[]).map((status) => (
+            {driftStatusFilterKeys(providerId).map((status) => (
               <button key={status} type="button" className={statusFilter === status ? 'active' : ''} onClick={() => onStatusFilterChange(status)}>
                 {driftStatusLabel(status, providerId)}
               </button>

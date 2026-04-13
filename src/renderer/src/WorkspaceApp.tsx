@@ -9,11 +9,12 @@ import type {
 import { deleteLoadBalancer, getCachedQuerySnapshot, listEc2Instances, listLoadBalancerWorkspaces } from './api'
 import { ConfirmButton } from './ConfirmButton'
 import { FreshnessIndicator, useFreshnessState } from './freshness'
+import { LoadBalancerLogViewer } from './LoadBalancerLogViewer'
 import { SvcState } from './SvcState'
 import './load-balancers.css'
 
 type ColKey = 'name' | 'type' | 'scheme' | 'state' | 'dnsName' | 'listeners' | 'targets'
-type SideTab = 'details' | 'targets' | 'rules' | 'timeline'
+type SideTab = 'details' | 'targets' | 'rules' | 'timeline' | 'logs'
 
 const COLUMNS: { key: ColKey; label: string }[] = [
   { key: 'name', label: 'Name' },
@@ -249,7 +250,7 @@ export function WorkspaceApp({
       <section className="lbw-hero">
         <div className="lbw-hero-copy">
           <div className="eyebrow">Load Balancer Service</div>
-          <h2>ALB and NLB workspace with listener, target, and health posture in one surface.</h2>
+          <h2>Load Balancers</h2>
           <p>Filter the fleet, inspect the selected load balancer, and keep delete and refresh workflows exactly as before.</p>
           <div className="lbw-meta-strip">
             <div className="lbw-meta-pill"><span>Region</span><strong>{connection.region}</strong></div>
@@ -371,6 +372,7 @@ export function WorkspaceApp({
                 <button className={sideTab === 'targets' ? 'active' : ''} type="button" onClick={() => setSideTab('targets')}>Targets</button>
                 <button className={sideTab === 'rules' ? 'active' : ''} type="button" onClick={() => setSideTab('rules')}>Rules</button>
                 <button className={sideTab === 'timeline' ? 'active' : ''} type="button" onClick={() => setSideTab('timeline')}>Timeline</button>
+                <button className={sideTab === 'logs' ? 'active' : ''} type="button" onClick={() => setSideTab('logs')}>Logs</button>
               </div>
 
               {sideTab === 'details' && (
@@ -548,6 +550,14 @@ export function WorkspaceApp({
                     </div>
                   ) : <div className="svc-empty">No timeline events.</div>}
                 </section>
+              )}
+
+              {sideTab === 'logs' && (
+                <LoadBalancerLogViewer
+                  provider="aws"
+                  loadBalancerIdentifier={selected.summary.arn}
+                  connection={connection}
+                />
               )}
             </>
           )}
