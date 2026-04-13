@@ -6756,7 +6756,9 @@ export function App() {
         if (activeProviderId === 'gcp' && targetScreen === 'terraform') {
           const gcpTerraformProjectId = activeGcpConnectionDraft?.projectId.trim() ?? ''
           const gcpTerraformLocation = activeGcpConnectionDraft?.location.trim() ?? ''
-          const gcpTerraformContextKey = `provider:gcp:terraform:${gcpTerraformProjectId || 'unscoped'}:${gcpTerraformLocation || 'global'}`
+          // Terraform projects are global within a GCP project — don't scope by
+          // location so switching regions doesn't hide/reload workspaces.
+          const gcpTerraformContextKey = `provider:gcp:terraform:${gcpTerraformProjectId || 'unscoped'}:global`
           const gcpTerraformContextLabel = gcpTerraformProjectId
             || gcpCliContext?.activeProjectId
             || gcpCliContext?.activeConfigurationName
