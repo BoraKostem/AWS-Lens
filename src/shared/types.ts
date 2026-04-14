@@ -675,6 +675,26 @@ export type AzureSubscriptionSummary = {
   managementGroupHints?: string[]
 }
 
+export type AzureResourceGroupSummary = {
+  id: string
+  name: string
+  location: string
+  provisioningState: string
+  managedBy: string
+  tags: Record<string, string>
+}
+
+export type AzureResourceGroupResourceSummary = {
+  id: string
+  name: string
+  type: string
+  location: string
+  resourceGroup: string
+  kind: string
+  provisioningState: string
+  tags: Record<string, string>
+}
+
 export type AzureLocationSummary = {
   id: string
   name: string
@@ -3789,6 +3809,7 @@ export type ServiceId =
   | 'gcp-memorystore'
   | 'gcp-load-balancer'
   | 'azure-subscriptions'
+  | 'azure-resource-groups'
   | 'azure-rbac'
   | 'azure-virtual-machines'
   | 'azure-aks'

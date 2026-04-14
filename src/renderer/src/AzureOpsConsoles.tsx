@@ -45,6 +45,121 @@ function inferAzureServiceFromMonitor(resourceType: string): 'azure-virtual-mach
   return null
 }
 
+export type AzureServiceIdForResource =
+  | 'azure-virtual-machines'
+  | 'azure-vmss'
+  | 'azure-aks'
+  | 'azure-storage-accounts'
+  | 'azure-sql'
+  | 'azure-postgresql'
+  | 'azure-mysql'
+  | 'azure-cosmos-db'
+  | 'azure-network'
+  | 'azure-load-balancers'
+  | 'azure-firewall'
+  | 'azure-dns'
+  | 'azure-key-vault'
+  | 'azure-app-service'
+  | 'azure-log-analytics'
+  | 'azure-event-hub'
+  | 'azure-event-grid'
+  | 'azure-app-insights'
+
+export function inferAzureServiceFromResourceType(resourceType: string): AzureServiceIdForResource | null {
+  const normalized = resourceType.trim().toLowerCase()
+  if (!normalized) return null
+
+  // Compute
+  if (normalized === 'microsoft.compute/virtualmachines') return 'azure-virtual-machines'
+  if (normalized === 'microsoft.compute/virtualmachinescalesets') return 'azure-vmss'
+  if (normalized === 'microsoft.compute/disks') return 'azure-virtual-machines'
+  if (normalized === 'microsoft.compute/snapshots') return 'azure-virtual-machines'
+  if (normalized === 'microsoft.compute/images') return 'azure-virtual-machines'
+
+  // Container
+  if (normalized === 'microsoft.containerservice/managedclusters') return 'azure-aks'
+
+  // Storage
+  if (normalized === 'microsoft.storage/storageaccounts') return 'azure-storage-accounts'
+
+  // Databases — SQL
+  if (normalized === 'microsoft.sql/servers') return 'azure-sql'
+  if (normalized === 'microsoft.sql/servers/databases') return 'azure-sql'
+
+  // Databases — Postgres / MySQL / Cosmos
+  if (normalized.startsWith('microsoft.dbforpostgresql/')) return 'azure-postgresql'
+  if (normalized.startsWith('microsoft.dbformysql/')) return 'azure-mysql'
+  if (normalized === 'microsoft.documentdb/databaseaccounts') return 'azure-cosmos-db'
+
+  // Network
+  if (normalized === 'microsoft.network/virtualnetworks') return 'azure-network'
+  if (normalized === 'microsoft.network/networksecuritygroups') return 'azure-network'
+  if (normalized === 'microsoft.network/networkinterfaces') return 'azure-network'
+  if (normalized === 'microsoft.network/publicipaddresses') return 'azure-network'
+  if (normalized === 'microsoft.network/loadbalancers') return 'azure-load-balancers'
+  if (normalized === 'microsoft.network/applicationgateways') return 'azure-load-balancers'
+  if (normalized === 'microsoft.network/azurefirewalls') return 'azure-firewall'
+  if (normalized === 'microsoft.network/dnszones') return 'azure-dns'
+  if (normalized === 'microsoft.network/privatednszones') return 'azure-dns'
+
+  // Security
+  if (normalized === 'microsoft.keyvault/vaults') return 'azure-key-vault'
+
+  // Web / App
+  if (normalized === 'microsoft.web/sites') return 'azure-app-service'
+  if (normalized === 'microsoft.web/serverfarms') return 'azure-app-service'
+
+  // Observability
+  if (normalized === 'microsoft.operationalinsights/workspaces') return 'azure-log-analytics'
+  if (normalized === 'microsoft.insights/components') return 'azure-app-insights'
+
+  // Messaging
+  if (normalized === 'microsoft.eventhub/namespaces') return 'azure-event-hub'
+  if (normalized.startsWith('microsoft.eventgrid/')) return 'azure-event-grid'
+
+  return null
+}
+
+const AZURE_RESOURCE_TYPE_LABELS: Record<string, string> = {
+  'microsoft.compute/virtualmachines': 'Virtual machine',
+  'microsoft.compute/virtualmachinescalesets': 'VM scale set',
+  'microsoft.compute/disks': 'Managed disk',
+  'microsoft.compute/snapshots': 'Snapshot',
+  'microsoft.compute/images': 'VM image',
+  'microsoft.containerservice/managedclusters': 'AKS cluster',
+  'microsoft.storage/storageaccounts': 'Storage account',
+  'microsoft.sql/servers': 'SQL server',
+  'microsoft.sql/servers/databases': 'SQL database',
+  'microsoft.documentdb/databaseaccounts': 'Cosmos DB',
+  'microsoft.network/virtualnetworks': 'Virtual network',
+  'microsoft.network/networksecuritygroups': 'Network security group',
+  'microsoft.network/networkinterfaces': 'Network interface',
+  'microsoft.network/publicipaddresses': 'Public IP',
+  'microsoft.network/loadbalancers': 'Load balancer',
+  'microsoft.network/applicationgateways': 'Application gateway',
+  'microsoft.network/azurefirewalls': 'Azure Firewall',
+  'microsoft.network/dnszones': 'DNS zone',
+  'microsoft.network/privatednszones': 'Private DNS zone',
+  'microsoft.keyvault/vaults': 'Key Vault',
+  'microsoft.web/sites': 'App Service',
+  'microsoft.web/serverfarms': 'App Service plan',
+  'microsoft.operationalinsights/workspaces': 'Log Analytics workspace',
+  'microsoft.insights/components': 'Application Insights',
+  'microsoft.eventhub/namespaces': 'Event Hub namespace',
+  'microsoft.eventgrid/topics': 'Event Grid topic',
+  'microsoft.eventgrid/domains': 'Event Grid domain'
+}
+
+export function formatAzureResourceType(resourceType: string): string {
+  const normalized = resourceType.trim().toLowerCase()
+  if (AZURE_RESOURCE_TYPE_LABELS[normalized]) return AZURE_RESOURCE_TYPE_LABELS[normalized]
+  // Fallback: turn "Microsoft.Foo/barBazes" → "Foo / Bar Bazes"
+  const [ns, ...rest] = resourceType.split('/')
+  const tail = rest.join('/')
+  const shortNs = ns.replace(/^Microsoft\./, '')
+  return tail ? `${shortNs} / ${tail}` : shortNs
+}
+
 /* ─── Azure Monitor types & helpers ─── */
 
 type MonitorTimeRange = 1 | 3 | 12 | 24 | 72 | 168

@@ -119,6 +119,8 @@ import type {
   AzurePostgreSqlServerDetail,
   AzureStorageAccountSummary,
   AzureStorageBlobContent,
+  AzureResourceGroupResourceSummary,
+  AzureResourceGroupSummary,
   AzureStorageBlobSummary,
   AzureStorageContainerSummary,
   AzureSubscriptionSummary,
@@ -1873,6 +1875,19 @@ export async function getGcpSecurityPolicyDetail(projectId: string, policyName: 
 
 export async function listAzureSubscriptions(): Promise<AzureSubscriptionSummary[]> {
   return unwrap((await rawAwsBridge().listAzureSubscriptions()) as Wrapped<AzureSubscriptionSummary[]>)
+}
+
+export async function listAzureResourceGroups(subscriptionId: string): Promise<AzureResourceGroupSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureResourceGroups(subscriptionId)) as Wrapped<AzureResourceGroupSummary[]>)
+}
+
+export async function listAzureResourceGroupResources(
+  subscriptionId: string,
+  resourceGroupName: string
+): Promise<AzureResourceGroupResourceSummary[]> {
+  return unwrap(
+    (await rawAwsBridge().listAzureResourceGroupResources(subscriptionId, resourceGroupName)) as Wrapped<AzureResourceGroupResourceSummary[]>
+  )
 }
 
 export async function getAzureRbacOverview(subscriptionId: string): Promise<AzureRbacOverview> {

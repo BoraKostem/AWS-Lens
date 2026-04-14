@@ -275,6 +275,10 @@ const awsLensApi = {
   listGcpFirebaseHostingChannels: (projectId: string, siteId: string) => ipcRenderer.invoke('gcp:firebase:list-hosting-channels', projectId, siteId),
 
   listAzureSubscriptions: () => ipcRenderer.invoke('azure:subscriptions:list'),
+  listAzureResourceGroups: (subscriptionId: string) =>
+    ipcRenderer.invoke('azure:resource-groups:list', subscriptionId),
+  listAzureResourceGroupResources: (subscriptionId: string, resourceGroupName: string) =>
+    ipcRenderer.invoke('azure:resource-groups:list-resources', subscriptionId, resourceGroupName),
   getAzureRbacOverview: (subscriptionId: string) => ipcRenderer.invoke('azure:rbac:get-overview', subscriptionId),
   listAzureRoleAssignments: (subscriptionId: string) => ipcRenderer.invoke('azure:rbac:list-assignments', subscriptionId),
   listAzureRoleDefinitions: (subscriptionId: string) => ipcRenderer.invoke('azure:rbac:list-role-definitions', subscriptionId),

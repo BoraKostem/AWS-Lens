@@ -14,6 +14,7 @@ import type {
   AppSettings,
   AzureLocationSummary,
   AzureProviderContextSnapshot,
+  AzureResourceGroupResourceSummary,
   AzureSubscriptionSummary,
   AzureTenantSummary,
   CloudProviderId,
@@ -103,7 +104,8 @@ import {
   AzureSubscriptionsConsole,
   AzureVirtualMachinesConsole
 } from './AzureCoreConsoles'
-import { AzureCostConsole, AzureMonitorConsole, AzurePostgreSqlConsole, AzureSqlConsole } from './AzureOpsConsoles'
+import { AzureCostConsole, AzureMonitorConsole, AzurePostgreSqlConsole, AzureSqlConsole, inferAzureServiceFromResourceType } from './AzureOpsConsoles'
+import { AzureResourceGroupsConsole } from './AzureResourceGroupsConsole'
 import { AzureDnsConsole } from './AzureDnsConsole'
 import { AzureNetworkConsole } from './AzureNetworkConsole'
 import { AzureStorageAccountsConsole } from './AzureStorageConsole'
@@ -182,6 +184,13 @@ type RefreshState = { screen: Screen; sawPending: boolean } | null
 type FabMode = 'closed' | 'menu' | 'credentials'
 type CompareSeed = { token: number; request: ComparisonRequest } | null
 type AzureMonitorSeed = { query: string; token: number } | null
+type PendingAzureFocus = {
+  serviceId: ServiceId
+  resourceId: string
+  resourceName: string
+  resourceGroup: string
+  token: number
+} | null
 type CompareSeedByScope = Partial<Record<string, NonNullable<CompareSeed>>>
 type ProfileContextMenuState = { profileName: string; provider: 'aws' | 'gcp' | 'azure'; x: number; y: number } | null
 type AuditSummary = {
@@ -331,6 +340,7 @@ const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   'gcp-memorystore': 'Project-aware Memorystore workspace with Redis instance inventory, configuration details, and connection metadata.',
   'gcp-load-balancer': 'Project-aware Load Balancer workspace with URL map inventory, backend services, forwarding rules, and Cloud Armor policy integration.',
   'azure-subscriptions': 'Tenant-aware subscription inventory with management-group hints, location coverage, and cost-facing context.',
+  'azure-resource-groups': 'Subscription-wide resource group inventory with drill-in to every resource and deep-link navigation to the matching service console.',
   'azure-rbac': 'Scope-aware RBAC posture with inherited assignments, risky roles, and principal filters.',
   'azure-virtual-machines': 'Subscription-aware VM inventory with power state, identity posture, diagnostics links, and operator actions.',
   'azure-aks': 'AKS inventory with cluster posture, node pool visibility, version context, and kubeconfig handoff.',
@@ -402,7 +412,8 @@ const IMPLEMENTED_SCREENS = new Set<ServiceId>([
   'gcp-cloud-dns',
   'gcp-memorystore',
   'gcp-load-balancer',
-  'azure-dns'
+  'azure-dns',
+  'azure-resource-groups'
 ])
 
 const DEFAULT_PROVIDER_ID: CloudProviderId = 'aws'
@@ -3174,6 +3185,7 @@ function screenCacheTag(screen: Screen): CacheTag | null {
     case 'gcp-memorystore':
     case 'gcp-load-balancer':
     case 'azure-subscriptions':
+    case 'azure-resource-groups':
     case 'azure-rbac':
     case 'azure-virtual-machines':
     case 'azure-aks':
@@ -3271,6 +3283,7 @@ export function App() {
   const [azureContextBusy, setAzureContextBusy] = useState(false)
   const [azureContextError, setAzureContextError] = useState('')
   const [azureMonitorSeed, setAzureMonitorSeed] = useState<AzureMonitorSeed>(null)
+  const [pendingAzureFocus, setPendingAzureFocus] = useState<PendingAzureFocus>(null)
   const [workspaceCatalog, setWorkspaceCatalog] = useState<WorkspaceCatalog | null>(null)
   const [services, setServices] = useState<ServiceDescriptor[]>([])
   const [pinnedServiceIds, setPinnedServiceIds] = useState<ServiceId[]>([])
@@ -4615,6 +4628,27 @@ export function App() {
     setAzureActiveLocation(trimmed)
       .then((snapshot) => applyAzureSnapshot(snapshot))
       .catch(() => {})
+  }
+
+  async function handleNavigateToAzureResource(resource: AzureResourceGroupResourceSummary): Promise<void> {
+    const serviceId = inferAzureServiceFromResourceType(resource.type)
+    if (!serviceId) return
+
+    // Prefer the resource's own location; fall back to the RG's (already in resource.location)
+    const targetLocation = (resource.location || '').trim()
+    if (targetLocation) {
+      await handleApplyAzureLocation(targetLocation)
+    }
+
+    setPendingAzureFocus({
+      serviceId: serviceId as ServiceId,
+      resourceId: resource.id,
+      resourceName: resource.name,
+      resourceGroup: resource.resourceGroup,
+      token: Date.now()
+    })
+
+    navigateToService(serviceId as ServiceId)
   }
 
   function renderGcpProjectCard(project: NonNullable<GcpCliContext['projects'][number]>, compact = false) {
@@ -6266,6 +6300,22 @@ export function App() {
 
       if (
         activeProviderId === 'azure'
+        && targetScreen === 'azure-resource-groups'
+        && targetService?.id === 'azure-resource-groups'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureResourceGroupsConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-resource-groups'] ?? 0}
+            onNavigateToResource={(resource) => void handleNavigateToAzureResource(resource)}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
         && targetScreen === 'azure-rbac'
         && targetService?.id === 'azure-rbac'
         && azureContextReady
@@ -6299,6 +6349,8 @@ export function App() {
             canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
             onOpenMonitor={(query) => openAzureMonitor(query)}
             onOpenDirectAccess={() => setScreen('direct-access')}
+            pendingFocus={pendingAzureFocus?.serviceId === 'azure-virtual-machines' ? pendingAzureFocus : null}
+            onFocusConsumed={() => setPendingAzureFocus(null)}
           />
         )
       }
@@ -6318,6 +6370,8 @@ export function App() {
             onRunTerminalCommand={handleOpenTerminalCommand}
             canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
             onOpenMonitor={(query) => openAzureMonitor(query)}
+            pendingFocus={pendingAzureFocus?.serviceId === 'azure-aks' ? pendingAzureFocus : null}
+            onFocusConsumed={() => setPendingAzureFocus(null)}
           />
         )
       }
@@ -6338,6 +6392,8 @@ export function App() {
             canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
             onOpenMonitor={(query) => openAzureMonitor(query)}
             onOpenDirectAccess={() => setScreen('direct-access')}
+            pendingFocus={pendingAzureFocus?.serviceId === 'azure-storage-accounts' ? pendingAzureFocus : null}
+            onFocusConsumed={() => setPendingAzureFocus(null)}
           />
         )
       }
@@ -6357,6 +6413,8 @@ export function App() {
             onRunTerminalCommand={handleOpenTerminalCommand}
             canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
             onOpenMonitor={(query) => openAzureMonitor(query)}
+            pendingFocus={pendingAzureFocus?.serviceId === 'azure-sql' ? pendingAzureFocus : null}
+            onFocusConsumed={() => setPendingAzureFocus(null)}
           />
         )
       }
@@ -6439,6 +6497,8 @@ export function App() {
             canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
             onOpenMonitor={(query) => openAzureMonitor(query)}
             onNavigate={(serviceId) => navigateToService(serviceId as ServiceId)}
+            pendingFocus={pendingAzureFocus?.serviceId === 'azure-network' ? pendingAzureFocus : null}
+            onFocusConsumed={() => setPendingAzureFocus(null)}
           />
         )
       }

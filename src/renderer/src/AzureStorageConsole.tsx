@@ -132,7 +132,9 @@ export function AzureStorageAccountsConsole({
   onRunTerminalCommand,
   canRunTerminalCommand,
   onOpenMonitor,
-  onOpenDirectAccess
+  onOpenDirectAccess,
+  pendingFocus,
+  onFocusConsumed
 }: {
   subscriptionId: string
   location: string
@@ -141,6 +143,8 @@ export function AzureStorageAccountsConsole({
   canRunTerminalCommand: boolean
   onOpenMonitor: (query: string) => void
   onOpenDirectAccess: () => void
+  pendingFocus?: { resourceId: string; resourceName: string; resourceGroup: string; token: number } | null
+  onFocusConsumed?: () => void
 }): JSX.Element {
   const [accounts, setAccounts] = useState<AzureStorageAccountSummary[]>([])
   const [accountsLoading, setAccountsLoading] = useState(true)
@@ -459,6 +463,18 @@ export function AzureStorageAccountsConsole({
 
     return () => { cancelled = true }
   }, [location, refreshNonce, subscriptionId])
+
+  useEffect(() => {
+    if (!pendingFocus || accounts.length === 0) return
+    const match = accounts.find((a) =>
+      a.id === pendingFocus.resourceId ||
+      (a.name === pendingFocus.resourceName && a.resourceGroup === pendingFocus.resourceGroup)
+    )
+    if (match) {
+      void browseAccount(match, '')
+      onFocusConsumed?.()
+    }
+  }, [pendingFocus?.token, accounts])
 
   const locationLabel = location.trim() || 'all visible regions'
 

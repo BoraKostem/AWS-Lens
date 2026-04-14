@@ -745,6 +745,12 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('azure:subscriptions:list', async () =>
     wrap(async () => (await loadAzureSdk()).listAzureSubscriptions())
   )
+  ipcMain.handle('azure:resource-groups:list', async (_event, subscriptionId: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureResourceGroups(subscriptionId))
+  )
+  ipcMain.handle('azure:resource-groups:list-resources', async (_event, subscriptionId: string, resourceGroupName: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureResourceGroupResources(subscriptionId, resourceGroupName))
+  )
   ipcMain.handle('azure:rbac:get-overview', async (_event, subscriptionId: string) =>
     wrap(async () => (await loadAzureSdk()).getAzureRbacOverview(subscriptionId))
   )

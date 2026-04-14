@@ -78,7 +78,7 @@ export function AzureSubscriptionsConsole({
   canRunTerminalCommand: boolean
   onOpenCost: () => void
   onOpenMonitor: () => void
-  onOpenService: (serviceId: 'azure-rbac' | 'azure-virtual-machines' | 'azure-aks' | 'azure-storage-accounts' | 'azure-sql' | 'azure-network' | 'azure-vmss') => void
+  onOpenService: (serviceId: 'azure-rbac' | 'azure-virtual-machines' | 'azure-aks' | 'azure-storage-accounts' | 'azure-sql' | 'azure-network' | 'azure-vmss' | 'azure-resource-groups') => void
 }): JSX.Element {
   const [subscriptions, setSubscriptions] = useState<AzureSubscriptionSummary[]>([])
   const [loading, setLoading] = useState(true)
@@ -269,6 +269,7 @@ export function AzureSubscriptionsConsole({
             <div className="panel overview-insights-panel">
               <div className="panel-header"><h3>Cross-links</h3></div>
               <div className="gcp-overview-actions">
+                <button type="button" className="ghost" onClick={() => onOpenService('azure-resource-groups')}>Resource groups</button>
                 <button type="button" className="ghost" onClick={() => onOpenService('azure-rbac')}>RBAC posture</button>
                 <button type="button" className="ghost" onClick={() => onOpenService('azure-virtual-machines')}>Virtual machines</button>
                 <button type="button" className="ghost" onClick={() => onOpenService('azure-aks')}>AKS clusters</button>
@@ -415,6 +416,7 @@ export function AzureSubscriptionsConsole({
             <div className="panel overview-insights-panel">
               <div className="panel-header"><h3>Cross-links</h3></div>
               <div className="gcp-overview-actions">
+                <button type="button" className="ghost" onClick={() => onOpenService('azure-resource-groups')}>Resource groups</button>
                 <button type="button" className="ghost" onClick={() => onOpenService('azure-rbac')}>RBAC posture</button>
                 <button type="button" className="ghost" onClick={() => onOpenService('azure-virtual-machines')}>Virtual machines</button>
                 <button type="button" className="ghost" onClick={() => onOpenService('azure-aks')}>AKS clusters</button>
@@ -1159,7 +1161,9 @@ export function AzureVirtualMachinesConsole({
   onRunTerminalCommand,
   canRunTerminalCommand,
   onOpenMonitor,
-  onOpenDirectAccess
+  onOpenDirectAccess,
+  pendingFocus,
+  onFocusConsumed
 }: {
   subscriptionId: string
   location: string
@@ -1168,6 +1172,8 @@ export function AzureVirtualMachinesConsole({
   canRunTerminalCommand: boolean
   onOpenMonitor: (query: string) => void
   onOpenDirectAccess: () => void
+  pendingFocus?: { resourceId: string; resourceName: string; resourceGroup: string; token: number } | null
+  onFocusConsumed?: () => void
 }): JSX.Element {
   type VmTopTab = 'vms' | 'disks' | 'snapshots'
   const [vmTopTab, setVmTopTab] = useState<VmTopTab>('vms')
@@ -1249,6 +1255,19 @@ export function AzureVirtualMachinesConsole({
   }
 
   useEffect(() => { void reload() }, [location, refreshNonce, subscriptionId])
+
+  useEffect(() => {
+    if (!pendingFocus || machines.length === 0) return
+    const match = machines.find((vm) =>
+      vm.id === pendingFocus.resourceId ||
+      (vm.name === pendingFocus.resourceName && vm.resourceGroup === pendingFocus.resourceGroup)
+    )
+    if (match) {
+      setVmTopTab('vms')
+      void selectVm(match)
+      onFocusConsumed?.()
+    }
+  }, [pendingFocus?.token, machines])
 
   async function selectVm(vm: AzureVirtualMachineSummary): Promise<void> {
     setSelectedId(vm.id)
@@ -1762,7 +1781,7 @@ function aksFmt(v: string): string { if (!v || v === '-') return '-'; try { retu
 function aksTrunc(v: string, m = 52): string { if (!v) return '-'; return v.length <= m ? v : `${v.slice(0, m - 3)}...` }
 function aksAccess(d: AzureAksClusterDetail | null): string { return !d ? '-' : d.privateCluster ? 'Private API' : 'Public API' }
 
-export function AzureAksConsole({ subscriptionId, location, refreshNonce, onRunTerminalCommand, canRunTerminalCommand, onOpenMonitor }: { subscriptionId: string; location: string; refreshNonce: number; onRunTerminalCommand: (command: string) => void; canRunTerminalCommand: boolean; onOpenMonitor: (query: string) => void }): JSX.Element {
+export function AzureAksConsole({ subscriptionId, location, refreshNonce, onRunTerminalCommand, canRunTerminalCommand, onOpenMonitor, pendingFocus, onFocusConsumed }: { subscriptionId: string; location: string; refreshNonce: number; onRunTerminalCommand: (command: string) => void; canRunTerminalCommand: boolean; onOpenMonitor: (query: string) => void; pendingFocus?: { resourceId: string; resourceName: string; resourceGroup: string; token: number } | null; onFocusConsumed?: () => void }): JSX.Element {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
@@ -1805,6 +1824,18 @@ export function AzureAksConsole({ subscriptionId, location, refreshNonce, onRunT
 
   async function reload() { setLoading(true); setError(''); try { const list = await listAzureAksClusters(subscriptionId, location); setClusters(sortByName(list)); if (list.length && !selectedCluster) await doSelect(list[0]) } catch (e) { setError(normalizeError(e)) } finally { setLoading(false) } }
   useEffect(() => { void reload() }, [refreshNonce, subscriptionId, location])
+
+  useEffect(() => {
+    if (!pendingFocus || clusters.length === 0) return
+    const match = clusters.find((c) =>
+      c.id === pendingFocus.resourceId ||
+      (c.name === pendingFocus.resourceName && c.resourceGroup === pendingFocus.resourceGroup)
+    )
+    if (match) {
+      void doSelect(match)
+      onFocusConsumed?.()
+    }
+  }, [pendingFocus?.token, clusters])
 
   async function doSelect(cluster: AzureAksClusterSummary) {
     setSelectedCluster(cluster.name); setError(''); setMsg(''); setShowDescribe(false); setShowScale(false); setShowAutoscaleToggle(false)

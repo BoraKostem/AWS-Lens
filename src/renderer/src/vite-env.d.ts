@@ -210,6 +210,8 @@ declare global {
       listGcpFirebaseHostingDomains: (projectId: string, siteId: string) => Promise<unknown>
       listGcpFirebaseHostingChannels: (projectId: string, siteId: string) => Promise<unknown>
       listAzureSubscriptions: () => Promise<unknown>
+      listAzureResourceGroups: (subscriptionId: string) => Promise<unknown>
+      listAzureResourceGroupResources: (subscriptionId: string, resourceGroupName: string) => Promise<unknown>
       getAzureRbacOverview: (subscriptionId: string) => Promise<unknown>
       listAzureRoleAssignments: (subscriptionId: string) => Promise<unknown>
       listAzureRoleDefinitions: (subscriptionId: string) => Promise<unknown>

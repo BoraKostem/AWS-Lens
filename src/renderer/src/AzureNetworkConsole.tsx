@@ -485,7 +485,9 @@ export function AzureNetworkConsole({
   onRunTerminalCommand,
   canRunTerminalCommand,
   onOpenMonitor,
-  onNavigate
+  onNavigate,
+  pendingFocus,
+  onFocusConsumed
 }: {
   subscriptionId: string
   location: string
@@ -494,6 +496,8 @@ export function AzureNetworkConsole({
   canRunTerminalCommand: boolean
   onOpenMonitor: (query: string) => void
   onNavigate: (serviceId: string) => void
+  pendingFocus?: { resourceId: string; resourceName: string; resourceGroup: string; token: number } | null
+  onFocusConsumed?: () => void
 }): JSX.Element {
   const [overview, setOverview] = useState<AzureNetworkOverview | null>(null)
   const [loading, setLoading] = useState(true)
@@ -557,6 +561,21 @@ export function AzureNetworkConsole({
     void load()
     return () => { cancelled = true }
   }, [subscriptionId, location, refreshNonce])
+
+  useEffect(() => {
+    if (!pendingFocus) return
+    const vnetList = overview?.vnets ?? []
+    if (vnetList.length === 0) return
+    const match = vnetList.find((v) =>
+      v.id === pendingFocus.resourceId ||
+      (v.name === pendingFocus.resourceName && v.resourceGroup === pendingFocus.resourceGroup)
+    )
+    if (match) {
+      setActiveTab('architecture')
+      setSelectedVNetId(match.id)
+      onFocusConsumed?.()
+    }
+  }, [pendingFocus?.token, overview?.vnets])
 
   /* ── Activity log ──────────────────────────────────────── */
 

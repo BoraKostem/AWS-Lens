@@ -122,6 +122,7 @@ const GCP_WORKSPACES: ServiceDescriptor[] = [
 
 const AZURE_WORKSPACES: ServiceDescriptor[] = [
   { id: 'azure-subscriptions', label: 'Subscriptions', category: 'Management', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
+  { id: 'azure-resource-groups', label: 'Resource Groups', category: 'Management', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
   { id: 'azure-rbac', label: 'RBAC Posture', category: 'Security', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
   { id: 'azure-virtual-machines', label: 'Virtual Machines', category: 'Compute', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
   { id: 'azure-aks', label: 'AKS', category: 'Containers', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },

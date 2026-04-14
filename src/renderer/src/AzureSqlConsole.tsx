@@ -167,7 +167,9 @@ export function AzureSqlConsole({
   refreshNonce,
   onRunTerminalCommand,
   canRunTerminalCommand,
-  onOpenMonitor
+  onOpenMonitor,
+  pendingFocus,
+  onFocusConsumed
 }: {
   subscriptionId: string
   location: string
@@ -175,6 +177,8 @@ export function AzureSqlConsole({
   onRunTerminalCommand: (command: string) => void
   canRunTerminalCommand: boolean
   onOpenMonitor: (query: string) => void
+  pendingFocus?: { resourceId: string; resourceName: string; resourceGroup: string; token: number } | null
+  onFocusConsumed?: () => void
 }): JSX.Element {
   const [overview, setOverview] = useState<AzureSqlEstateOverview | null>(null)
   const [loading, setLoading] = useState(true)
@@ -268,6 +272,20 @@ export function AzureSqlConsole({
   useEffect(() => {
     void reload()
   }, [subscriptionId, location, refreshNonce])
+
+  useEffect(() => {
+    if (!pendingFocus) return
+    const serverList = overview?.servers ?? []
+    if (serverList.length === 0) return
+    const match = serverList.find((s) =>
+      s.id === pendingFocus.resourceId ||
+      (s.name === pendingFocus.resourceName && s.resourceGroup === pendingFocus.resourceGroup)
+    )
+    if (match) {
+      void selectServer(match.name)
+      onFocusConsumed?.()
+    }
+  }, [pendingFocus?.token, overview?.servers])
 
   async function selectServer(name: string) {
     setSelectedServerName(name)

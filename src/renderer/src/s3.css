@@ -490,6 +490,39 @@
   min-width: 0;
 }
 
+/* Azure: fixed, taller panels with internal scrolling */
+.azure-storage-shell .s3-bucket-panel,
+.azure-storage-shell .s3-browser-panel {
+  height: 880px;
+  max-height: 880px;
+}
+
+/* Let the blob table grow into the larger right panel */
+.azure-storage-shell .s3-object-table-wrap {
+  max-height: 700px;
+}
+
+/* Azure: tighten storage-account inventory metric boxes so labels/values don't wrap */
+.azure-storage-shell .s3-bucket-row-metrics {
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.azure-storage-shell .s3-bucket-row-metric {
+  padding: 7px 8px 6px;
+  border-radius: 12px;
+}
+
+.azure-storage-shell .s3-bucket-row-metrics span {
+  font-size: 0.5rem;
+  letter-spacing: 0.04em;
+}
+
+.azure-storage-shell .s3-bucket-row-metrics strong {
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
 .s3-pane-head {
   display: flex;
   align-items: flex-end;
@@ -1445,6 +1478,12 @@
   .s3-browser-panel {
     width: 100%;
     min-width: 0;
+    max-height: none;
+  }
+
+  .azure-storage-shell .s3-bucket-panel,
+  .azure-storage-shell .s3-browser-panel {
+    height: auto;
     max-height: none;
   }
 
