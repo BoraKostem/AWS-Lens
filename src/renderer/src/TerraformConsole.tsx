@@ -3675,16 +3675,36 @@ export function TerraformConsole({
   const cliOk = cliInfo?.found === true
   const providerName = providerLabel(providerId)
   const contextKey = terraformContextKey(connection, contextKeyOverride)
-  const projectConnection = connectionForProject(connection, detail)
+  // Memoized so the reference is stable across renders when the underlying
+  // values haven't changed. Without this, `connectionForProject` would return
+  // a fresh `{...connection, region}` spread every render when regions differ,
+  // which destabilizes `effectiveConnection`/`driftConnection` and causes an
+  // infinite `useEffect(() => reload(), [reload])` loop that floods IPC and
+  // hangs the app.
+  const detailRegion = detail?.environment.region
+  const projectConnection = useMemo(
+    () => connectionForProject(connection, detail),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [connection, detailRegion]
+  )
   const contextValue = contextLabel || detail?.environment.connectionLabel || connection?.profile || 'Local shell'
   const contextDetailValue = contextDetail || detail?.environment.region || ''
   const analysisConnection = useMemo(() => {
     if (providerId === 'aws') return undefined
     return buildSyntheticTerraformConnection(providerId, contextKey, contextValue, contextDetailValue)
   }, [contextDetailValue, contextKey, contextValue, providerId])
-  const effectiveConnection = providerId === 'aws' ? (projectConnection ?? connection) : analysisConnection
-  const driftConnection = providerId === 'aws' ? projectConnection : analysisConnection
-  const labConnection = providerId === 'aws' ? connection : analysisConnection
+  const effectiveConnection = useMemo(
+    () => (providerId === 'aws' ? (projectConnection ?? connection) : analysisConnection),
+    [analysisConnection, connection, projectConnection, providerId]
+  )
+  const driftConnection = useMemo(
+    () => (providerId === 'aws' ? projectConnection : analysisConnection),
+    [analysisConnection, projectConnection, providerId]
+  )
+  const labConnection = useMemo(
+    () => (providerId === 'aws' ? connection : analysisConnection),
+    [analysisConnection, connection, providerId]
+  )
   const canLoadDrift = Boolean(detail && driftConnection)
   const canLoadLab = Boolean(detail && labConnection)
   const gcpAuthIssue = providerId === 'gcp'
