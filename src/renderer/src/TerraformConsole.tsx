@@ -415,6 +415,10 @@ function summarizeGovernance(report: TerraformGovernanceReport | null) {
 
 function describeRunOutcome(record: TerraformRunRecord): string {
   if (record.success === null) return 'This run is still in progress.'
+  // Prefer a classified suggested action when the run failed — it's the most specific signal we have.
+  if (record.success === false && record.suggestedAction && record.suggestedAction.trim().length > 0) {
+    return record.suggestedAction
+  }
   if (record.command === 'plan' && record.planSummary) {
     if (!record.success) return 'Terraform could not finish generating a usable plan.'
     if (!record.planSummary.hasChanges) return 'Plan finished cleanly with no actionable infrastructure changes.'
@@ -438,6 +442,31 @@ function describeRunOutcome(record: TerraformRunRecord): string {
       : 'State operation failed. Review the output and current state before attempting another mutation.'
   }
   return record.success ? 'Command completed successfully.' : 'Command failed. Review the output for the exact Terraform error.'
+}
+
+function formatProviderLabel(provider: TerraformRunRecord['provider']): string {
+  switch (provider) {
+    case 'aws': return 'AWS'
+    case 'azure': return 'Azure'
+    case 'gcp': return 'Google Cloud'
+    case 'local': return 'Local'
+    default: return '-'
+  }
+}
+
+function formatErrorClassLabel(errorClass: TerraformRunRecord['errorClass']): string {
+  if (!errorClass) return ''
+  switch (errorClass) {
+    case 'timeout': return 'Timeout'
+    case 'auth': return 'Authentication'
+    case 'rate_limit': return 'Rate limit'
+    case 'state_lock': return 'State lock'
+    case 'network': return 'Network'
+    case 'config': return 'Configuration'
+    case 'plugin': return 'Plugin'
+    case 'cancelled': return 'Cancelled'
+    default: return 'Unknown'
+  }
 }
 
 function terraformContextKey(connection?: AwsConnection, override?: string): string {
@@ -3249,6 +3278,8 @@ function HistoryTab({
   const [commandFilter, setCommandFilter] = useState<TerraformCommandName | 'all'>(initialFilters?.commandFilter ?? 'all')
   const [successFilter, setSuccessFilter] = useState<'all' | 'success' | 'failure'>(initialFilters?.successFilter ?? 'all')
   const [projectFilter, setProjectFilter] = useState<'current' | 'all'>(initialFilters?.projectFilter ?? 'current')
+  const [copiedTraceId, setCopiedTraceId] = useState('')
+  const [outputCopied, setOutputCopied] = useState(false)
 
   const loadHistory = useCallback(async () => {
     setLoading(true)
@@ -3274,6 +3305,7 @@ function HistoryTab({
   }, [commandFilter, onFiltersChange, projectFilter, successFilter])
 
   useEffect(() => {
+    setOutputCopied(false)
     if (!selectedRunId) { setRunOutput(''); return }
     setOutputLoading(true)
     void getRunOutput(selectedRunId).then(setRunOutput).catch(() => setRunOutput('')).finally(() => setOutputLoading(false))
@@ -3407,62 +3439,103 @@ function HistoryTab({
 
           {selectedRecord && (
             <div className="tf-history-detail">
-              <div className="tf-section">
-                <div className="tf-section-head">
-                  <h3>Run Detail</h3>
+              <div className="tf-section tf-history-detail-card">
+                <div className="tf-section-head tf-history-detail-head">
+                  <div className="tf-history-detail-heading">
+                    <h3>Run Detail</h3>
+                    <p className="tf-history-detail-subtitle">
+                      {selectedRecord.projectName} · {selectedRecord.workspace} · {formatIsoDate(selectedRecord.startedAt)}
+                    </p>
+                  </div>
                   <div className="tf-history-detail-actions">
-                    <button className="tf-toolbar-btn" onClick={() => {
+                    <button className="tf-toolbar-btn tf-toolbar-btn--compact" onClick={() => {
                       onOpenProject?.(selectedRecord.projectId)
                       onOpenTab?.('actions')
                     }}>Open Project</button>
-                    <button className="tf-toolbar-btn" onClick={() => {
+                    <button className="tf-toolbar-btn tf-toolbar-btn--compact" onClick={() => {
                       onOpenProject?.(selectedRecord.projectId)
                       onOpenTab?.('drift')
                     }}>Open Drift</button>
-                    <button className="tf-toolbar-btn danger" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => void handleDelete(selectedRecord.id)}>Delete</button>
+                    <span className="tf-history-detail-actions__divider" aria-hidden="true" />
+                    <button className="tf-toolbar-btn tf-toolbar-btn--compact danger" onClick={() => void handleDelete(selectedRecord.id)}>Delete</button>
                   </div>
                 </div>
-                <div className={`tf-remediation-card ${selectedRecord.success ? 'success' : selectedRecord.success === false ? 'danger' : 'warning'}`}>
+                <div className={`tf-remediation-card tf-history-outcome ${selectedRecord.success ? 'success' : selectedRecord.success === false ? 'danger' : 'warning'}`}>
                   <span className="tf-plan-summary-label">Outcome interpretation</span>
                   <strong>{selectedRecord.success === null ? 'Run in progress' : selectedRecord.success ? 'Successful command' : 'Command failed'}</strong>
                   <span>{describeRunOutcome(selectedRecord)}</span>
                 </div>
-                <div className="tf-kv">
-                  <div className="tf-kv-row"><div className="tf-kv-label">Command</div><div className="tf-kv-value">{selectedRecord.command}</div></div>
+                <div className="tf-kv tf-history-kv">
+                  <div className="tf-kv-row"><div className="tf-kv-label">Command</div><div className="tf-kv-value"><span className={`tf-history-cmd ${selectedRecord.command}`}>{selectedRecord.command}</span></div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">Result</div><div className="tf-kv-value">
+                    {selectedRecord.success === null
+                      ? <span className="tf-history-result running">running</span>
+                      : selectedRecord.success
+                        ? <span className="tf-history-result success">success</span>
+                        : <span className="tf-history-result failure">failed</span>
+                    }
+                  </div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Project</div><div className="tf-kv-value">{selectedRecord.projectName}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Workspace</div><div className="tf-kv-value"><span className="tf-workspace-badge">{selectedRecord.workspace}</span></div></div>
-                  <div className="tf-kv-row"><div className="tf-kv-label">Region</div><div className="tf-kv-value">{selectedRecord.region || '-'}</div></div>
-                  <div className="tf-kv-row"><div className="tf-kv-label">Connection</div><div className="tf-kv-value">{selectedRecord.connectionLabel || '-'}</div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">Region</div><div className="tf-kv-value">{selectedRecord.region || <span className="tf-kv-value--muted">-</span>}</div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">Connection</div><div className="tf-kv-value">{selectedRecord.connectionLabel || <span className="tf-kv-value--muted">-</span>}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Backend</div><div className="tf-kv-value">{selectedRecord.backendType}</div></div>
+                  {selectedRecord.provider && (
+                    <div className="tf-kv-row"><div className="tf-kv-label">Provider</div><div className="tf-kv-value">{formatProviderLabel(selectedRecord.provider)}</div></div>
+                  )}
+                  {selectedRecord.module && (
+                    <div className="tf-kv-row"><div className="tf-kv-label">Module</div><div className="tf-kv-value">{selectedRecord.module}</div></div>
+                  )}
+                  <div className="tf-kv-row"><div className="tf-kv-label">Started</div><div className="tf-kv-value">{formatIsoDate(selectedRecord.startedAt)}</div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">Finished</div><div className="tf-kv-value">{selectedRecord.finishedAt ? formatIsoDate(selectedRecord.finishedAt) : <span className="tf-kv-value--muted">-</span>}</div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">Duration</div><div className="tf-kv-value">{formatDuration(selectedRecord.startedAt, selectedRecord.finishedAt)}</div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">Exit Code</div><div className="tf-kv-value tf-kv-value--mono">{selectedRecord.exitCode ?? '-'}</div></div>
+                  {typeof selectedRecord.retryCount === 'number' && selectedRecord.retryCount > 0 && (
+                    <div className="tf-kv-row"><div className="tf-kv-label">Retries</div><div className="tf-kv-value">{selectedRecord.retryCount}</div></div>
+                  )}
+                  {selectedRecord.errorClass && (
+                    <div className="tf-kv-row"><div className="tf-kv-label">Error Class</div><div className="tf-kv-value">{formatErrorClassLabel(selectedRecord.errorClass)}</div></div>
+                  )}
                   {selectedRecord.git && (
                     <>
-                      <div className="tf-kv-row"><div className="tf-kv-label">Git Head</div><div className="tf-kv-value">{formatGitHead(selectedRecord.git.branch, selectedRecord.git.shortCommitSha, selectedRecord.git.isDetached)}</div></div>
+                      <div className="tf-kv-row"><div className="tf-kv-label">Git Head</div><div className="tf-kv-value tf-kv-value--mono">{formatGitHead(selectedRecord.git.branch, selectedRecord.git.shortCommitSha, selectedRecord.git.isDetached)}</div></div>
                       <div className="tf-kv-row"><div className="tf-kv-label">Git Tree</div><div className="tf-kv-value">{selectedRecord.git.isDirty ? 'Dirty' : 'Clean'}</div></div>
-                      <div className="tf-kv-row"><div className="tf-kv-label">Repo Root</div><div className="tf-kv-value">{selectedRecord.git.repoRoot}</div></div>
+                      <div className="tf-kv-row tf-kv-row--wide"><div className="tf-kv-label">Repo Root</div><div className="tf-kv-value tf-kv-value--mono">{selectedRecord.git.repoRoot}</div></div>
                     </>
                   )}
-                  <div className="tf-kv-row"><div className="tf-kv-label">State Source</div><div className="tf-kv-value">{selectedRecord.stateSource || '-'}</div></div>
-                  <div className="tf-kv-row"><div className="tf-kv-label">Started</div><div className="tf-kv-value">{selectedRecord.startedAt}</div></div>
-                  <div className="tf-kv-row"><div className="tf-kv-label">Finished</div><div className="tf-kv-value">{selectedRecord.finishedAt || '-'}</div></div>
-                  <div className="tf-kv-row"><div className="tf-kv-label">Duration</div><div className="tf-kv-value">{formatDuration(selectedRecord.startedAt, selectedRecord.finishedAt)}</div></div>
-                  <div className="tf-kv-row"><div className="tf-kv-label">Exit Code</div><div className="tf-kv-value">{selectedRecord.exitCode ?? '-'}</div></div>
+                  <div className="tf-kv-row tf-kv-row--wide">
+                    <div className="tf-kv-label">Trace ID</div>
+                    <div className="tf-kv-value">
+                      <span className="tf-trace-id">
+                        <span className="tf-trace-id__text">{selectedRecord.id}</span>
+                        <button
+                          type="button"
+                          className={`tf-trace-id__copy${copiedTraceId === selectedRecord.id ? ' copied' : ''}`}
+                          onClick={() => {
+                            void navigator.clipboard.writeText(selectedRecord.id)
+                            setCopiedTraceId(selectedRecord.id)
+                            window.setTimeout(() => setCopiedTraceId((current) => (current === selectedRecord.id ? '' : current)), 1500)
+                          }}
+                          title="Copy trace id"
+                        >{copiedTraceId === selectedRecord.id ? 'Copied' : 'Copy'}</button>
+                      </span>
+                    </div>
+                  </div>
+                  {selectedRecord.resource && (
+                    <div className="tf-kv-row tf-kv-row--wide"><div className="tf-kv-label">Resource</div><div className="tf-kv-value tf-kv-value--mono">{selectedRecord.resource}</div></div>
+                  )}
+                  <div className="tf-kv-row tf-kv-row--wide"><div className="tf-kv-label">State Source</div><div className="tf-kv-value tf-kv-value--mono">{selectedRecord.stateSource || <span className="tf-kv-value--muted">-</span>}</div></div>
                   {selectedRecord.stateOperationSummary && (
-                    <div className="tf-kv-row"><div className="tf-kv-label">State Op</div><div className="tf-kv-value">{selectedRecord.stateOperationSummary}</div></div>
+                    <div className="tf-kv-row tf-kv-row--wide"><div className="tf-kv-label">State Op</div><div className="tf-kv-value">{selectedRecord.stateOperationSummary}</div></div>
                   )}
                   {selectedRecord.backupPath && (
-                    <div className="tf-kv-row"><div className="tf-kv-label">Backup</div><div className="tf-kv-value">{selectedRecord.backupPath}</div></div>
+                    <div className="tf-kv-row tf-kv-row--wide"><div className="tf-kv-label">Backup</div><div className="tf-kv-value tf-kv-value--mono">{selectedRecord.backupPath}</div></div>
                   )}
                   {selectedRecord.backupCreatedAt && (
                     <div className="tf-kv-row"><div className="tf-kv-label">Backup Time</div><div className="tf-kv-value">{formatIsoDate(selectedRecord.backupCreatedAt)}</div></div>
                   )}
-                  <div className="tf-kv-row">
-                    <div className="tf-kv-label">Result</div>
-                    <div className="tf-kv-value">
-                      {selectedRecord.success === null ? 'Running' : selectedRecord.success ? 'Success' : 'Failed'}
-                    </div>
-                  </div>
                   {selectedRecord.args.length > 0 && (
-                    <div className="tf-kv-row"><div className="tf-kv-label">Args</div><div className="tf-kv-value" style={{ fontFamily: '"Cascadia Code","Fira Code",monospace', fontSize: 11 }}>{selectedRecord.args.join(' ')}</div></div>
+                    <div className="tf-kv-row tf-kv-row--wide"><div className="tf-kv-label">Args</div><div className="tf-kv-value tf-kv-value--mono">{selectedRecord.args.join(' ')}</div></div>
                   )}
                 </div>
                 {selectedRecord.planSummary && (
@@ -3474,8 +3547,33 @@ function HistoryTab({
                   </div>
                 )}
               </div>
+              {selectedRecord.success === false && selectedRecord.errorClass && selectedRecord.suggestedAction && selectedRecord.suggestedAction.trim().length > 0 && (
+                <div className="tf-suggested-action-banner" role="status">
+                  <span className="tf-suggested-action-banner__icon" aria-hidden="true">!</span>
+                  <span
+                    className="tf-suggested-action-banner__label"
+                    title={`Error class: ${formatErrorClassLabel(selectedRecord.errorClass)}`}
+                  >Suggested action</span>
+                  <span className="tf-suggested-action-banner__text">{selectedRecord.suggestedAction}</span>
+                </div>
+              )}
               <div className="tf-section">
-                <h3>Output</h3>
+                <div className="tf-section-head">
+                  <h3>Output</h3>
+                  <button
+                    type="button"
+                    className={`tf-toolbar-btn${outputCopied ? ' copied' : ''}`}
+                    disabled={outputLoading || !runOutput}
+                    onClick={() => {
+                      if (!runOutput) return
+                      void navigator.clipboard.writeText(runOutput).then(() => {
+                        setOutputCopied(true)
+                        window.setTimeout(() => setOutputCopied(false), 1500)
+                      }).catch(() => { /* ignore clipboard errors */ })
+                    }}
+                    title="Copy output to clipboard"
+                  >{outputCopied ? 'Copied' : 'Copy output'}</button>
+                </div>
                 {outputLoading ? (
                   <SvcState variant="loading" resourceName="output" compact />
                 ) : (

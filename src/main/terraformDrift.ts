@@ -88,6 +88,7 @@ import {
 } from './aws/vpc'
 import { listWebAcls } from './aws/waf'
 import { getCachedCliInfo, getProject } from './terraform'
+import { createTraceContext, withAudit } from './terraformAudit'
 
 type ComparableValue = string | number | boolean
 type IdentityKey = 'cloudIdentifier' | 'logicalName'
@@ -2816,12 +2817,30 @@ export async function getTerraformDriftReport(
   connection: AwsConnection,
   options?: { forceRefresh?: boolean }
 ): Promise<TerraformDriftReport> {
-  const existing = readStoredContext(profileName, projectId, connection.region)
-  if (existing && !options?.forceRefresh) {
-    const sanitized = sanitizeStoredContext(existing)
-    writeStoredContext(profileName, projectId, connection.region, sanitized)
-    return toReport(sanitized, true)
+  let moduleLabel = projectId
+  try {
+    const proj = await getProject(profileName, projectId, connection)
+    if (proj?.name) moduleLabel = proj.name
+  } catch {
+    /* fall back to projectId for the module tag */
   }
-  const scanned = await scanProjectDrift(profileName, projectId, connection, existing ? 'manual' : 'initial')
-  return toReport(scanned, false)
+  const auditCtx = createTraceContext({
+    operation: 'drift-report',
+    provider: 'aws',
+    module: moduleLabel
+  })
+  return withAudit(
+    auditCtx,
+    async () => {
+      const existing = readStoredContext(profileName, projectId, connection.region)
+      if (existing && !options?.forceRefresh) {
+        const sanitized = sanitizeStoredContext(existing)
+        writeStoredContext(profileName, projectId, connection.region, sanitized)
+        return toReport(sanitized, true)
+      }
+      const scanned = await scanProjectDrift(profileName, projectId, connection, existing ? 'manual' : 'initial')
+      return toReport(scanned, false)
+    },
+    (report, summary) => ({ ...report, audit: summary })
+  )
 }

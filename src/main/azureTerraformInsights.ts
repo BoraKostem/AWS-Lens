@@ -37,6 +37,7 @@ import {
 } from './azureSdk'
 import { getProject } from './terraform'
 import { logWarn } from './observability'
+import { createTraceContext, withAudit } from './terraformAudit'
 
 type AzureTerraformContext = {
   contextId: string
@@ -570,6 +571,12 @@ export async function getAzureTerraformDriftReport(
   _options?: { forceRefresh?: boolean }
 ): Promise<TerraformDriftReport> {
   const project = await getProject(profileName, projectId, connection)
+  const auditCtx = createTraceContext({
+    operation: 'drift-report',
+    provider: 'azure',
+    module: project.name
+  })
+  return withAudit(auditCtx, async () => {
   const context = parseAzureContext(profileName, project, connection)
   const scannedAt = new Date().toISOString()
   const azureResources = project.inventory.filter((item) => item.mode === 'managed' && item.type.startsWith('azurerm_'))
@@ -1244,6 +1251,7 @@ export async function getAzureTerraformDriftReport(
     history: singleSnapshot(summary, items, scannedAt),
     fromCache: false
   }
+  }, (report, auditSummary) => ({ ...report, audit: auditSummary }))
 }
 
 function postureArea(id: string, label: string, value: string, tone: ObservabilityPostureArea['tone'], detail: string): ObservabilityPostureArea {

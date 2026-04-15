@@ -60,7 +60,9 @@ import { getConnectionEnv } from './sessionHub'
 import { saveRunRecord, updateRunRecord, redactArgs } from './terraformHistoryStore'
 import { invalidateTerraformDriftReports } from './terraformDrift'
 import { buildTerraformDiagram } from './terraformDiagramParser'
-import type { TerraformRunRecord } from '@shared/types'
+import type { TerraformAuditTraceContext, TerraformRunRecord } from '@shared/types'
+import { createTraceContext, logRunCompleted, logRunFailed, logRunStarted } from './terraformAudit'
+import { classifyTerraformError } from './terraformErrorClassifier'
 import { getPreferredTerraformCliKindSetting, listToolCommandCandidates } from './toolchain'
 import { readAzureFoundationStore } from './azureFoundationStore'
 
@@ -2473,6 +2475,7 @@ async function runChildProcess(
     operationName?: string
     context?: Record<string, unknown>
     activeRun?: ActiveTerraformRun
+    onAttempt?: (attempt: number) => void
   } = {}
 ): Promise<{ output: string; exitCode: number }> {
   return await executeOperation(
@@ -2549,7 +2552,8 @@ async function runChildProcess(
         command,
         args: redactArgs(args),
         ...(options.context ?? {})
-      }
+      },
+      onAttempt: options.onAttempt
     }
   )
 }
@@ -3134,6 +3138,25 @@ export async function runProjectCommand(
     success: null, output: ''
   }
 
+  // Audit context — trace id is the log id, stable across internal retries within this call.
+  const auditProvider = inferTerraformProviderId(request.profileName, request.connection)
+  const auditResource = (() => {
+    if (request.command === 'import') return request.importAddress?.trim() ?? ''
+    if (request.command === 'state-mv') return request.stateFromAddress?.trim() ?? ''
+    if (request.command === 'state-rm') return request.stateAddress?.trim() ?? ''
+    if (request.command === 'force-unlock') return request.lockId?.trim() ?? ''
+    const firstTarget = request.planOptions?.targets?.find((t) => t && t.trim().length > 0)
+    return firstTarget?.trim() ?? ''
+  })()
+  const auditCtx: TerraformAuditTraceContext = createTraceContext({
+    traceId: log.id,
+    operation: request.command,
+    provider: auditProvider,
+    module: project.name,
+    resource: auditResource
+  })
+  logRunStarted(auditCtx, { projectId: request.projectId })
+
   pushLog(request.projectId, log)
   emit(window, { type: 'started', projectId: request.projectId, log })
 
@@ -3165,7 +3188,14 @@ export async function runProjectCommand(
     backupPath: '',
     backupCreatedAt: '',
     stateOperationSummary,
-    git: gitCommitMetadata
+    git: gitCommitMetadata,
+    provider: auditCtx.provider,
+    module: auditCtx.module,
+    resource: auditCtx.resource,
+    durationMs: null,
+    retryCount: 0,
+    errorClass: null,
+    suggestedAction: ''
   }
   saveRunRecord(runRecord, '')
 
@@ -3226,8 +3256,13 @@ export async function runProjectCommand(
       context: {
         projectId: request.projectId,
         projectName: project.name,
-        workspace: currentWorkspace
-      }
+        workspace: currentWorkspace,
+        traceId: auditCtx.traceId,
+        provider: auditCtx.provider,
+        module: auditCtx.module,
+        resource: auditCtx.resource || undefined
+      },
+      onAttempt: (attempt) => { auditCtx.retryCount = Math.max(0, attempt - 1) }
     })
 
     log.exitCode = result.exitCode
@@ -3279,6 +3314,7 @@ export async function runProjectCommand(
     // Update history record on success
     const planSummary = refreshedProject?.lastPlanSummary ?? null
     const hasPlanChanges = planSummary && (planSummary.create > 0 || planSummary.update > 0 || planSummary.delete > 0 || planSummary.replace > 0)
+    const successDurationMs = Date.now() - auditCtx.startedAtMs
     updateRunRecord(log.id, {
       finishedAt: log.finishedAt,
       exitCode: log.exitCode,
@@ -3288,8 +3324,17 @@ export async function runProjectCommand(
       backupPath: backupSummary?.path ?? '',
       backupCreatedAt: backupSummary?.createdAt ?? '',
       planJsonPath: (request.command === 'plan' && log.success && fs.existsSync(planJsonPath(project.rootPath)))
-        ? planJsonPath(project.rootPath) : ''
+        ? planJsonPath(project.rootPath) : '',
+      durationMs: successDurationMs,
+      retryCount: auditCtx.retryCount,
+      errorClass: null,
+      suggestedAction: ''
     }, log.output)
+    logRunCompleted(auditCtx, successDurationMs, {
+      projectId: request.projectId,
+      exitCode: log.exitCode,
+      success: log.success
+    })
 
     return log
   } catch (error) {
@@ -3302,14 +3347,38 @@ export async function runProjectCommand(
     }
     emit(window, { type: 'completed', projectId: request.projectId, log, project: await getProject(request.profileName, request.projectId, request.connection) })
 
+    // Classify + remediate. Pre-check on error name so cancelled/timeout are detected before regex.
+    const errorName = error instanceof Error ? error.name : ''
+    const classified = classifyTerraformError({
+      output: stripAnsi(log.output),
+      exitCode: log.exitCode,
+      errorMessage,
+      provider: auditCtx.provider,
+      errorName
+    })
+    const failureDurationMs = Date.now() - auditCtx.startedAtMs
+
     // Update history record on error
     updateRunRecord(log.id, {
       finishedAt: log.finishedAt,
       exitCode: log.exitCode,
       success: log.success,
       backupPath: backupSummary?.path ?? '',
-      backupCreatedAt: backupSummary?.createdAt ?? ''
+      backupCreatedAt: backupSummary?.createdAt ?? '',
+      durationMs: failureDurationMs,
+      retryCount: auditCtx.retryCount,
+      errorClass: classified.errorClass,
+      suggestedAction: classified.suggestedAction
     }, log.output)
+
+    logRunFailed(
+      auditCtx,
+      failureDurationMs,
+      classified.errorClass,
+      classified.suggestedAction,
+      error,
+      { projectId: request.projectId, exitCode: log.exitCode }
+    )
 
     return log
   } finally {

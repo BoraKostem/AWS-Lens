@@ -444,6 +444,7 @@ export function IncidentTimelineTab({
   const [linkedProject, setLinkedProject] = useState<TerraformProject | null>(project ?? null)
   const [linkedDriftReport, setLinkedDriftReport] = useState<TerraformDriftReport | null>(driftReport ?? null)
   const [terraformContextMessage, setTerraformContextMessage] = useState('')
+  const [driftErrorMessage, setDriftErrorMessage] = useState('')
   const loadTokenRef = useRef(0)
 
   useEffect(() => setLinkedProject(project ?? null), [project])
@@ -453,6 +454,7 @@ export function IncidentTimelineTab({
     if (scope !== 'overview' || project) return
     let cancelled = false
     setTerraformContextMessage('')
+    setDriftErrorMessage('')
     void (async () => {
       try {
         const selectedProjectId = await getSelectedProjectId(connection.profile)
@@ -467,6 +469,10 @@ export function IncidentTimelineTab({
           if (!cancelled) setLinkedDriftReport(nextDrift)
         } catch (driftError) {
           console.warn('Failed to load drift report for incident timeline:', driftError)
+          if (!cancelled) {
+            const message = driftError instanceof Error ? driftError.message : String(driftError)
+            setDriftErrorMessage(message)
+          }
         }
       } catch (error) {
         if (!cancelled) setTerraformContextMessage(error instanceof Error ? error.message : String(error))
@@ -620,6 +626,44 @@ export function IncidentTimelineTab({
           {showGroupedView && <section className="tf-section"><div className="tf-section-head"><div><h3>Correlation clusters</h3><div className="tf-section-hint">Grouped signals help isolate one storyline across CloudTrail, CloudWatch, and Terraform.</div></div></div>{groupedItems.length ? <div className="tf-correlation-grid">{groupedItems.map((cluster) => <article key={cluster.id} className={`tf-correlation-card ${cluster.tone}`}><div className="tf-correlation-card-head"><div><h4>{cluster.title}</h4><p>{cluster.summary}</p></div><span className={`tf-correlation-confidence ${cluster.confidence}`}>{cluster.confidence}</span></div><div className="tf-correlation-sources">{cluster.sources.map((source) => <span key={source} className={`tf-incident-source ${source}`}>{source}</span>)}</div><div className="tf-correlation-meta"><span>{cluster.timeRangeLabel}</span><span>{cluster.items.length} items</span></div><div className="tf-correlation-list">{cluster.items.slice(0, 4).map((item) => <div key={item.id} className="tf-correlation-item"><strong>{item.title}</strong><span>{item.summary}</span></div>)}</div></article>)}</div> : <SvcState variant="empty" message="No correlation clusters were formed for this window." compact />}</section>}
           {showSignalsView && <section className="tf-section"><div className="tf-section-head"><div><h3>Signals</h3><div className="tf-section-hint">Raw timeline entries remain available when you need exact event ordering.</div></div></div>{filteredItems.length ? <div className="tf-incident-list">{filteredItems.map((item) => <article key={item.id} className={`tf-incident-card ${item.tone}`}><div className="tf-incident-card-head"><div><div className="tf-incident-badges"><span className={`tf-incident-source ${item.source}`}>{item.source}</span><span className="tf-incident-time">{formatIsoDate(item.occurredAt)}</span></div><h4>{item.title}</h4></div></div><p>{item.summary}</p><div className="tf-incident-detail">{item.detail}</div>{handleSignalActions(item)}</article>)}</div> : <SvcState variant="empty" message="No timeline signals matched the current filters." compact />}</section>}
 
+          {(driftErrorMessage || (linkedDriftReport?.audit?.errorClass && linkedDriftReport.audit.suggestedAction)) && (
+            <div
+              className="tf-suggested-action-banner"
+              style={{
+                margin: '12px 0',
+                padding: '10px 12px',
+                borderRadius: 6,
+                background: 'rgba(230, 81, 0, 0.08)',
+                border: '1px solid rgba(230, 81, 0, 0.35)',
+                color: 'var(--tf-text, #e6e6e6)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                fontSize: 12,
+                lineHeight: 1.45
+              }}
+            >
+              <span
+                style={{
+                  flex: '0 0 auto',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.4,
+                  fontSize: 10,
+                  padding: '2px 6px',
+                  borderRadius: 3,
+                  background: 'rgba(230, 81, 0, 0.25)'
+                }}
+                title={linkedDriftReport?.audit?.errorClass ?? 'drift error'}
+              >Drift check</span>
+              <span style={{ flex: 1 }}>{linkedDriftReport?.audit?.suggestedAction || driftErrorMessage}</span>
+            </div>
+          )}
+          {linkedDriftReport?.audit && linkedDriftReport.audit.retryCount > 0 && !linkedDriftReport.audit.errorClass && (
+            <div className="overview-note-item" style={{ margin: '8px 0' }}>
+              Drift scan completed after {linkedDriftReport.audit.retryCount} retry{linkedDriftReport.audit.retryCount === 1 ? '' : 's'} (trace {linkedDriftReport.audit.traceId.slice(0, 8)}).
+            </div>
+          )}
           <section className="tf-guardrail-grid">
             <section className={`tf-guardrail-card ${guardrails.actionableCount > 0 ? 'warning' : 'success'}`}><div className="tf-guardrail-head"><div><span className="tf-guardrail-kicker">Terraform guardrails</span><h4>Drift posture</h4></div><strong>{guardrails.actionableCount}</strong></div><p className="tf-guardrail-copy">Latest drift snapshot: {guardrails.latestScanLabel}.</p><div className="tf-guardrail-metrics"><div><span>Drifted</span><strong>{guardrails.driftedCount}</strong></div><div><span>Missing</span><strong>{guardrails.missingCount}</strong></div><div><span>Unmanaged</span><strong>{guardrails.unmanagedCount}</strong></div></div><div className="tf-guardrail-list">{guardrails.remediationItems.length ? guardrails.remediationItems.map((item) => <div key={driftItemKey(item)} className="tf-guardrail-row stacked"><div><strong>{item.logicalName}</strong><span>{item.explanation}</span></div><div className="tf-incident-actions">{(onOpenDrift || onNavigateTerraform) && <button type="button" className="tf-toolbar-btn" onClick={() => onNavigateTerraform ? handleTerraformOpen({ detailTab: 'drift', driftItemKey: driftItemKey(item) }) : (onOpenDrift ?? onNavigateTerraform)?.()}>Open Drift</button>}{item.terminalCommand && onRunTerminalCommand && <button type="button" className="tf-toolbar-btn" onClick={() => onRunTerminalCommand(item.terminalCommand)}>Run in Terminal</button>}</div></div>) : <div className="tf-guardrail-empty">No remediation entry is currently needed.</div>}</div></section>
             <section className={`tf-guardrail-card ${assumeRoleSummary.roles[0]?.concentration === 'unexpected' ? 'danger' : assumeRoleSummary.total > 0 ? 'warning' : 'success'}`}><div className="tf-guardrail-head"><div><span className="tf-guardrail-kicker">Operator guardrails</span><h4>AssumeRole concentration</h4></div><strong>{assumeRoleSummary.total} events</strong></div><p className="tf-guardrail-copy">Most frequently assumed IAM roles in the active window.</p><div className="tf-guardrail-list">{assumeRoleSummary.roles.length ? assumeRoleSummary.roles.map((entry) => <div key={entry.roleLabel} className="tf-guardrail-row stacked"><div><strong>{entry.roleLabel}</strong><span>{entry.count} events • last seen {formatIsoDate(entry.lastSeen)}</span></div><div className="tf-correlation-meta"><span>{entry.actorLabels.join(', ') || 'Unknown actor'}</span><span>{entry.concentration}</span></div></div>) : <div className="tf-guardrail-empty">No AssumeRole concentration was detected in this window.</div>}</div>{onNavigateCloudTrail && <div className="tf-incident-actions"><button type="button" className="tf-toolbar-btn" onClick={() => onNavigateCloudTrail({ startTime: activeWindow.startIso, endTime: activeWindow.endIso, filter: 'AssumeRole' })}>Open CloudTrail</button></div>}</section>

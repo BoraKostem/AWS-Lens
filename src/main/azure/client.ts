@@ -1,6 +1,7 @@
 import { DefaultAzureCredential, type TokenCredential } from '@azure/identity'
 import { getSdkCredential } from './auth'
 import { logWarn } from '../observability'
+import { incrementAmbientRetryCount } from '../terraformAudit'
 
 // ── Constants ───────────────────────────────────────────────────────────────────
 
@@ -187,6 +188,7 @@ export async function fetchAzureArmJson<T>(path: string, apiVersion: string, ini
           delayMs
         })
 
+        incrementAmbientRetryCount()
         await new Promise<void>((resolve) => setTimeout(resolve, delayMs))
         continue
       }
@@ -207,6 +209,7 @@ export async function fetchAzureArmJson<T>(path: string, apiVersion: string, ini
           delayMs
         }, error)
 
+        incrementAmbientRetryCount()
         await new Promise<void>((resolve) => setTimeout(resolve, delayMs))
         continue
       }

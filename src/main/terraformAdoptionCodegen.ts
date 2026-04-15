@@ -187,6 +187,88 @@ function quote(value: string): string {
   return JSON.stringify(value)
 }
 
+type AdoptedVariableDef = {
+  name: string
+  description: string
+  type: string
+  default: string
+}
+
+const ADOPTED_EC2_VARIABLE_DEFS: AdoptedVariableDef[] = [
+  {
+    name: 'enable_adopted_ec2_instance',
+    description: 'Create the standalone EC2 adoption example resource.',
+    type: 'bool',
+    default: 'false'
+  },
+  {
+    name: 'adopted_ec2_ami',
+    description: 'AMI ID for the standalone EC2 adoption example.',
+    type: 'string',
+    default: 'null'
+  },
+  {
+    name: 'adopted_ec2_instance_type',
+    description: 'Instance type for the standalone EC2 adoption example.',
+    type: 'string',
+    default: '"t3.micro"'
+  },
+  {
+    name: 'adopted_ec2_subnet_id',
+    description: 'Subnet ID for the standalone EC2 adoption example.',
+    type: 'string',
+    default: 'null'
+  },
+  {
+    name: 'adopted_ec2_security_group_ids',
+    description: 'Security group IDs for the standalone EC2 adoption example.',
+    type: 'list(string)',
+    default: '[]'
+  },
+  {
+    name: 'adopted_ec2_iam_instance_profile',
+    description: 'Optional IAM instance profile name for the standalone EC2 adoption example.',
+    type: 'string',
+    default: 'null'
+  }
+]
+
+function stripHclComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|\s)#[^\n]*/g, '$1')
+    .replace(/(^|\s)\/\/[^\n]*/g, '$1')
+}
+
+function findDeclaredVariableNames(moduleDirectory: string): Set<string> {
+  const combined = stripHclComments(listTerraformFiles(moduleDirectory).map(readText).join('\n'))
+  const names = new Set<string>()
+  const re = /\bvariable\s+"([^"]+)"\s*\{/g
+  let match: RegExpExecArray | null
+  while ((match = re.exec(combined)) !== null) {
+    names.add(match[1])
+  }
+  return names
+}
+
+function renderVariableBlock(def: AdoptedVariableDef): string {
+  return [
+    `variable "${def.name}" {`,
+    `  description = ${quote(def.description)}`,
+    `  type        = ${def.type}`,
+    `  default     = ${def.default}`,
+    '}'
+  ].join('\n')
+}
+
+function buildMissingAdoptedEc2VariableSection(moduleDirectory: string): string {
+  const existing = findDeclaredVariableNames(moduleDirectory)
+  const blocks = ADOPTED_EC2_VARIABLE_DEFS
+    .filter((def) => !existing.has(def.name))
+    .map(renderVariableBlock)
+  return blocks.length > 0 ? `${blocks.join('\n\n')}\n\n` : ''
+}
+
 function nonAwsTags(tags: Record<string, string> | undefined): Array<[string, string]> {
   return Object.entries(tags ?? {})
     .filter(([key]) => !key.startsWith('aws:'))
@@ -259,49 +341,33 @@ function buildIamProfileExpression(mapping: TerraformAdoptionMappingResult, targ
 function buildAwsResourceBlock(mapping: TerraformAdoptionMappingResult): string {
   const target = mapping.target
   const lines: string[] = [
-    `resource "${mapping.recommendedResourceType}" "${mapping.suggestedResourceName}" {`
+    `resource "${mapping.recommendedResourceType}" "${mapping.suggestedResourceName}" {`,
+    `  count = var.enable_adopted_ec2_instance ? 1 : 0`,
+    ''
   ]
 
   if (mapping.provider.alias) {
-    lines.push(`  provider = aws.${mapping.provider.alias}`)
+    lines.push(`  provider = aws.${mapping.provider.alias}`, '')
   }
 
-  lines.push(`  ami           = ${quote(target.resourceContext?.imageId?.trim() || 'ami-REVIEW_ME')}`)
-  lines.push(`  instance_type = ${quote(target.resourceContext?.instanceType?.trim() || 't3.micro')}`)
-  lines.push(`  subnet_id     = ${buildSubnetExpression(mapping, target)}`)
-
-  const securityGroupExpressions = buildSecurityGroupExpressions(mapping, target)
-  if (securityGroupExpressions.length > 0) {
-    lines.push('  vpc_security_group_ids = [')
-    for (const expression of securityGroupExpressions) {
-      lines.push(`    ${expression},`)
-    }
-    lines.push('  ]')
-  }
-
-  const iamInstanceProfile = buildIamProfileExpression(mapping, target)
-  if (iamInstanceProfile) {
-    lines.push(`  iam_instance_profile = ${iamInstanceProfile}`)
-  }
+  lines.push(`  ami                    = var.adopted_ec2_ami`)
+  lines.push(`  instance_type          = var.adopted_ec2_instance_type`)
+  lines.push(`  subnet_id              = var.adopted_ec2_subnet_id`)
+  lines.push(`  vpc_security_group_ids = var.adopted_ec2_security_group_ids`)
+  lines.push(`  iam_instance_profile   = var.adopted_ec2_iam_instance_profile`)
 
   const tagsBlock = renderTagsBlock(target.tags)
   if (tagsBlock.length > 0) {
     lines.push('', ...tagsBlock)
+  } else {
+    const displayName = target.name || mapping.suggestedResourceName
+    lines.push('')
+    lines.push('  tags = {')
+    lines.push(`    Name = ${quote(displayName)}`)
+    lines.push('  }')
   }
 
   lines.push('}')
-
-  const notes: string[] = []
-  if (!findRelatedResourceAddress(mapping.relatedResources, 'subnet-id', 'aws_subnet')) {
-    notes.push('# Review subnet_id and replace the literal value with a module-appropriate variable or data source if needed.')
-  }
-  if (securityGroupExpressions.some((expression) => expression.startsWith('"'))) {
-    notes.push('# Review vpc_security_group_ids and replace literal security group IDs with references where appropriate.')
-  }
-  if (notes.length > 0) {
-    return `${notes.join('\n')}\n${lines.join('\n')}\n`
-  }
-
   return `${lines.join('\n')}\n`
 }
 
@@ -606,7 +672,13 @@ function buildImportCommand(project: TerraformProject, mapping: TerraformAdoptio
   const workspaceSegment = project.currentWorkspace && project.currentWorkspace !== 'default'
     ? `terraform workspace select ${project.currentWorkspace} && `
     : ''
-  return `${workspaceSegment}terraform import ${mapping.suggestedAddress} ${mapping.importId}`
+  // EC2 adoption is always emitted with count = var.enable_adopted_ec2_instance ? 1 : 0,
+  // so the real resource address is <address>[0]. Quote the address so the shell does
+  // not interpret the brackets as globs.
+  const address = mapping.recommendedResourceType === 'aws_instance'
+    ? `'${mapping.suggestedAddress}[0]'`
+    : mapping.suggestedAddress
+  return `${workspaceSegment}terraform import ${address} ${mapping.importId}`
 }
 
 export async function generateTerraformAdoptionCode(
@@ -619,7 +691,17 @@ export async function generateTerraformAdoptionCode(
   const mapping = await mapTerraformAdoption(profileName, projectId, connection, target)
   const moduleDirectoryResolution = resolveModuleDirectory(project, normalizePath(mapping.module.modulePath))
   const filePlan = chooseTargetFile(moduleDirectoryResolution.directory, mapping)
-  const resourceBlock = buildResourceBlock(project, mapping)
+
+  let resourceBlock = buildResourceBlock(project, mapping)
+
+  // For AWS EC2 adoption, prepend any missing variable declarations so the
+  // generated file validates standalone. Idempotent — skips variables that
+  // are already declared in any .tf file in the module directory.
+  if (mapping.recommendedResourceType === 'aws_instance') {
+    const variablesSection = buildMissingAdoptedEc2VariableSection(moduleDirectoryResolution.directory)
+    resourceBlock = `${variablesSection}${resourceBlock}`
+  }
+
   const importCommand = buildImportCommand(project, mapping)
   const providerPrefix = mapping.recommendedResourceType.startsWith('google_') ? 'google'
     : mapping.recommendedResourceType.startsWith('azurerm_') ? 'azurerm' : 'aws'

@@ -26,12 +26,32 @@ function ensureOutputDir(): void {
   }
 }
 
+/**
+ * Normalise a raw on-disk record so callers can rely on the audit-observability
+ * fields existing. Pre-audit-change records lack `provider`, `retryCount`,
+ * `errorClass`, and `suggestedAction`; filling defaults here keeps the renderer
+ * conditional logic simple and backwards-compatible.
+ */
+function normalizeRunRecord(record: TerraformRunRecord): TerraformRunRecord {
+  const normalized: TerraformRunRecord = {
+    ...record,
+    provider: record.provider ?? 'local',
+    module: record.module ?? '',
+    resource: record.resource ?? '',
+    durationMs: record.durationMs ?? null,
+    retryCount: typeof record.retryCount === 'number' ? record.retryCount : 0,
+    errorClass: record.errorClass ?? null,
+    suggestedAction: record.suggestedAction ?? ''
+  }
+  return normalized
+}
+
 function readIndex(): TerraformRunRecord[] {
   try {
     const raw = fs.readFileSync(indexPath(), 'utf-8')
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    return parsed as TerraformRunRecord[]
+    return (parsed as TerraformRunRecord[]).map(normalizeRunRecord)
   } catch (error) {
     logWarn('terraformHistoryStore.readIndex', 'Failed to read or parse run history index.', { indexPath: indexPath() }, error)
     return []

@@ -20,6 +20,7 @@ import type {
   TerraformResourceInventoryItem
 } from '@shared/types'
 import { getCachedCliInfo, getProject } from './terraform'
+import { createTraceContext, withAudit } from './terraformAudit'
 import {
   getGcpBillingOverview,
   getGcpComputeInstanceDetail,
@@ -973,6 +974,12 @@ export async function getGcpTerraformDriftReport(
   _options?: { forceRefresh?: boolean }
 ): Promise<TerraformDriftReport> {
   const project = await getProject(profileName, projectId)
+  const auditCtx = createTraceContext({
+    operation: 'drift-report',
+    provider: 'gcp',
+    module: project.name
+  })
+  return withAudit(auditCtx, async () => {
   const context = parseGcpContext(profileName, project, connection)
   if (!context.projectId) {
     throw new Error('Choose a GCP project context before loading Terraform drift.')
@@ -1918,6 +1925,7 @@ export async function getGcpTerraformDriftReport(
     history: buildHistory([snapshot]),
     fromCache: false
   }
+  }, (report, auditSummary) => ({ ...report, audit: auditSummary }))
 }
 
 function buildPostureSummary(items: Array<{ id: string; label: string; ok: number; total: number; goodDetail: string; weakDetail: string }>): ObservabilityPostureArea[] {

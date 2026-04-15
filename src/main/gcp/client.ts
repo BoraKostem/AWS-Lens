@@ -1,5 +1,6 @@
 import { GoogleAuth } from 'google-auth-library'
 import { logInfo, logWarn } from '../observability'
+import { incrementAmbientRetryCount } from '../terraformAudit'
 
 // ── Scopes & Constants ──────────────────────────────────────────────────────────
 
@@ -257,6 +258,7 @@ export async function requestGcp<T>(projectId: string, options: GcpRequestOption
           delayMs
         }, error)
 
+        incrementAmbientRetryCount()
         await new Promise<void>((resolve) => setTimeout(resolve, delayMs))
         continue
       }

@@ -6,6 +6,12 @@ export type OperationOptions = {
   retryDelayMs?: number
   context?: Record<string, unknown>
   retryOn?: (error: unknown) => boolean
+  /**
+   * Observability hook. Called once per attempt with the current 1-based attempt number
+   * (attempt=1 is the first try). Exceptions thrown inside the callback are swallowed so
+   * instrumentation never breaks the operation.
+   */
+  onAttempt?: (attempt: number) => void
 }
 
 export class OperationTimeoutError extends Error {
@@ -89,6 +95,14 @@ export async function executeOperation<T>(
   while (true) {
     const startedAt = Date.now()
     attempt += 1
+
+    if (options.onAttempt) {
+      try {
+        options.onAttempt(attempt)
+      } catch {
+        // Observability must never break the operation.
+      }
+    }
 
     logInfo('operation.start', `Starting ${name}.`, {
       operation: name,

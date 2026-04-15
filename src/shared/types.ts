@@ -6420,7 +6420,50 @@ export type TerraformCommandLog = {
   output: string
 }
 
+/** Classification of a terraform run failure, used for dashboards and remediation hints. */
+export type TerraformErrorClass =
+  | 'timeout'
+  | 'auth'
+  | 'rate_limit'
+  | 'state_lock'
+  | 'network'
+  | 'config'
+  | 'plugin'
+  | 'cancelled'
+  | 'unknown'
+
+export type TerraformAuditProviderId = 'aws' | 'gcp' | 'azure' | 'local'
+
+/**
+ * Trace context threaded through a terraform run or drift report.
+ * `traceId` stays constant across retries within a single invocation.
+ * `retryCount` is mutable — retry layers increment it in place.
+ */
+export type TerraformAuditTraceContext = {
+  traceId: string
+  operation: string
+  provider: TerraformAuditProviderId
+  module: string
+  resource: string
+  startedAtMs: number
+  retryCount: number
+}
+
+/**
+ * Structured audit summary attached to drift report responses so the UI
+ * can surface trace id, duration, classification, and remediation without
+ * an extra round-trip.
+ */
+export type TerraformAuditSummary = {
+  traceId: string
+  durationMs: number
+  retryCount: number
+  errorClass: TerraformErrorClass | null
+  suggestedAction: string
+}
+
 export type TerraformRunRecord = {
+  /** Run identifier. Also serves as the `traceId` in structured logs and stays stable across retries. */
   id: string
   projectId: string
   projectName: string
@@ -6441,6 +6484,23 @@ export type TerraformRunRecord = {
   backupCreatedAt: string
   stateOperationSummary: string
   git: TerraformGitCommitMetadata | null
+  /** Cloud provider this run targets, inferred from profile + connection. */
+  provider?: TerraformAuditProviderId
+  /**
+   * Human label for the root terraform module. Currently the project's display name
+   * (not a `module.foo.bar` address) — see plan in unified-knitting-patterson.md.
+   */
+  module?: string
+  /** Specific resource address when the command targets one (import, state-mv, state-rm, force-unlock, -target). */
+  resource?: string
+  /** Wall-clock duration from run start to finish in milliseconds. */
+  durationMs?: number | null
+  /** Number of retries observed (0 means first attempt succeeded). */
+  retryCount?: number
+  /** Structured error classification, null when the run succeeded. */
+  errorClass?: TerraformErrorClass | null
+  /** One-line remediation hint for the classified error; empty string on success. */
+  suggestedAction?: string
 }
 
 export type TerraformRunHistoryFilter = {
@@ -6590,6 +6650,8 @@ export type TerraformDriftReport = {
   items: TerraformDriftItem[]
   history: TerraformDriftHistory
   fromCache: boolean
+  /** Audit summary attached by the drift providers so the UI can show remediation without an extra round-trip. */
+  audit?: TerraformAuditSummary
 }
 
 export type TerraformDriftRemediationAction = 'update-terraform' | 'apply-terraform' | 'ignore-with-annotation'

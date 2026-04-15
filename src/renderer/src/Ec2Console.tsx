@@ -265,6 +265,10 @@ function findSshVaultEntry(entries: VaultEntrySummary[], value: string, preferre
 }
 
 function buildEc2AdoptionTarget(connection: AwsConnection, instance: Ec2InstanceDetail): TerraformAdoptionTarget {
+  const sanitize = (value: string | undefined): string | undefined => {
+    const trimmed = value?.trim()
+    return trimmed && trimmed !== '-' ? trimmed : undefined
+  }
   const displayName = instance.name && instance.name !== '-' ? instance.name : instance.instanceId
   return {
     serviceId: 'ec2',
@@ -276,13 +280,13 @@ function buildEc2AdoptionTarget(connection: AwsConnection, instance: Ec2Instance
     name: displayName,
     tags: instance.tags,
     resourceContext: {
-      vpcId: instance.vpcId,
-      subnetId: instance.subnetId,
+      vpcId: sanitize(instance.vpcId),
+      subnetId: sanitize(instance.subnetId),
       securityGroupIds: instance.securityGroups.map((group) => group.id),
-      iamInstanceProfile: instance.iamProfile,
-      availabilityZone: instance.availabilityZone,
-      instanceType: instance.type,
-      imageId: instance.imageId
+      iamInstanceProfile: sanitize(instance.iamProfile),
+      availabilityZone: sanitize(instance.availabilityZone),
+      instanceType: sanitize(instance.type),
+      imageId: sanitize(instance.imageId)
     }
   }
 }
