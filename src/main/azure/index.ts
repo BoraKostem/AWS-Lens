@@ -229,3 +229,15 @@ export {
   listAzureLoadBalancers,
   describeAzureLoadBalancer
 } from './loadBalancers'
+
+// ── Terraform Insights ─────────────────────────────────────────────────────
+// Terraform insights files may import from here; modules in this directory
+// must NOT import from terraform insights (one-way dependency).
+
+export {
+  getAzureTerraformDriftReport
+} from './terraformDrift'
+
+export {
+  generateAzureTerraformObservabilityReport
+} from './terraformObservability'

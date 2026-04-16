@@ -1,7 +1,7 @@
 import type { AwsConnection, CloudProviderId, TerraformDriftReport } from '@shared/types'
 import { getTerraformDriftReport } from './terraformDrift'
 import { getGcpTerraformDriftReport } from './gcpTerraformInsights'
-import { getAzureTerraformDriftReport } from './azureTerraformInsights'
+import { getAzureTerraformDriftReport } from './azure'
 import { attachRemediationSuggestions } from './terraformDriftRemediation'
 
 export type DriftProvider = {

@@ -1,568 +1,45 @@
-import { randomUUID } from 'node:crypto'
-
 import type {
   AwsConnection,
   AzureAksNodePoolSummary,
-  CorrelatedSignalReference,
-  ObservabilityFinding,
-  ObservabilityPostureArea,
-  ObservabilityPostureReport,
-  ObservabilityRecommendation,
-  TerraformDriftCoverageItem,
   TerraformDriftDifference,
-  TerraformDriftHistory,
   TerraformDriftItem,
   TerraformDriftReport,
-  TerraformDriftSnapshot,
-  TerraformDriftStatus,
-  TerraformProject,
-  TerraformResourceInventoryItem
+  TerraformDriftStatus
 } from '@shared/types'
 import {
-  listAzureAksNodePools,
-  listAzureAppInsightsComponents,
-  listAzureAppServicePlans,
-  listAzureEventHubNamespaces,
-  listAzureEventHubs,
-  listAzureKeyVaults,
-  listAzureNetworkOverview,
-  listAzurePostgreSqlEstate,
-  listAzureSqlEstate,
-  listAzureStorageAccounts,
-  listAzureVirtualMachines,
-  listAzureVmss,
-  listAzureWebApps,
-  listAzureCosmosDbEstate,
-  listAzureDnsZones
-} from './azure'
-import { getProject } from './terraform'
-import { logWarn } from './observability'
-import { createTraceContext, withAudit } from './terraformAudit'
-
-type AzureTerraformContext = {
-  contextId: string
-  location: string
-}
-
-type AzureLiveData = {
-  virtualMachines?: Awaited<ReturnType<typeof listAzureVirtualMachines>>
-  vmss?: Awaited<ReturnType<typeof listAzureVmss>>
-  storageAccounts?: Awaited<ReturnType<typeof listAzureStorageAccounts>>
-  sqlEstate?: Awaited<ReturnType<typeof listAzureSqlEstate>>
-  postgreSqlEstate?: Awaited<ReturnType<typeof listAzurePostgreSqlEstate>>
-  keyVaults?: Awaited<ReturnType<typeof listAzureKeyVaults>>
-  eventHubNamespaces?: Awaited<ReturnType<typeof listAzureEventHubNamespaces>>
-  eventHubsByNamespace?: Record<string, Awaited<ReturnType<typeof listAzureEventHubs>>>
-  appServicePlans?: Awaited<ReturnType<typeof listAzureAppServicePlans>>
-  webApps?: Awaited<ReturnType<typeof listAzureWebApps>>
-  networkOverview?: Awaited<ReturnType<typeof listAzureNetworkOverview>>
-  appInsights?: Awaited<ReturnType<typeof listAzureAppInsightsComponents>>
-  aksNodePoolsByCluster?: Map<string, AzureAksNodePoolSummary[]>
-  cosmosDbEstate?: Awaited<ReturnType<typeof listAzureCosmosDbEstate>>
-  dnsZones?: Awaited<ReturnType<typeof listAzureDnsZones>>
-}
-type AzureLiveErrors = Partial<Record<keyof AzureLiveData, string>>
-
-function str(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : ''
-}
-
-function parseAzureContext(profileName: string, project: TerraformProject, connection?: AwsConnection): AzureTerraformContext {
-  const match = profileName.match(/^provider:azure:terraform:([^:]+):(.+)$/)
-  return {
-    contextId: connection?.profile || str(project.environment.connectionLabel) || (match?.[1] && match[1] !== 'unscoped' ? match[1] : 'azure'),
-    location: connection?.region || str(project.environment.region) || (match?.[2] && match[2] !== 'global' ? match[2] : 'global')
-  }
-}
-
-function portalUrl(): string {
-  return 'https://portal.azure.com/#home'
-}
-
-function resourceLocation(item: TerraformResourceInventoryItem, fallback: string): string {
-  return str(item.values.location) || str(item.values.primary_location) || str(item.values.region) || fallback
-}
-
-function resourceId(item: TerraformResourceInventoryItem): string {
-  return str(item.values.id)
-}
-
-function terminalCommand(item: TerraformResourceInventoryItem): string {
-  const id = resourceId(item)
-  return id
-    ? `az resource show --ids "${id}" --output jsonc`
-    : `terraform state show ${item.address}`
-}
-
-function createDifference(key: string, label: string, terraformValue: string, liveValue: string, assessment: TerraformDriftDifference['assessment'] = 'verified'): TerraformDriftDifference {
-  return {
-    key,
-    label,
-    kind: 'attribute',
-    assessment,
-    terraformValue,
-    liveValue
-  }
-}
-
-function coverageForType(resourceType: string): TerraformDriftCoverageItem {
-  switch (resourceType) {
-    case 'azurerm_kubernetes_cluster':
-      return { resourceType, coverage: 'verified', verifiedChecks: ['default node pool autoscaling', 'min count', 'max count', 'node count', 'vm size'], inferredChecks: [], notes: ['Compares default_node_pool autoscaling settings against the live Azure AKS cluster.'] }
-    case 'azurerm_kubernetes_cluster_node_pool':
-      return { resourceType, coverage: 'verified', verifiedChecks: ['autoscaling', 'min count', 'max count', 'node count', 'vm size'], inferredChecks: [], notes: ['Compares node pool autoscaling settings against the live Azure AKS node pool.'] }
-    case 'azurerm_virtual_machine':
-    case 'azurerm_linux_virtual_machine':
-    case 'azurerm_windows_virtual_machine':
-      return { resourceType, coverage: 'verified', verifiedChecks: ['VM size'], inferredChecks: [], notes: ['Compares VM size against the live Azure virtual machine.'] }
-    case 'azurerm_virtual_machine_scale_set':
-    case 'azurerm_linux_virtual_machine_scale_set':
-    case 'azurerm_windows_virtual_machine_scale_set':
-      return { resourceType, coverage: 'verified', verifiedChecks: ['SKU name', 'SKU capacity'], inferredChecks: [], notes: ['Compares SKU name and capacity against the live Azure VMSS.'] }
-    case 'azurerm_storage_account':
-      return { resourceType, coverage: 'verified', verifiedChecks: ['kind', 'SKU name', 'access tier', 'HTTPS only', 'minimum TLS version'], inferredChecks: [], notes: ['Compares storage account configuration against live Azure inventory.'] }
-    case 'azurerm_mssql_server':
-      return { resourceType, coverage: 'verified', verifiedChecks: ['version', 'public network access', 'minimal TLS version'], inferredChecks: [], notes: ['Compares SQL Server settings against live Azure SQL estate.'] }
-    case 'azurerm_mssql_database':
-      return { resourceType, coverage: 'verified', verifiedChecks: ['SKU name', 'max size GB', 'zone redundant'], inferredChecks: [], notes: ['Compares SQL database settings against live Azure SQL estate.'] }
-    case 'azurerm_postgresql_flexible_server':
-      return { resourceType, coverage: 'verified', verifiedChecks: ['version', 'SKU name', 'storage size GB', 'HA enabled', 'backup retention days'], inferredChecks: [], notes: ['Compares PostgreSQL Flexible Server settings against live Azure inventory.'] }
-    case 'azurerm_key_vault':
-      return { resourceType, coverage: 'verified', verifiedChecks: ['SKU name', 'soft delete', 'purge protection', 'RBAC authorization'], inferredChecks: [], notes: ['Compares Key Vault configuration against live Azure inventory.'] }
-    case 'azurerm_eventhub_namespace':
-      return { resourceType, coverage: 'verified', verifiedChecks: ['SKU name', 'SKU capacity', 'Kafka enabled', 'zone redundant'], inferredChecks: [], notes: ['Compares Event Hub namespace settings against live Azure inventory.'] }
-    case 'azurerm_eventhub':
-      return { resourceType, coverage: 'verified', verifiedChecks: ['partition count', 'message retention in days'], inferredChecks: [], notes: ['Compares Event Hub settings against live Azure inventory.'] }
-    case 'azurerm_service_plan':
-    case 'azurerm_app_service_plan':
-      return { resourceType, coverage: 'verified', verifiedChecks: ['SKU name', 'number of workers'], inferredChecks: [], notes: ['Compares App Service Plan settings against live Azure inventory.'] }
-    case 'azurerm_linux_web_app':
-    case 'azurerm_windows_web_app':
-    case 'azurerm_app_service':
-      return { resourceType, coverage: 'verified', verifiedChecks: ['HTTPS only', 'minimum TLS version'], inferredChecks: [], notes: ['Compares Web App settings against live Azure inventory.'] }
-    case 'azurerm_virtual_network':
-      return { resourceType, coverage: 'verified', verifiedChecks: ['existence'], inferredChecks: [], notes: ['Verifies virtual network existence in live Azure inventory. Address space comparison is excluded due to complexity.'] }
-    case 'azurerm_network_security_group':
-      return { resourceType, coverage: 'verified', verifiedChecks: ['existence'], inferredChecks: [], notes: ['Verifies network security group existence in live Azure inventory.'] }
-    case 'azurerm_application_insights':
-      return { resourceType, coverage: 'verified', verifiedChecks: ['retention in days'], inferredChecks: [], notes: ['Compares Application Insights retention against live Azure inventory.'] }
-    default:
-      return { resourceType, coverage: 'partial', verifiedChecks: [], inferredChecks: ['Terraform state presence', 'Azure resource ID', 'Resource group', 'Location'], notes: ['Azure drift is inferred from Terraform metadata until live Azure SDK collectors are added.'] }
-  }
-}
-
-function num(value: unknown): number | null {
-  return typeof value === 'number' ? value : null
-}
-
-function bool(value: unknown): boolean {
-  return value === true
-}
-
-function firstObject(values: unknown): Record<string, unknown> {
-  if (Array.isArray(values)) {
-    const first = values.find((value) => value && typeof value === 'object')
-    return first && typeof first === 'object' ? first as Record<string, unknown> : {}
-  }
-  return values && typeof values === 'object' ? values as Record<string, unknown> : {}
-}
-
-function formatValue(value: string | number | boolean | undefined): string {
-  if (typeof value === 'boolean') return value ? 'true' : 'false'
-  if (typeof value === 'number') return String(value)
-  return value ?? ''
-}
-
-function extractSubscriptionId(azureResourceId: string): string {
-  const match = azureResourceId.match(/\/subscriptions\/([^/]+)/i)
-  return match?.[1] ?? ''
-}
-
-function extractResourceGroup(azureResourceId: string): string {
-  const match = azureResourceId.match(/\/resourceGroups\/([^/]+)/i)
-  return match?.[1] ?? ''
-}
-
-function extractClusterName(azureResourceId: string): string {
-  const match = azureResourceId.match(/\/managedClusters\/([^/]+)/i)
-  return match?.[1] ?? ''
-}
-
-function extractSubscriptionIdFromInventory(inventory: TerraformResourceInventoryItem[]): string {
-  for (const item of inventory) {
-    const id = resourceId(item)
-    if (id) {
-      const subId = extractSubscriptionId(id)
-      if (subId) return subId
-    }
-  }
-  return ''
-}
-
-async function loadAzureLiveData(subscriptionId: string, location: string): Promise<{ data: AzureLiveData; errors: AzureLiveErrors }> {
-  const data: AzureLiveData = {}
-  const errors: AzureLiveErrors = {}
-  if (!subscriptionId) {
-    return { data, errors }
-  }
-
-  const loaders: Array<[keyof AzureLiveData, () => Promise<unknown>]> = [
-    ['virtualMachines', () => listAzureVirtualMachines(subscriptionId, location)],
-    ['vmss', () => listAzureVmss(subscriptionId, location)],
-    ['storageAccounts', () => listAzureStorageAccounts(subscriptionId, location)],
-    ['sqlEstate', () => listAzureSqlEstate(subscriptionId, location)],
-    ['postgreSqlEstate', () => listAzurePostgreSqlEstate(subscriptionId, location)],
-    ['keyVaults', () => listAzureKeyVaults(subscriptionId, location)],
-    ['eventHubNamespaces', () => listAzureEventHubNamespaces(subscriptionId, location)],
-    ['appServicePlans', () => listAzureAppServicePlans(subscriptionId, location)],
-    ['webApps', () => listAzureWebApps(subscriptionId, location)],
-    ['networkOverview', () => listAzureNetworkOverview(subscriptionId, location)],
-    ['appInsights', () => listAzureAppInsightsComponents(subscriptionId, location)],
-    ['cosmosDbEstate', () => listAzureCosmosDbEstate(subscriptionId, location)],
-    ['dnsZones', () => listAzureDnsZones(subscriptionId, location)]
-  ]
-
-  const settled = await Promise.allSettled(loaders.map(async ([key, loader]) => ({ key, value: await loader() })))
-  settled.forEach((result, index) => {
-    if (result.status === 'fulfilled') {
-      data[result.value.key] = result.value.value as never
-      return
-    }
-    const key = loaders[index]?.[0]
-    if (key) {
-      errors[key] = result.reason instanceof Error ? result.reason.message : String(result.reason)
-    }
-  })
-
-  return { data, errors }
-}
-
-function compareValues(differences: TerraformDriftDifference[], key: string, label: string, terraformValue: string, liveValue: string) {
-  if (!terraformValue || !liveValue || terraformValue === liveValue) return
-  differences.push(createDifference(key, label, terraformValue, liveValue))
-}
-
-function buildVerifiedAzureItem(
-  item: TerraformResourceInventoryItem,
-  fallbackLocation: string,
-  matchState: {
-    exists: boolean
-    cloudIdentifier: string
-    explanation: string
-    evidence?: string[]
-    differences?: TerraformDriftDifference[]
-  }
-): TerraformDriftItem {
-  const logicalName = str(item.values.name) || item.name || item.address
-  const differences = matchState.differences ?? []
-  const location = resourceLocation(item, fallbackLocation)
-  const status: TerraformDriftStatus = !matchState.exists
-    ? 'missing_in_aws'
-    : differences.length > 0 ? 'drifted' : 'in_sync'
-  return {
-    terraformAddress: item.address,
-    resourceType: item.type,
-    logicalName,
-    cloudIdentifier: matchState.cloudIdentifier || logicalName,
-    region: location,
-    status,
-    assessment: 'verified',
-    explanation: matchState.explanation,
-    suggestedNextStep: status === 'in_sync'
-      ? 'No action required.'
-      : status === 'missing_in_aws'
-        ? `Verify whether ${item.address} was removed or renamed in Azure, and reconcile the Terraform state.`
-        : `Review ${item.address}, reconcile the changed fields in Terraform or Azure Portal, then run a manual drift re-scan.`,
-    consoleUrl: portalUrl(),
-    terminalCommand: terminalCommand(item),
-    differences,
-    evidence: matchState.evidence ?? [],
-    relatedTerraformAddresses: [item.address]
-  }
-}
-
-type AksClusterKey = { subscriptionId: string; resourceGroup: string; clusterName: string }
-
-function aksClusterKeyId(key: AksClusterKey): string {
-  return `${key.subscriptionId}/${key.resourceGroup}/${key.clusterName}`.toLowerCase()
-}
-
-async function fetchLiveNodePools(clusters: AksClusterKey[]): Promise<Map<string, AzureAksNodePoolSummary[]>> {
-  const result = new Map<string, AzureAksNodePoolSummary[]>()
-  const seen = new Set<string>()
-  for (const cluster of clusters) {
-    const key = aksClusterKeyId(cluster)
-    if (seen.has(key)) continue
-    seen.add(key)
-    try {
-      const pools = await listAzureAksNodePools(cluster.subscriptionId, cluster.resourceGroup, cluster.clusterName)
-      result.set(key, pools)
-    } catch (error) {
-      logWarn('azureTerraformInsights.fetchLiveNodePools', `Failed to fetch live node pools for AKS cluster ${cluster.clusterName}.`, { cluster: cluster.clusterName, resourceGroup: cluster.resourceGroup }, error)
-    }
-  }
-  return result
-}
-
-function buildAksClusterDriftItem(
-  item: TerraformResourceInventoryItem,
-  livePools: AzureAksNodePoolSummary[],
-  fallbackLocation: string
-): TerraformDriftItem {
-  const id = resourceId(item)
-  const location = resourceLocation(item, fallbackLocation)
-  const defaultNodePool = firstObject(item.values.default_node_pool)
-  const tfAutoScaling = bool(defaultNodePool.enable_auto_scaling)
-  const tfMinCount = num(defaultNodePool.min_count) ?? 0
-  const tfMaxCount = num(defaultNodePool.max_count) ?? 0
-  const tfNodeCount = num(defaultNodePool.node_count) ?? 0
-  const tfVmSize = str(defaultNodePool.vm_size)
-  const tfPoolName = str(defaultNodePool.name) || 'default'
-
-  const livePool = livePools.find((pool) => pool.name.toLowerCase() === tfPoolName.toLowerCase())
-  if (!livePool) {
-    return {
-      terraformAddress: item.address,
-      resourceType: item.type,
-      logicalName: str(item.values.name) || item.name || item.address,
-      cloudIdentifier: id || str(item.values.name) || item.address,
-      region: location,
-      status: 'missing_in_aws',
-      assessment: 'verified',
-      explanation: `Default node pool "${tfPoolName}" exists in Terraform state but was not found in the live AKS cluster.`,
-      suggestedNextStep: 'Verify whether the node pool was removed or renamed in Azure, and reconcile the Terraform state.',
-      consoleUrl: portalUrl(),
-      terminalCommand: terminalCommand(item),
-      differences: [],
-      evidence: [`Terraform address: ${item.address}`, `Default node pool "${tfPoolName}" not found in live Azure inventory.`],
-      relatedTerraformAddresses: [item.address]
-    }
-  }
-
-  const differences: TerraformDriftDifference[] = []
-  const liveAutoScaling = livePool.enableAutoScaling
-  if (tfAutoScaling !== liveAutoScaling) {
-    differences.push(createDifference('enable_auto_scaling', 'auto scaling', formatValue(tfAutoScaling), formatValue(liveAutoScaling)))
-  }
-  if (liveAutoScaling) {
-    const liveMin = typeof livePool.min === 'number' ? livePool.min : 0
-    const liveMax = typeof livePool.max === 'number' ? livePool.max : 0
-    if (tfAutoScaling && tfMinCount !== liveMin) {
-      differences.push(createDifference('min_count', 'min count', formatValue(tfMinCount), formatValue(liveMin)))
-    }
-    if (tfAutoScaling && tfMaxCount !== liveMax) {
-      differences.push(createDifference('max_count', 'max count', formatValue(tfMaxCount), formatValue(liveMax)))
-    }
-  }
-  const liveDesired = typeof livePool.desired === 'number' ? livePool.desired : 0
-  if (tfNodeCount !== liveDesired) {
-    differences.push(createDifference('node_count', 'node count', formatValue(tfNodeCount), formatValue(liveDesired)))
-  }
-  if (tfVmSize && livePool.vmSize !== '-' && tfVmSize.toLowerCase() !== livePool.vmSize.toLowerCase()) {
-    differences.push(createDifference('vm_size', 'VM size', tfVmSize, livePool.vmSize))
-  }
-
-  const status: TerraformDriftStatus = differences.length > 0 ? 'drifted' : 'in_sync'
-  return {
-    terraformAddress: item.address,
-    resourceType: item.type,
-    logicalName: str(item.values.name) || item.name || item.address,
-    cloudIdentifier: id || str(item.values.name) || item.address,
-    region: location,
-    status,
-    assessment: 'verified',
-    explanation: differences.length > 0
-      ? `Detected ${differences.length} verified drift signal${differences.length === 1 ? '' : 's'} between Terraform and the live AKS default node pool.`
-      : 'Terraform state and live Azure AKS default node pool match on tracked autoscaling attributes.',
-    suggestedNextStep: differences.length > 0
-      ? 'Review the AKS autoscaling changes in Azure Portal and decide whether to update Terraform or revert the Azure change.'
-      : 'No action required.',
-    consoleUrl: portalUrl(),
-    terminalCommand: terminalCommand(item),
-    differences,
-    evidence: [
-      `Matched live AKS default node pool "${tfPoolName}" by name.`,
-      ...differences.map((d) => `${d.label}: terraform=${d.terraformValue || '-'} azure=${d.liveValue || '-'}`)
-    ],
-    relatedTerraformAddresses: [item.address]
-  }
-}
-
-function buildAksNodePoolDriftItem(
-  item: TerraformResourceInventoryItem,
-  livePools: AzureAksNodePoolSummary[],
-  fallbackLocation: string
-): TerraformDriftItem {
-  const id = resourceId(item)
-  const location = resourceLocation(item, fallbackLocation)
-  const tfPoolName = str(item.values.name)
-  const tfAutoScaling = bool(item.values.enable_auto_scaling)
-  const tfMinCount = num(item.values.min_count) ?? 0
-  const tfMaxCount = num(item.values.max_count) ?? 0
-  const tfNodeCount = num(item.values.node_count) ?? 0
-  const tfVmSize = str(item.values.vm_size)
-
-  const livePool = livePools.find((pool) => pool.name.toLowerCase() === tfPoolName.toLowerCase())
-  if (!livePool) {
-    return {
-      terraformAddress: item.address,
-      resourceType: item.type,
-      logicalName: tfPoolName || item.name || item.address,
-      cloudIdentifier: id || tfPoolName || item.address,
-      region: location,
-      status: 'missing_in_aws',
-      assessment: 'verified',
-      explanation: `Node pool "${tfPoolName}" exists in Terraform state but was not found in the live AKS cluster.`,
-      suggestedNextStep: 'Verify whether the node pool was removed or renamed in Azure, and reconcile the Terraform state.',
-      consoleUrl: portalUrl(),
-      terminalCommand: terminalCommand(item),
-      differences: [],
-      evidence: [`Terraform address: ${item.address}`, `Node pool "${tfPoolName}" not found in live Azure inventory.`],
-      relatedTerraformAddresses: [item.address]
-    }
-  }
-
-  const differences: TerraformDriftDifference[] = []
-  const liveAutoScaling = livePool.enableAutoScaling
-  if (tfAutoScaling !== liveAutoScaling) {
-    differences.push(createDifference('enable_auto_scaling', 'auto scaling', formatValue(tfAutoScaling), formatValue(liveAutoScaling)))
-  }
-  if (liveAutoScaling) {
-    const liveMin = typeof livePool.min === 'number' ? livePool.min : 0
-    const liveMax = typeof livePool.max === 'number' ? livePool.max : 0
-    if (tfAutoScaling && tfMinCount !== liveMin) {
-      differences.push(createDifference('min_count', 'min count', formatValue(tfMinCount), formatValue(liveMin)))
-    }
-    if (tfAutoScaling && tfMaxCount !== liveMax) {
-      differences.push(createDifference('max_count', 'max count', formatValue(tfMaxCount), formatValue(liveMax)))
-    }
-  }
-  const liveDesired = typeof livePool.desired === 'number' ? livePool.desired : 0
-  if (tfNodeCount !== liveDesired) {
-    differences.push(createDifference('node_count', 'node count', formatValue(tfNodeCount), formatValue(liveDesired)))
-  }
-  if (tfVmSize && livePool.vmSize !== '-' && tfVmSize.toLowerCase() !== livePool.vmSize.toLowerCase()) {
-    differences.push(createDifference('vm_size', 'VM size', tfVmSize, livePool.vmSize))
-  }
-
-  const status: TerraformDriftStatus = differences.length > 0 ? 'drifted' : 'in_sync'
-  return {
-    terraformAddress: item.address,
-    resourceType: item.type,
-    logicalName: tfPoolName || item.name || item.address,
-    cloudIdentifier: id || tfPoolName || item.address,
-    region: location,
-    status,
-    assessment: 'verified',
-    explanation: differences.length > 0
-      ? `Detected ${differences.length} verified drift signal${differences.length === 1 ? '' : 's'} between Terraform and the live AKS node pool.`
-      : 'Terraform state and live Azure AKS node pool match on tracked autoscaling attributes.',
-    suggestedNextStep: differences.length > 0
-      ? 'Review the AKS autoscaling changes in Azure Portal and decide whether to update Terraform or revert the Azure change.'
-      : 'No action required.',
-    consoleUrl: portalUrl(),
-    terminalCommand: terminalCommand(item),
-    differences,
-    evidence: [
-      `Matched live AKS node pool "${tfPoolName}" by name.`,
-      ...differences.map((d) => `${d.label}: terraform=${d.terraformValue || '-'} azure=${d.liveValue || '-'}`)
-    ],
-    relatedTerraformAddresses: [item.address]
-  }
-}
-
-function buildDriftItem(item: TerraformResourceInventoryItem, fallbackLocation: string): TerraformDriftItem {
-  const id = resourceId(item)
-  const location = resourceLocation(item, fallbackLocation)
-  const resourceGroup = str(item.values.resource_group_name)
-  const evidence = [id ? `Resource ID present: ${id}` : 'Resource ID missing from Terraform state.', resourceGroup ? `Resource group: ${resourceGroup}` : 'Resource group not present in Terraform state.']
-  const differences: TerraformDriftDifference[] = []
-  let status: TerraformDriftStatus = 'in_sync'
-  let explanation = 'Terraform state contains an Azure resource identifier, group, and location. This item is treated as in sync with inferred confidence.'
-  let suggestedNextStep = 'Use the terminal handoff to inspect the live Azure resource if you need stronger verification.'
-
-  if (!id) {
-    status = 'drifted'
-    explanation = 'Terraform state does not expose an Azure resource ID for this resource, so live lookup confidence is reduced.'
-    suggestedNextStep = 'Run the suggested terminal command to verify the live resource or refresh state after apply.'
-    differences.push(createDifference('resource_id', 'Azure resource ID', 'missing', 'expected from state', 'inferred'))
-  } else if (!location) {
-    status = 'drifted'
-    explanation = 'Terraform state does not expose a location for this resource, which weakens Azure handoff quality and drift confidence.'
-    suggestedNextStep = 'Confirm the resource location in Azure and refresh Terraform state.'
-    differences.push(createDifference('location', 'Location', 'missing', 'expected from state', 'inferred'))
-  }
-
-  return {
-    terraformAddress: item.address,
-    resourceType: item.type,
-    logicalName: str(item.values.name) || item.name || item.address,
-    cloudIdentifier: id || str(item.values.name) || item.address,
-    region: location || fallbackLocation,
-    status,
-    assessment: 'inferred',
-    explanation,
-    suggestedNextStep,
-    consoleUrl: portalUrl(),
-    terminalCommand: terminalCommand(item),
-    differences,
-    evidence,
-    relatedTerraformAddresses: [item.address]
-  }
-}
-
-function summarizeItems(items: TerraformDriftItem[], scannedAt: string): TerraformDriftReport['summary'] {
-  const statusCounts: Record<TerraformDriftStatus, number> = {
-    in_sync: 0,
-    drifted: 0,
-    missing_in_aws: 0,
-    unmanaged_in_aws: 0,
-    missing_in_cloud: 0,
-    unmanaged_in_cloud: 0,
-    unsupported: 0
-  }
-  const resourceTypeCounts = new Map<string, number>()
-  const supportedResourceTypes = new Map<string, TerraformDriftCoverageItem>()
-  const unsupportedTypes = new Set<string>()
-  let verifiedCount = 0
-  let inferredCount = 0
-
-  for (const item of items) {
-    statusCounts[item.status] += 1
-    resourceTypeCounts.set(item.resourceType, (resourceTypeCounts.get(item.resourceType) ?? 0) + 1)
-    supportedResourceTypes.set(item.resourceType, coverageForType(item.resourceType))
-    if (item.assessment === 'unsupported') unsupportedTypes.add(item.resourceType)
-    else if (item.assessment === 'verified') verifiedCount += 1
-    else inferredCount += 1
-  }
-
-  return {
-    total: items.length,
-    statusCounts,
-    resourceTypeCounts: [...resourceTypeCounts.entries()].map(([resourceType, count]) => ({ resourceType, count })).sort((left, right) => right.count - left.count || left.resourceType.localeCompare(right.resourceType)),
-    scannedAt,
-    verifiedCount,
-    inferredCount,
-    unsupportedResourceTypes: [...unsupportedTypes].sort(),
-    supportedResourceTypes: [...supportedResourceTypes.values()].sort((left, right) => left.resourceType.localeCompare(right.resourceType))
-  }
-}
-
-function singleSnapshot(summary: TerraformDriftReport['summary'], items: TerraformDriftItem[], scannedAt: string): TerraformDriftHistory {
-  const snapshot: TerraformDriftSnapshot = {
-    id: randomUUID(),
-    scannedAt,
-    trigger: 'manual',
-    summary,
-    items
-  }
-  return {
-    snapshots: [snapshot],
-    trend: 'insufficient_history',
-    latestScanAt: scannedAt,
-    previousScanAt: ''
-  }
-}
+  listAzureEventHubs
+} from './index'
+import { getProject } from '../terraform'
+import { createTraceContext, withAudit } from '../terraformAudit'
+import {
+  type AksClusterKey,
+  type AzureLiveData,
+  aksClusterKeyId,
+  bool,
+  buildAksClusterDriftItem,
+  buildAksNodePoolDriftItem,
+  buildDriftItem,
+  buildVerifiedAzureItem,
+  compareValues,
+  createDifference,
+  extractClusterName,
+  extractSubscriptionId,
+  extractSubscriptionIdFromInventory,
+  extractTerraformResourceGroup,
+  fetchLiveNodePools,
+  firstObject,
+  formatValue,
+  loadAzureLiveData,
+  num,
+  parseAzureContext,
+  portalUrl,
+  resourceId,
+  resourceLocation,
+  singleSnapshot,
+  str,
+  summarizeItems,
+  terminalCommand
+} from './terraformShared'
 
 export async function getAzureTerraformDriftReport(
   profileName: string,
@@ -629,7 +106,7 @@ export async function getAzureTerraformDriftReport(
   for (const item of aksClusterResources) {
     const id = resourceId(item)
     const sub = extractSubscriptionId(id)
-    const rg = str(item.values.resource_group_name) || extractResourceGroup(id)
+    const rg = str(item.values.resource_group_name) || extractTerraformResourceGroup(id)
     const name = str(item.values.name) || extractClusterName(id)
     if (sub && rg && name) {
       clusterKeys.push({ subscriptionId: sub, resourceGroup: rg, clusterName: name })
@@ -640,7 +117,7 @@ export async function getAzureTerraformDriftReport(
     const id = resourceId(item)
     const resolvedClusterId = clusterId || id
     const sub = extractSubscriptionId(resolvedClusterId)
-    const rg = extractResourceGroup(resolvedClusterId)
+    const rg = extractTerraformResourceGroup(resolvedClusterId)
     const name = extractClusterName(resolvedClusterId)
     if (sub && rg && name) {
       clusterKeys.push({ subscriptionId: sub, resourceGroup: rg, clusterName: name })
@@ -655,7 +132,7 @@ export async function getAzureTerraformDriftReport(
       case 'azurerm_kubernetes_cluster': {
         const id = resourceId(item)
         const sub = extractSubscriptionId(id)
-        const rg = str(item.values.resource_group_name) || extractResourceGroup(id)
+        const rg = str(item.values.resource_group_name) || extractTerraformResourceGroup(id)
         const name = str(item.values.name) || extractClusterName(id)
         const key = aksClusterKeyId({ subscriptionId: sub, resourceGroup: rg, clusterName: name })
         const livePools = live.aksNodePoolsByCluster?.get(key)
@@ -669,7 +146,7 @@ export async function getAzureTerraformDriftReport(
         const id = resourceId(item)
         const resolvedClusterId = clusterId || id
         const sub = extractSubscriptionId(resolvedClusterId)
-        const rg = extractResourceGroup(resolvedClusterId)
+        const rg = extractTerraformResourceGroup(resolvedClusterId)
         const name = extractClusterName(resolvedClusterId)
         const key = aksClusterKeyId({ subscriptionId: sub, resourceGroup: rg, clusterName: name })
         const livePools = live.aksNodePoolsByCluster?.get(key)
@@ -807,7 +284,6 @@ export async function getAzureTerraformDriftReport(
       case 'azurerm_mssql_database': {
         if (!live.sqlEstate?.databases) return buildDriftItem(item, context.location)
         const tfName = str(item.values.name)
-        // Extract server name from the server_id attribute
         const serverId = str(item.values.server_id)
         const serverNameMatch = serverId.match(/\/servers\/([^/]+)/i)
         const tfServerName = serverNameMatch?.[1] ?? ''
@@ -859,9 +335,6 @@ export async function getAzureTerraformDriftReport(
         }
         const differences: TerraformDriftDifference[] = []
         compareValues(differences, 'version', 'version', str(item.values.version), liveServer.version)
-        // Terraform stores SKU as "GP_Standard_D2s_v3" (tier prefix + compute),
-        // but Azure API returns just "Standard_D2s_v3". Strip the tier prefix
-        // (B_, GP_, MO_) before comparing to avoid false drift.
         const tfSku = str(item.values.sku_name)
         const normalizedTfSku = tfSku.replace(/^(B_|GP_|MO_)/i, '')
         const normalizedLiveSku = (liveServer.skuName || '').replace(/^(B_|GP_|MO_)/i, '')
@@ -1252,111 +725,4 @@ export async function getAzureTerraformDriftReport(
     fromCache: false
   }
   }, (report, auditSummary) => ({ ...report, audit: auditSummary }))
-}
-
-function postureArea(id: string, label: string, value: string, tone: ObservabilityPostureArea['tone'], detail: string): ObservabilityPostureArea {
-  return { id, label, value, tone, detail }
-}
-
-function finding(id: string, title: string, severity: ObservabilityFinding['severity'], summary: string, detail: string, impact: string, recommendationId: string, inference = true): ObservabilityFinding {
-  return {
-    id,
-    title,
-    severity,
-    category: 'deployment',
-    summary,
-    detail,
-    evidence: [],
-    impact,
-    inference,
-    recommendedActionIds: [recommendationId]
-  }
-}
-
-function recommendation(id: string, title: string, summary: string, rationale: string, expectedBenefit: string, risk: string, rollback: string): ObservabilityRecommendation {
-  return {
-    id,
-    title,
-    type: 'manual-check',
-    summary,
-    rationale,
-    expectedBenefit,
-    risk,
-    rollback,
-    prerequisiteLevel: 'required',
-    setupEffort: 'low',
-    labels: ['azure', 'terraform']
-  }
-}
-
-export async function generateAzureTerraformObservabilityReport(
-  profileName: string,
-  projectId: string,
-  connection?: AwsConnection
-): Promise<ObservabilityPostureReport> {
-  const project = await getProject(profileName, projectId, connection)
-  const context = parseAzureContext(profileName, project, connection)
-  const azureResources = project.inventory.filter((item) => item.mode === 'managed' && item.type.startsWith('azurerm_'))
-  const monitorCount = azureResources.filter((item) => item.type.includes('monitor_') || item.type.includes('log_analytics_')).length
-  const taggedCount = azureResources.filter((item) => {
-    const tags = item.values.tags
-    return Boolean(tags && typeof tags === 'object' && Object.keys(tags as Record<string, unknown>).length > 0)
-  }).length
-  const tagCoverage = azureResources.length > 0 ? Math.round((taggedCount / azureResources.length) * 100) : 0
-
-  const recommendations: ObservabilityRecommendation[] = [
-    recommendation('azure-backend', 'Move state to a shared backend', 'Prefer a remote backend for Azure shared workspaces.', 'Shared workspaces rely on consistent state access and recoverability.', 'Improves recovery and operator confidence.', 'Backend migration needs coordination.', 'Revert backend configuration and reinitialize if the migration is blocked.'),
-    recommendation('azure-monitor', 'Add Azure Monitor anchors', 'Track diagnostic settings and Log Analytics resources in Terraform.', 'Shared Overview and Direct Access become more actionable when monitoring surfaces exist in state.', 'Improves observability and handoff quality.', 'Additional resources may increase cost.', 'Remove the monitor resources from Terraform if they are not desired.')
-  ]
-
-  const findings: ObservabilityFinding[] = []
-  if (project.metadata.backendType === 'local') {
-    findings.push(finding('local-backend', 'Terraform state uses a local backend', 'high', 'Local backend detected', 'The project is still using a local backend, which weakens shared operator recovery flows.', 'Operators have lower confidence during incident response or drift review.', 'azure-backend'))
-  }
-  if (monitorCount === 0 && azureResources.length > 0) {
-    findings.push(finding('monitor-gap', 'Azure Monitor resources are not tracked in Terraform', 'medium', 'No monitor anchors found', 'No Azure Monitor diagnostic or Log Analytics resources are visible in the current Terraform inventory.', 'Overview and resilience workflows have fewer observability pivots.', 'azure-monitor'))
-  }
-
-  const correlatedSignals: CorrelatedSignalReference[] = [
-    { id: 'azure-terraform', title: 'Terraform workspace', detail: project.name, serviceId: 'terraform', targetView: 'drift' },
-    { id: 'azure-overview', title: 'Shared overview', detail: context.contextId, serviceId: 'overview', targetView: 'overview' },
-    { id: 'azure-compliance', title: 'Compliance queue', detail: 'Azure heuristic findings', serviceId: 'compliance-center', targetView: 'tasks' },
-    { id: 'azure-compare', title: 'Compare workspace', detail: 'Cross-project Azure Terraform comparison', serviceId: 'compare', targetView: 'services' }
-  ]
-
-  return {
-    generatedAt: new Date().toISOString(),
-    scope: {
-      kind: 'terraform',
-      connection: {
-        kind: connection?.kind ?? 'profile',
-        label: connection?.label || context.contextId,
-        profile: connection?.profile || context.contextId,
-        region: connection?.region || context.location,
-        sessionId: connection?.sessionId || profileName
-      },
-      projectId: project.id,
-      projectName: project.name,
-      rootPath: project.rootPath
-    },
-    summary: [
-      postureArea('resources', 'Tracked resources', String(azureResources.length), azureResources.length > 0 ? 'mixed' : 'weak', 'Azure observability inference currently works from Terraform inventory only.'),
-      postureArea('backend', 'Backend', project.metadata.backendType, project.metadata.backendType === 'local' ? 'weak' : 'good', 'Remote backends improve shared operator recovery and drift workflows.'),
-      postureArea('monitor', 'Monitor coverage', String(monitorCount), monitorCount > 0 ? 'good' : 'weak', 'Diagnostic settings and Log Analytics resources act as observability anchors.'),
-      postureArea('tags', 'Tag coverage', `${tagCoverage}%`, tagCoverage >= 70 ? 'good' : tagCoverage >= 40 ? 'mixed' : 'weak', 'Tags help correlate cost, ownership, and remediation queues.')
-    ],
-    findings,
-    recommendations,
-    experiments: [],
-    artifacts: [],
-    safetyNotes: [
-      {
-        title: 'Azure Terraform observability is inferred',
-        blastRadius: 'Low',
-        prerequisites: ['Use the terminal handoff for stronger live verification when needed.'],
-        rollback: 'No rollback required; this report does not mutate infrastructure.'
-      }
-    ],
-    correlatedSignals
-  }
 }

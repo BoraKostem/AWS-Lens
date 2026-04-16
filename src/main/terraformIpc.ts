@@ -43,7 +43,7 @@ import {
 } from './terraformAdoptionExecution'
 import { mapTerraformAdoption } from './terraformAdoptionMapping'
 import { validateTerraformAdoptionImport } from './terraformAdoptionValidation'
-import { generateAzureTerraformObservabilityReport, getAzureTerraformDriftReport } from './azureTerraformInsights'
+import { generateAzureTerraformObservabilityReport, getAzureTerraformDriftReport } from './azure'
 import { getTerraformDriftReport as getAwsTerraformDriftReport } from './terraformDrift'
 import { detectGovernanceTools, getCachedGovernanceToolkit, getGovernanceReport, runGovernanceChecks } from './terraformGovernance'
 import { deleteRunRecord, getRunOutput, listRunRecords } from './terraformHistoryStore'
