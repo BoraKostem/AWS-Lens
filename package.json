@@ -18,7 +18,8 @@
     "dist:mac": "pnpm build && electron-builder --mac dmg zip --publish never",
     "dist:linux": "pnpm build && electron-builder --linux deb AppImage --publish never",
     "preview": "electron-vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:graph": "node scripts/check-module-graph.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-acm": "^3.1014.0",

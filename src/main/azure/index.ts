@@ -1,3 +1,7 @@
+// Public API surface for src/main/azure/*
+// Terraform insights files may import from here; modules in this directory
+// must NOT import from terraform insights (one-way dependency).
+
 export {
   MAX_PAGINATION_PAGES,
   getAzureCredential,
