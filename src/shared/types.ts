@@ -506,6 +506,7 @@ export type AppSettingsToolchain = {
   preferredTerraformCliKind: TerraformCliKind | ''
   terraformPathOverride: string
   opentofuPathOverride: string
+  terragruntPathOverride: string
   awsCliPathOverride: string
   gcloudPathOverride: string
   azureCliPathOverride: string

@@ -238,6 +238,7 @@ export function SettingsPage({
     preferredTerraformCliKind: '',
     terraformPathOverride: '',
     opentofuPathOverride: '',
+    terragruntPathOverride: '',
     awsCliPathOverride: '',
     gcloudPathOverride: '',
     azureCliPathOverride: '',
@@ -745,6 +746,14 @@ export function SettingsPage({
             <input
               value={toolchainDraft.opentofuPathOverride}
               onChange={(event) => setToolchainDraft((current) => ({ ...current, opentofuPathOverride: event.target.value }))}
+              placeholder="Optional executable path"
+              disabled={!appSettings || toolchainBusy}
+            />
+          </SettingRow>
+          <SettingRow label="Terragrunt path override">
+            <input
+              value={toolchainDraft.terragruntPathOverride}
+              onChange={(event) => setToolchainDraft((current) => ({ ...current, terragruntPathOverride: event.target.value }))}
               placeholder="Optional executable path"
               disabled={!appSettings || toolchainBusy}
             />

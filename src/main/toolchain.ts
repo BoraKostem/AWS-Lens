@@ -4,6 +4,7 @@ import { getAppSettings } from './appSettings'
 export type ToolchainOverrideId =
   | 'terraform'
   | 'opentofu'
+  | 'terragrunt'
   | 'aws-cli'
   | 'gcloud-cli'
   | 'azure-cli'
@@ -13,6 +14,7 @@ export type ToolchainOverrideId =
 const TOOLCHAIN_OVERRIDE_KEYS: Record<ToolchainOverrideId, keyof AppSettingsToolchain> = {
   terraform: 'terraformPathOverride',
   opentofu: 'opentofuPathOverride',
+  terragrunt: 'terragruntPathOverride',
   'aws-cli': 'awsCliPathOverride',
   'gcloud-cli': 'gcloudPathOverride',
   'azure-cli': 'azureCliPathOverride',
