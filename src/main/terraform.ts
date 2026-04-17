@@ -71,6 +71,10 @@ import { scanForTerragrunt } from './terragruntDiscovery'
 import {
   buildTerragruntCommandArgs,
   cancelRunAll as cancelTerragruntRunAll,
+  clearAllSavedTerragruntPlansForProject,
+  clearSavedTerragruntPlan,
+  ensureTerragruntPlanFilePath,
+  recordTerragruntSavedPlan,
   resolveStack,
   resolveTerragruntExecutable,
   startRunAll as startTerragruntRunAllEngine
@@ -2799,6 +2803,7 @@ export function removeProject(profileName: string, projectId: string): void {
   setStoredProjects(profileName, getStoredProjects(profileName).filter((p) => p.id !== projectId))
   commandLogs.delete(projectId)
   savedPlanPaths.delete(projectId)
+  clearAllSavedTerragruntPlansForProject(projectId)
 }
 
 export async function renameProject(profileName: string, projectId: string, name: string): Promise<TerraformProject> {
@@ -3121,10 +3126,14 @@ async function runTerragruntUnitProjectCommand(
   project: StoredProject,
   window: BrowserWindow | null
 ): Promise<TerraformCommandLog> {
-  const args = buildTerragruntCommandArgs(request.command)
   const env = buildEnvWithVars(project, request.profileName, request.connection)
   const binary = await resolveTerragruntExecutable()
   const runCwd = request.unitPath ? path.resolve(request.unitPath) : project.rootPath
+  const args = buildTerragruntCommandArgs(request.command)
+  if (request.command === 'plan') {
+    clearSavedTerragruntPlan(request.projectId, runCwd)
+    args.push(`-out=${ensureTerragruntPlanFilePath(request.projectId, runCwd)}`)
+  }
   const gitMetadata = detectGitMetadata(runCwd)
   const gitCommitMetadata = toGitCommitMetadata(gitMetadata)
 
@@ -3232,8 +3241,14 @@ async function runTerragruntUnitProjectCommand(
       ? (result.exitCode === 0 || result.exitCode === 2)
       : result.exitCode === 0
 
-    if (result.exitCode === 0 && (request.command === 'apply' || request.command === 'destroy')) {
-      invalidateTerraformDriftReports(request.profileName, request.projectId)
+    if (request.command === 'plan' && log.success) {
+      recordTerragruntSavedPlan(request.projectId, runCwd)
+    }
+    if (request.command === 'apply' || request.command === 'destroy') {
+      clearSavedTerragruntPlan(request.projectId, runCwd)
+      if (result.exitCode === 0) {
+        invalidateTerraformDriftReports(request.profileName, request.projectId)
+      }
     }
 
     const refreshedProject = await getProject(request.profileName, request.projectId, request.connection)

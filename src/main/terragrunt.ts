@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { execFile, execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 
 import { app, type BrowserWindow } from 'electron'
@@ -583,7 +583,7 @@ export async function startRunAll(options: RunAllStartOptions): Promise<{ runId:
   }
 
   const binary = await resolveTerragruntExecutable()
-  const args = buildTerragruntCommandArgs(options.command)
+  const baseArgs = buildTerragruntCommandArgs(options.command)
   const runId = randomUUID()
   const depsMap = buildDependencyMap(options.stack.units)
   const phases = options.stack.dependencyOrder
@@ -629,13 +629,20 @@ export async function startRunAll(options: RunAllStartOptions): Promise<{ runId:
           }
           const unitRunId = randomUUID()
           const startedAt = new Date().toISOString()
+          const unitArgs = [...baseArgs]
+          if (options.command === 'plan') {
+            clearSavedTerragruntPlan(options.identity.stackProjectId, unitPath)
+            unitArgs.push(`-out=${ensureTerragruntPlanFilePath(options.identity.stackProjectId, unitPath)}`)
+          } else if (options.command === 'apply' || options.command === 'destroy') {
+            clearSavedTerragruntPlan(options.identity.stackProjectId, unitPath)
+          }
           const record = makeRunRecord({
             id: unitRunId,
             stackRoot: options.stack.stackRoot,
             unitPath,
             phase: phaseIdx,
             command: options.command,
-            args,
+            args: unitArgs,
             identity: options.identity,
             startedAt
           })
@@ -645,7 +652,7 @@ export async function startRunAll(options: RunAllStartOptions): Promise<{ runId:
           let outputBuffer = ''
           const task = runUnitProcess({
             binary,
-            args,
+            args: unitArgs,
             env: options.env,
             unitPath,
             command: options.command,
@@ -676,6 +683,9 @@ export async function startRunAll(options: RunAllStartOptions): Promise<{ runId:
               : result.exitCode === 0
             if (success) {
               succeeded.add(unitPath)
+              if (options.command === 'plan') {
+                recordTerragruntSavedPlan(options.identity.stackProjectId, unitPath)
+              }
               updateRunRecord(unitRunId, {
                 finishedAt,
                 exitCode: result.exitCode,
@@ -751,4 +761,92 @@ export function cancelRunAll(runId: string): boolean {
 
 export function listActiveRunAllStackRoots(): string[] {
   return [...activeRunAlls.keys()]
+}
+
+/* ── Saved plan namespacing ──────────────────────────────── */
+
+const TERRAGRUNT_PLAN_FILENAME = 'plan.tfplan'
+const TERRAGRUNT_PLAN_METADATA_FILENAME = 'plan.meta.json'
+
+function terragruntPlanRoot(): string {
+  return path.join(app.getPath('userData'), 'infralens-terragrunt-plans')
+}
+
+function unitDirectoryHash(unitPath: string): string {
+  return createHash('sha256').update(path.resolve(unitPath)).digest('hex').slice(0, 16)
+}
+
+export function terragruntPlanDir(projectId: string, unitPath: string): string {
+  return path.join(terragruntPlanRoot(), projectId, unitDirectoryHash(unitPath))
+}
+
+export function terragruntPlanFilePath(projectId: string, unitPath: string): string {
+  return path.join(terragruntPlanDir(projectId, unitPath), TERRAGRUNT_PLAN_FILENAME)
+}
+
+function terragruntPlanMetadataPath(projectId: string, unitPath: string): string {
+  return path.join(terragruntPlanDir(projectId, unitPath), TERRAGRUNT_PLAN_METADATA_FILENAME)
+}
+
+export function ensureTerragruntPlanFilePath(projectId: string, unitPath: string): string {
+  const dir = terragruntPlanDir(projectId, unitPath)
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  return terragruntPlanFilePath(projectId, unitPath)
+}
+
+export function hasSavedTerragruntPlan(projectId: string, unitPath: string): boolean {
+  return fs.existsSync(terragruntPlanFilePath(projectId, unitPath))
+}
+
+export type SavedTerragruntPlanSummary = {
+  unitPath: string
+  planFile: string
+  savedAt: string
+  sizeBytes: number
+}
+
+export function listSavedTerragruntPlans(projectId: string): SavedTerragruntPlanSummary[] {
+  const projectDir = path.join(terragruntPlanRoot(), projectId)
+  if (!fs.existsSync(projectDir)) return []
+  const result: SavedTerragruntPlanSummary[] = []
+  for (const entry of fs.readdirSync(projectDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const planFile = path.join(projectDir, entry.name, TERRAGRUNT_PLAN_FILENAME)
+    const metaFile = path.join(projectDir, entry.name, TERRAGRUNT_PLAN_METADATA_FILENAME)
+    if (!fs.existsSync(planFile)) continue
+    let unitPath = ''
+    let savedAt = ''
+    try {
+      const meta = JSON.parse(fs.readFileSync(metaFile, 'utf-8')) as { unitPath?: string; savedAt?: string }
+      unitPath = meta.unitPath ?? ''
+      savedAt = meta.savedAt ?? ''
+    } catch { /* ignore */ }
+    let sizeBytes = 0
+    try { sizeBytes = fs.statSync(planFile).size } catch { /* ignore */ }
+    result.push({ unitPath, planFile, savedAt, sizeBytes })
+  }
+  return result
+}
+
+export function recordTerragruntSavedPlan(projectId: string, unitPath: string): void {
+  const dir = terragruntPlanDir(projectId, unitPath)
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  const metadata = {
+    projectId,
+    unitPath: path.resolve(unitPath),
+    savedAt: new Date().toISOString()
+  }
+  fs.writeFileSync(terragruntPlanMetadataPath(projectId, unitPath), JSON.stringify(metadata, null, 2), 'utf-8')
+}
+
+export function clearSavedTerragruntPlan(projectId: string, unitPath: string): void {
+  const dir = terragruntPlanDir(projectId, unitPath)
+  if (!fs.existsSync(dir)) return
+  try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* ignore */ }
+}
+
+export function clearAllSavedTerragruntPlansForProject(projectId: string): void {
+  const projectDir = path.join(terragruntPlanRoot(), projectId)
+  if (!fs.existsSync(projectDir)) return
+  try { fs.rmSync(projectDir, { recursive: true, force: true }) } catch { /* ignore */ }
 }
