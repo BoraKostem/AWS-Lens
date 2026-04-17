@@ -6,7 +6,7 @@ import { execFile } from 'node:child_process'
 
 import { app } from 'electron'
 
-import type { TerragruntCliInfo, TerragruntStack, TerragruntUnit } from '@shared/types'
+import type { TerraformCommandName, TerragruntCliInfo, TerragruntStack, TerragruntUnit } from '@shared/types'
 import { getResolvedProcessEnv, resolveExecutablePath } from './shell'
 import { listToolCommandCandidates } from './toolchain'
 import { scanForTerragrunt } from './terragruntDiscovery'
@@ -130,6 +130,34 @@ export function getCachedTerragruntCliInfo(): TerragruntCliInfo {
     path: '',
     version: '',
     error: 'Terragrunt CLI detection has not run yet.'
+  }
+}
+
+export async function resolveTerragruntExecutable(): Promise<string> {
+  const info = cachedInfo ?? await detectTerragruntCli()
+  if (!info.found) throw new Error(NOT_INSTALLED_ERROR)
+  return info.path
+}
+
+export function buildTerragruntCommandArgs(command: TerraformCommandName): string[] {
+  const base = ['--terragrunt-non-interactive', '-no-color']
+  switch (command) {
+    case 'init':
+      return ['init', '--terragrunt-non-interactive']
+    case 'plan':
+      return ['plan', ...base]
+    case 'apply':
+      return ['apply', ...base, '-auto-approve']
+    case 'destroy':
+      return ['destroy', ...base, '-auto-approve']
+    case 'state-list':
+      return ['state', 'list', '--terragrunt-non-interactive']
+    case 'state-pull':
+      return ['state', 'pull', '--terragrunt-non-interactive']
+    case 'version':
+      return ['--version']
+    default:
+      throw new Error(`Terragrunt runs do not support command "${command}" yet.`)
   }
 }
 

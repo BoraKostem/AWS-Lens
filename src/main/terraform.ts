@@ -68,6 +68,7 @@ import { classifyTerraformError } from './terraformErrorClassifier'
 import { getPreferredTerraformCliKindSetting, listToolCommandCandidates } from './toolchain'
 import { readAzureFoundationStore } from './azureFoundationStore'
 import { scanForTerragrunt } from './terragruntDiscovery'
+import { buildTerragruntCommandArgs, resolveTerragruntExecutable } from './terragrunt'
 
 /* ── Stored project shape (persistence) ───────────────────── */
 
@@ -3108,6 +3109,194 @@ function commandTimeoutMs(command: TerraformCommandRequest['command']): number {
   }
 }
 
+async function runTerragruntUnitProjectCommand(
+  request: TerraformCommandRequest,
+  project: StoredProject,
+  window: BrowserWindow | null
+): Promise<TerraformCommandLog> {
+  const args = buildTerragruntCommandArgs(request.command)
+  const env = buildEnvWithVars(project, request.profileName, request.connection)
+  const binary = await resolveTerragruntExecutable()
+  const gitMetadata = detectGitMetadata(project.rootPath)
+  const gitCommitMetadata = toGitCommitMetadata(gitMetadata)
+
+  const log: TerraformCommandLog = {
+    id: randomUUID(),
+    projectId: request.projectId,
+    command: request.command,
+    args,
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    exitCode: null,
+    success: null,
+    output: ''
+  }
+
+  const auditProvider = inferTerraformProviderId(request.profileName, request.connection)
+  const auditCtx: TerraformAuditTraceContext = createTraceContext({
+    traceId: log.id,
+    operation: request.command,
+    provider: auditProvider,
+    module: project.name,
+    resource: ''
+  })
+  logRunStarted(auditCtx, { projectId: request.projectId })
+
+  pushLog(request.projectId, log)
+  emit(window, { type: 'started', projectId: request.projectId, log })
+
+  if (activeTerraformRuns.has(request.projectId)) {
+    throw new Error(
+      `A Terragrunt ${activeTerraformRuns.get(request.projectId)!.command} is already running for this project. Wait for it to finish before starting a new one.`
+    )
+  }
+
+  const currentWorkspace = project.environment?.workspaceName || 'default'
+  const runRecord: TerraformRunRecord = {
+    id: log.id,
+    projectId: request.projectId,
+    projectName: project.name,
+    command: request.command,
+    args: redactArgs(args),
+    workspace: currentWorkspace,
+    region: request.connection?.region ?? project.environment?.region ?? '',
+    connectionLabel: displayConnectionLabel(request.profileName, request.connection),
+    backendType: project.environment?.backendType ?? 'local',
+    stateSource: '',
+    startedAt: log.startedAt,
+    finishedAt: null,
+    exitCode: null,
+    success: null,
+    planSummary: null,
+    planJsonPath: '',
+    backupPath: '',
+    backupCreatedAt: '',
+    stateOperationSummary: '',
+    git: gitCommitMetadata,
+    provider: auditCtx.provider,
+    module: auditCtx.module,
+    resource: auditCtx.resource,
+    durationMs: null,
+    retryCount: 0,
+    errorClass: null,
+    suggestedAction: ''
+  }
+  saveRunRecord(runRecord, '')
+
+  const activeRun: ActiveTerraformRun = {
+    projectId: request.projectId,
+    logId: log.id,
+    command: request.command,
+    child: null,
+    cancelRequested: false,
+    cancelMessage: ''
+  }
+  activeTerraformRuns.set(request.projectId, activeRun)
+
+  if (request.command === 'apply' || request.command === 'destroy') {
+    activeDestructiveCommands.set(request.projectId, request.command)
+  }
+
+  try {
+    const result = await runChildProcess(project.rootPath, binary, args, env, (chunk) => {
+      log.output += chunk
+      emit(window, { type: 'output', projectId: request.projectId, logId: log.id, chunk })
+    }, {
+      timeoutMs: commandTimeoutMs(request.command),
+      operationName: `terragrunt.${request.command}`,
+      activeRun,
+      context: {
+        projectId: request.projectId,
+        projectName: project.name,
+        workspace: currentWorkspace,
+        traceId: auditCtx.traceId,
+        provider: auditCtx.provider,
+        module: auditCtx.module
+      },
+      onAttempt: (attempt) => { auditCtx.retryCount = Math.max(0, attempt - 1) }
+    })
+
+    log.exitCode = result.exitCode
+    log.finishedAt = new Date().toISOString()
+    log.success = request.command === 'plan'
+      ? (result.exitCode === 0 || result.exitCode === 2)
+      : result.exitCode === 0
+
+    if (result.exitCode === 0 && (request.command === 'apply' || request.command === 'destroy')) {
+      invalidateTerraformDriftReports(request.profileName, request.projectId)
+    }
+
+    const refreshedProject = await getProject(request.profileName, request.projectId, request.connection)
+    emit(window, { type: 'completed', projectId: request.projectId, log, project: refreshedProject })
+
+    const successDurationMs = Date.now() - auditCtx.startedAtMs
+    updateRunRecord(log.id, {
+      finishedAt: log.finishedAt,
+      exitCode: log.exitCode,
+      success: log.success,
+      durationMs: successDurationMs,
+      retryCount: auditCtx.retryCount,
+      errorClass: null,
+      suggestedAction: ''
+    }, log.output)
+    logRunCompleted(auditCtx, successDurationMs, {
+      projectId: request.projectId,
+      exitCode: log.exitCode,
+      success: log.success
+    })
+
+    return log
+  } catch (error) {
+    log.finishedAt = new Date().toISOString()
+    log.exitCode = error instanceof TerraformCommandCancelledError ? 130 : -1
+    log.success = false
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    if (!log.output.includes(errorMessage)) {
+      log.output += `${log.output.endsWith('\n') || !log.output ? '' : '\n'}${errorMessage}`
+    }
+    emit(window, { type: 'completed', projectId: request.projectId, log, project: await getProject(request.profileName, request.projectId, request.connection) })
+
+    const errorName = error instanceof Error ? error.name : ''
+    const classified = classifyTerraformError({
+      output: stripAnsi(log.output),
+      exitCode: log.exitCode,
+      errorMessage,
+      provider: auditCtx.provider,
+      errorName
+    })
+    const failureDurationMs = Date.now() - auditCtx.startedAtMs
+
+    updateRunRecord(log.id, {
+      finishedAt: log.finishedAt,
+      exitCode: log.exitCode,
+      success: log.success,
+      durationMs: failureDurationMs,
+      retryCount: auditCtx.retryCount,
+      errorClass: classified.errorClass,
+      suggestedAction: classified.suggestedAction
+    }, log.output)
+
+    logRunFailed(
+      auditCtx,
+      failureDurationMs,
+      classified.errorClass,
+      classified.suggestedAction,
+      error,
+      { projectId: request.projectId, exitCode: log.exitCode }
+    )
+
+    return log
+  } finally {
+    const trackedRun = activeTerraformRuns.get(request.projectId)
+    if (trackedRun?.logId === log.id) {
+      activeTerraformRuns.delete(request.projectId)
+    }
+    if (request.command === 'apply' || request.command === 'destroy') {
+      activeDestructiveCommands.delete(request.projectId)
+    }
+  }
+}
+
 export async function runProjectCommand(
   request: TerraformCommandRequest,
   window: BrowserWindow | null
@@ -3115,6 +3304,14 @@ export async function runProjectCommand(
   const stored = getStoredProjects(request.profileName)
   const project = stored.find((p) => p.id === request.projectId)
   if (!project) throw new Error('Project not found.')
+
+  const kindInfo = classifyProjectKind(project.rootPath)
+  if (kindInfo.kind === 'terragrunt-unit') {
+    return runTerragruntUnitProjectCommand(request, project, window)
+  }
+  if (kindInfo.kind === 'terragrunt-stack') {
+    throw new Error('Stack-level runs are not supported yet. Add a specific unit directory as a project to run it, or wait for run-all support.')
+  }
 
   // Ensure auto.tfvars is written before commands that need it
   if (['init', 'plan', 'apply', 'destroy', 'import', 'state-list', 'state-pull', 'state-show'].includes(request.command)) {

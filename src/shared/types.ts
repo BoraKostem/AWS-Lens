@@ -6982,6 +6982,7 @@ export type TerraformCommandRequest = {
   stateToAddress?: string
   lockId?: string
   planOptions?: TerraformPlanOptions
+  unitPath?: string
 }
 
 export type TerraformProjectListItem = Pick<
