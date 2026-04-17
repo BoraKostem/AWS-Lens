@@ -3117,7 +3117,8 @@ async function runTerragruntUnitProjectCommand(
   const args = buildTerragruntCommandArgs(request.command)
   const env = buildEnvWithVars(project, request.profileName, request.connection)
   const binary = await resolveTerragruntExecutable()
-  const gitMetadata = detectGitMetadata(project.rootPath)
+  const runCwd = request.unitPath ? path.resolve(request.unitPath) : project.rootPath
+  const gitMetadata = detectGitMetadata(runCwd)
   const gitCommitMetadata = toGitCommitMetadata(gitMetadata)
 
   const log: TerraformCommandLog = {
@@ -3179,7 +3180,9 @@ async function runTerragruntUnitProjectCommand(
     durationMs: null,
     retryCount: 0,
     errorClass: null,
-    suggestedAction: ''
+    suggestedAction: '',
+    stackRoot: project.rootPath,
+    unitPath: runCwd
   }
   saveRunRecord(runRecord, '')
 
@@ -3198,7 +3201,7 @@ async function runTerragruntUnitProjectCommand(
   }
 
   try {
-    const result = await runChildProcess(project.rootPath, binary, args, env, (chunk) => {
+    const result = await runChildProcess(runCwd, binary, args, env, (chunk) => {
       log.output += chunk
       emit(window, { type: 'output', projectId: request.projectId, logId: log.id, chunk })
     }, {

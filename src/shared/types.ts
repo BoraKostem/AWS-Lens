@@ -6759,6 +6759,12 @@ export type TerraformRunRecord = {
   errorClass?: TerraformErrorClass | null
   /** One-line remediation hint for the classified error; empty string on success. */
   suggestedAction?: string
+  /** Absolute path to the Terragrunt stack root, when this run is a Terragrunt run. */
+  stackRoot?: string
+  /** Absolute path to the Terragrunt unit directory, when this run is a Terragrunt run. */
+  unitPath?: string
+  /** Zero-based phase index from the topological sort of the stack's dependency graph. Only set for run-all runs. */
+  dependencyPhase?: number
 }
 
 export type TerraformRunHistoryFilter = {
