@@ -850,3 +850,107 @@ export function clearAllSavedTerragruntPlansForProject(projectId: string): void 
   if (!fs.existsSync(projectDir)) return
   try { fs.rmSync(projectDir, { recursive: true, force: true }) } catch { /* ignore */ }
 }
+
+/* ── Effective working directory & state pull ────────────── */
+
+const STATE_PULL_TIMEOUT_MS = 90000
+const INIT_TIMEOUT_MS = 10 * 60 * 1000
+
+function terragruntCacheDir(unitPath: string): string {
+  return path.join(unitPath, '.terragrunt-cache')
+}
+
+export function resolveTerragruntWorkingDirectory(unitPath: string): string {
+  const cache = terragruntCacheDir(unitPath)
+  if (!fs.existsSync(cache)) return ''
+
+  const visited = new Set<string>()
+  const queue: string[] = [cache]
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    if (visited.has(current)) continue
+    visited.add(current)
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true })
+    } catch {
+      continue
+    }
+    const hasTfFiles = entries.some((e) => e.isFile() && e.name.endsWith('.tf'))
+    if (hasTfFiles) return current
+    for (const entry of entries) {
+      if (entry.isDirectory()) queue.push(path.join(current, entry.name))
+    }
+  }
+  return ''
+}
+
+async function invokeTerragrunt(
+  cliPath: string,
+  cwd: string,
+  args: string[],
+  env: Record<string, string>,
+  timeoutMs: number
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  return await new Promise((resolve) => {
+    const child = spawn(cliPath, args, { cwd, env, shell: false, windowsHide: true })
+    let stdout = ''
+    let stderr = ''
+    let settled = false
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      try { child.kill() } catch { /* ignore */ }
+      resolve({ stdout, stderr: stderr + '\n[infralens] terragrunt invocation timed out', exitCode: -1 })
+    }, timeoutMs)
+    child.stdout.on('data', (buf) => { stdout += buf.toString() })
+    child.stderr.on('data', (buf) => { stderr += buf.toString() })
+    child.on('error', (err) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve({ stdout, stderr: stderr + '\n' + err.message, exitCode: -1 })
+    })
+    child.on('close', (code) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve({ stdout, stderr, exitCode: code ?? -1 })
+    })
+  })
+}
+
+export async function ensureTerragruntUnitInitialized(
+  unitPath: string,
+  env: Record<string, string>
+): Promise<{ ok: boolean; workingDir: string; error: string }> {
+  if (!fs.existsSync(path.join(unitPath, 'terragrunt.hcl'))) {
+    return { ok: false, workingDir: '', error: 'No terragrunt.hcl at unit path.' }
+  }
+  let workingDir = resolveTerragruntWorkingDirectory(unitPath)
+  if (!workingDir) {
+    const info = cachedInfo ?? await detectTerragruntCli()
+    if (!info.found) return { ok: false, workingDir: '', error: NOT_INSTALLED_ERROR }
+    const result = await invokeTerragrunt(info.path, unitPath, ['init', '--terragrunt-non-interactive', '-no-color'], env, INIT_TIMEOUT_MS)
+    if (result.exitCode !== 0) {
+      return { ok: false, workingDir: '', error: (result.stderr || result.stdout || 'terragrunt init failed').slice(-500) }
+    }
+    workingDir = resolveTerragruntWorkingDirectory(unitPath)
+  }
+  return workingDir ? { ok: true, workingDir, error: '' } : { ok: false, workingDir: '', error: 'Terragrunt cache not found after init.' }
+}
+
+export async function pullTerragruntState(
+  unitPath: string,
+  env: Record<string, string>
+): Promise<{ stateJson: string; workingDir: string; error: string }> {
+  const info = cachedInfo ?? await detectTerragruntCli()
+  if (!info.found) return { stateJson: '', workingDir: '', error: NOT_INSTALLED_ERROR }
+  const prepared = await ensureTerragruntUnitInitialized(unitPath, env)
+  if (!prepared.ok) return { stateJson: '', workingDir: '', error: prepared.error }
+  const result = await invokeTerragrunt(info.path, unitPath, ['state', 'pull', '--terragrunt-non-interactive'], env, STATE_PULL_TIMEOUT_MS)
+  if (result.exitCode !== 0) {
+    return { stateJson: '', workingDir: prepared.workingDir, error: (result.stderr || result.stdout || 'state pull failed').slice(-500) }
+  }
+  return { stateJson: result.stdout, workingDir: prepared.workingDir, error: '' }
+}

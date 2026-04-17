@@ -74,6 +74,7 @@ import {
   clearAllSavedTerragruntPlansForProject,
   clearSavedTerragruntPlan,
   ensureTerragruntPlanFilePath,
+  pullTerragruntState,
   recordTerragruntSavedPlan,
   resolveStack,
   resolveTerragruntExecutable,
@@ -1184,18 +1185,13 @@ function findStateSource(rootPath: string): { rawStateJson: string; stateSource:
   return { rawStateJson: '', stateSource: 'none' }
 }
 
-function readStateSnapshot(rootPath: string): {
+function parseStateJson(rawStateJson: string): {
   inventory: TerraformResourceInventoryItem[]
   stateAddresses: string[]
-  rawStateJson: string
-  stateSource: string
 } {
-  const { rawStateJson, stateSource } = findStateSource(rootPath)
-  if (!rawStateJson.trim()) return { inventory: [], stateAddresses: [], rawStateJson: '', stateSource: 'none' }
-
+  if (!rawStateJson.trim()) return { inventory: [], stateAddresses: [] }
   try {
     const state = JSON.parse(rawStateJson) as Record<string, unknown>
-    // Support both modern (state.values.root_module) and legacy (state.modules[0].resources) shapes
     const values = state.values as Record<string, unknown> | undefined
     const rootModule = values?.root_module as Record<string, unknown> | undefined
     if (rootModule) {
@@ -1204,12 +1200,9 @@ function readStateSnapshot(rootPath: string): {
       flattenModuleResources(rootModule, resourceMap, stateAddresses)
       return {
         inventory: Array.from(resourceMap.values()).sort((a, b) => a.address.localeCompare(b.address)),
-        stateAddresses: stateAddresses.sort(),
-        rawStateJson,
-        stateSource
+        stateAddresses: stateAddresses.sort()
       }
     }
-    // Native Terraform state file shape (v4+)
     const resources = state.resources as Array<Record<string, unknown>> | undefined
     if (Array.isArray(resources)) {
       const resourceMap = new Map<string, TerraformResourceInventoryItem>()
@@ -1217,21 +1210,18 @@ function readStateSnapshot(rootPath: string): {
       flattenStateResources(resources, resourceMap, stateAddresses)
       return {
         inventory: Array.from(resourceMap.values()).sort((a, b) => a.address.localeCompare(b.address)),
-        stateAddresses: stateAddresses.sort(),
-        rawStateJson,
-        stateSource
+        stateAddresses: stateAddresses.sort()
       }
     }
-    // Legacy v3 state shape
     const modules = state.modules as Array<Record<string, unknown>> | undefined
     if (Array.isArray(modules)) {
       const resourceMap = new Map<string, TerraformResourceInventoryItem>()
       const stateAddresses: string[] = []
       for (const mod of modules) {
         const modPath = typeof mod.path === 'string' ? mod.path : 'root'
-        const resources = mod.resources as Record<string, Record<string, unknown>> | undefined
-        if (!resources || typeof resources !== 'object') continue
-        for (const [key, res] of Object.entries(resources)) {
+        const modResources = mod.resources as Record<string, Record<string, unknown>> | undefined
+        if (!modResources || typeof modResources !== 'object') continue
+        for (const [key, res] of Object.entries(modResources)) {
           const addr = modPath === 'root' ? key : `module.${modPath}.${key}`
           resourceMap.set(addr, {
             address: addr,
@@ -1250,15 +1240,25 @@ function readStateSnapshot(rootPath: string): {
       }
       return {
         inventory: Array.from(resourceMap.values()).sort((a, b) => a.address.localeCompare(b.address)),
-        stateAddresses: stateAddresses.sort(),
-        rawStateJson,
-        stateSource
+        stateAddresses: stateAddresses.sort()
       }
     }
-    return { inventory: [], stateAddresses: [], rawStateJson, stateSource }
+    return { inventory: [], stateAddresses: [] }
   } catch {
-    return { inventory: [], stateAddresses: [], rawStateJson, stateSource }
+    return { inventory: [], stateAddresses: [] }
   }
+}
+
+function readStateSnapshot(rootPath: string): {
+  inventory: TerraformResourceInventoryItem[]
+  stateAddresses: string[]
+  rawStateJson: string
+  stateSource: string
+} {
+  const { rawStateJson, stateSource } = findStateSource(rootPath)
+  if (!rawStateJson.trim()) return { inventory: [], stateAddresses: [], rawStateJson: '', stateSource: 'none' }
+  const { inventory, stateAddresses } = parseStateJson(rawStateJson)
+  return { inventory, stateAddresses, rawStateJson, stateSource }
 }
 
 /* ── Plan Reading ─────────────────────────────────────────── */
@@ -3730,4 +3730,47 @@ export async function startTerragruntStackRunAll(options: {
 
 export function cancelTerragruntStackRunAll(runId: string): boolean {
   return cancelTerragruntRunAll(runId)
+}
+
+export type TerragruntUnitInventoryResult = {
+  inventory: TerraformResourceInventoryItem[]
+  stateAddresses: string[]
+  rawStateJson: string
+  stateSource: string
+  workingDir: string
+  error: string
+}
+
+export async function loadTerragruntUnitInventory(
+  profileName: string,
+  projectId: string,
+  connection?: AwsConnection
+): Promise<TerragruntUnitInventoryResult> {
+  const project = getStoredProjects(profileName).find((p) => p.id === projectId)
+  if (!project) throw new Error('Project not found.')
+  const kindInfo = classifyProjectKind(project.rootPath)
+  if (kindInfo.kind !== 'terragrunt-unit') {
+    throw new Error('loadTerragruntUnitInventory requires a Terragrunt unit project.')
+  }
+  const env = buildEnvWithVars(project, profileName, connection)
+  const pulled = await pullTerragruntState(project.rootPath, env)
+  if (pulled.error) {
+    return {
+      inventory: [],
+      stateAddresses: [],
+      rawStateJson: '',
+      stateSource: 'none',
+      workingDir: pulled.workingDir,
+      error: pulled.error
+    }
+  }
+  const { inventory, stateAddresses } = parseStateJson(pulled.stateJson)
+  return {
+    inventory,
+    stateAddresses,
+    rawStateJson: pulled.stateJson,
+    stateSource: pulled.workingDir ? `terragrunt:${pulled.workingDir}` : 'terragrunt',
+    workingDir: pulled.workingDir,
+    error: ''
+  }
 }

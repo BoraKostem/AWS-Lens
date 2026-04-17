@@ -87,7 +87,7 @@ import {
   listVpcs
 } from './aws/vpc'
 import { listWebAcls } from './aws/waf'
-import { getCachedCliInfo, getProject } from './terraform'
+import { getCachedCliInfo, getProject, loadTerragruntUnitInventory } from './terraform'
 import { createTraceContext, withAudit } from './terraformAudit'
 
 type ComparableValue = string | number | boolean
@@ -2726,7 +2726,23 @@ async function scanProjectDrift(
   connection: AwsConnection,
   trigger: TerraformDriftSnapshot['trigger']
 ): Promise<StoredDriftContext> {
-  const project = await getProject(profileName, projectId)
+  const baseProject = await getProject(profileName, projectId)
+  const project: TerraformProject = baseProject.kind === 'terragrunt-unit'
+    ? await (async () => {
+        try {
+          const pulled = await loadTerragruntUnitInventory(profileName, projectId, connection)
+          return {
+            ...baseProject,
+            inventory: pulled.inventory,
+            stateAddresses: pulled.stateAddresses,
+            rawStateJson: pulled.rawStateJson,
+            stateSource: pulled.stateSource || baseProject.stateSource
+          }
+        } catch {
+          return baseProject
+        }
+      })()
+    : baseProject
   const liveInventory = await loadLiveInventory(connection)
   const items = [
     ...buildSupportedItems(project, connection, 'aws_instance', project.inventory, liveInventory.aws_instance, SUPPORTED_HANDLERS.aws_instance),
