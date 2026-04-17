@@ -1216,3 +1216,10 @@ const api = {
 }
 
 contextBridge.exposeInMainWorld('terraformWorkspace', api)
+
+const terragruntApi = {
+  detectCli: () => ipcRenderer.invoke('terragrunt:cli:detect'),
+  getCliInfo: () => ipcRenderer.invoke('terragrunt:cli:info')
+}
+
+contextBridge.exposeInMainWorld('terragrunt', terragruntApi)

@@ -6296,6 +6296,8 @@ export type TerraformCommandName =
 
 export type TerraformCliKind = 'terraform' | 'opentofu'
 
+export type { TerragruntCliInfo } from './terragrunt'
+
 export type TerraformCliOption = {
   kind: TerraformCliKind
   label: string
