@@ -490,6 +490,9 @@ export function registerGcpHandlers(): void {
   ipcMain.handle('gcp:scc:get-severity-breakdown', async (_event, projectId: string, location?: string) =>
     wrap(() => cachedGcp(`${projectId}:scc-severity:${location ?? ''}`, GCP_TTL.MONITOR, async () => (await loadGcpSdk()).getGcpSccSeverityBreakdown(projectId, location)))
   )
+  ipcMain.handle('gcp:scc:get-posture-report', async (_event, projectId: string, location?: string) =>
+    wrap(() => cachedGcp(`${projectId}:scc-posture:${location ?? ''}`, GCP_TTL.MONITOR, async () => (await loadGcpSdk()).getGcpSccPostureReport(projectId, location)))
+  )
 
   // ── Firestore ──────────────────────────────────────────────────────────────────
   ipcMain.handle('gcp:firestore:list-databases', async (_event, projectId: string) =>

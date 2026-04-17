@@ -192,6 +192,7 @@ declare global {
       listGcpSccSources: (projectId: string, location?: string) => Promise<unknown>
       getGcpSccFindingDetail: (projectId: string, findingName: string, location?: string) => Promise<unknown>
       getGcpSccSeverityBreakdown: (projectId: string, location?: string) => Promise<unknown>
+      getGcpSccPostureReport: (projectId: string, location?: string) => Promise<unknown>
       listGcpFirestoreDatabases: (projectId: string) => Promise<unknown>
       listGcpFirestoreCollections: (projectId: string, databaseId: string, parentPath?: string) => Promise<unknown>
       listGcpFirestoreDocuments: (projectId: string, databaseId: string, collectionId: string, pageSize?: number) => Promise<unknown>

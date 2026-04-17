@@ -250,6 +250,7 @@ const awsLensApi = {
   listGcpSccSources: (projectId: string, location?: string) => ipcRenderer.invoke('gcp:scc:list-sources', projectId, location),
   getGcpSccFindingDetail: (projectId: string, findingName: string, location?: string) => ipcRenderer.invoke('gcp:scc:get-finding-detail', projectId, findingName, location),
   getGcpSccSeverityBreakdown: (projectId: string, location?: string) => ipcRenderer.invoke('gcp:scc:get-severity-breakdown', projectId, location),
+  getGcpSccPostureReport: (projectId: string, location?: string) => ipcRenderer.invoke('gcp:scc:get-posture-report', projectId, location),
 
   // Firestore
   listGcpFirestoreDatabases: (projectId: string) => ipcRenderer.invoke('gcp:firestore:list-databases', projectId),

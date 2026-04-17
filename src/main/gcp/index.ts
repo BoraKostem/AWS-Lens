@@ -104,7 +104,8 @@ export {
   listGcpSccFindings,
   listGcpSccSources,
   getGcpSccFindingDetail,
-  getGcpSccSeverityBreakdown
+  getGcpSccSeverityBreakdown,
+  getGcpSccPostureReport
 } from './scc'
 
 // Firestore

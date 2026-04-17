@@ -70,6 +70,7 @@ import type {
   GcpSccSourceSummary,
   GcpSccFindingDetail,
   GcpSccSeverityBreakdown,
+  GcpSccPostureReport,
   GcpFirestoreDatabaseSummary,
   GcpFirestoreCollectionSummary,
   GcpFirestoreDocumentSummary,
@@ -1775,6 +1776,9 @@ export async function getGcpSccFindingDetail(projectId: string, findingName: str
 }
 export async function getGcpSccSeverityBreakdown(projectId: string, location?: string): Promise<GcpSccSeverityBreakdown> {
   return unwrap((await rawAwsBridge().getGcpSccSeverityBreakdown(projectId, location)) as Wrapped<GcpSccSeverityBreakdown>)
+}
+export async function getGcpSccPostureReport(projectId: string, location?: string): Promise<GcpSccPostureReport> {
+  return unwrap((await rawAwsBridge().getGcpSccPostureReport(projectId, location)) as Wrapped<GcpSccPostureReport>)
 }
 
 // Firestore

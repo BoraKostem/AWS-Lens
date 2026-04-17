@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type {
+  GcpSccFindingClass,
   GcpSccFindingSummary,
+  GcpSccPostureReport,
   GcpSccSourceSummary,
   GcpSccFindingDetail,
   GcpSccSeverityBreakdown
@@ -9,20 +11,38 @@ import {
   listGcpSccFindings,
   listGcpSccSources,
   getGcpSccFindingDetail,
-  getGcpSccSeverityBreakdown
+  getGcpSccSeverityBreakdown,
+  getGcpSccPostureReport
 } from './api'
 import { SvcState } from './SvcState'
 import './gcp-runtime-consoles.css'
 
 /* ── Types ──────────────────────────────────────────── */
 
-type MainTab = 'findings' | 'sources' | 'posture'
+type MainTab = 'findings' | 'sources' | 'posture' | 'health'
 
 const MAIN_TABS: Array<{ id: MainTab; label: string }> = [
   { id: 'findings', label: 'Findings' },
   { id: 'sources', label: 'Sources' },
-  { id: 'posture', label: 'Posture' }
+  { id: 'posture', label: 'Posture' },
+  { id: 'health', label: 'Security Health' }
 ]
+
+const FINDING_CLASS_LABELS: Record<GcpSccFindingClass, string> = {
+  vulnerability: 'Vulnerabilities',
+  misconfiguration: 'Misconfigurations',
+  threat: 'Threats',
+  observation: 'Observations',
+  other: 'Other'
+}
+
+const FINDING_CLASS_COLORS: Record<GcpSccFindingClass, string> = {
+  vulnerability: '#ef4444',
+  misconfiguration: '#f97316',
+  threat: '#dc2626',
+  observation: '#6366f1',
+  other: '#94a3b8'
+}
 
 /* ── Helpers ────────────────────────────────────────── */
 
@@ -312,6 +332,141 @@ function PostureTab({ findings, breakdown, breakdownLoading, breakdownError }: {
   )
 }
 
+/* ── Security Health Tab (v2.8.0) ────────────────────── */
+
+function SecurityHealthTab({ projectId, location, refreshNonce }: {
+  projectId: string; location: string; refreshNonce: number
+}) {
+  const [report, setReport] = useState<GcpSccPostureReport | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [activeClass, setActiveClass] = useState<GcpSccFindingClass | 'all'>('all')
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError('')
+    getGcpSccPostureReport(projectId, location)
+      .then((r) => { if (!cancelled) setReport(r) })
+      .catch((e) => { if (!cancelled) setError(errMsg(e)) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [projectId, location, refreshNonce])
+
+  if (loading) return <SvcState variant="loading" resourceName="Security Health Analytics" />
+  if (error) return <SvcState variant="error" resourceName="Security Health Analytics" error={error} />
+  if (!report) return <SvcState variant="empty" resourceName="Security Health Analytics" />
+
+  const { healthAnalytics, findingsByClass } = report
+  const classes: GcpSccFindingClass[] = ['vulnerability', 'misconfiguration', 'threat', 'observation', 'other']
+
+  const displayedFindings = activeClass === 'all'
+    ? classes.flatMap((c) => findingsByClass[c])
+    : findingsByClass[activeClass] ?? []
+
+  return (
+    <div className="gcp-scc-health-tab">
+      {report.warnings.length > 0 && (
+        <div className="gcp-scc-warnings">
+          {report.warnings.map((w, i) => (
+            <div key={i} className="ec2-msg warning" style={{ fontSize: 12, padding: '4px 8px' }}>{w}</div>
+          ))}
+        </div>
+      )}
+
+      {/* Summary cards by finding class */}
+      <div className="gcp-scc-class-cards">
+        {classes.map((cls) => (
+          <button
+            key={cls}
+            type="button"
+            className={`gcp-scc-class-card ${activeClass === cls ? 'active' : ''}`}
+            style={{ borderTopColor: FINDING_CLASS_COLORS[cls] }}
+            onClick={() => setActiveClass(activeClass === cls ? 'all' : cls)}
+          >
+            <span className="gcp-scc-class-count" style={{ color: FINDING_CLASS_COLORS[cls] }}>
+              {healthAnalytics.byClass[cls]}
+            </span>
+            <span className="gcp-scc-class-label">{FINDING_CLASS_LABELS[cls]}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Analytics row */}
+      <div className="gcp-scc-analytics-row">
+        <div className="gcp-scc-analytics-panel">
+          <h4>Top Categories</h4>
+          {healthAnalytics.topCategories.length === 0 ? (
+            <div style={{ color: '#aaa', fontSize: 12 }}>No categories</div>
+          ) : (
+            <div className="gcp-scc-top-list">
+              {healthAnalytics.topCategories.map((tc) => (
+                <div key={tc.category} className="gcp-scc-top-row">
+                  <span className="gcp-scc-top-name">{tc.category.replace(/_/g, ' ')}</span>
+                  <span className="gcp-scc-top-count">{tc.count}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="gcp-scc-analytics-panel">
+          <h4>Top Targeted Resources</h4>
+          {healthAnalytics.topResources.length === 0 ? (
+            <div style={{ color: '#aaa', fontSize: 12 }}>No resources</div>
+          ) : (
+            <div className="gcp-scc-top-list">
+              {healthAnalytics.topResources.map((tr) => (
+                <div key={tr.resourceName} className="gcp-scc-top-row">
+                  <span className="gcp-scc-top-name" title={tr.resourceName}>{truncate(tr.resourceName, 60)}</span>
+                  <span className="gcp-scc-top-count">{tr.count}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Classified findings table */}
+      <div className="gcp-scc-class-findings">
+        <div className="gcp-scc-class-filter-label">
+          Showing: <strong>{activeClass === 'all' ? 'All findings' : FINDING_CLASS_LABELS[activeClass]}</strong>
+          {' '}({displayedFindings.length})
+        </div>
+        {displayedFindings.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 24, color: '#aaa', fontSize: 13 }}>
+            No findings in this category.
+          </div>
+        ) : (
+          <table className="eks-table" style={{ fontSize: 12, width: '100%' }}>
+            <thead>
+              <tr>
+                <th>Severity</th>
+                <th>Category</th>
+                <th>Resource</th>
+                <th>State</th>
+                <th>Event Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayedFindings.slice(0, 100).map((f) => (
+                <tr key={f.name}>
+                  <td><SeverityBadge severity={f.severity} /></td>
+                  <td>{f.category.replace(/_/g, ' ')}</td>
+                  <td title={f.resourceName} style={{ fontFamily: 'monospace', fontSize: 11, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {truncate(f.resourceName, 40)}
+                  </td>
+                  <td><StateBadge state={f.state} /></td>
+                  <td style={{ whiteSpace: 'nowrap' }}>{formatDateTime(f.eventTime)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  )
+}
+
 /* ── Main Console Component ────────────────────────── */
 
 export function GcpSccConsole({
@@ -503,6 +658,9 @@ export function GcpSccConsole({
       {mainTab === 'posture' && (
         <PostureTab findings={findings} breakdown={breakdown}
           breakdownLoading={breakdownLoading} breakdownError={!enableAction ? breakdownError : ''} />
+      )}
+      {mainTab === 'health' && (
+        <SecurityHealthTab projectId={projectId} location={location} refreshNonce={refreshNonce} />
       )}
     </div>
   )

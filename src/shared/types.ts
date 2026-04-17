@@ -2559,6 +2559,26 @@ export type GcpSccSeverityBreakdown = {
   unspecified: number
 }
 
+export type GcpSccFindingClass = 'vulnerability' | 'misconfiguration' | 'threat' | 'observation' | 'other'
+
+export type GcpSccHealthAnalytics = {
+  totalFindings: number
+  activeFindings: number
+  byClass: Record<GcpSccFindingClass, number>
+  bySeverity: GcpSccSeverityBreakdown
+  topCategories: Array<{ category: string; count: number }>
+  topResources: Array<{ resourceName: string; count: number }>
+}
+
+export type GcpSccPostureReport = {
+  generatedAt: string
+  projectId: string
+  healthAnalytics: GcpSccHealthAnalytics
+  findingsByClass: Record<GcpSccFindingClass, GcpSccFindingSummary[]>
+  sources: GcpSccSourceSummary[]
+  warnings: string[]
+}
+
 export type GcpFirestoreDatabaseSummary = {
   name: string
   uid: string

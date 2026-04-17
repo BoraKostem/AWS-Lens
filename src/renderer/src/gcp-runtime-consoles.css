@@ -1371,3 +1371,113 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ── GCP SCC Security Health Tab (v2.8.0) ──────────────── */
+
+.gcp-scc-health-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 8px 0;
+}
+
+.gcp-scc-class-cards {
+  display: flex;
+  gap: 10px;
+}
+
+.gcp-scc-class-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-top: 3px solid transparent;
+  background: var(--card-bg, rgba(255, 255, 255, 0.03));
+  cursor: pointer;
+  transition: background 0.15s;
+  color: inherit;
+  font: inherit;
+}
+
+.gcp-scc-class-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.gcp-scc-class-card.active {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.gcp-scc-class-count {
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.gcp-scc-class-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-secondary, #aaa);
+}
+
+.gcp-scc-analytics-row {
+  display: flex;
+  gap: 16px;
+}
+
+.gcp-scc-analytics-panel {
+  flex: 1;
+  padding: 14px;
+  border-radius: 8px;
+  background: var(--card-bg, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+}
+
+.gcp-scc-analytics-panel h4 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.gcp-scc-top-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gcp-scc-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+.gcp-scc-top-name {
+  color: var(--text-secondary, #ccc);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 260px;
+}
+
+.gcp-scc-top-count {
+  font-weight: 600;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.gcp-scc-class-findings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gcp-scc-class-filter-label {
+  font-size: 13px;
+  color: var(--text-secondary, #aaa);
+}
