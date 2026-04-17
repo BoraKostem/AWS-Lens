@@ -1,0 +1,423 @@
+.azure-defender-console {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+}
+
+.ad-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ad-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.ad-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Warnings ─────────────────────────────────────────── */
+
+.ad-warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ad-warning {
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: rgba(234, 179, 8, 0.12);
+  color: #eab308;
+  font-size: 12px;
+}
+
+/* ── Tabs ─────────────────────────────────────────────── */
+
+.ad-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ad-tab {
+  padding: 8px 16px;
+  border: none;
+  background: none;
+  color: var(--text-secondary, #aaa);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s;
+}
+
+.ad-tab:hover {
+  color: var(--text-primary, #fff);
+}
+
+.ad-tab.active {
+  color: var(--text-primary, #fff);
+  border-bottom-color: #6366f1;
+}
+
+.ad-tab-content {
+  min-height: 300px;
+}
+
+/* ── Overview ─────────────────────────────────────────── */
+
+.ad-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ad-score-panel {
+  padding: 20px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ad-score-panel h3 {
+  margin: 0 0 16px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ad-score-main {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+}
+
+.ad-score-ring-value {
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.ad-score-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ad-score-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 13px;
+}
+
+.ad-score-row span {
+  color: var(--text-secondary, #aaa);
+}
+
+/* ── Stats Grid ───────────────────────────────────────── */
+
+.ad-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.ad-stat-card {
+  padding: 16px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ad-stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-secondary, #aaa);
+}
+
+.ad-stat-value {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+/* ── Controls Panel ───────────────────────────────────── */
+
+.ad-controls-panel {
+  padding: 16px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ad-controls-panel h4 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* ── Tables ───────────────────────────────────────────── */
+
+.ad-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.ad-table th {
+  text-align: left;
+  padding: 6px 10px;
+  font-weight: 600;
+  color: var(--text-secondary, #aaa);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.ad-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.ad-row {
+  cursor: pointer;
+}
+
+.ad-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ad-row.expanded {
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.ad-detail-row td {
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.ad-detail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.ad-detail-content code {
+  font-family: monospace;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.ad-resource-cell {
+  font-family: monospace;
+  font-size: 11px;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Bar Cell ─────────────────────────────────────────── */
+
+.ad-bar-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ad-bar-track {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  min-width: 60px;
+}
+
+.ad-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+}
+
+.ad-bar-label {
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 30px;
+}
+
+/* ── Severity / Status Badges ─────────────────────────── */
+
+.ad-severity {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.ad-severity--high { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+.ad-severity--medium { background: rgba(249, 115, 22, 0.15); color: #f97316; }
+.ad-severity--low { background: rgba(234, 179, 8, 0.15); color: #eab308; }
+.ad-severity--informational { background: rgba(99, 102, 241, 0.15); color: #6366f1; }
+
+.ad-status {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ad-status--healthy { color: #22c55e; }
+.ad-status--unhealthy { color: #ef4444; }
+.ad-status--notApplicable { color: #94a3b8; }
+
+/* ── Filters ──────────────────────────────────────────── */
+
+.ad-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.ad-filters select {
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  color: inherit;
+  font-size: 12px;
+}
+
+.ad-filter-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-secondary, #aaa);
+}
+
+.ad-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-secondary, #aaa);
+  font-size: 13px;
+}
+
+/* ── Compliance Grid ──────────────────────────────────── */
+
+.ad-compliance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.ad-compliance-card {
+  padding: 16px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ad-compliance-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.ad-compliance-header h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ad-compliance-state {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(99, 102, 241, 0.15);
+  color: #6366f1;
+}
+
+.ad-compliance-score {
+  display: flex;
+  justify-content: center;
+}
+
+.ad-compliance-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+}
+
+/* ── Attack Paths ─────────────────────────────────────── */
+
+.ad-attack-paths {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ad-attack-path-card {
+  padding: 14px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ad-attack-path-card--high { border-left: 3px solid #ef4444; }
+.ad-attack-path-card--medium { border-left: 3px solid #f97316; }
+.ad-attack-path-card--low { border-left: 3px solid #eab308; }
+.ad-attack-path-card--informational { border-left: 3px solid #6366f1; }
+
+.ad-attack-path-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.ad-attack-path-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ad-attack-path-desc {
+  margin: 6px 0;
+  font-size: 12px;
+  color: var(--text-secondary, #ccc);
+}
+
+.ad-attack-path-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.ad-attack-path-meta code {
+  font-family: monospace;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+@media (max-width: 800px) {
+  .ad-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

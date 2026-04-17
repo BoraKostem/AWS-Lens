@@ -788,6 +788,98 @@ export type AzureRbacOverview = {
   notes: string[]
 }
 
+/* ── Azure Defender for Cloud ────────────────────────────── */
+
+export type AzureDefenderAlertSeverity = 'high' | 'medium' | 'low' | 'informational'
+
+export type AzureDefenderAssessmentStatus = 'healthy' | 'unhealthy' | 'notApplicable'
+
+export type AzureDefenderSecureScore = {
+  name: string
+  displayName: string
+  currentScore: number
+  maxScore: number
+  percentage: number
+  weight: number
+}
+
+export type AzureDefenderSecureScoreControl = {
+  id: string
+  name: string
+  displayName: string
+  currentScore: number
+  maxScore: number
+  percentage: number
+  healthyResourceCount: number
+  unhealthyResourceCount: number
+  notApplicableResourceCount: number
+  category: string
+}
+
+export type AzureDefenderRecommendation = {
+  id: string
+  name: string
+  displayName: string
+  description: string
+  severity: AzureDefenderAlertSeverity
+  status: AzureDefenderAssessmentStatus
+  category: string
+  resourceId: string
+  remediation: string
+}
+
+export type AzureDefenderAlert = {
+  id: string
+  name: string
+  alertDisplayName: string
+  description: string
+  severity: AzureDefenderAlertSeverity
+  status: string
+  intent: string
+  timeGenerated: string
+  resourceId: string
+  compromisedEntity: string
+  vendor: string
+}
+
+export type AzureDefenderComplianceStandard = {
+  id: string
+  name: string
+  displayName: string
+  state: string
+  passedControls: number
+  failedControls: number
+  skippedControls: number
+  unsupportedControls: number
+  compliancePercentage: number
+}
+
+export type AzureDefenderAttackPath = {
+  id: string
+  name: string
+  displayName: string
+  description: string
+  riskLevel: AzureDefenderAlertSeverity
+  riskCategories: string[]
+  entryPoint: string
+  targetResourceId: string
+  stepCount: number
+}
+
+export type AzureDefenderReport = {
+  generatedAt: string
+  subscriptionId: string
+  secureScore: AzureDefenderSecureScore | null
+  secureScoreControls: AzureDefenderSecureScoreControl[]
+  recommendations: AzureDefenderRecommendation[]
+  alerts: AzureDefenderAlert[]
+  complianceStandards: AzureDefenderComplianceStandard[]
+  attackPaths: AzureDefenderAttackPath[]
+  recommendationsByCategory: Record<string, number>
+  alertsBySeverity: Record<AzureDefenderAlertSeverity, number>
+  warnings: string[]
+}
+
 export type AzureRoleDefinitionSummary = {
   id: string
   roleName: string

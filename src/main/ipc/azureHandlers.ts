@@ -131,6 +131,29 @@ export function registerAzureHandlers(getWindow: () => BrowserWindow | null): vo
     wrap(async () => (await loadAzureSdk()).deleteAzureRoleAssignment(assignmentId))
   )
 
+  // ── Defender for Cloud ─────────────────────────────────────────────────────
+  ipcMain.handle('azure:defender:get-secure-score', async (_event, subscriptionId: string) =>
+    wrap(async () => (await loadAzureSdk()).getAzureDefenderSecureScore(subscriptionId))
+  )
+  ipcMain.handle('azure:defender:list-secure-score-controls', async (_event, subscriptionId: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureDefenderSecureScoreControls(subscriptionId))
+  )
+  ipcMain.handle('azure:defender:list-recommendations', async (_event, subscriptionId: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureDefenderRecommendations(subscriptionId))
+  )
+  ipcMain.handle('azure:defender:list-alerts', async (_event, subscriptionId: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureDefenderAlerts(subscriptionId))
+  )
+  ipcMain.handle('azure:defender:list-compliance-standards', async (_event, subscriptionId: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureDefenderComplianceStandards(subscriptionId))
+  )
+  ipcMain.handle('azure:defender:list-attack-paths', async (_event, subscriptionId: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureDefenderAttackPaths(subscriptionId))
+  )
+  ipcMain.handle('azure:defender:get-report', async (_event, subscriptionId: string) =>
+    wrap(async () => (await loadAzureSdk()).getAzureDefenderReport(subscriptionId))
+  )
+
   // ── Virtual Machines ───────────────────────────────────────────────────────
   ipcMain.handle('azure:virtual-machines:list', async (_event, subscriptionId: string, location: string) =>
     wrap(async () => (await loadAzureSdk()).listAzureVirtualMachines(subscriptionId, location))

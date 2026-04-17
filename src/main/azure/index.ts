@@ -245,3 +245,13 @@ export {
 export {
   generateAzureTerraformObservabilityReport
 } from './terraformObservability'
+
+export {
+  getAzureDefenderSecureScore,
+  listAzureDefenderSecureScoreControls,
+  listAzureDefenderRecommendations,
+  listAzureDefenderAlerts,
+  listAzureDefenderComplianceStandards,
+  listAzureDefenderAttackPaths,
+  getAzureDefenderReport
+} from './defender'

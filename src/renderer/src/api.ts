@@ -114,6 +114,13 @@ import type {
   AzureRbacOverview,
   AzureRoleAssignmentSummary,
   AzureRoleDefinitionSummary,
+  AzureDefenderAlert,
+  AzureDefenderComplianceStandard,
+  AzureDefenderAttackPath,
+  AzureDefenderRecommendation,
+  AzureDefenderReport,
+  AzureDefenderSecureScore,
+  AzureDefenderSecureScoreControl,
   AzureSqlEstateOverview,
   AzureSqlServerDetail,
   AzurePostgreSqlEstateOverview,
@@ -1921,6 +1928,56 @@ export async function createAzureRoleAssignment(subscriptionId: string, principa
 
 export async function deleteAzureRoleAssignment(assignmentId: string): Promise<void> {
   return unwrap((await rawAwsBridge().deleteAzureRoleAssignment(assignmentId)) as Wrapped<void>)
+}
+
+export async function getAzureDefenderSecureScore(subscriptionId: string): Promise<AzureDefenderSecureScore | null> {
+  return unwrap(
+    (await rawAwsBridge().getAzureDefenderSecureScore(subscriptionId)) as Wrapped<AzureDefenderSecureScore | null>
+  )
+}
+
+export async function listAzureDefenderSecureScoreControls(
+  subscriptionId: string
+): Promise<AzureDefenderSecureScoreControl[]> {
+  return unwrap(
+    (await rawAwsBridge().listAzureDefenderSecureScoreControls(subscriptionId)) as Wrapped<AzureDefenderSecureScoreControl[]>
+  )
+}
+
+export async function listAzureDefenderRecommendations(
+  subscriptionId: string
+): Promise<AzureDefenderRecommendation[]> {
+  return unwrap(
+    (await rawAwsBridge().listAzureDefenderRecommendations(subscriptionId)) as Wrapped<AzureDefenderRecommendation[]>
+  )
+}
+
+export async function listAzureDefenderAlerts(subscriptionId: string): Promise<AzureDefenderAlert[]> {
+  return unwrap(
+    (await rawAwsBridge().listAzureDefenderAlerts(subscriptionId)) as Wrapped<AzureDefenderAlert[]>
+  )
+}
+
+export async function listAzureDefenderComplianceStandards(
+  subscriptionId: string
+): Promise<AzureDefenderComplianceStandard[]> {
+  return unwrap(
+    (await rawAwsBridge().listAzureDefenderComplianceStandards(subscriptionId)) as Wrapped<AzureDefenderComplianceStandard[]>
+  )
+}
+
+export async function listAzureDefenderAttackPaths(
+  subscriptionId: string
+): Promise<AzureDefenderAttackPath[]> {
+  return unwrap(
+    (await rawAwsBridge().listAzureDefenderAttackPaths(subscriptionId)) as Wrapped<AzureDefenderAttackPath[]>
+  )
+}
+
+export async function getAzureDefenderReport(subscriptionId: string): Promise<AzureDefenderReport> {
+  return unwrap(
+    (await rawAwsBridge().getAzureDefenderReport(subscriptionId)) as Wrapped<AzureDefenderReport>
+  )
 }
 
 export async function listAzureVirtualMachines(subscriptionId: string, location: string): Promise<AzureVirtualMachineSummary[]> {

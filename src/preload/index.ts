@@ -286,6 +286,20 @@ const awsLensApi = {
   createAzureRoleAssignment: (subscriptionId: string, principalId: string, roleDefinitionId: string, scope: string) =>
     ipcRenderer.invoke('azure:rbac:create-assignment', subscriptionId, principalId, roleDefinitionId, scope),
   deleteAzureRoleAssignment: (assignmentId: string) => ipcRenderer.invoke('azure:rbac:delete-assignment', assignmentId),
+  getAzureDefenderSecureScore: (subscriptionId: string) =>
+    ipcRenderer.invoke('azure:defender:get-secure-score', subscriptionId),
+  listAzureDefenderSecureScoreControls: (subscriptionId: string) =>
+    ipcRenderer.invoke('azure:defender:list-secure-score-controls', subscriptionId),
+  listAzureDefenderRecommendations: (subscriptionId: string) =>
+    ipcRenderer.invoke('azure:defender:list-recommendations', subscriptionId),
+  listAzureDefenderAlerts: (subscriptionId: string) =>
+    ipcRenderer.invoke('azure:defender:list-alerts', subscriptionId),
+  listAzureDefenderComplianceStandards: (subscriptionId: string) =>
+    ipcRenderer.invoke('azure:defender:list-compliance-standards', subscriptionId),
+  listAzureDefenderAttackPaths: (subscriptionId: string) =>
+    ipcRenderer.invoke('azure:defender:list-attack-paths', subscriptionId),
+  getAzureDefenderReport: (subscriptionId: string) =>
+    ipcRenderer.invoke('azure:defender:get-report', subscriptionId),
   listAzureVirtualMachines: (subscriptionId: string, location: string) => ipcRenderer.invoke('azure:virtual-machines:list', subscriptionId, location),
   describeAzureVirtualMachine: (subscriptionId: string, resourceGroup: string, vmName: string) =>
     ipcRenderer.invoke('azure:virtual-machines:describe', subscriptionId, resourceGroup, vmName),

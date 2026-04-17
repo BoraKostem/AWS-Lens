@@ -218,6 +218,13 @@ declare global {
       listAzureRoleDefinitions: (subscriptionId: string) => Promise<unknown>
       createAzureRoleAssignment: (subscriptionId: string, principalId: string, roleDefinitionId: string, scope: string) => Promise<unknown>
       deleteAzureRoleAssignment: (assignmentId: string) => Promise<unknown>
+      getAzureDefenderSecureScore: (subscriptionId: string) => Promise<unknown>
+      listAzureDefenderSecureScoreControls: (subscriptionId: string) => Promise<unknown>
+      listAzureDefenderRecommendations: (subscriptionId: string) => Promise<unknown>
+      listAzureDefenderAlerts: (subscriptionId: string) => Promise<unknown>
+      listAzureDefenderComplianceStandards: (subscriptionId: string) => Promise<unknown>
+      listAzureDefenderAttackPaths: (subscriptionId: string) => Promise<unknown>
+      getAzureDefenderReport: (subscriptionId: string) => Promise<unknown>
       listAzureVirtualMachines: (subscriptionId: string, location: string) => Promise<unknown>
       describeAzureVirtualMachine: (subscriptionId: string, resourceGroup: string, vmName: string) => Promise<unknown>
       runAzureVmAction: (subscriptionId: string, resourceGroup: string, vmName: string, action: AzureVmAction) => Promise<unknown>
