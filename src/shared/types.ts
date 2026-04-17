@@ -6296,7 +6296,18 @@ export type TerraformCommandName =
 
 export type TerraformCliKind = 'terraform' | 'opentofu'
 
-export type { TerragruntCliInfo } from './terragrunt'
+export type {
+  TerragruntCliInfo,
+  TerragruntDependency,
+  TerragruntGeneratedFile,
+  TerragruntIncludeRef,
+  TerragruntProjectInfo,
+  TerragruntRemoteState,
+  TerragruntStack,
+  TerragruntUnit,
+  TerraformProjectKind
+} from './terragrunt'
+import type { TerragruntProjectInfo, TerraformProjectKind } from './terragrunt'
 
 export type TerraformCliOption = {
   kind: TerraformCliKind
@@ -6953,6 +6964,8 @@ export type TerraformProject = {
   stateLockInfo: TerraformStateLockInfo | null
   hasSavedPlan: boolean
   savedPlanMetadata: TerraformSavedPlanMetadata | null
+  kind?: TerraformProjectKind
+  terragrunt?: TerragruntProjectInfo | null
 }
 
 export type TerraformCommandRequest = {
@@ -6971,7 +6984,7 @@ export type TerraformCommandRequest = {
 
 export type TerraformProjectListItem = Pick<
   TerraformProject,
-  'id' | 'name' | 'rootPath' | 'status' | 'stateSource' | 'metadata' | 'lastPlanSummary' | 'lastCommandAt' | 'inventory' | 'environment' | 'currentWorkspace'
+  'id' | 'name' | 'rootPath' | 'status' | 'stateSource' | 'metadata' | 'lastPlanSummary' | 'lastCommandAt' | 'inventory' | 'environment' | 'currentWorkspace' | 'kind' | 'terragrunt'
 >
 
 export type TerraformAdoptionResourceType =
