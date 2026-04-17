@@ -10,7 +10,7 @@ import type {
   SecurityScoreReport,
   SecurityScoreWeights
 } from '@shared/types'
-import { getSecurityScoreReport, invalidatePageCache } from './api'
+import { getSecurityScoreReport, invalidatePageCache, recordSecuritySnapshot } from './api'
 
 const DOMAIN_LABELS: Record<SecurityScoreDomain, string> = {
   iam: 'IAM & Access',
@@ -200,6 +200,41 @@ export function SecurityPostureDashboard({
       const result = await getSecurityScoreReport(connection, weights)
       setReport(result)
       freshness.markRefreshed()
+
+      // Capture a daily snapshot for trend analysis. Failure here is non-fatal.
+      try {
+        const failedChecks = result.domainResults.flatMap((d) => d.checks.filter((c) => !c.passed))
+        const high = failedChecks.filter((c) => c.severity === 'high').length
+        const medium = failedChecks.filter((c) => c.severity === 'medium').length
+        const low = failedChecks.filter((c) => c.severity === 'low').length
+        const total = failedChecks.length
+        const complianceDomain = result.domainResults.find((d) => d.domain === 'compliance')
+        const passRate = complianceDomain ? complianceDomain.score : 0
+        const scope = `${connection.profile || 'session'}::${connection.region}`
+        const scopeLabel = connection.profile
+          ? `${connection.profile} / ${connection.region}`
+          : `session / ${connection.region}`
+
+        const domainScores: Record<SecurityScoreDomain, number> = {
+          iam: 0, network: 0, encryption: 0, logging: 0, compliance: 0
+        }
+        for (const d of result.domainResults) {
+          domainScores[d.domain] = d.score
+        }
+
+        await recordSecuritySnapshot({
+          scope,
+          scopeLabel,
+          overallScore: result.overallScore,
+          domainScores,
+          findingCounts: { high, medium, low, total },
+          complianceBenchmarkPassRate: passRate,
+          newFindings: 0,
+          remediatedFindings: 0
+        })
+      } catch {
+        /* snapshot is best-effort — do not surface to user */
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {

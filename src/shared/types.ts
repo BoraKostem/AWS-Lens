@@ -5140,6 +5140,65 @@ export type SecurityScoreReport = {
   warnings: string[]
 }
 
+/* ── Security Trends (v2.8.0) ──────────────────────────── */
+
+export type SecurityTrendRange = '7d' | '30d' | '90d' | '1y'
+
+export type SecuritySnapshot = {
+  id: string
+  capturedAt: string  // ISO date (YYYY-MM-DD)
+  scope: string  // profile::region or subscription ID — identifies which account the snapshot belongs to
+  scopeLabel: string  // human-readable label
+  overallScore: number
+  domainScores: Record<SecurityScoreDomain, number>
+  findingCounts: {
+    high: number
+    medium: number
+    low: number
+    total: number
+  }
+  complianceBenchmarkPassRate: number  // 0-100
+  newFindings: number
+  remediatedFindings: number
+}
+
+export type SecurityThresholds = {
+  minOverallScore: number  // alert when overall score drops below this
+  maxHighFindings: number  // alert when high findings exceed this
+  maxTotalFindings: number
+  scoreDropPct: number  // alert when score drops by > this % in 7 days
+}
+
+export type SecurityAlertKind = 'score-drop' | 'high-findings' | 'total-findings' | 'threshold-breach'
+
+export type SecurityAlert = {
+  id: string
+  kind: SecurityAlertKind
+  severity: 'high' | 'medium' | 'low'
+  message: string
+  detail: string
+  triggeredAt: string
+  scope: string
+  scopeLabel: string
+}
+
+export type SecurityTrendReport = {
+  range: SecurityTrendRange
+  scope: string
+  snapshots: SecuritySnapshot[]
+  alerts: SecurityAlert[]
+  thresholds: SecurityThresholds
+  summary: {
+    currentScore: number
+    previousScore: number
+    scoreDelta: number
+    trendDirection: 'up' | 'down' | 'stable'
+    snapshotCount: number
+  }
+}
+
+export type SecuritySnapshotInput = Omit<SecuritySnapshot, 'id' | 'capturedAt'>
+
 /* ── GuardDuty ───────────────────────────────────────────── */
 
 export type GuardDutySeverity = 'critical' | 'high' | 'medium' | 'low'

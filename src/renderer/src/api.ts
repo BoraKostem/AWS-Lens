@@ -229,6 +229,11 @@ import type {
   ComplianceReport,
   SecurityScoreReport,
   SecurityScoreWeights,
+  SecuritySnapshot,
+  SecuritySnapshotInput,
+  SecurityThresholds,
+  SecurityTrendRange,
+  SecurityTrendReport,
   GuardDutyReport,
   EnterpriseAccessMode,
   EnterpriseAuditEvent,
@@ -2942,6 +2947,42 @@ export async function getSecurityScoreReport(
 ): Promise<SecurityScoreReport> {
   return unwrap(
     (await awsBridge().getSecurityScoreReport(connection, weights)) as Wrapped<SecurityScoreReport>
+  )
+}
+
+export async function recordSecuritySnapshot(input: SecuritySnapshotInput): Promise<SecuritySnapshot> {
+  return unwrap(
+    (await awsBridge().recordSecuritySnapshot(input)) as Wrapped<SecuritySnapshot>
+  )
+}
+
+export async function listSecuritySnapshots(scope: string, range: SecurityTrendRange): Promise<SecuritySnapshot[]> {
+  return unwrap(
+    (await awsBridge().listSecuritySnapshots(scope, range)) as Wrapped<SecuritySnapshot[]>
+  )
+}
+
+export async function buildSecurityTrendReport(scope: string, range: SecurityTrendRange): Promise<SecurityTrendReport> {
+  return unwrap(
+    (await awsBridge().buildSecurityTrendReport(scope, range)) as Wrapped<SecurityTrendReport>
+  )
+}
+
+export async function getSecurityThresholds(): Promise<SecurityThresholds> {
+  return unwrap(
+    (await awsBridge().getSecurityThresholds()) as Wrapped<SecurityThresholds>
+  )
+}
+
+export async function updateSecurityThresholds(update: Partial<SecurityThresholds>): Promise<SecurityThresholds> {
+  return unwrap(
+    (await awsBridge().updateSecurityThresholds(update)) as Wrapped<SecurityThresholds>
+  )
+}
+
+export async function listSecurityScopes(): Promise<Array<{ scope: string; scopeLabel: string; snapshotCount: number }>> {
+  return unwrap(
+    (await awsBridge().listSecurityScopes()) as Wrapped<Array<{ scope: string; scopeLabel: string; snapshotCount: number }>>
   )
 }
 

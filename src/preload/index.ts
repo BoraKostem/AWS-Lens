@@ -620,6 +620,18 @@ const awsLensApi = {
     ipcRenderer.invoke('compliance:report', connection),
   getSecurityScoreReport: (connection: AwsConnection, weights?: unknown) =>
     ipcRenderer.invoke('security-score:report', connection, weights),
+  recordSecuritySnapshot: (input: unknown) =>
+    ipcRenderer.invoke('security-trends:record-snapshot', input),
+  listSecuritySnapshots: (scope: string, range: string) =>
+    ipcRenderer.invoke('security-trends:list-snapshots', scope, range),
+  buildSecurityTrendReport: (scope: string, range: string) =>
+    ipcRenderer.invoke('security-trends:build-report', scope, range),
+  getSecurityThresholds: () =>
+    ipcRenderer.invoke('security-trends:get-thresholds'),
+  updateSecurityThresholds: (update: unknown) =>
+    ipcRenderer.invoke('security-trends:update-thresholds', update),
+  listSecurityScopes: () =>
+    ipcRenderer.invoke('security-trends:list-scopes'),
   getGuardDutyReport: (connection: AwsConnection) =>
     ipcRenderer.invoke('guardduty:report', connection),
   archiveGuardDutyFindings: (connection: AwsConnection, findingIds: string[]) =>
