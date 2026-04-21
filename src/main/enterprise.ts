@@ -7,6 +7,7 @@ import { app, dialog, type BrowserWindow } from 'electron'
 import { PRODUCT_BRAND_NAME, PRODUCT_BRAND_SLUG } from '@shared/branding'
 import type {
   AwsConnection,
+  CloudProviderId,
   EnterpriseAccessMode,
   EnterpriseAuditEvent,
   EnterpriseAuditExportResult,
@@ -17,6 +18,7 @@ import type {
 } from '@shared/types'
 import { getCallerIdentity } from './aws/sts'
 import { readSecureJsonFile, writeSecureJsonFile } from './secureJson'
+import { exportAuditEvent } from './exporters'
 
 const DEFAULT_SETTINGS: EnterpriseSettings = {
   accessMode: 'read-only',
@@ -183,6 +185,95 @@ const ALWAYS_OPERATOR_CHANNELS = new Set<string>([
   'terminal:run-command'
 ])
 
+const PROVIDER_OPERATOR_SEGMENTS = new Set<string>([
+  'add',
+  'associate',
+  'attach',
+  'clear',
+  'create',
+  'delete',
+  'detach',
+  'disable',
+  'disassociate',
+  'download',
+  'enable',
+  'force',
+  'invalidate',
+  'invoke',
+  'open',
+  'publish',
+  'purge',
+  'put',
+  'remove',
+  'resize',
+  'restore',
+  'rotate',
+  'send',
+  'set',
+  'start',
+  'stop',
+  'subscribe',
+  'toggle',
+  'undelete',
+  'unsubscribe',
+  'update',
+  'upload',
+  'upsert'
+])
+
+const PROVIDER_AUDIT_EXCLUDED_PREFIXES = [
+  'azure:auth:',
+  'azure:context:',
+  'gcp:auth:',
+  'gcp:cache:'
+]
+
+const PROVIDER_SERVICE_PREFIXES: Array<[string, ServiceId]> = [
+  ['gcp:projects', 'gcp-projects'],
+  ['gcp:iam', 'gcp-iam'],
+  ['gcp:compute-engine', 'gcp-compute-engine'],
+  ['gcp:vpc', 'gcp-vpc'],
+  ['gcp:gke', 'gcp-gke'],
+  ['gcp:cloud-storage', 'gcp-cloud-storage'],
+  ['gcp:cloud-sql', 'gcp-cloud-sql'],
+  ['gcp:logging', 'gcp-logging'],
+  ['gcp:billing', 'gcp-billing'],
+  ['gcp:bigquery', 'gcp-bigquery'],
+  ['gcp:monitoring', 'gcp-monitoring'],
+  ['gcp:scc', 'gcp-scc'],
+  ['gcp:firestore', 'gcp-firestore'],
+  ['gcp:pubsub', 'gcp-pubsub'],
+  ['gcp:cloud-run', 'gcp-cloud-run'],
+  ['gcp:firebase', 'gcp-firebase'],
+  ['gcp:cloud-dns', 'gcp-cloud-dns'],
+  ['gcp:memorystore', 'gcp-memorystore'],
+  ['gcp:load-balancer', 'gcp-load-balancer'],
+  ['azure:subscriptions', 'azure-subscriptions'],
+  ['azure:resource-groups', 'azure-resource-groups'],
+  ['azure:rbac', 'azure-rbac'],
+  ['azure:virtual-machines', 'azure-virtual-machines'],
+  ['azure:aks', 'azure-aks'],
+  ['azure:storage-', 'azure-storage-accounts'],
+  ['azure:sql', 'azure-sql'],
+  ['azure:postgresql', 'azure-postgresql'],
+  ['azure:monitor', 'azure-monitor'],
+  ['azure:cost', 'azure-cost'],
+  ['azure:network', 'azure-network'],
+  ['azure:vmss', 'azure-vmss'],
+  ['azure:app-insights', 'azure-app-insights'],
+  ['azure:key-vault', 'azure-key-vault'],
+  ['azure:event-hub', 'azure-event-hub'],
+  ['azure:app-service', 'azure-app-service'],
+  ['azure:mysql', 'azure-mysql'],
+  ['azure:cosmos-db', 'azure-cosmos-db'],
+  ['azure:log-analytics', 'azure-log-analytics'],
+  ['azure:event-grid', 'azure-event-grid'],
+  ['azure:firewall', 'azure-firewall'],
+  ['azure:load-balancers', 'azure-load-balancers'],
+  ['azure:dns', 'azure-dns'],
+  ['azure:defender', 'azure-defender']
+]
+
 function settingsPath(): string {
   return path.join(app.getPath('userData'), 'enterprise-settings.json')
 }
@@ -254,6 +345,20 @@ function accountCacheKey(connection: AwsConnection): string {
   return `${connection.kind}:${connection.sessionId}:${connection.region}`
 }
 
+function stringArg(args: unknown[], index: number): string {
+  const value = args[index]
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function lastStringArg(args: unknown[]): string {
+  for (let index = args.length - 1; index >= 0; index -= 1) {
+    const value = stringArg(args, index)
+    if (value) return value
+  }
+
+  return ''
+}
+
 async function resolveAccountId(connection?: AwsConnection | null): Promise<string> {
   if (!connection) {
     return ''
@@ -287,9 +392,10 @@ async function resolveAccountId(connection?: AwsConnection | null): Promise<stri
   }
 }
 
-async function summarizeConnection(connection?: AwsConnection | null): Promise<Pick<EnterpriseAuditEvent, 'actorLabel' | 'accountId' | 'region'>> {
+async function summarizeConnection(connection?: AwsConnection | null): Promise<Pick<EnterpriseAuditEvent, 'providerId' | 'actorLabel' | 'accountId' | 'region'>> {
   if (!connection) {
     return {
+      providerId: undefined,
       actorLabel: 'local-app',
       accountId: '',
       region: ''
@@ -298,6 +404,7 @@ async function summarizeConnection(connection?: AwsConnection | null): Promise<P
 
   if (connection.kind === 'assumed-role') {
     return {
+      providerId: 'aws',
       actorLabel: `${connection.label} (${connection.sourceProfile})`,
       accountId: await resolveAccountId(connection),
       region: connection.region
@@ -305,9 +412,45 @@ async function summarizeConnection(connection?: AwsConnection | null): Promise<P
   }
 
   return {
+    providerId: 'aws',
     actorLabel: connection.profile,
     accountId: await resolveAccountId(connection),
     region: connection.region
+  }
+}
+
+function inferProviderId(channel: string): CloudProviderId | undefined {
+  if (channel.startsWith('gcp:')) return 'gcp'
+  if (channel.startsWith('azure:')) return 'azure'
+  return undefined
+}
+
+function inferProviderLocation(channel: string, args: unknown[]): string {
+  if (channel.startsWith('gcp:compute-engine:')) return stringArg(args, 1)
+  if (channel.startsWith('gcp:gke:')) return stringArg(args, 1)
+  if (channel.startsWith('gcp:cloud-run:')) return stringArg(args, 1)
+  if (channel.startsWith('gcp:memorystore:')) return stringArg(args, 1)
+  if (channel.startsWith('gcp:logging:')) return stringArg(args, 1)
+  return ''
+}
+
+async function summarizeAuditContext(channel: string, args: unknown[]): Promise<Pick<EnterpriseAuditEvent, 'providerId' | 'actorLabel' | 'accountId' | 'region'>> {
+  const connection = findConnection(args)
+  if (connection) {
+    return summarizeConnection(connection)
+  }
+
+  const providerId = inferProviderId(channel)
+  if (!providerId) {
+    return summarizeConnection(null)
+  }
+
+  const scope = stringArg(args, 0)
+  return {
+    providerId,
+    actorLabel: providerId === 'gcp' ? 'gcp-project' : 'azure-subscription',
+    accountId: scope,
+    region: inferProviderLocation(channel, args)
   }
 }
 
@@ -329,6 +472,27 @@ function findConnection(args: unknown[]): AwsConnection | null {
   return null
 }
 
+function isProviderOperatorAction(channel: string): boolean {
+  if (!channel.startsWith('gcp:') && !channel.startsWith('azure:')) {
+    return false
+  }
+
+  if (PROVIDER_AUDIT_EXCLUDED_PREFIXES.some((prefix) => channel.startsWith(prefix))) {
+    return false
+  }
+
+  return channel
+    .split(':')
+    .some((segment) => {
+      if (PROVIDER_OPERATOR_SEGMENTS.has(segment)) {
+        return true
+      }
+
+      const [verb] = segment.split('-')
+      return PROVIDER_OPERATOR_SEGMENTS.has(verb)
+    })
+}
+
 function isOperatorAction(channel: string, args: unknown[]): boolean {
   if (ALWAYS_OPERATOR_CHANNELS.has(channel)) {
     return true
@@ -339,10 +503,13 @@ function isOperatorAction(channel: string, args: unknown[]): boolean {
     return Boolean(request && ['apply', 'destroy', 'import', 'state-mv', 'state-rm', 'force-unlock'].includes(request.command))
   }
 
-  return false
+  return isProviderOperatorAction(channel)
 }
 
 function inferServiceId(channel: string): ServiceId | '' {
+  const providerService = PROVIDER_SERVICE_PREFIXES.find(([prefix]) => channel.startsWith(prefix))
+  if (providerService) return providerService[1]
+
   if (channel.startsWith('ec2:')) return 'ec2'
   if (channel.startsWith('cloudtrail:')) return 'cloudtrail'
   if (channel.startsWith('cloudformation:')) return 'cloudformation'
@@ -368,6 +535,150 @@ function inferServiceId(channel: string): ServiceId | '' {
   if (channel.startsWith('profiles:')) return 'session-hub'
   if (channel.startsWith('terraform:')) return 'terraform'
   return ''
+}
+
+function summarizeGcpResource(channel: string, args: unknown[]): { resourceId: string; details: string[] } {
+  const details: string[] = ['provider:gcp']
+  const projectId = stringArg(args, 0)
+  if (projectId) details.push(`project:${projectId}`)
+
+  if (channel.startsWith('gcp:iam:')) {
+    if (channel.includes('binding')) {
+      const role = stringArg(args, 1)
+      const member = stringArg(args, 2)
+      if (role) details.push(`role:${role}`)
+      if (member) details.push(`member:${member}`)
+      return { resourceId: role || member || projectId, details }
+    }
+
+    const identity = stringArg(args, 1)
+    return { resourceId: identity || projectId, details }
+  }
+
+  if (channel.startsWith('gcp:compute-engine:')) {
+    const zone = stringArg(args, 1)
+    const instanceName = stringArg(args, 2)
+    const requestedAction = stringArg(args, 3)
+    if (zone) details.push(`zone:${zone}`)
+    if (requestedAction) details.push(`requested-action:${requestedAction}`)
+    return { resourceId: instanceName || projectId, details }
+  }
+
+  if (channel.startsWith('gcp:gke:')) {
+    const location = stringArg(args, 1)
+    const clusterName = stringArg(args, 2)
+    const nodePoolName = stringArg(args, 3)
+    if (location) details.push(`location:${location}`)
+    if (nodePoolName) details.push(`node-pool:${nodePoolName}`)
+    return { resourceId: clusterName || projectId, details }
+  }
+
+  if (channel.startsWith('gcp:cloud-storage:')) {
+    const bucketName = stringArg(args, 1)
+    const key = stringArg(args, 2)
+    if (bucketName) details.push(`bucket:${bucketName}`)
+    if (key) details.push(`object:${key}`)
+    return { resourceId: key ? `${bucketName}/${key}` : bucketName || projectId, details }
+  }
+
+  if (channel.startsWith('gcp:cloud-dns:')) {
+    const managedZone = stringArg(args, 1)
+    const recordName = channel.endsWith(':delete-record') ? stringArg(args, 2) : ''
+    if (managedZone) details.push(`zone:${managedZone}`)
+    if (recordName) details.push(`record:${recordName}`)
+    return { resourceId: recordName || managedZone || projectId, details }
+  }
+
+  if (channel.startsWith('gcp:monitoring:')) {
+    const target = stringArg(args, 1)
+    return { resourceId: target || projectId, details }
+  }
+
+  return { resourceId: lastStringArg(args) || projectId, details }
+}
+
+function summarizeAzureResource(channel: string, args: unknown[]): { resourceId: string; details: string[] } {
+  const details: string[] = ['provider:azure']
+  const subscriptionId = stringArg(args, 0)
+  if (subscriptionId) details.push(`subscription:${subscriptionId}`)
+
+  if (channel.startsWith('azure:rbac:create-assignment')) {
+    const principalId = stringArg(args, 1)
+    const roleDefinitionId = stringArg(args, 2)
+    const scope = stringArg(args, 3)
+    if (principalId) details.push(`principal:${principalId}`)
+    if (roleDefinitionId) details.push(`role:${roleDefinitionId}`)
+    return { resourceId: scope || principalId || subscriptionId, details }
+  }
+
+  if (channel.startsWith('azure:rbac:delete-assignment')) {
+    return { resourceId: subscriptionId, details }
+  }
+
+  if (channel.startsWith('azure:virtual-machines:') || channel.startsWith('azure:app-service:')) {
+    const resourceGroup = stringArg(args, 1)
+    const resourceName = stringArg(args, 2)
+    const requestedAction = stringArg(args, 3)
+    if (resourceGroup) details.push(`resource-group:${resourceGroup}`)
+    if (requestedAction) details.push(`requested-action:${requestedAction}`)
+    return { resourceId: resourceName || subscriptionId, details }
+  }
+
+  if (channel.startsWith('azure:aks:')) {
+    const resourceGroup = stringArg(args, 1)
+    const clusterName = stringArg(args, 2)
+    const nodePoolName = stringArg(args, 3)
+    if (resourceGroup) details.push(`resource-group:${resourceGroup}`)
+    if (nodePoolName) details.push(`node-pool:${nodePoolName}`)
+    return { resourceId: clusterName || subscriptionId, details }
+  }
+
+  if (channel.startsWith('azure:storage-blob:')) {
+    const resourceGroup = stringArg(args, 1)
+    const accountName = stringArg(args, 2)
+    const containerName = stringArg(args, 3)
+    const key = stringArg(args, 4)
+    if (resourceGroup) details.push(`resource-group:${resourceGroup}`)
+    if (accountName) details.push(`account:${accountName}`)
+    if (containerName) details.push(`container:${containerName}`)
+    if (key) details.push(`object:${key}`)
+    return { resourceId: key ? `${accountName}/${containerName}/${key}` : accountName || subscriptionId, details }
+  }
+
+  if (channel.startsWith('azure:storage-container:')) {
+    const resourceGroup = stringArg(args, 1)
+    const accountName = stringArg(args, 2)
+    const containerName = stringArg(args, 3)
+    if (resourceGroup) details.push(`resource-group:${resourceGroup}`)
+    if (accountName) details.push(`account:${accountName}`)
+    return { resourceId: containerName || accountName || subscriptionId, details }
+  }
+
+  if (channel.startsWith('azure:vmss:')) {
+    const resourceGroup = stringArg(args, 1)
+    const vmssName = stringArg(args, 2)
+    const instanceId = stringArg(args, 3)
+    const requestedAction = stringArg(args, 4)
+    if (resourceGroup) details.push(`resource-group:${resourceGroup}`)
+    if (instanceId) details.push(`instance:${instanceId}`)
+    if (requestedAction) details.push(`requested-action:${requestedAction}`)
+    return { resourceId: vmssName || subscriptionId, details }
+  }
+
+  if (channel.startsWith('azure:dns:')) {
+    const resourceGroup = stringArg(args, 1)
+    const zoneName = stringArg(args, 2)
+    const recordName = stringArg(args, 4)
+    if (resourceGroup) details.push(`resource-group:${resourceGroup}`)
+    if (recordName) details.push(`record:${recordName}`)
+    return { resourceId: recordName || zoneName || subscriptionId, details }
+  }
+
+  if (channel.startsWith('azure:log-analytics:')) {
+    return { resourceId: subscriptionId, details }
+  }
+
+  return { resourceId: lastStringArg(args) || subscriptionId, details }
 }
 
 function summarizeResource(channel: string, args: unknown[]): { resourceId: string; details: string[] } {
@@ -396,6 +707,14 @@ function summarizeResource(channel: string, args: unknown[]): { resourceId: stri
       resourceId: typeof instanceId === 'string' ? instanceId.trim() : '',
       details
     }
+  }
+
+  if (channel.startsWith('gcp:')) {
+    return summarizeGcpResource(channel, args)
+  }
+
+  if (channel.startsWith('azure:')) {
+    return summarizeAzureResource(channel, args)
   }
 
   for (const arg of args) {
@@ -441,6 +760,7 @@ function appendAuditEvent(event: EnterpriseAuditEvent): Promise<void> {
       const current = readAuditLog()
       const next = [event, ...current].slice(0, 500)
       writeAuditLog(next)
+      exportAuditEvent(event)
     })
     .catch(() => { /* never let a write failure break the chain */ }))
 }
@@ -477,10 +797,12 @@ export async function recordEnterpriseAuditEvent(
     return
   }
 
-  const connection = findConnection(args)
-  const summary = await summarizeConnection(connection)
+  const summary = await summarizeAuditContext(channel, args)
   const resource = summarizeResource(channel, args)
   const details = [...resource.details]
+  if (summary.providerId && !details.some((detail) => detail === `provider:${summary.providerId}`)) {
+    details.unshift(`provider:${summary.providerId}`)
+  }
 
   if (errorMessage) {
     details.push(`error:${errorMessage}`)
@@ -489,6 +811,7 @@ export async function recordEnterpriseAuditEvent(
   await appendAuditEvent({
     id: randomUUID(),
     happenedAt: new Date().toISOString(),
+    providerId: summary.providerId,
     accessMode: settings.accessMode,
     outcome,
     action: inferActionLabel(channel, args),

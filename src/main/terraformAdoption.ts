@@ -11,7 +11,7 @@ import type {
   TerraformProjectListItem,
   TerraformResourceInventoryItem
 } from '@shared/types'
-import { listProjectSummaries } from './terraform'
+import { enrichTerragruntProjectInventory, listProjectSummaries } from './terraform'
 
 type SearchHint = {
   matchedOn: TerraformAdoptionConfigMatch['matchedOn']
@@ -477,7 +477,13 @@ export async function detectTerraformAdoption(
   target: TerraformAdoptionTarget
 ): Promise<TerraformAdoptionDetectionResult> {
   const projects = await listProjectSummaries(profileName, connection)
-  const signals = projects
+  const enrichedProjects = await Promise.all(
+    projects.map(async (project) => ({
+      ...project,
+      inventory: await enrichTerragruntProjectInventory(profileName, connection, project)
+    }))
+  )
+  const signals = enrichedProjects
     .map((project) => buildProjectSignal(project, target))
     .filter((project): project is TerraformAdoptionProjectSignal => Boolean(project))
     .sort((left, right) => {

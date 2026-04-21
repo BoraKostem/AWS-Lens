@@ -659,6 +659,15 @@ const awsLensApi = {
   listEnterpriseAuditEvents: () => ipcRenderer.invoke('enterprise:audit:list'),
   exportEnterpriseAuditEvents: () => ipcRenderer.invoke('enterprise:audit:export'),
 
+  /* Exporters */
+  getExporterConfig: () => ipcRenderer.invoke('exporters:get-config'),
+  setExporterConfig: (config: unknown) => ipcRenderer.invoke('exporters:set-config', config),
+  getExporterHealth: () => ipcRenderer.invoke('exporters:get-health'),
+  purgeExporterQueue: () => ipcRenderer.invoke('exporters:purge-queue'),
+  pingElasticsearch: (config: unknown) => ipcRenderer.invoke('exporters:ping-elasticsearch', config),
+  sendTestExporterEvent: () => ipcRenderer.invoke('exporters:send-test-event'),
+  queryTeamTimeline: (filter: unknown) => ipcRenderer.invoke('exporters:query-team-timeline', filter),
+
   /* EKS */
   listEksClusters: (connection: AwsConnection) => ipcRenderer.invoke('eks:list-clusters', connection),
   describeEksCluster: (connection: AwsConnection, clusterName: string) =>
@@ -1216,3 +1225,37 @@ const api = {
 }
 
 contextBridge.exposeInMainWorld('terraformWorkspace', api)
+
+const terragruntRunAllListeners = new Set<(event: unknown) => void>()
+const forwardTerragruntRunAllEvent = (_event: unknown, payload: unknown) => {
+  for (const listener of terragruntRunAllListeners) listener(payload)
+}
+ipcRenderer.on('terragrunt:run-all:event', forwardTerragruntRunAllEvent)
+
+const terragruntApi = {
+  detectCli: () => ipcRenderer.invoke('terragrunt:cli:detect'),
+  getCliInfo: () => ipcRenderer.invoke('terragrunt:cli:info'),
+  scanDiscovery: (rootPath: string) => ipcRenderer.invoke('terragrunt:discovery:scan', rootPath),
+  resolveStack: (rootPath: string) => ipcRenderer.invoke('terragrunt:stack:resolve', rootPath),
+  startRunAll: (
+    profileName: string,
+    projectId: string,
+    command: string,
+    connection?: AwsConnection,
+    unitFilter?: string[]
+  ) =>
+    ipcRenderer.invoke('terragrunt:run-all:start', profileName, projectId, command, connection, unitFilter),
+  cancelRunAll: (runId: string) => ipcRenderer.invoke('terragrunt:run-all:cancel', runId),
+  unitInventory: (profileName: string, projectId: string, connection?: AwsConnection, unitPath?: string) =>
+    ipcRenderer.invoke('terragrunt:unit:inventory', profileName, projectId, connection, unitPath),
+  unitDrift: (profileName: string, projectId: string, connection: AwsConnection, unitPath: string) =>
+    ipcRenderer.invoke('terragrunt:unit:drift', profileName, projectId, connection, unitPath),
+  subscribeRunAll: (listener: (event: unknown) => void) => {
+    terragruntRunAllListeners.add(listener)
+  },
+  unsubscribeRunAll: (listener: (event: unknown) => void) => {
+    terragruntRunAllListeners.delete(listener)
+  }
+}
+
+contextBridge.exposeInMainWorld('terragrunt', terragruntApi)

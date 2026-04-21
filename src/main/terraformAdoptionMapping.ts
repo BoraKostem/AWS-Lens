@@ -9,7 +9,7 @@ import type {
   TerraformProject,
   TerraformResourceInventoryItem
 } from '@shared/types'
-import { getProject } from './terraform'
+import { enrichTerragruntProjectInventory, getProject } from './terraform'
 
 const SUPPORTED_TARGET_TYPES = new Set<TerraformAdoptionTarget['resourceType']>([
   'aws_instance',
@@ -582,7 +582,14 @@ export async function mapTerraformAdoption(
   connection: AwsConnection | undefined,
   target: TerraformAdoptionTarget
 ): Promise<TerraformAdoptionMappingResult> {
-  const project = await getProject(profileName, projectId, connection)
+  const baseProject = await getProject(profileName, projectId, connection)
+  // `detectRelatedResources` below searches state for subnets, security groups, vpcs etc to
+  // suggest references for the generated HCL. With empty inventory (terragrunt + remote
+  // backend) it finds nothing and emits "No matching X found" warnings even when X is
+  // actually present in an adjacent unit's state. Enrich before matching.
+  const project = (baseProject.kind === 'terragrunt-unit' || baseProject.kind === 'terragrunt-stack')
+    ? { ...baseProject, inventory: await enrichTerragruntProjectInventory(profileName, connection, baseProject) }
+    : baseProject
   const supported = SUPPORTED_TARGET_TYPES.has(target.resourceType)
   const reasons: string[] = []
   const warnings: string[] = []

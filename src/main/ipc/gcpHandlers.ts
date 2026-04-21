@@ -92,6 +92,12 @@ async function cachedGcp<T>(
   return cache.getOrFetch(cacheKey, fetcher, ttlMs)
 }
 
+async function invalidateComputeInstanceCache(projectId: string, zone: string, instanceName: string): Promise<void> {
+  const cache = await loadGcpCache()
+  cache.invalidatePrefix(`${projectId}:compute:`)
+  cache.invalidateKey(`${projectId}:compute-detail:${zone}:${instanceName}`)
+}
+
 // ── Handler registration ────────────────────────────────────────────────────────
 
 export function registerGcpHandlers(): void {
@@ -222,16 +228,32 @@ export function registerGcpHandlers(): void {
     wrap(() => cachedGcp(`${projectId}:machine-types:${zone}`, GCP_TTL.IAM, async () => (await loadGcpSdk()).listGcpComputeMachineTypes(projectId, zone)))
   )
   ipcMain.handle('gcp:compute-engine:action', async (_event, projectId: string, zone: string, instanceName: string, action: GcpComputeInstanceAction) =>
-    wrap(async () => (await loadGcpSdk()).runGcpComputeInstanceAction(projectId, zone, instanceName, action))
+    wrap(async () => {
+      const result = await (await loadGcpSdk()).runGcpComputeInstanceAction(projectId, zone, instanceName, action)
+      await invalidateComputeInstanceCache(projectId, zone, instanceName)
+      return result
+    })
   )
   ipcMain.handle('gcp:compute-engine:resize', async (_event, projectId: string, zone: string, instanceName: string, machineType: string) =>
-    wrap(async () => (await loadGcpSdk()).resizeGcpComputeInstance(projectId, zone, instanceName, machineType))
+    wrap(async () => {
+      const result = await (await loadGcpSdk()).resizeGcpComputeInstance(projectId, zone, instanceName, machineType)
+      await invalidateComputeInstanceCache(projectId, zone, instanceName)
+      return result
+    })
   )
   ipcMain.handle('gcp:compute-engine:update-labels', async (_event, projectId: string, zone: string, instanceName: string, labels: Record<string, string>) =>
-    wrap(async () => (await loadGcpSdk()).updateGcpComputeInstanceLabels(projectId, zone, instanceName, labels))
+    wrap(async () => {
+      const result = await (await loadGcpSdk()).updateGcpComputeInstanceLabels(projectId, zone, instanceName, labels)
+      await invalidateComputeInstanceCache(projectId, zone, instanceName)
+      return result
+    })
   )
   ipcMain.handle('gcp:compute-engine:delete', async (_event, projectId: string, zone: string, instanceName: string) =>
-    wrap(async () => (await loadGcpSdk()).deleteGcpComputeInstance(projectId, zone, instanceName))
+    wrap(async () => {
+      const result = await (await loadGcpSdk()).deleteGcpComputeInstance(projectId, zone, instanceName)
+      await invalidateComputeInstanceCache(projectId, zone, instanceName)
+      return result
+    })
   )
   ipcMain.handle('gcp:compute-engine:get-serial-output', async (_event, projectId: string, zone: string, instanceName: string, port?: number, start?: number) =>
     wrap(async () => (await loadGcpSdk()).getGcpComputeSerialOutput(projectId, zone, instanceName, port, start))

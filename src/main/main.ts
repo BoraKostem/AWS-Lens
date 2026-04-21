@@ -7,6 +7,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, session } from 
 import { APP_DATA_DIRECTORY, PRODUCT_BRAND_NAME } from '@shared/branding'
 import { hasPendingAwsCredentialActivity, waitForAwsCredentialActivity } from './aws/client'
 import { assertEnterpriseAccess, recordEnterpriseAuditEvent } from './enterprise'
+import { initExporters, shutdownExporters } from './exporters'
 import { registerIpcHandlers } from './ipc'
 import { initializeObservability, logError, logInfo, logWarn } from './observability'
 import { registerProviderIpcHandlers } from './providerIpcRegistry'
@@ -244,6 +245,7 @@ app.whenReady().then(() => {
   registerIpcHandlers(() => mainWindow)
   registerProviderIpcHandlers({ getWindow: () => mainWindow })
   startReleaseCheck()
+  initExporters().catch((err) => logWarn('exporters.init', 'Failed to initialize exporters.', {}, err))
   createWindow()
 
   app.on('activate', () => {
@@ -273,7 +275,10 @@ app.on('before-quit', (e) => {
     isQuitting = true
   }
 
-  if (isQuitting || (pendingRequests.size === 0 && !hasPendingAwsCredentialActivity())) return
+  if (isQuitting || (pendingRequests.size === 0 && !hasPendingAwsCredentialActivity())) {
+    shutdownExporters().catch(() => { /* never block quit */ })
+    return
+  }
   e.preventDefault()
   if (isQuitting) return
   isQuitting = true
@@ -284,7 +289,8 @@ app.on('before-quit', (e) => {
       waitForAwsCredentialActivity(5000)
     ]),
     timeout
-  ]).then(() => {
+  ]).then(async () => {
+    await shutdownExporters().catch(() => { /* never block quit */ })
     app.quit()
   })
 })

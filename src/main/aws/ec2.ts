@@ -908,6 +908,7 @@ function toInstanceSummary(instance: Instance, managedInfo?: { PingStatus?: stri
     publicIp: instance.PublicIpAddress ?? '-',
     privateIp: instance.PrivateIpAddress ?? '-',
     iamProfile: instance.IamInstanceProfile?.Arn ?? '-',
+    amiId: instance.ImageId ?? '-',
     launchTime: instance.LaunchTime?.toISOString() ?? '-',
     ssmStatus: managedInfo ? (managedInfo.PingStatus === 'Online' ? 'managed-online' : 'managed-offline') : 'not-managed',
     ssmPingStatus: managedInfo?.PingStatus ?? '-',

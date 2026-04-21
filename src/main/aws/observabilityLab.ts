@@ -13,7 +13,7 @@ import type {
   TerraformProject
 } from '@shared/types'
 import { getTerraformDriftReport } from '../terraformDrift'
-import { getProject } from '../terraform'
+import { enrichTerragruntProjectInventory, getProject } from '../terraform'
 import { createTempEksKubeconfig, describeEksCluster, getEksMetricsSnapshot, listEksNodegroups, type EksMetricsSnapshot } from './eks'
 import { getServiceDiagnostics } from './ecs'
 import { logWarn } from '../observability'
@@ -1026,7 +1026,13 @@ export async function generateTerraformObservabilityReport(
   projectId: string,
   connection: AwsConnection
 ): Promise<ObservabilityPostureReport> {
-  const project = await getProject(profileName, projectId)
+  const baseProject = await getProject(profileName, projectId)
+  // Observability scoring divides by inventory counts (log group / alarm / telemetry resources
+  // over total). Empty inventory from loadProject (terragrunt + remote backend) yields zero
+  // scores and misleading "Workspace heuristic: log groups absent" findings. Enrich first.
+  const project = (baseProject.kind === 'terragrunt-unit' || baseProject.kind === 'terragrunt-stack')
+    ? { ...baseProject, inventory: await enrichTerragruntProjectInventory(profileName, connection, baseProject) }
+    : baseProject
   let drift: TerraformDriftReport | null = null
   try {
     drift = await getTerraformDriftReport(profileName, projectId, connection)

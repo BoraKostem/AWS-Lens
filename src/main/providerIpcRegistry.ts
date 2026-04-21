@@ -18,6 +18,7 @@ import { registerServiceIpcHandlers } from './serviceIpc'
 import { registerSgIpcHandlers } from './sgIpc'
 import { registerTerminalIpcHandlers } from './terminalIpc'
 import { registerTerraformIpcHandlers } from './terraformIpc'
+import { registerTerragruntIpcHandlers } from './terragruntIpc'
 import { registerVpcIpcHandlers } from './vpcIpc'
 
 type ProviderIpcRegistrationContext = {
@@ -60,6 +61,7 @@ function registerAwsProviderHandlers(context: ProviderIpcRegistrationContext): v
   registerSgIpcHandlers()
   registerTerminalIpcHandlers()
   registerTerraformIpcHandlers(context.getWindow)
+  registerTerragruntIpcHandlers(context.getWindow)
   registerVpcIpcHandlers()
 }
 
@@ -86,6 +88,7 @@ export const PROVIDER_IPC_REGISTRY: Record<CloudProviderId, ProviderIpcRegistryE
     capabilityGroups: ['terraform'],
     registerHandlers: (context) => {
       registerTerraformIpcHandlers(context.getWindow)
+      registerTerragruntIpcHandlers(context.getWindow)
     }
   },
   azure: {

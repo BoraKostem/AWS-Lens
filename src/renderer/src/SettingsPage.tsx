@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { CollapsibleInfoPanel } from './CollapsibleInfoPanel'
+import { ExportersSettingsPanel } from './ExportersSettingsPanel'
 import { ProviderPermissionDiagnosticsPanel } from './ProviderPermissionDiagnosticsPanel'
 import { VaultManagerPanel } from './VaultManagerPanel'
 
@@ -24,7 +25,7 @@ import type {
 } from '@shared/types'
 import type { ProviderPermissionDiagnosticsReport } from './providerPermissionDiagnostics'
 
-type SettingsTab = 'general' | 'terminal' | 'refresh' | 'governance' | 'toolchain' | 'updates' | 'security'
+type SettingsTab = 'general' | 'terminal' | 'refresh' | 'governance' | 'toolchain' | 'updates' | 'security' | 'exporters'
 
 type SettingsPageProps = {
   isVisible: boolean
@@ -79,7 +80,8 @@ const TAB_ITEMS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'governance', label: 'Governance' },
   { id: 'toolchain', label: 'Toolchain' },
   { id: 'updates', label: 'Updates' },
-  { id: 'security', label: 'Security' }
+  { id: 'security', label: 'Security' },
+  { id: 'exporters', label: 'Exporters' }
 ]
 
 const GENERAL_LAUNCH_SCREEN_OPTIONS: Array<{ value: AppSettings['general']['launchScreen']; label: string }> = [
@@ -238,6 +240,7 @@ export function SettingsPage({
     preferredTerraformCliKind: '',
     terraformPathOverride: '',
     opentofuPathOverride: '',
+    terragruntPathOverride: '',
     awsCliPathOverride: '',
     gcloudPathOverride: '',
     azureCliPathOverride: '',
@@ -749,6 +752,14 @@ export function SettingsPage({
               disabled={!appSettings || toolchainBusy}
             />
           </SettingRow>
+          <SettingRow label="Terragrunt path override">
+            <input
+              value={toolchainDraft.terragruntPathOverride}
+              onChange={(event) => setToolchainDraft((current) => ({ ...current, terragruntPathOverride: event.target.value }))}
+              placeholder="Optional executable path"
+              disabled={!appSettings || toolchainBusy}
+            />
+          </SettingRow>
           <SettingRow label="AWS CLI path override">
             <input
               value={toolchainDraft.awsCliPathOverride}
@@ -1086,6 +1097,8 @@ export function SettingsPage({
         return renderUpdatesTab()
       case 'security':
         return renderSecurityTab()
+      case 'exporters':
+        return <ExportersSettingsPanel isVisible={isVisible && activeTab === 'exporters'} />
       case 'general':
       default:
         return renderGeneralTab()
@@ -1142,6 +1155,7 @@ export function SettingsPage({
               {activeTab === 'toolchain' && <p>Toolchain settings define which local CLI the shell should prefer and let you override Terraform, AWS, Google Cloud, and Azure executable paths when workstation PATH state is inconsistent.</p>}
               {activeTab === 'updates' && <p>Update preferences let you pin stable versus preview behavior, check release state manually, and decide whether packages download automatically.</p>}
               {activeTab === 'security' && <p>Security is the operational control plane for workspace mode, vault inventory, secret handling, audit export, diagnostics export, and active session review.</p>}
+              {activeTab === 'exporters' && <p>Exporters push audit events and Terraform run records to Prometheus (metrics) and Elasticsearch or OpenSearch (documents). All data passes through the configured redaction policy before leaving the desktop.</p>}
             </div>
           </CollapsibleInfoPanel>
 

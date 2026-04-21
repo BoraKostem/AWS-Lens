@@ -346,7 +346,7 @@ function computeActionAvailability(detail: GcpComputeInstanceDetail | null): {
     canReset: status === 'RUNNING',
     canSuspend: status === 'RUNNING' && supportsSuspend,
     canResume: status === 'SUSPENDED',
-    canResize: status === 'TERMINATED'
+    canResize: status === 'TERMINATED' || status === 'RUNNING'
   }
 }
 
@@ -577,7 +577,21 @@ export function GcpComputeEngineConsolePage({
       let result: GcpComputeOperationResult
 
       if (action === 'resize') {
-        result = await resizeGcpComputeInstance(projectId, selectedInstance.zone, selectedInstance.name, resizeTarget)
+        const currentStatus = detail?.status.trim().toUpperCase() ?? ''
+        const wasRunning = currentStatus === 'RUNNING'
+        if (wasRunning) {
+          await runGcpComputeInstanceAction(projectId, selectedInstance.zone, selectedInstance.name, 'stop')
+        }
+        try {
+          result = await resizeGcpComputeInstance(projectId, selectedInstance.zone, selectedInstance.name, resizeTarget)
+        } finally {
+          if (wasRunning) {
+            await runGcpComputeInstanceAction(projectId, selectedInstance.zone, selectedInstance.name, 'start').catch(() => undefined)
+          }
+        }
+        if (wasRunning) {
+          result = { ...result, summary: `${result.summary} Instance stopped and restarted to apply the change.` }
+        }
       } else if (action === 'labels') {
         result = await updateGcpComputeInstanceLabels(projectId, selectedInstance.zone, selectedInstance.name, parseLabelEditor(labelEditor))
       } else if (action === 'delete') {
@@ -973,7 +987,7 @@ export function GcpComputeEngineConsolePage({
 
                     <div className="ec2-sidebar-section">
                       <h3>Resize Instance</h3>
-                      <div className="ec2-sidebar-hint">The instance must be stopped before a machine type change can be applied.</div>
+                      <div className="ec2-sidebar-hint">{selectedStatus === 'RUNNING' ? 'Running instances will be stopped and restarted automatically to apply the new machine type.' : 'Machine type changes are applied while the instance is stopped.'}</div>
                       <div className="gcp-runtime-form-grid gcp-ec2-inline-form">
                         <label className="ec2-filter-field">
                           <span className="ec2-filter-label">Machine Type</span>
@@ -983,9 +997,24 @@ export function GcpComputeEngineConsolePage({
                             ))}
                           </select>
                         </label>
-                        <button type="button" className="ec2-action-btn apply" disabled={!actionAvailability.canResize || !resizeTarget || resizeTarget === selectedMachine || mutationLoading !== null} onClick={() => void runMutation('resize')}>
-                          {mutationLoading === 'resize' ? 'Applying...' : 'Apply resize'}
-                        </button>
+                        {selectedStatus === 'RUNNING' ? (
+                          <ConfirmButton
+                            className="ec2-action-btn apply"
+                            disabled={!actionAvailability.canResize || !resizeTarget || resizeTarget === selectedMachine || mutationLoading !== null}
+                            confirmLabel="Confirm resize"
+                            confirmButtonLabel="Stop, resize, restart"
+                            modalTitle="Resize Compute Engine instance"
+                            modalBody={`Resize ${selectedInstance.name} from ${selectedMachine} to ${resizeTarget}? The instance will be stopped, reconfigured, and restarted automatically. Workloads will be interrupted during the resize.`}
+                            summaryItems={[`Project: ${projectId}`, `Zone: ${selectedInstance.zone}`, `Lifecycle: ${selectedStatus}`, `Target: ${resizeTarget}`]}
+                            onConfirm={() => void runMutation('resize')}
+                          >
+                            {mutationLoading === 'resize' ? 'Applying...' : 'Apply resize'}
+                          </ConfirmButton>
+                        ) : (
+                          <button type="button" className="ec2-action-btn apply" disabled={!actionAvailability.canResize || !resizeTarget || resizeTarget === selectedMachine || mutationLoading !== null} onClick={() => void runMutation('resize')}>
+                            {mutationLoading === 'resize' ? 'Applying...' : 'Apply resize'}
+                          </button>
+                        )}
                       </div>
                       <div className="gcp-runtime-chip-row">
                         <span className="signal-badge severity-low">Current: {selectedMachine}</span>

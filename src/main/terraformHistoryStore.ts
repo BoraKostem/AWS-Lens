@@ -4,6 +4,7 @@ import path from 'node:path'
 import { app } from 'electron'
 import type { TerraformRunRecord, TerraformRunHistoryFilter } from '@shared/types'
 import { logWarn } from './observability'
+import { exportRunRecord } from './exporters'
 
 const MAX_RECORDS = 500
 
@@ -90,6 +91,7 @@ export function saveRunRecord(record: TerraformRunRecord, output: string): void 
 
   writeIndex(trimmed)
   fs.writeFileSync(outputFilePath(record.id), output, 'utf-8')
+  exportRunRecord(record)
 }
 
 export function updateRunRecord(id: string, updates: Partial<TerraformRunRecord>, output?: string): void {
@@ -103,6 +105,8 @@ export function updateRunRecord(id: string, updates: Partial<TerraformRunRecord>
     ensureOutputDir()
     fs.writeFileSync(outputFilePath(id), output, 'utf-8')
   }
+
+  exportRunRecord(records[idx])
 }
 
 export function listRunRecords(filter?: TerraformRunHistoryFilter): TerraformRunRecord[] {

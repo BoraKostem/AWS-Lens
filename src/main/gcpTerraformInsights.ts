@@ -19,7 +19,7 @@ import type {
   TerraformProject,
   TerraformResourceInventoryItem
 } from '@shared/types'
-import { getCachedCliInfo, getProject } from './terraform'
+import { enrichTerragruntProjectInventory, getCachedCliInfo, getProject, loadTerragruntUnitInventory, type TerragruntUnitInventoryResult } from './terraform'
 import { createTraceContext, withAudit } from './terraformAudit'
 import {
   getGcpBillingOverview,
@@ -162,11 +162,16 @@ function sortReport(report: ObservabilityPostureReport): ObservabilityPostureRep
 function parseGcpContext(profileName: string, project: TerraformProject, connection?: AwsConnection): GcpTerraformContext {
   const match = profileName.match(/^provider:gcp:terraform:([^:]+):(.+)$/)
   const inventoryProjectId = project.inventory.map((item) => str(item.values.project) || str(item.values.project_id)).find(Boolean)
+  // Prefer the project ID from terraform state over the connection profile. The profile
+  // name is often an AWS-style label ("aws-lens", etc.) that doesn't map to a real GCP
+  // project — passing it to the Compute API returns an empty inventory, which surfaces
+  // as every resource being "missing in GCP" even when it's running. State values carry
+  // the authoritative project reference whenever the unit has applied resources.
   const projectId = [
-    connection?.profile,
+    inventoryProjectId,
     match?.[1] && match[1] !== 'unscoped' ? match[1] : '',
     str(project.environment.connectionLabel),
-    inventoryProjectId
+    connection?.profile
   ].find((value) => value && value !== 'gcp' && !/local shell/i.test(value)) ?? ''
   const location = [
     firstLocationSegment(connection?.region ?? ''),
@@ -967,13 +972,86 @@ function inventoryText(project: TerraformProject): string {
   return project.inventory.map((item) => `${item.address} ${item.type} ${JSON.stringify(item.values)}`).join('\n').toLowerCase()
 }
 
+/**
+ * Per-unit Terragrunt drift reporter for GCP. Pulls the unit's state, substitutes it
+ * into a copy of the stack-level project, then delegates to the shared drift logic.
+ *
+ * Factored out as a separate function from `getGcpTerraformDriftReport` because
+ * esbuild's whole-program DCE was aggressively eliminating the unit-override branch
+ * when it observed other callers (observability, polymorphic provider) passing only
+ * 3 args — it concluded `unitPathOverride` was always undefined and stripped the
+ * substitution code. Making `unitPath` a required param here blocks that inference.
+ */
+export async function getGcpTerragruntUnitDriftReport(
+  profileName: string,
+  projectId: string,
+  connection: AwsConnection | undefined,
+  unitPath: string,
+  preloadedInventory: TerragruntUnitInventoryResult | null
+): Promise<TerraformDriftReport> {
+  const baseProject = await getProject(profileName, projectId)
+  const pulled = preloadedInventory ?? await loadTerragruntUnitInventory(profileName, projectId, connection, unitPath)
+  if (pulled.error) {
+    throw new Error(pulled.error)
+  }
+  let hasManaged = false
+  for (const item of pulled.inventory) {
+    if (item.mode === 'managed') { hasManaged = true; break }
+  }
+  if (!hasManaged) {
+    throw new Error([
+      `State pull for ${unitPath} returned no managed resources.`,
+      `stateSource=${pulled.stateSource || '(empty)'}, rawBytes=${pulled.rawStateJson.length}.`,
+      'If the unit was applied successfully, the state object exists but parsing dropped every resource — share this message so it can be fixed.',
+      'If the unit was never applied, run `terragrunt apply` on it first.'
+    ].join('\n'))
+  }
+  const project: TerraformProject = {
+    ...baseProject,
+    inventory: pulled.inventory,
+    stateAddresses: pulled.stateAddresses,
+    rawStateJson: pulled.rawStateJson,
+    stateSource: pulled.stateSource || baseProject.stateSource
+  }
+  return runGcpDriftReport(profileName, project, connection, unitPath)
+}
+
 export async function getGcpTerraformDriftReport(
   profileName: string,
   projectId: string,
   connection?: AwsConnection,
   _options?: { forceRefresh?: boolean }
 ): Promise<TerraformDriftReport> {
-  const project = await getProject(profileName, projectId)
+  const baseProject = await getProject(profileName, projectId)
+  // loadProject only reads local state files. For terragrunt projects with a remote backend
+  // (GCS / TFC / cloud) baseProject.inventory is empty, which makes every live GCP resource
+  // look `unmanaged_in_aws`. Pull state explicitly: unit projects throw loud on failure so
+  // the UI shows a real error; stacks aggregate across all discovered units and tolerate
+  // per-unit failures.
+  const project: TerraformProject = baseProject.kind === 'terragrunt-unit'
+    ? await (async () => {
+        const pulled = await loadTerragruntUnitInventory(profileName, projectId, connection, baseProject.rootPath)
+        if (pulled.error) throw new Error(pulled.error)
+        return {
+          ...baseProject,
+          inventory: pulled.inventory,
+          stateAddresses: pulled.stateAddresses,
+          rawStateJson: pulled.rawStateJson,
+          stateSource: pulled.stateSource || baseProject.stateSource
+        }
+      })()
+    : baseProject.kind === 'terragrunt-stack'
+      ? { ...baseProject, inventory: await enrichTerragruntProjectInventory(profileName, connection, baseProject) }
+      : baseProject
+  return runGcpDriftReport(profileName, project, connection)
+}
+
+async function runGcpDriftReport(
+  profileName: string,
+  project: TerraformProject,
+  connection: AwsConnection | undefined,
+  unitScopeLabel: string = ''
+): Promise<TerraformDriftReport> {
   const auditCtx = createTraceContext({
     operation: 'drift-report',
     provider: 'gcp',
@@ -1357,6 +1435,13 @@ export async function getGcpTerraformDriftReport(
         const liveInstance = (live.computeInstances ?? []).find((entry) => entry.name === name)
         const liveDetail = live.computeInstanceDetails?.[recordKey(zone || liveInstance?.zone || '', name)] ?? null
         const differences: TerraformDriftDifference[] = []
+        // Runtime status comparison. `current_status` is what terraform recorded at the last
+        // refresh; `desired_status` is the user-set target. If the live instance has been
+        // stopped/terminated out-of-band, this is where that shows up as drift.
+        const stateStatus = str(item.values.current_status) || str(item.values.desired_status)
+        if (stateStatus || liveInstance?.status) {
+          compareValues(differences, 'status', 'Status', stateStatus, str(liveInstance?.status))
+        }
         compareValues(differences, 'zone', 'Zone', zone, str(liveInstance?.zone))
         compareValues(differences, 'machineType', 'Machine Type', normalizeResourceBasename(str(item.values.machine_type)), str(liveInstance?.machineType))
         compareValues(differences, 'network', 'Network', normalizeResourceBasename(str(getPathValue(item.values, ['network_interface', 0, 'network']))), str(liveDetail?.networks[0]?.network))
@@ -1867,42 +1952,49 @@ export async function getGcpTerraformDriftReport(
     }
   }
 
-  const managedAddressSet = new Set(managedInventory.map((item) => `${item.type}:${str(item.values.name) || str(item.values.account_id) || item.name}`))
-  const managedClusterNames = managedInventory
-    .filter((item) => item.type === 'google_container_cluster')
-    .map((item) => str(item.values.name) || item.name)
-    .filter(Boolean)
-  for (const entry of live.computeInstances ?? []) {
-    if (isManagedGkeNodeInstance(entry.name, managedClusterNames)) {
-      continue
+  // For a per-unit Terragrunt drift scan, skip the project-wide "unmanaged" sweep entirely.
+  // A single unit only owns a slice of the project; everything else (other units, other
+  // Terraform projects, manually-created resources) would get falsely flagged as unmanaged
+  // from this unit's perspective. Only surface unmanaged items for project-wide scans where
+  // the inventory actually represents the full Terraform footprint.
+  if (!unitScopeLabel) {
+    const managedAddressSet = new Set(managedInventory.map((item) => `${item.type}:${str(item.values.name) || str(item.values.account_id) || item.name}`))
+    const managedClusterNames = managedInventory
+      .filter((item) => item.type === 'google_container_cluster')
+      .map((item) => str(item.values.name) || item.name)
+      .filter(Boolean)
+    for (const entry of live.computeInstances ?? []) {
+      if (isManagedGkeNodeInstance(entry.name, managedClusterNames)) {
+        continue
+      }
+      if (!managedAddressSet.has(`google_compute_instance:${entry.name}`)) {
+        items.push(buildUnmanagedItem('google_compute_instance', entry.name, entry.name, entry.zone || context.location, context, [`Status: ${entry.status}`, `Machine type: ${entry.machineType}`], 'A live Compute Engine instance was found without a matching Terraform-managed resource.'))
+      }
     }
-    if (!managedAddressSet.has(`google_compute_instance:${entry.name}`)) {
-      items.push(buildUnmanagedItem('google_compute_instance', entry.name, entry.name, entry.zone || context.location, context, [`Status: ${entry.status}`, `Machine type: ${entry.machineType}`], 'A live Compute Engine instance was found without a matching Terraform-managed resource.'))
+    for (const entry of live.gkeClusters ?? []) {
+      if (!managedAddressSet.has(`google_container_cluster:${entry.name}`)) {
+        items.push(buildUnmanagedItem('google_container_cluster', entry.name, entry.name, entry.location || context.location, context, [`Status: ${entry.status}`, `Release channel: ${entry.releaseChannel || '-'}`], 'A live GKE cluster exists outside the current Terraform inventory.'))
+      }
     }
-  }
-  for (const entry of live.gkeClusters ?? []) {
-    if (!managedAddressSet.has(`google_container_cluster:${entry.name}`)) {
-      items.push(buildUnmanagedItem('google_container_cluster', entry.name, entry.name, entry.location || context.location, context, [`Status: ${entry.status}`, `Release channel: ${entry.releaseChannel || '-'}`], 'A live GKE cluster exists outside the current Terraform inventory.'))
+    for (const entry of live.storageBuckets ?? []) {
+      if (!managedAddressSet.has(`google_storage_bucket:${entry.name}`)) {
+        items.push(buildUnmanagedItem('google_storage_bucket', entry.name, entry.name, entry.location || context.location, context, [`Storage class: ${entry.storageClass}`, `Versioning: ${entry.versioningEnabled ? 'enabled' : 'disabled'}`], 'A live Cloud Storage bucket exists without a matching Terraform-managed bucket resource.'))
+      }
     }
-  }
-  for (const entry of live.storageBuckets ?? []) {
-    if (!managedAddressSet.has(`google_storage_bucket:${entry.name}`)) {
-      items.push(buildUnmanagedItem('google_storage_bucket', entry.name, entry.name, entry.location || context.location, context, [`Storage class: ${entry.storageClass}`, `Versioning: ${entry.versioningEnabled ? 'enabled' : 'disabled'}`], 'A live Cloud Storage bucket exists without a matching Terraform-managed bucket resource.'))
+    for (const entry of live.sqlInstances ?? []) {
+      if (!managedAddressSet.has(`google_sql_database_instance:${entry.name}`)) {
+        items.push(buildUnmanagedItem('google_sql_database_instance', entry.name, entry.name, entry.region || context.location, context, [`State: ${entry.state}`, `Engine: ${entry.databaseVersion}`], 'A live Cloud SQL instance exists outside the current Terraform inventory.'))
+      }
     }
-  }
-  for (const entry of live.sqlInstances ?? []) {
-    if (!managedAddressSet.has(`google_sql_database_instance:${entry.name}`)) {
-      items.push(buildUnmanagedItem('google_sql_database_instance', entry.name, entry.name, entry.region || context.location, context, [`State: ${entry.state}`, `Engine: ${entry.databaseVersion}`], 'A live Cloud SQL instance exists outside the current Terraform inventory.'))
-    }
-  }
-  for (const entry of live.serviceAccounts ?? []) {
-    if (shouldIgnoreUnmanagedServiceAccount(entry.email, entry.displayName)) {
-      continue
-    }
-    const emailKey = `google_service_account:${entry.email}`
-    const accountKey = `google_service_account:${entry.email.split('@')[0] || entry.email}`
-    if (!managedAddressSet.has(emailKey) && !managedAddressSet.has(accountKey)) {
-      items.push(buildUnmanagedItem('google_service_account', entry.displayName || entry.email, entry.email, context.location, context, [`Disabled: ${entry.disabled ? 'yes' : 'no'}`], 'A live service account exists without a matching Terraform-managed service account resource.'))
+    for (const entry of live.serviceAccounts ?? []) {
+      if (shouldIgnoreUnmanagedServiceAccount(entry.email, entry.displayName)) {
+        continue
+      }
+      const emailKey = `google_service_account:${entry.email}`
+      const accountKey = `google_service_account:${entry.email.split('@')[0] || entry.email}`
+      if (!managedAddressSet.has(emailKey) && !managedAddressSet.has(accountKey)) {
+        items.push(buildUnmanagedItem('google_service_account', entry.displayName || entry.email, entry.email, context.location, context, [`Disabled: ${entry.disabled ? 'yes' : 'no'}`], 'A live service account exists without a matching Terraform-managed service account resource.'))
+      }
     }
   }
 
@@ -1916,7 +2008,7 @@ export async function getGcpTerraformDriftReport(
   }
 
   return {
-    projectId,
+    projectId: project.id,
     projectName: project.name,
     profileName,
     region: context.location,
@@ -1956,7 +2048,13 @@ export async function generateGcpTerraformObservabilityReport(
   projectId: string,
   connection?: AwsConnection
 ): Promise<ObservabilityPostureReport> {
-  const project = await getProject(profileName, projectId)
+  const baseProject = await getProject(profileName, projectId)
+  // Observability scoring counts which resource types are present (hasResource, inventoryText).
+  // An empty inventory from loadProject (terragrunt + remote backend) would produce a misleading
+  // "no logging / no monitoring / no telemetry" report. Enrich from unit state before scoring.
+  const project: TerraformProject = (baseProject.kind === 'terragrunt-unit' || baseProject.kind === 'terragrunt-stack')
+    ? { ...baseProject, inventory: await enrichTerragruntProjectInventory(profileName, connection, baseProject) }
+    : baseProject
   const context = parseGcpContext(profileName, project, connection)
   if (!context.projectId) {
     throw new Error('Choose a GCP project context before loading the Terraform lab.')

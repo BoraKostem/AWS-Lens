@@ -4,12 +4,13 @@ import type {
   TerraformDriftDifference,
   TerraformDriftItem,
   TerraformDriftReport,
-  TerraformDriftStatus
+  TerraformDriftStatus,
+  TerraformProject
 } from '@shared/types'
 import {
   listAzureEventHubs
 } from './index'
-import { getProject } from '../terraform'
+import { enrichTerragruntProjectInventory, getProject, loadTerragruntUnitInventory, type TerragruntUnitInventoryResult } from '../terraform'
 import { createTraceContext, withAudit } from '../terraformAudit'
 import {
   type AksClusterKey,
@@ -41,13 +42,81 @@ import {
   terminalCommand
 } from './terraformShared'
 
+/**
+ * Per-unit Terragrunt drift reporter for Azure. Same rationale as the GCP equivalent:
+ * a separate function with required `unitPath` prevents esbuild's whole-program DCE
+ * from eliminating the unit-scope substitution branch.
+ */
+export async function getAzureTerragruntUnitDriftReport(
+  profileName: string,
+  projectId: string,
+  connection: AwsConnection | undefined,
+  unitPath: string,
+  preloadedInventory: TerragruntUnitInventoryResult | null
+): Promise<TerraformDriftReport> {
+  const baseProject = await getProject(profileName, projectId, connection)
+  const pulled = preloadedInventory ?? await loadTerragruntUnitInventory(profileName, projectId, connection, unitPath)
+  if (pulled.error) {
+    throw new Error(pulled.error)
+  }
+  let hasManaged = false
+  for (const item of pulled.inventory) {
+    if (item.mode === 'managed') { hasManaged = true; break }
+  }
+  if (!hasManaged) {
+    throw new Error([
+      `State pull for ${unitPath} returned no managed resources.`,
+      `stateSource=${pulled.stateSource || '(empty)'}, rawBytes=${pulled.rawStateJson.length}.`,
+      'If the unit was applied successfully, the state object exists but parsing dropped every resource — share this message so it can be fixed.',
+      'If the unit was never applied, run `terragrunt apply` on it first.'
+    ].join('\n'))
+  }
+  const project: TerraformProject = {
+    ...baseProject,
+    inventory: pulled.inventory,
+    stateAddresses: pulled.stateAddresses,
+    rawStateJson: pulled.rawStateJson,
+    stateSource: pulled.stateSource || baseProject.stateSource
+  }
+  return runAzureDriftReport(profileName, project, connection, unitPath)
+}
+
 export async function getAzureTerraformDriftReport(
   profileName: string,
   projectId: string,
   connection?: AwsConnection,
   _options?: { forceRefresh?: boolean }
 ): Promise<TerraformDriftReport> {
-  const project = await getProject(profileName, projectId, connection)
+  const baseProject = await getProject(profileName, projectId, connection)
+  // Same rationale as getGcpTerraformDriftReport: loadProject only reads local state files, so
+  // a terragrunt project with a remote backend lands here with an empty inventory and every
+  // live Azure resource reads as "missing from state". For terragrunt-unit we pull the single
+  // unit (hard error surfaces to UI); for terragrunt-stack we aggregate across all discovered
+  // units with per-unit failures tolerated.
+  const project: TerraformProject = baseProject.kind === 'terragrunt-unit'
+    ? await (async () => {
+        const pulled = await loadTerragruntUnitInventory(profileName, projectId, connection, baseProject.rootPath)
+        if (pulled.error) throw new Error(pulled.error)
+        return {
+          ...baseProject,
+          inventory: pulled.inventory,
+          stateAddresses: pulled.stateAddresses,
+          rawStateJson: pulled.rawStateJson,
+          stateSource: pulled.stateSource || baseProject.stateSource
+        }
+      })()
+    : baseProject.kind === 'terragrunt-stack'
+      ? { ...baseProject, inventory: await enrichTerragruntProjectInventory(profileName, connection, baseProject) }
+      : baseProject
+  return runAzureDriftReport(profileName, project, connection, '')
+}
+
+async function runAzureDriftReport(
+  profileName: string,
+  project: TerraformProject,
+  connection: AwsConnection | undefined,
+  unitScopeLabel: string
+): Promise<TerraformDriftReport> {
   const auditCtx = createTraceContext({
     operation: 'drift-report',
     provider: 'azure',

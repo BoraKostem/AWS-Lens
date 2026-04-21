@@ -6,7 +6,7 @@ import type {
   ObservabilityPostureReport,
   ObservabilityRecommendation
 } from '@shared/types'
-import { getProject } from '../terraform'
+import { enrichTerragruntProjectInventory, getProject } from '../terraform'
 import { parseAzureContext, str } from './terraformShared'
 
 function postureArea(id: string, label: string, value: string, tone: ObservabilityPostureArea['tone'], detail: string): ObservabilityPostureArea {
@@ -49,7 +49,12 @@ export async function generateAzureTerraformObservabilityReport(
   projectId: string,
   connection?: AwsConnection
 ): Promise<ObservabilityPostureReport> {
-  const project = await getProject(profileName, projectId, connection)
+  const baseProject = await getProject(profileName, projectId, connection)
+  // loadProject's inventory is empty for terragrunt + remote backend. Without the pull the
+  // resource-count heuristics below read zero Azure resources and emit misleading findings.
+  const project = (baseProject.kind === 'terragrunt-unit' || baseProject.kind === 'terragrunt-stack')
+    ? { ...baseProject, inventory: await enrichTerragruntProjectInventory(profileName, connection, baseProject) }
+    : baseProject
   const context = parseAzureContext(profileName, project, connection)
   const azureResources = project.inventory.filter((item) => item.mode === 'managed' && item.type.startsWith('azurerm_'))
   const monitorCount = azureResources.filter((item) => item.type.includes('monitor_') || item.type.includes('log_analytics_')).length

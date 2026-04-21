@@ -1214,12 +1214,13 @@
 .s3-object-table th {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 2;
   padding: 10px 12px;
   text-align: left;
   color: #8fa3ba;
-  background: rgba(9, 15, 23, 0.92);
+  background: #0b1119;
   border-bottom: 1px solid rgba(145, 176, 207, 0.08);
+  box-shadow: 0 1px 0 rgba(145, 176, 207, 0.08);
 }
 
 .s3-object-table td {

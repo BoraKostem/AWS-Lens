@@ -13,6 +13,8 @@ import type {
   TerraformCliOption,
   TerraformCommandLog,
   TerraformCommandRequest,
+  TerraformProjectKind,
+  TerragruntProjectInfo,
   TerraformGitChangedFile,
   TerraformGitCommitMetadata,
   TerraformGitStatus,
@@ -65,6 +67,20 @@ import { createTraceContext, logRunCompleted, logRunFailed, logRunStarted } from
 import { classifyTerraformError } from './terraformErrorClassifier'
 import { getPreferredTerraformCliKindSetting, listToolCommandCandidates } from './toolchain'
 import { readAzureFoundationStore } from './azureFoundationStore'
+import { findEffectiveRemoteState, scanForTerragrunt } from './terragruntDiscovery'
+import {
+  buildTerragruntCommandArgs,
+  cancelRunAll as cancelTerragruntRunAll,
+  clearAllSavedTerragruntPlansForProject,
+  clearSavedTerragruntPlan,
+  ensureTerragruntPlanFilePath,
+  pullTerragruntState,
+  recordTerragruntSavedPlan,
+  resolveStack,
+  resolveTerragruntExecutable,
+  startRunAll as startTerragruntRunAllEngine
+} from './terragrunt'
+import type { TerragruntRunAllCommand } from '@shared/types'
 
 /* ── Stored project shape (persistence) ───────────────────── */
 
@@ -604,16 +620,46 @@ export async function setActiveTerraformCli(kind: TerraformCliKind): Promise<Ter
 
 /* ── S3 Backend Parsing ───────────────────────────────────── */
 
-function parseS3Backend(rootPath: string): TerraformS3BackendConfig | null {
+type BackendConfigSummary = Record<string, string>
+
+function unescapeBackendString(value: string): string {
+  return value
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\r')
+    .replace(/\\t/g, '\t')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\')
+}
+
+function parseBackendAttributes(body: string): BackendConfigSummary {
+  const attrs: BackendConfigSummary = {}
+  const attrRe = /(\w+)\s*=\s*("((?:\\.|[^"\\])*)"|[^\n,]+)/g
+  let attrMatch: RegExpExecArray | null
+  while ((attrMatch = attrRe.exec(body)) !== null) {
+    const key = attrMatch[1]
+    const quotedValue = attrMatch[3]
+    const rawValue = attrMatch[2]?.trim() ?? ''
+    attrs[key] = quotedValue !== undefined
+      ? unescapeBackendString(quotedValue)
+      : rawValue.replace(/,$/, '').trim()
+  }
+  return attrs
+}
+
+function parseBackendConfig(rootPath: string, backendType: string): BackendConfigSummary {
   const tfFiles = listTerraformFiles(rootPath)
   const combined = tfFiles.map(readText).join('\n')
-  const match = combined.match(/backend\s+"s3"\s*\{([\s\S]*?)\}/)
-  if (!match) return null
-  const body = match[1]
-  const bucket = body.match(/bucket\s*=\s*"([^"]*)"/)?.[1] ?? ''
-  const key = body.match(/key\s*=\s*"([^"]*)"/)?.[1] ?? ''
-  const region = body.match(/region\s*=\s*"([^"]*)"/)?.[1] ?? ''
-  const workspaceKeyPrefix = body.match(/workspace_key_prefix\s*=\s*"([^"]*)"/)?.[1] ?? 'env:'
+  const escapedType = backendType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = combined.match(new RegExp(`backend\\s+"${escapedType}"\\s*\\{([\\s\\S]*?)\\}`))
+  return match ? parseBackendAttributes(match[1]) : {}
+}
+
+function parseS3Backend(rootPath: string): TerraformS3BackendConfig | null {
+  const attrs = parseBackendConfig(rootPath, 's3')
+  const bucket = attrs.bucket ?? ''
+  const key = attrs.key ?? ''
+  const region = attrs.region ?? ''
+  const workspaceKeyPrefix = attrs.workspace_key_prefix ?? 'env:'
   if (!bucket || !key) return null
   return { bucket, key, region, workspaceKeyPrefix }
 }
@@ -625,7 +671,55 @@ function resolveS3StateKey(config: TerraformS3BackendConfig, rootPath: string): 
   return `${config.workspaceKeyPrefix}/${workspace}/${config.key}`
 }
 
-function buildBackendDetails(rootPath: string, backendType: string, s3Backend: TerraformS3BackendConfig | null): TerraformProjectMetadata['backend'] {
+function normalizeBackendPart(value: string): string {
+  return value.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+}
+
+function joinBackendParts(parts: string[]): string {
+  return parts.map(normalizeBackendPart).filter(Boolean).join('/')
+}
+
+function labelForCloudBackend(backendType: string, config: BackendConfigSummary): string {
+  switch (backendType) {
+    case 'gcs': {
+      const bucket = config.bucket ?? ''
+      if (!bucket) return 'GCS remote state'
+      const tail = joinBackendParts([bucket, config.prefix ?? ''])
+      return `gs://${tail}`
+    }
+    case 's3': {
+      const bucket = config.bucket ?? ''
+      if (!bucket) return 'S3 remote state'
+      const tail = joinBackendParts([bucket, config.key ?? ''])
+      return `s3://${tail}`
+    }
+    case 'azurerm': {
+      const account = config.storage_account_name ?? ''
+      const container = config.container_name ?? ''
+      const key = config.key ?? ''
+      if (!account && !container && !key) return 'AzureRM remote state'
+      return `azurerm://${joinBackendParts([account, container, key])}`
+    }
+    case 'http':
+      return config.address || 'HTTP remote state'
+    case 'remote': {
+      const organization = config.organization ?? ''
+      const workspace = config.name ?? config.prefix ?? ''
+      return organization || workspace
+        ? `remote://${joinBackendParts([organization, workspace])}`
+        : 'Terraform Cloud remote state'
+    }
+    default:
+      return backendType
+  }
+}
+
+function buildBackendDetails(
+  rootPath: string,
+  backendType: string,
+  s3Backend: TerraformS3BackendConfig | null,
+  backendConfig: BackendConfigSummary
+): TerraformProjectMetadata['backend'] {
   if (backendType === 's3' && s3Backend) {
     return {
       ...s3Backend,
@@ -641,10 +735,96 @@ function buildBackendDetails(rootPath: string, backendType: string, s3Backend: T
       stateLocation: path.join(rootPath, 'terraform.tfstate')
     }
   }
+  const cloudLabel = labelForCloudBackend(backendType, backendConfig)
   return {
     type: backendType,
-    label: backendType,
+    label: cloudLabel,
     summary: `Backend type ${backendType}`
+  }
+}
+
+function extractFirstHclBlock(source: string, keyword: string): string {
+  const match = new RegExp(`\\b${keyword}\\s*\\{`, 'g').exec(source)
+  if (!match) return ''
+  let depth = 1
+  let inString = false
+  let i = match.index + match[0].length
+  const start = i
+  while (i < source.length && depth > 0) {
+    const ch = source[i]
+    if (inString) {
+      if (ch === '\\') { i += 2; continue }
+      if (ch === '"') inString = false
+    } else {
+      if (ch === '"') inString = true
+      else if (ch === '{') depth += 1
+      else if (ch === '}') depth -= 1
+    }
+    i += 1
+  }
+  return depth === 0 ? source.slice(start, i - 1) : ''
+}
+
+function readTerragruntStringLocals(configFile: string): BackendConfigSummary {
+  const body = extractFirstHclBlock(readText(configFile), 'locals')
+  return body ? parseBackendAttributes(body) : {}
+}
+
+function terragruntRelativeStatePath(rootPath: string, configFile: string): string {
+  const relative = path.relative(path.dirname(configFile), path.resolve(rootPath)).replace(/\\/g, '/')
+  return relative && relative !== '.' ? relative : ''
+}
+
+function summarizeTerragruntExpression(
+  expression: string,
+  rootPath: string,
+  configFile: string,
+  locals: BackendConfigSummary
+): string {
+  const trimmed = expression.trim()
+  const relative = terragruntRelativeStatePath(rootPath, configFile)
+  if (trimmed === 'path_relative_to_include()') return relative
+  if (/^replace\(\s*path_relative_to_include\(\)\s*,/i.test(trimmed)) return relative
+  if (trimmed === 'get_parent_terragrunt_dir()') return path.dirname(configFile).replace(/\\/g, '/')
+  if (trimmed === 'get_terragrunt_dir()') return path.resolve(rootPath).replace(/\\/g, '/')
+  const localMatch = trimmed.match(/^local\.([\w-]+)$/)
+  if (localMatch) return locals[localMatch[1]] || `<${localMatch[1]}>`
+  return '<dynamic>'
+}
+
+function resolveTerragruntBackendValue(raw: string, rootPath: string, configFile: string, locals: BackendConfigSummary): string {
+  let value = raw.trim()
+  value = value.replace(/\${\s*([^}]+)\s*}/g, (_match, expression: string) =>
+    summarizeTerragruntExpression(expression, rootPath, configFile, locals)
+  )
+  value = value.replace(/\breplace\(\s*path_relative_to_include\(\)\s*,[^\)]*\)/gi, terragruntRelativeStatePath(rootPath, configFile))
+  value = value.replace(/\bpath_relative_to_include\(\)/gi, terragruntRelativeStatePath(rootPath, configFile))
+  value = value.replace(/\bget_parent_terragrunt_dir\(\)/gi, path.dirname(configFile).replace(/\\/g, '/'))
+  value = value.replace(/\bget_terragrunt_dir\(\)/gi, path.resolve(rootPath).replace(/\\/g, '/'))
+  value = value.replace(/\blocal\.([\w-]+)/g, (_match, name: string) => locals[name] || `<${name}>`)
+  return value.replace(/\/\.\//g, '/').replace(/^\.\//, '').replace(/\\/g, '/')
+}
+
+function buildTerragruntBackendDetails(
+  rootPath: string,
+  remote: { remoteState: { backend: string; configSummary: BackendConfigSummary }; configFile: string }
+): TerraformProjectMetadata['backend'] {
+  const backendType = remote.remoteState.backend
+  const locals = readTerragruntStringLocals(remote.configFile)
+  const resolvedConfig = Object.fromEntries(
+    Object.entries(remote.remoteState.configSummary).map(([key, value]) => [
+      key,
+      resolveTerragruntBackendValue(value, rootPath, remote.configFile, locals)
+    ])
+  )
+  if (backendType === 'local') {
+    const stateLocation = resolvedConfig.path || path.join(rootPath, 'terraform.tfstate')
+    return { type: 'local', label: stateLocation, stateLocation }
+  }
+  return {
+    type: backendType,
+    label: labelForCloudBackend(backendType, resolvedConfig),
+    summary: `Terragrunt remote_state "${backendType}"`
   }
 }
 
@@ -1026,6 +1206,7 @@ function inferMetadata(rootPath: string): {
   const outputsCount = Array.from(combined.matchAll(/^\s*output\s+"[^"]+"/gm)).length
   const versionConstraint = combined.match(/required_version\s*=\s*"([^"]+)"/)?.[1] ?? ''
   const backendType = combined.match(/backend\s+"([^"]+)"/)?.[1] ?? 'local'
+  const backendConfig = parseBackendConfig(rootPath, backendType)
 
   const variables = Array.from(combined.matchAll(/variable\s+"([^"]+)"\s*\{([\s\S]*?)\}/g)).map((match) => {
     const body = match[2]
@@ -1042,7 +1223,7 @@ function inferMetadata(rootPath: string): {
     metadata: {
       terraformVersionConstraint: versionConstraint,
       backendType,
-      backend: buildBackendDetails(rootPath, backendType, s3Backend),
+      backend: buildBackendDetails(rootPath, backendType, s3Backend, backendConfig),
       git,
       providerNames,
       resourceCount,
@@ -1169,18 +1350,13 @@ function findStateSource(rootPath: string): { rawStateJson: string; stateSource:
   return { rawStateJson: '', stateSource: 'none' }
 }
 
-function readStateSnapshot(rootPath: string): {
+function parseStateJson(rawStateJson: string): {
   inventory: TerraformResourceInventoryItem[]
   stateAddresses: string[]
-  rawStateJson: string
-  stateSource: string
 } {
-  const { rawStateJson, stateSource } = findStateSource(rootPath)
-  if (!rawStateJson.trim()) return { inventory: [], stateAddresses: [], rawStateJson: '', stateSource: 'none' }
-
+  if (!rawStateJson.trim()) return { inventory: [], stateAddresses: [] }
   try {
     const state = JSON.parse(rawStateJson) as Record<string, unknown>
-    // Support both modern (state.values.root_module) and legacy (state.modules[0].resources) shapes
     const values = state.values as Record<string, unknown> | undefined
     const rootModule = values?.root_module as Record<string, unknown> | undefined
     if (rootModule) {
@@ -1189,12 +1365,9 @@ function readStateSnapshot(rootPath: string): {
       flattenModuleResources(rootModule, resourceMap, stateAddresses)
       return {
         inventory: Array.from(resourceMap.values()).sort((a, b) => a.address.localeCompare(b.address)),
-        stateAddresses: stateAddresses.sort(),
-        rawStateJson,
-        stateSource
+        stateAddresses: stateAddresses.sort()
       }
     }
-    // Native Terraform state file shape (v4+)
     const resources = state.resources as Array<Record<string, unknown>> | undefined
     if (Array.isArray(resources)) {
       const resourceMap = new Map<string, TerraformResourceInventoryItem>()
@@ -1202,21 +1375,18 @@ function readStateSnapshot(rootPath: string): {
       flattenStateResources(resources, resourceMap, stateAddresses)
       return {
         inventory: Array.from(resourceMap.values()).sort((a, b) => a.address.localeCompare(b.address)),
-        stateAddresses: stateAddresses.sort(),
-        rawStateJson,
-        stateSource
+        stateAddresses: stateAddresses.sort()
       }
     }
-    // Legacy v3 state shape
     const modules = state.modules as Array<Record<string, unknown>> | undefined
     if (Array.isArray(modules)) {
       const resourceMap = new Map<string, TerraformResourceInventoryItem>()
       const stateAddresses: string[] = []
       for (const mod of modules) {
         const modPath = typeof mod.path === 'string' ? mod.path : 'root'
-        const resources = mod.resources as Record<string, Record<string, unknown>> | undefined
-        if (!resources || typeof resources !== 'object') continue
-        for (const [key, res] of Object.entries(resources)) {
+        const modResources = mod.resources as Record<string, Record<string, unknown>> | undefined
+        if (!modResources || typeof modResources !== 'object') continue
+        for (const [key, res] of Object.entries(modResources)) {
           const addr = modPath === 'root' ? key : `module.${modPath}.${key}`
           resourceMap.set(addr, {
             address: addr,
@@ -1235,15 +1405,25 @@ function readStateSnapshot(rootPath: string): {
       }
       return {
         inventory: Array.from(resourceMap.values()).sort((a, b) => a.address.localeCompare(b.address)),
-        stateAddresses: stateAddresses.sort(),
-        rawStateJson,
-        stateSource
+        stateAddresses: stateAddresses.sort()
       }
     }
-    return { inventory: [], stateAddresses: [], rawStateJson, stateSource }
+    return { inventory: [], stateAddresses: [] }
   } catch {
-    return { inventory: [], stateAddresses: [], rawStateJson, stateSource }
+    return { inventory: [], stateAddresses: [] }
   }
+}
+
+function readStateSnapshot(rootPath: string): {
+  inventory: TerraformResourceInventoryItem[]
+  stateAddresses: string[]
+  rawStateJson: string
+  stateSource: string
+} {
+  const { rawStateJson, stateSource } = findStateSource(rootPath)
+  if (!rawStateJson.trim()) return { inventory: [], stateAddresses: [], rawStateJson: '', stateSource: 'none' }
+  const { inventory, stateAddresses } = parseStateJson(rawStateJson)
+  return { inventory, stateAddresses, rawStateJson, stateSource }
 }
 
 /* ── Plan Reading ─────────────────────────────────────────── */
@@ -2564,8 +2744,36 @@ function projectStatus(rootPath: string): TerraformProjectStatus {
   return fs.existsSync(rootPath) ? 'Ready' : 'Missing'
 }
 
+function classifyProjectKind(rootPath: string): { kind: TerraformProjectKind; terragrunt: TerragruntProjectInfo | null } {
+  if (!fs.existsSync(rootPath)) return { kind: 'terraform', terragrunt: null }
+  const discovery = scanForTerragrunt(rootPath)
+  if (discovery.classification === 'unit' && discovery.units.length > 0) {
+    return {
+      kind: 'terragrunt-unit',
+      terragrunt: { kind: 'terragrunt-unit', unit: discovery.units[0] }
+    }
+  }
+  if (discovery.classification === 'stack') {
+    return {
+      kind: 'terragrunt-stack',
+      terragrunt: {
+        kind: 'terragrunt-stack',
+        stack: {
+          stackRoot: discovery.stackRoot,
+          units: discovery.units,
+          dependencyOrder: [],
+          cycles: [],
+          rootConfig: discovery.rootConfig ?? null
+        }
+      }
+    }
+  }
+  return { kind: 'terraform', terragrunt: null }
+}
+
 async function loadProject(project: StoredProject, profileName = '', connection?: AwsConnection): Promise<TerraformProject> {
   const status = projectStatus(project.rootPath)
+  const { kind, terragrunt } = classifyProjectKind(project.rootPath)
   if (status === 'Missing') {
     const stateBackups = listStateBackups(project.id)
     const emptyMeta: TerraformProjectMetadata = {
@@ -2576,6 +2784,18 @@ async function loadProject(project: StoredProject, profileName = '', connection?
       }, git: null, providerNames: [],
       resourceCount: 0, moduleCount: 0, variableCount: 0, outputsCount: 0, tfFileCount: 0,
       lastScannedAt: '', s3Backend: null
+    }
+    // Terragrunt stacks classify as "Missing" because the stack root has no .tf files — only
+    // nested units do. Skipping the backend override here leaves `backendType: 'local'` on
+    // the stack project, which downstream consumers (drift provider routing, backend badges)
+    // mis-read as AWS/local. Apply the remote_state walk so terragrunt stacks still surface
+    // their real backend (gcs/s3/azurerm) even without local .tf files.
+    if (kind === 'terragrunt-unit' || kind === 'terragrunt-stack') {
+      const remote = findEffectiveRemoteState(project.rootPath)
+      if (remote) {
+        emptyMeta.backendType = remote.remoteState.backend
+        emptyMeta.backend = buildTerragruntBackendDetails(project.rootPath, remote)
+      }
     }
     const currentWorkspace = project.environment?.workspaceName || 'default'
     const inputConfig = normalizeInputConfig(project)
@@ -2610,14 +2830,36 @@ async function loadProject(project: StoredProject, profileName = '', connection?
       latestStateBackup: stateBackups[0] ?? null,
       stateLockInfo: null,
       hasSavedPlan: savedPlanPaths.has(project.id) || hasSavedPlanArtifacts(project.rootPath),
-      savedPlanMetadata: readPlanMetadata(project.rootPath)
+      savedPlanMetadata: readPlanMetadata(project.rootPath),
+      kind,
+      terragrunt
     }
   }
 
   const { metadata, variables } = inferMetadata(project.rootPath)
+
+  // Terragrunt projects declare their backend in `remote_state { backend = "gcs" … }` in the
+  // unit's terragrunt.hcl (or a parent's, resolved via find_in_parent_folders). `.tf` files
+  // don't carry the backend at all, so inferMetadata misses it and defaults to "local" —
+  // leaving the State badge showing "none" for remote-backend projects. Walk up the config
+  // tree to pick up the effective remote_state and override the backend metadata.
+  if (kind === 'terragrunt-unit' || kind === 'terragrunt-stack') {
+    const remote = findEffectiveRemoteState(project.rootPath)
+    if (remote) {
+      metadata.backendType = remote.remoteState.backend
+      metadata.backend = buildTerragruntBackendDetails(project.rootPath, remote)
+    }
+  }
+
   const { currentWorkspace, workspaces } = await readWorkspaceSnapshot(profileName, project, connection)
   const inputs = parseJsonFile<Record<string, unknown>>(managedInputsPath(project.rootPath), {})
-  const { inventory, stateAddresses, rawStateJson, stateSource } = readStateSnapshot(project.rootPath)
+  const { inventory, stateAddresses, rawStateJson, stateSource: rawStateSource } = readStateSnapshot(project.rootPath)
+  // When no local/workspace/cached state exists yet but the backend is remote (gcs/s3/azurerm/…),
+  // surface that instead of the bare "none" badge — otherwise a freshly-added Terragrunt stack
+  // with a GCS backend reads as if it had no backend configured at all.
+  const stateSource = rawStateSource === 'none' && metadata.backendType && metadata.backendType !== 'local'
+    ? `remote:${metadata.backendType}`
+    : rawStateSource
   const { planChanges, lastPlanSummary } = readPlanSnapshot(project.rootPath)
   const actionRows = buildActionRows(planChanges, inventory)
   const resourceRows = buildResourceRows(inventory)
@@ -2648,7 +2890,9 @@ async function loadProject(project: StoredProject, profileName = '', connection?
     latestStateBackup: stateBackups[0] ?? null,
     stateLockInfo,
     hasSavedPlan: savedPlanPaths.has(project.id) || hasSavedPlanArtifacts(project.rootPath),
-    savedPlanMetadata: readPlanMetadata(project.rootPath)
+    savedPlanMetadata: readPlanMetadata(project.rootPath),
+    kind,
+    terragrunt
   }
 }
 
@@ -2736,7 +2980,11 @@ export async function addProject(profileName: string, rootPath: string, connecti
   const normalized = path.resolve(rootPath)
   if (!fs.existsSync(normalized)) throw new Error('Selected path does not exist.')
   if (!fs.statSync(normalized).isDirectory()) throw new Error('Project path must be a directory.')
-  if (listTerraformFiles(normalized).length === 0) throw new Error('No Terraform files were found in the selected directory.')
+  const hasTerraformFiles = listTerraformFiles(normalized).length > 0
+  const terragruntDiscovery = hasTerraformFiles ? null : scanForTerragrunt(normalized)
+  if (!hasTerraformFiles && terragruntDiscovery?.classification === 'none') {
+    throw new Error('No Terraform or Terragrunt files were found in the selected directory.')
+  }
 
   const stored = getStoredProjects(profileName)
   const existing = stored.find((p) => path.normalize(p.rootPath).toLowerCase() === path.normalize(normalized).toLowerCase())
@@ -2753,6 +3001,7 @@ export function removeProject(profileName: string, projectId: string): void {
   setStoredProjects(profileName, getStoredProjects(profileName).filter((p) => p.id !== projectId))
   commandLogs.delete(projectId)
   savedPlanPaths.delete(projectId)
+  clearAllSavedTerragruntPlansForProject(projectId)
 }
 
 export async function renameProject(profileName: string, projectId: string, name: string): Promise<TerraformProject> {
@@ -3070,6 +3319,216 @@ function commandTimeoutMs(command: TerraformCommandRequest['command']): number {
   }
 }
 
+async function runTerragruntUnitProjectCommand(
+  request: TerraformCommandRequest,
+  project: StoredProject,
+  window: BrowserWindow | null
+): Promise<TerraformCommandLog> {
+  const env = buildEnvWithVars(project, request.profileName, request.connection)
+  const binary = await resolveTerragruntExecutable()
+  const runCwd = request.unitPath ? path.resolve(request.unitPath) : project.rootPath
+  let args: string[]
+  if (request.command === 'force-unlock') {
+    const lockId = request.lockId?.trim() ?? ''
+    if (!lockId) throw new Error('Lock ID is required for force unlock.')
+    // terragrunt forwards `force-unlock` straight to terraform; `-force` skips its prompt
+    // and `--non-interactive` keeps terragrunt from prompting for its own confirmation.
+    args = ['force-unlock', '--non-interactive', '-force', lockId]
+  } else {
+    args = buildTerragruntCommandArgs(request.command)
+  }
+  if (request.command === 'plan') {
+    clearSavedTerragruntPlan(request.projectId, runCwd)
+    args.push(`-out=${ensureTerragruntPlanFilePath(request.projectId, runCwd)}`)
+  }
+  const gitMetadata = detectGitMetadata(runCwd)
+  const gitCommitMetadata = toGitCommitMetadata(gitMetadata)
+
+  const log: TerraformCommandLog = {
+    id: randomUUID(),
+    projectId: request.projectId,
+    command: request.command,
+    args,
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    exitCode: null,
+    success: null,
+    output: ''
+  }
+
+  const auditProvider = inferTerraformProviderId(request.profileName, request.connection)
+  const auditCtx: TerraformAuditTraceContext = createTraceContext({
+    traceId: log.id,
+    operation: request.command,
+    provider: auditProvider,
+    module: project.name,
+    resource: ''
+  })
+  logRunStarted(auditCtx, { projectId: request.projectId })
+
+  pushLog(request.projectId, log)
+  emit(window, { type: 'started', projectId: request.projectId, log })
+
+  if (activeTerraformRuns.has(request.projectId)) {
+    throw new Error(
+      `A Terragrunt ${activeTerraformRuns.get(request.projectId)!.command} is already running for this project. Wait for it to finish before starting a new one.`
+    )
+  }
+
+  const currentWorkspace = project.environment?.workspaceName || 'default'
+  const runRecord: TerraformRunRecord = {
+    id: log.id,
+    projectId: request.projectId,
+    projectName: project.name,
+    command: request.command,
+    args: redactArgs(args),
+    workspace: currentWorkspace,
+    region: request.connection?.region ?? project.environment?.region ?? '',
+    connectionLabel: displayConnectionLabel(request.profileName, request.connection),
+    backendType: project.environment?.backendType ?? 'local',
+    stateSource: '',
+    startedAt: log.startedAt,
+    finishedAt: null,
+    exitCode: null,
+    success: null,
+    planSummary: null,
+    planJsonPath: '',
+    backupPath: '',
+    backupCreatedAt: '',
+    stateOperationSummary: '',
+    git: gitCommitMetadata,
+    provider: auditCtx.provider,
+    module: auditCtx.module,
+    resource: auditCtx.resource,
+    durationMs: null,
+    retryCount: 0,
+    errorClass: null,
+    suggestedAction: '',
+    stackRoot: project.rootPath,
+    unitPath: runCwd
+  }
+  saveRunRecord(runRecord, '')
+
+  const activeRun: ActiveTerraformRun = {
+    projectId: request.projectId,
+    logId: log.id,
+    command: request.command,
+    child: null,
+    cancelRequested: false,
+    cancelMessage: ''
+  }
+  activeTerraformRuns.set(request.projectId, activeRun)
+
+  if (request.command === 'apply' || request.command === 'destroy') {
+    activeDestructiveCommands.set(request.projectId, request.command)
+  }
+
+  try {
+    const result = await runChildProcess(runCwd, binary, args, env, (chunk) => {
+      log.output += chunk
+      emit(window, { type: 'output', projectId: request.projectId, logId: log.id, chunk })
+    }, {
+      timeoutMs: commandTimeoutMs(request.command),
+      operationName: `terragrunt.${request.command}`,
+      activeRun,
+      context: {
+        projectId: request.projectId,
+        projectName: project.name,
+        workspace: currentWorkspace,
+        traceId: auditCtx.traceId,
+        provider: auditCtx.provider,
+        module: auditCtx.module
+      },
+      onAttempt: (attempt) => { auditCtx.retryCount = Math.max(0, attempt - 1) }
+    })
+
+    log.exitCode = result.exitCode
+    log.finishedAt = new Date().toISOString()
+    log.success = request.command === 'plan'
+      ? (result.exitCode === 0 || result.exitCode === 2)
+      : result.exitCode === 0
+
+    if (request.command === 'plan' && log.success) {
+      recordTerragruntSavedPlan(request.projectId, runCwd)
+    }
+    if (request.command === 'apply' || request.command === 'destroy') {
+      clearSavedTerragruntPlan(request.projectId, runCwd)
+      if (result.exitCode === 0) {
+        invalidateTerraformDriftReports(request.profileName, request.projectId)
+      }
+    }
+
+    const refreshedProject = await getProject(request.profileName, request.projectId, request.connection)
+    emit(window, { type: 'completed', projectId: request.projectId, log, project: refreshedProject })
+
+    const successDurationMs = Date.now() - auditCtx.startedAtMs
+    updateRunRecord(log.id, {
+      finishedAt: log.finishedAt,
+      exitCode: log.exitCode,
+      success: log.success,
+      durationMs: successDurationMs,
+      retryCount: auditCtx.retryCount,
+      errorClass: null,
+      suggestedAction: ''
+    }, log.output)
+    logRunCompleted(auditCtx, successDurationMs, {
+      projectId: request.projectId,
+      exitCode: log.exitCode,
+      success: log.success
+    })
+
+    return log
+  } catch (error) {
+    log.finishedAt = new Date().toISOString()
+    log.exitCode = error instanceof TerraformCommandCancelledError ? 130 : -1
+    log.success = false
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    if (!log.output.includes(errorMessage)) {
+      log.output += `${log.output.endsWith('\n') || !log.output ? '' : '\n'}${errorMessage}`
+    }
+    emit(window, { type: 'completed', projectId: request.projectId, log, project: await getProject(request.profileName, request.projectId, request.connection) })
+
+    const errorName = error instanceof Error ? error.name : ''
+    const classified = classifyTerraformError({
+      output: stripAnsi(log.output),
+      exitCode: log.exitCode,
+      errorMessage,
+      provider: auditCtx.provider,
+      errorName
+    })
+    const failureDurationMs = Date.now() - auditCtx.startedAtMs
+
+    updateRunRecord(log.id, {
+      finishedAt: log.finishedAt,
+      exitCode: log.exitCode,
+      success: log.success,
+      durationMs: failureDurationMs,
+      retryCount: auditCtx.retryCount,
+      errorClass: classified.errorClass,
+      suggestedAction: classified.suggestedAction
+    }, log.output)
+
+    logRunFailed(
+      auditCtx,
+      failureDurationMs,
+      classified.errorClass,
+      classified.suggestedAction,
+      error,
+      { projectId: request.projectId, exitCode: log.exitCode }
+    )
+
+    return log
+  } finally {
+    const trackedRun = activeTerraformRuns.get(request.projectId)
+    if (trackedRun?.logId === log.id) {
+      activeTerraformRuns.delete(request.projectId)
+    }
+    if (request.command === 'apply' || request.command === 'destroy') {
+      activeDestructiveCommands.delete(request.projectId)
+    }
+  }
+}
+
 export async function runProjectCommand(
   request: TerraformCommandRequest,
   window: BrowserWindow | null
@@ -3077,6 +3536,14 @@ export async function runProjectCommand(
   const stored = getStoredProjects(request.profileName)
   const project = stored.find((p) => p.id === request.projectId)
   if (!project) throw new Error('Project not found.')
+
+  const kindInfo = classifyProjectKind(project.rootPath)
+  if (kindInfo.kind === 'terragrunt-unit') {
+    return runTerragruntUnitProjectCommand(request, project, window)
+  }
+  if (kindInfo.kind === 'terragrunt-stack') {
+    throw new Error('Stack-level runs are not supported yet. Add a specific unit directory as a project to run it, or wait for run-all support.')
+  }
 
   // Ensure auto.tfvars is written before commands that need it
   if (['init', 'plan', 'apply', 'destroy', 'import', 'state-list', 'state-pull', 'state-show'].includes(request.command)) {
@@ -3432,5 +3899,134 @@ export function getProjectContext(profileName: string, projectId: string, connec
     tfCliPath: terraformCommand(),
     tfCliLabel: terraformCliLabel(),
     tfCliKind: cachedCli?.kind ?? ''
+  }
+}
+
+export async function startTerragruntStackRunAll(options: {
+  profileName: string
+  projectId: string
+  connection?: AwsConnection
+  command: TerragruntRunAllCommand
+  unitFilter?: string[]
+}, window: BrowserWindow | null): Promise<{ runId: string; phases: string[][] }> {
+  const project = getStoredProjects(options.profileName).find((p) => p.id === options.projectId)
+  if (!project) throw new Error('Project not found.')
+
+  const kindInfo = classifyProjectKind(project.rootPath)
+  if (kindInfo.kind !== 'terragrunt-stack') {
+    throw new Error('run-all requires a Terragrunt stack project. Single Terragrunt units use the regular run command.')
+  }
+
+  const resolved = await resolveStack(project.rootPath)
+  const env = buildEnvWithVars(project, options.profileName, options.connection)
+  return startTerragruntRunAllEngine({
+    stack: resolved.stack,
+    command: options.command,
+    env,
+    identity: {
+      stackProjectId: project.id,
+      stackProjectName: project.name,
+      workspace: project.environment?.workspaceName || 'default',
+      region: options.connection?.region ?? project.environment?.region ?? '',
+      connectionLabel: displayConnectionLabel(options.profileName, options.connection),
+      backendType: project.environment?.backendType ?? 'local',
+      provider: inferTerraformProviderId(options.profileName, options.connection)
+    },
+    window,
+    unitFilter: options.unitFilter
+  })
+}
+
+export function cancelTerragruntStackRunAll(runId: string): boolean {
+  return cancelTerragruntRunAll(runId)
+}
+
+export type TerragruntUnitInventoryResult = {
+  inventory: TerraformResourceInventoryItem[]
+  stateAddresses: string[]
+  rawStateJson: string
+  stateSource: string
+  workingDir: string
+  error: string
+}
+
+/**
+ * Walk a terragrunt project's units, pull each one's backend state, and return a merged
+ * inventory. `loadProject` only reads local state files — for remote backends (S3 / GCS /
+ * AzureRM / TFC) its inventory is empty, which makes every consumer that compares state
+ * against live cloud resources (drift, adoption detection, observability coverage checks)
+ * flag managed resources as unmanaged. This helper supplies a real inventory.
+ *
+ * Pulls are parallel (`Promise.all`); per-unit failures are swallowed so a single broken
+ * unit doesn't blank out the whole stack's aggregated inventory. If the project already
+ * has a populated inventory (e.g. local backend that `loadProject` read successfully) the
+ * helper returns it unchanged.
+ */
+export async function enrichTerragruntProjectInventory(
+  profileName: string,
+  connection: AwsConnection | undefined,
+  project: Pick<TerraformProject, 'id' | 'kind' | 'rootPath' | 'terragrunt' | 'inventory'>
+): Promise<TerraformResourceInventoryItem[]> {
+  if (project.inventory && project.inventory.length > 0) return project.inventory
+  if (project.kind !== 'terragrunt-unit' && project.kind !== 'terragrunt-stack') {
+    return project.inventory ?? []
+  }
+
+  const unitPaths: string[] = []
+  if (project.kind === 'terragrunt-unit') {
+    unitPaths.push(project.rootPath)
+  } else if (project.terragrunt?.kind === 'terragrunt-stack') {
+    for (const unit of project.terragrunt.stack.units) unitPaths.push(unit.unitPath)
+  }
+  if (unitPaths.length === 0) return []
+
+  const pulls = await Promise.all(
+    unitPaths.map((unitPath) =>
+      loadTerragruntUnitInventory(profileName, project.id, connection, unitPath).catch(() => null)
+    )
+  )
+  const aggregated: TerraformResourceInventoryItem[] = []
+  for (const pulled of pulls) {
+    if (!pulled || pulled.error) continue
+    aggregated.push(...pulled.inventory)
+  }
+  return aggregated
+}
+
+export async function loadTerragruntUnitInventory(
+  profileName: string,
+  projectId: string,
+  connection?: AwsConnection,
+  unitPath?: string
+): Promise<TerragruntUnitInventoryResult> {
+  const project = getStoredProjects(profileName).find((p) => p.id === projectId)
+  if (!project) throw new Error('Project not found.')
+  const kindInfo = classifyProjectKind(project.rootPath)
+  const effectivePath = unitPath ? path.resolve(unitPath) : project.rootPath
+  // For stack projects we require an explicit unit path — the stack root itself has no
+  // terraform state. Single-unit projects can reuse their rootPath.
+  if (!unitPath && kindInfo.kind !== 'terragrunt-unit') {
+    throw new Error('Stack projects require a unit path. Pass the absolute unit directory.')
+  }
+  const env = buildEnvWithVars(project, profileName, connection)
+  const pulled = await pullTerragruntState(effectivePath, env, connection, effectivePath)
+  if (pulled.error) {
+    return {
+      inventory: [],
+      stateAddresses: [],
+      rawStateJson: '',
+      stateSource: 'none',
+      workingDir: pulled.workingDir,
+      error: pulled.error
+    }
+  }
+  const { inventory, stateAddresses } = parseStateJson(pulled.stateJson)
+  return {
+    inventory,
+    stateAddresses,
+    rawStateJson: pulled.stateJson,
+    stateSource: pulled.workingDir ? `terragrunt:${pulled.workingDir}` : 'terragrunt',
+    workingDir: pulled.workingDir,
+    error: ''
   }
 }

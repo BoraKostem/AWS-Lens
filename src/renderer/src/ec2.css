@@ -467,6 +467,27 @@
   min-width: 0;
 }
 
+.ec2-inline-form,
+.ec2-iam-controls {
+  flex-wrap: wrap;
+}
+
+.ec2-inline-form input,
+.ec2-iam-input {
+  flex: 1 1 160px;
+}
+
+.ec2-inline-form .ec2-action-btn,
+.ec2-iam-controls .ec2-action-btn,
+.ec2-bastion-ami-picker .ec2-action-btn,
+.ec2-btn-row .ec2-action-btn {
+  width: auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
 .ec2-bastion-form {
   display: grid;
   gap: 8px;

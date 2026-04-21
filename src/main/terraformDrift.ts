@@ -87,8 +87,10 @@ import {
   listVpcs
 } from './aws/vpc'
 import { listWebAcls } from './aws/waf'
-import { getCachedCliInfo, getProject } from './terraform'
+import { enrichTerragruntProjectInventory, getCachedCliInfo, getProject, loadTerragruntUnitInventory, type TerragruntUnitInventoryResult } from './terraform'
 import { createTraceContext, withAudit } from './terraformAudit'
+import { exportDriftSnapshot } from './exporters'
+import { resolveDriftProviderId } from './terraformDriftProvider'
 
 type ComparableValue = string | number | boolean
 type IdentityKey = 'cloudIdentifier' | 'logicalName'
@@ -716,9 +718,37 @@ function coverageItem(resourceType: string, verifiedChecks: string[], inferredCh
   return { resourceType, coverage: 'partial', verifiedChecks, inferredChecks, notes }
 }
 
+function buildDriftExplanation(differences: TerraformDriftDifference[]): string {
+  const stateDiff = differences.find((difference) => difference.key === 'instance_state' || difference.key === 'state')
+  const count = differences.length
+  const plural = count === 1 ? '' : 's'
+  if (stateDiff) {
+    return `Lifecycle drift: live=${stateDiff.liveValue || 'unknown'}, terraform=${stateDiff.terraformValue || 'unknown'}${count > 1 ? ` (+${count - 1} other drift signal${count - 1 === 1 ? '' : 's'})` : ''}.`
+  }
+  return `Detected ${count} verified drift signal${plural} between Terraform and the live AWS resource.`
+}
+
 function buildNextStepForDiff(resource: TerraformResourceInventoryItem, differences: TerraformDriftDifference[]): string {
+  const stateDiff = differences.find((difference) => difference.key === 'instance_state' || difference.key === 'state')
+  if (stateDiff && resource.type === 'aws_instance') {
+    const live = stateDiff.liveValue || 'unknown'
+    const desired = stateDiff.terraformValue || 'unknown'
+    if (live === 'stopped' || live === 'stopping') {
+      return `Instance is ${live} in AWS (Terraform state recorded ${desired}). Run aws ec2 start-instances --instance-ids <id>, or update Terraform if the shutdown is intentional, then refresh state with terraform apply -refresh-only.`
+    }
+    if (live === 'terminated' || live === 'shutting-down') {
+      return `Instance is ${live} in AWS. Either remove ${resource.address} from state (terraform state rm) and re-create, or restore the instance if this was accidental.`
+    }
+    return `Live state (${live}) differs from Terraform-recorded state (${desired}). Reconcile the instance lifecycle in AWS, then run terraform apply -refresh-only to sync state.`
+  }
+  if (stateDiff) {
+    return `Lifecycle state drift for ${resource.address}: terraform=${stateDiff.terraformValue || '-'} live=${stateDiff.liveValue || '-'}. Inspect the resource in AWS and run terraform apply -refresh-only once reconciled.`
+  }
   if (differences.some((difference) => difference.kind === 'tag')) {
     return `Review ${resource.address} with state show, reconcile the mismatched tags in configuration or AWS, then run a manual drift re-scan.`
+  }
+  if (differences.some((difference) => difference.key === 'ami')) {
+    return `AMI mismatch on ${resource.address}. AMI changes require replacement — decide whether to taint and re-apply, or update configuration to match the live AMI.`
   }
   return `Review ${resource.address} with state show, decide whether configuration or AWS is the source of truth for the changed fields, then re-scan after reconciliation.`
 }
@@ -779,7 +809,7 @@ function buildSupportedItems<TLive>(
       status: differences.length > 0 ? 'drifted' : 'in_sync',
       assessment: 'verified',
       explanation: differences.length > 0
-        ? `Detected ${differences.length} verified drift signal${differences.length === 1 ? '' : 's'} between Terraform and the live AWS resource.`
+        ? buildDriftExplanation(differences)
         : 'Terraform state and the live AWS resource match on the tracked identifiers and supported drift checks.',
       suggestedNextStep: differences.length > 0
         ? buildNextStepForDiff(terraformResource.resource, differences)
@@ -824,13 +854,26 @@ function normalizeAwsInstance(item: TerraformResourceInventoryItem, connection: 
   const region = extractRegion(values) || connection.region
   if (region !== connection.region) return null
   const tags = terraformTags(values)
+  const attributes: Record<string, ComparableValue> = {
+    instance_type: str(values.instance_type),
+    subnet_id: str(values.subnet_id),
+    vpc_id: str(values.vpc_id)
+  }
+  const ami = str(values.ami)
+  if (ami) attributes.ami = ami
+  const availabilityZone = str(values.availability_zone)
+  if (availabilityZone) attributes.availability_zone = availabilityZone
+  const keyName = str(values.key_name)
+  if (keyName) attributes.key_name = keyName
+  const instanceState = str(values.instance_state)
+  if (instanceState) attributes.instance_state = instanceState
   return {
     resourceType: item.type,
-    logicalName: tags.Name || str(values.instance_state) || item.name,
+    logicalName: tags.Name || item.name,
     cloudIdentifier: str(values.id) || extractArn(values),
     region,
     consoleUrl: consoleUrl(`ec2/v2/home?region=${region}#InstanceDetails:instanceId=${str(values.id)}`, region),
-    attributes: { instance_type: str(values.instance_type), subnet_id: str(values.subnet_id), vpc_id: str(values.vpc_id) },
+    attributes,
     tags
   }
 }
@@ -929,20 +972,23 @@ function normalizeAwsNatGateway(item: TerraformResourceInventoryItem, connection
   const region = extractRegion(values) || connection.region
   if (region !== connection.region) return null
   const tags = terraformTags(values)
+  const attributes: Record<string, ComparableValue> = {
+    subnet_id: str(values.subnet_id),
+    vpc_id: str(values.vpc_id),
+    connectivity_type: str(values.connectivity_type)
+  }
+  const state = str(values.state)
+  if (state) attributes.state = state
   return {
     resourceType: item.type,
     logicalName: tags.Name || item.name,
     cloudIdentifier: str(values.id),
     region,
     consoleUrl: consoleUrl(`vpc/home?region=${region}#NatGatewayDetails:natGatewayId=${str(values.id)}`, region),
-      attributes: {
-        subnet_id: str(values.subnet_id),
-        vpc_id: str(values.vpc_id),
-        connectivity_type: str(values.connectivity_type)
-      },
-      tags
-    }
+    attributes,
+    tags
   }
+}
 
 function normalizeAwsTransitGateway(item: TerraformResourceInventoryItem, connection: AwsConnection): ComparableResource | null {
   const values = item.values
@@ -1694,19 +1740,36 @@ function normalizeAwsRoute53Record(item: TerraformResourceInventoryItem, connect
 const SUPPORTED_HANDLERS: { [K in SupportedResourceType]: SupportedHandler<LiveInventory[K][number]> } = {
   aws_instance: {
     normalizeTerraform: normalizeAwsInstance,
-    normalizeLive: (instance, connection) => ({
-      resourceType: 'aws_instance',
-      logicalName: instance.name || instance.instanceId,
-      cloudIdentifier: instance.instanceId,
-      region: connection.region,
-      consoleUrl: consoleUrl(`ec2/v2/home?region=${connection.region}#InstanceDetails:instanceId=${instance.instanceId}`, connection.region),
-      attributes: { instance_type: instance.type, subnet_id: instance.subnetId, vpc_id: instance.vpcId },
-      tags: instance.tags ?? {}
-    }),
+    normalizeLive: (instance, connection) => {
+      const unDash = (value: string): string => (value && value !== '-' ? value : '')
+      const attributes: Record<string, ComparableValue> = {
+        instance_type: instance.type,
+        subnet_id: instance.subnetId,
+        vpc_id: instance.vpcId,
+        instance_state: instance.state,
+        availability_zone: instance.availabilityZone
+      }
+      const ami = unDash(instance.amiId)
+      if (ami) attributes.ami = ami
+      const keyName = unDash(instance.keyName)
+      if (keyName) attributes.key_name = keyName
+      return {
+        resourceType: 'aws_instance',
+        logicalName: instance.name && instance.name !== '-' ? instance.name : instance.instanceId,
+        cloudIdentifier: instance.instanceId,
+        region: connection.region,
+        consoleUrl: consoleUrl(`ec2/v2/home?region=${connection.region}#InstanceDetails:instanceId=${instance.instanceId}`, connection.region),
+        attributes,
+        tags: instance.tags ?? {}
+      }
+    },
     identityKeys: ['cloudIdentifier', 'logicalName'],
-    verifiedChecks: ['instance type', 'subnet', 'VPC', 'tags'],
+    verifiedChecks: ['instance type', 'instance state (running/stopped/terminated)', 'AMI', 'availability zone', 'subnet', 'VPC', 'key name', 'tags'],
     inferredChecks: ['possible related Terraform addresses by name/tag heuristic'],
-    notes: ['Only selected config-vs-live fields are verified, not every EC2 argument.']
+    notes: [
+      'Only selected config-vs-live fields are verified, not every EC2 argument.',
+      'instance_state drift catches instances stopped, started, or terminated outside Terraform (state-file vs live, not config vs live).'
+    ]
   },
   aws_security_group: {
     normalizeTerraform: normalizeAwsSecurityGroup,
@@ -1796,13 +1859,18 @@ const SUPPORTED_HANDLERS: { [K in SupportedResourceType]: SupportedHandler<LiveI
       cloudIdentifier: gateway.natGatewayId,
       region: connection.region,
       consoleUrl: consoleUrl(`vpc/home?region=${connection.region}#NatGatewayDetails:natGatewayId=${gateway.natGatewayId}`, connection.region),
-      attributes: { subnet_id: gateway.subnetId, vpc_id: gateway.vpcId, connectivity_type: gateway.connectivityType },
+      attributes: {
+        subnet_id: gateway.subnetId,
+        vpc_id: gateway.vpcId,
+        connectivity_type: gateway.connectivityType,
+        state: gateway.state
+      },
       tags: gateway.tags
     }),
     identityKeys: ['cloudIdentifier', 'logicalName'],
-    verifiedChecks: ['subnet', 'VPC', 'connectivity type', 'tags'],
+    verifiedChecks: ['subnet', 'VPC', 'connectivity type', 'state', 'tags'],
     inferredChecks: ['possible related Terraform addresses by name/tag heuristic'],
-    notes: ['NAT gateway lifecycle state is AWS-computed and is not treated as verified drift.']
+    notes: ['Lifecycle state transitions (pending/available/failed/deleting/deleted) will be flagged as drift.']
   },
   aws_ec2_transit_gateway: {
     normalizeTerraform: normalizeAwsTransitGateway,
@@ -2724,9 +2792,38 @@ async function scanProjectDrift(
   profileName: string,
   projectId: string,
   connection: AwsConnection,
-  trigger: TerraformDriftSnapshot['trigger']
+  trigger: TerraformDriftSnapshot['trigger'],
+  unitPathOverride?: string
 ): Promise<StoredDriftContext> {
-  const project = await getProject(profileName, projectId)
+  const baseProject = await getProject(profileName, projectId)
+  // Two paths for populating inventory from state:
+  //   - unit override (terragrunt-unit, or stack + explicit unitPathOverride): pull that single
+  //     unit's state; a hard error here is the real signal (auth, unapplied, etc.) and should
+  //     surface to the UI rather than decaying into "everything unmanaged".
+  //   - project-wide on a terragrunt-stack without override: walk every unit and aggregate
+  //     (enrichTerragruntProjectInventory). Per-unit pull failures are swallowed so one broken
+  //     unit doesn't blank out the whole stack's drift report.
+  const useExplicitUnit = baseProject.kind === 'terragrunt-unit'
+    || (baseProject.kind === 'terragrunt-stack' && Boolean(unitPathOverride))
+  const project: TerraformProject = useExplicitUnit
+    ? await (async () => {
+        const pulled = await loadTerragruntUnitInventory(profileName, projectId, connection, unitPathOverride)
+        // loadTerragruntUnitInventory returns `{ error, inventory: [] }` instead of throwing when
+        // state pull fails (e.g. terragrunt init failed, backend auth missing, TFC `cloud` backend
+        // without TF_TOKEN_*). Silently merging the empty inventory makes every live resource
+        // appear `unmanaged_in_aws` — surface the real failure instead.
+        if (pulled.error) throw new Error(pulled.error)
+        return {
+          ...baseProject,
+          inventory: pulled.inventory,
+          stateAddresses: pulled.stateAddresses,
+          rawStateJson: pulled.rawStateJson,
+          stateSource: pulled.stateSource || baseProject.stateSource
+        }
+      })()
+    : baseProject.kind === 'terragrunt-stack'
+      ? { ...baseProject, inventory: await enrichTerragruntProjectInventory(profileName, connection, baseProject) }
+      : baseProject
   const liveInventory = await loadLiveInventory(connection)
   const items = [
     ...buildSupportedItems(project, connection, 'aws_instance', project.inventory, liveInventory.aws_instance, SUPPORTED_HANDLERS.aws_instance),
@@ -2793,6 +2890,7 @@ async function scanProjectDrift(
     snapshots: [snapshot, ...(existing?.snapshots ?? [])].slice(0, 20)
   }
   writeStoredContext(profileName, projectId, connection.region, context)
+  exportDriftSnapshot(project.id, project.name, snapshot)
   return context
 }
 
@@ -2809,6 +2907,82 @@ function toReport(context: StoredDriftContext, fromCache: boolean): TerraformDri
     history: buildHistory(sanitized.snapshots),
     fromCache
   }
+}
+
+/**
+ * Per-unit drift scan for a Terragrunt stack project. Bypasses the stack-level cache and
+ * always runs a fresh scan against the unit's pulled state. Identity fields in the returned
+ * report (projectId/projectName) still reference the stack, so downstream telemetry stays
+ * grouped under the stack.
+ */
+export async function getTerragruntUnitDriftReport(
+  profileName: string,
+  stackProjectId: string,
+  connection: AwsConnection,
+  unitPath: string
+): Promise<TerraformDriftReport> {
+  // Route by what's actually in the unit's state, not by the connection/profile or HCL-parsed
+  // backend. scanProjectDrift's live-inventory is AWS-only — passing it a GCP unit returns an
+  // empty AWS-only comparison that the UI renders as "No drift detected". The hints upstream
+  // (resolveDriftProviderId from connection.providerId + profile prefix, findEffectiveRemoteState
+  // for metadata.backendType) are both unreliable: the UI often forwards a generic AWS connection
+  // for a stack, and the HCL walk quietly returns `local` when it can't grip a given layout.
+  // The state file is authoritative — whatever cloud wrote the resources is the cloud to compare
+  // them against. Fast path for explicit GCP/Azure connections skips the extra pull.
+  let providerId = resolveDriftProviderId(profileName, connection)
+  // Always preload the unit's inventory: the per-provider drift reporters accept
+  // `preloadedInventory` so we avoid a second state pull inside them. For the unreliable
+  // `'aws'` default, we also use the preloaded state for a content-based re-route.
+  const preloadedInventory: TerragruntUnitInventoryResult = await loadTerragruntUnitInventory(profileName, stackProjectId, connection, unitPath)
+  if (preloadedInventory.error) {
+    throw new Error(preloadedInventory.error)
+  }
+  const managed = preloadedInventory.inventory.filter((item) => item.mode === 'managed')
+  if (managed.length === 0) {
+    throw new Error([
+      `No managed resources in state for ${unitPath} — cannot determine which cloud to drift-scan.`,
+      `(inventory size=${preloadedInventory.inventory.length}, stateSource=${preloadedInventory.stateSource})`,
+      'Run terragrunt apply on this unit first, then retry.'
+    ].join('\n'))
+  }
+  if (providerId === 'aws') {
+    let gcpHits = 0
+    let azureHits = 0
+    let awsHits = 0
+    for (const item of managed) {
+      if (item.type.startsWith('google_')) gcpHits += 1
+      else if (item.type.startsWith('azurerm_') || item.type.startsWith('azuread_') || item.type.startsWith('azapi_')) azureHits += 1
+      else if (item.type.startsWith('aws_')) awsHits += 1
+    }
+    // Prefer non-AWS on ties: reaching this branch means the connection didn't point at a
+    // specific non-AWS cloud, so a tie is more likely a mixed-cloud unit where the non-AWS
+    // slice is what the user is drift-scanning.
+    if (gcpHits > 0 && gcpHits >= azureHits && gcpHits >= awsHits) providerId = 'gcp'
+    else if (azureHits > 0 && azureHits >= awsHits) providerId = 'azure'
+    // else: all counts 0 (only provider-agnostic types like random_/time_) or aws-majority —
+    // leave 'aws'.
+  }
+  if (providerId === 'gcp') {
+    const { getGcpTerragruntUnitDriftReport } = await import('./gcpTerraformInsights')
+    return getGcpTerragruntUnitDriftReport(profileName, stackProjectId, connection, unitPath, preloadedInventory)
+  }
+  if (providerId === 'azure') {
+    const { getAzureTerragruntUnitDriftReport } = await import('./azure/terraformDrift')
+    return getAzureTerragruntUnitDriftReport(profileName, stackProjectId, connection, unitPath, preloadedInventory)
+  }
+  const auditCtx = createTraceContext({
+    operation: 'drift-report',
+    provider: 'aws',
+    module: stackProjectId
+  })
+  return withAudit(
+    auditCtx,
+    async () => {
+      const scanned = await scanProjectDrift(profileName, stackProjectId, connection, 'manual', unitPath)
+      return toReport(scanned, false)
+    },
+    (report, summary) => ({ ...report, audit: summary })
+  )
 }
 
 export async function getTerraformDriftReport(

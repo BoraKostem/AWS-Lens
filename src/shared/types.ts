@@ -506,6 +506,7 @@ export type AppSettingsToolchain = {
   preferredTerraformCliKind: TerraformCliKind | ''
   terraformPathOverride: string
   opentofuPathOverride: string
+  terragruntPathOverride: string
   awsCliPathOverride: string
   gcloudPathOverride: string
   azureCliPathOverride: string
@@ -3293,6 +3294,7 @@ export type Ec2InstanceSummary = {
   publicIp: string
   privateIp: string
   iamProfile: string
+  amiId: string
   launchTime: string
   ssmStatus: Ec2SsmStatus
   ssmPingStatus: string
@@ -4369,6 +4371,7 @@ export type EnterpriseAuditOutcome = 'success' | 'blocked' | 'failed'
 export type EnterpriseAuditEvent = {
   id: string
   happenedAt: string
+  providerId?: CloudProviderId
   accessMode: EnterpriseAccessMode
   outcome: EnterpriseAuditOutcome
   action: string
@@ -4386,6 +4389,76 @@ export type EnterpriseAuditExportResult = {
   path: string
   eventCount: number
   rangeDays?: 1 | 7
+}
+
+// ─── Exporters (Phase 4) ──────────────────────────────────────────────────────
+
+export type ExporterAuthKind = 'none' | 'basic' | 'bearer' | 'api-key'
+
+export type ExporterPrometheusConfig = {
+  enabled: boolean
+  port: number
+  host: string
+  metricsPath: string
+  teamLabel: string
+  projectLabel: string
+}
+
+export type ExporterElasticsearchConfig = {
+  enabled: boolean
+  url: string
+  indexPrefix: string
+  authKind: ExporterAuthKind
+  username: string
+  password: string
+  bearerToken: string
+  apiKey: string
+  tlsSkipVerify: boolean
+  teamLabel: string
+  projectLabel: string
+}
+
+export type ExporterRedactionMode = 'full' | 'partial' | 'none'
+
+export type ExporterConfig = {
+  prometheus: ExporterPrometheusConfig
+  elasticsearch: ExporterElasticsearchConfig
+  redactionMode: ExporterRedactionMode
+  retentionHours: number
+  updatedAt: string
+}
+
+export type ExporterHealthSnapshot = {
+  prometheus: {
+    running: boolean
+    port: number
+    lastError: string
+  }
+  elasticsearch: {
+    enabled: boolean
+    lastSuccessAt: string
+    lastFailureAt: string
+    lastError: string
+    queuedItems: number
+    droppedItems: number
+  }
+  queue: {
+    pending: number
+    retrying: number
+    dropped: number
+  }
+}
+
+export type ExportEventKind = 'audit' | 'terraform-run' | 'drift-snapshot' | 'diagnostics'
+
+export type ExportQueueEntry = {
+  id: string
+  kind: ExportEventKind
+  payload: unknown
+  createdAt: string
+  attempts: number
+  nextAttemptAt: string
+  lastError: string
 }
 
 export type AppDiagnosticsSnapshot = {
@@ -6295,6 +6368,25 @@ export type TerraformCommandName =
 
 export type TerraformCliKind = 'terraform' | 'opentofu'
 
+export type {
+  TerragruntCliInfo,
+  TerragruntDependency,
+  TerragruntDiscoveryClassification,
+  TerragruntDiscoveryResult,
+  TerragruntGeneratedFile,
+  TerragruntIncludeRef,
+  TerragruntInputEntry,
+  TerragruntProjectInfo,
+  TerragruntRemoteState,
+  TerragruntRunAllCommand,
+  TerragruntRunAllEvent,
+  TerragruntRunAllSummary,
+  TerragruntStack,
+  TerragruntUnit,
+  TerraformProjectKind
+} from './terragrunt'
+import type { TerragruntProjectInfo, TerraformProjectKind } from './terragrunt'
+
 export type TerraformCliOption = {
   kind: TerraformCliKind
   label: string
@@ -6743,6 +6835,12 @@ export type TerraformRunRecord = {
   errorClass?: TerraformErrorClass | null
   /** One-line remediation hint for the classified error; empty string on success. */
   suggestedAction?: string
+  /** Absolute path to the Terragrunt stack root, when this run is a Terragrunt run. */
+  stackRoot?: string
+  /** Absolute path to the Terragrunt unit directory, when this run is a Terragrunt run. */
+  unitPath?: string
+  /** Zero-based phase index from the topological sort of the stack's dependency graph. Only set for run-all runs. */
+  dependencyPhase?: number
 }
 
 export type TerraformRunHistoryFilter = {
@@ -6950,6 +7048,8 @@ export type TerraformProject = {
   stateLockInfo: TerraformStateLockInfo | null
   hasSavedPlan: boolean
   savedPlanMetadata: TerraformSavedPlanMetadata | null
+  kind?: TerraformProjectKind
+  terragrunt?: TerragruntProjectInfo | null
 }
 
 export type TerraformCommandRequest = {
@@ -6964,11 +7064,12 @@ export type TerraformCommandRequest = {
   stateToAddress?: string
   lockId?: string
   planOptions?: TerraformPlanOptions
+  unitPath?: string
 }
 
 export type TerraformProjectListItem = Pick<
   TerraformProject,
-  'id' | 'name' | 'rootPath' | 'status' | 'stateSource' | 'metadata' | 'lastPlanSummary' | 'lastCommandAt' | 'inventory' | 'environment' | 'currentWorkspace'
+  'id' | 'name' | 'rootPath' | 'status' | 'stateSource' | 'metadata' | 'lastPlanSummary' | 'lastCommandAt' | 'inventory' | 'environment' | 'currentWorkspace' | 'kind' | 'terragrunt'
 >
 
 export type TerraformAdoptionResourceType =

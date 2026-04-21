@@ -2274,7 +2274,7 @@ export function extractGcpZoneOperationError(operation: unknown): string {
     .join(' | ')
 }
 
-export async function waitForGcpZoneOperation(projectId: string, zone: string, operationName: string, timeoutMs = 45000): Promise<{ completed: boolean; status: string }> {
+export async function waitForGcpZoneOperation(projectId: string, zone: string, operationName: string, timeoutMs = 120000): Promise<{ completed: boolean; status: string }> {
   const normalizedProjectId = projectId.trim()
   const normalizedZone = zone.trim()
   const normalizedOperation = operationName.trim()
@@ -2285,10 +2285,10 @@ export async function waitForGcpZoneOperation(projectId: string, zone: string, o
 
   const auth = getGcpAuth(normalizedProjectId)
   const compute = google.compute({ version: 'v1', auth })
-  const startedAt = Date.now()
+  const deadline = Date.now() + timeoutMs
 
-  while (Date.now() - startedAt < timeoutMs) {
-    const response = await compute.zoneOperations.get({
+  while (Date.now() < deadline) {
+    const response = await compute.zoneOperations.wait({
       project: normalizedProjectId,
       zone: normalizedZone,
       operation: normalizedOperation
@@ -2303,8 +2303,6 @@ export async function waitForGcpZoneOperation(projectId: string, zone: string, o
 
       return { completed: true, status }
     }
-
-    await sleep(2000)
   }
 
   return { completed: false, status: 'PENDING' }

@@ -1350,9 +1350,12 @@ function GcpCloudStorageConsole({
                                 }
                               }}
                             >
-                              <td>{displayGcpStorageObjectName(object.key, prefix)}</td>
+                              <td title={displayGcpStorageObjectName(object.key, prefix)}>
+                                {object.isFolder && <span className="s3-folder-icon">&#128193; </span>}
+                                {displayGcpStorageObjectName(object.key, prefix)}
+                              </td>
                               <td>{object.isFolder ? 'Folder' : 'Object'}</td>
-                              <td>{object.key}</td>
+                              <td title={object.key}>{object.key}</td>
                               <td>{object.isFolder ? '-' : formatGcpStorageObjectSize(object.size)}</td>
                               <td>{object.lastModified !== '-' ? new Date(object.lastModified).toLocaleString() : '-'}</td>
                               <td>{object.storageClass || '-'}</td>

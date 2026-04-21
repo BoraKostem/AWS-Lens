@@ -74,6 +74,8 @@ import {
   validateProjectInputs
 } from './terraformApi'
 import { ObservabilityResilienceLab } from './ObservabilityResilienceLab'
+import { TerragruntStackPane } from './TerragruntStackPane'
+import { TerragruntInputsDialog } from './TerragruntInputsDialog'
 
 type DetailTab = 'actions' | 'state' | 'resources' | 'drift' | 'lab' | 'history'
 type TerraformProviderId = 'aws' | 'gcp' | 'azure'
@@ -3636,6 +3638,7 @@ export function TerraformConsole({
 
   // Dialogs
   const [showInputs, setShowInputs] = useState(false)
+  const [showTerragruntInputs, setShowTerragruntInputs] = useState(false)
   const [showRenameDialog, setShowRenameDialog] = useState(false)
   const [showCreateWorkspaceDialog, setShowCreateWorkspaceDialog] = useState(false)
   const [showDeleteWorkspaceDialog, setShowDeleteWorkspaceDialog] = useState(false)
@@ -3889,7 +3892,12 @@ export function TerraformConsole({
 
   useEffect(() => {
     if (detailTab !== 'drift' || !detail || !canLoadDrift || !driftConnection) return
-    if (driftReport?.projectId === detail.id && driftReport.region === driftConnection.region) return
+    // Only match on projectId — for Terragrunt stacks and multi-cloud projects the
+    // report's region comes from the state (resource location) and may not equal the
+    // UI-selected driftConnection.region. Comparing both caused an infinite refresh
+    // loop where every completed scan re-triggered the effect because the regions
+    // didn't match.
+    if (driftReport?.projectId === detail.id) return
     void loadDrift()
   }, [canLoadDrift, detail, detailTab, driftConnection, driftReport, loadDrift])
 
@@ -4169,11 +4177,17 @@ export function TerraformConsole({
   }
 
   function handleShowInputs() {
+    if (!detail) return
+    if (detail.kind === 'terragrunt-unit' || detail.kind === 'terragrunt-stack') {
+      // Terragrunt inputs live in terragrunt.hcl — we read them via render-json instead of the
+      // Terraform .tfvars flow. This dialog is view-only; editing happens in terragrunt.hcl.
+      setShowTerragruntInputs(true)
+      return
+    }
     if (!commandsEnabled) {
       setMsg('Operator mode is required to edit Terraform inputs.')
       return
     }
-    if (!detail) return
     setPrefillMissing([])
     setResumeCommandAfterInputs(null)
     setShowInputs(true)
@@ -4564,7 +4578,13 @@ export function TerraformConsole({
           <button className="tf-toolbar-btn" onClick={() => void handleOpenInVsCode()} disabled={!detail}>Open in VS Code</button>
           <button className="tf-toolbar-btn danger" onClick={handleRemoveProject} disabled={!selectedId || !commandsEnabled}>Remove Project</button>
           <button className="tf-toolbar-btn" onClick={handleReload} disabled={loading}>Reload</button>
-          <button className="tf-toolbar-btn" onClick={handleShowInputs} disabled={!detail || !commandsEnabled}>Inputs</button>
+          <button
+            className="tf-toolbar-btn"
+            onClick={handleShowInputs}
+            disabled={!detail || (detail.kind !== 'terragrunt-unit' && detail.kind !== 'terragrunt-stack' && !commandsEnabled)}
+          >
+            Inputs
+          </button>
         </div>
         <div className="tf-shell-status">
           {!commandsEnabled && (
@@ -4660,7 +4680,14 @@ export function TerraformConsole({
                           <strong>{project.name}</strong>
                           <span title={project.rootPath}>{formatProjectPath(project.rootPath)}</span>
                         </div>
-                        <span className={`tf-status-badge ${status.tone}`}>{status.label}</span>
+                        <div className="tf-project-row-top-badges">
+                          {(project.kind === 'terragrunt-unit' || project.kind === 'terragrunt-stack') && (
+                            <span className="tf-status-badge info">
+                              {project.kind === 'terragrunt-stack' ? 'Terragrunt stack' : 'Terragrunt unit'}
+                            </span>
+                          )}
+                          <span className={`tf-status-badge ${status.tone}`}>{status.label}</span>
+                        </div>
                       </div>
                       <div className="tf-project-row-meta">
                         <span>{project.currentWorkspace}</span>
@@ -4724,24 +4751,54 @@ export function TerraformConsole({
                     <strong>{selectedProjectStatus?.label ?? 'Selected'}</strong>
                     <small>{detail.status ?? 'Ready'}</small>
                   </div>
-                  <div className="tf-detail-stat-card">
-                    <span>Resources</span>
-                    <strong>{detail.metadata.resourceCount}</strong>
-                    <small>{detail.stateAddresses.length} tracked in state</small>
-                  </div>
-                  <div className="tf-detail-stat-card">
-                    <span>Modules</span>
-                    <strong>{detail.metadata.moduleCount}</strong>
-                    <small>{detail.metadata.providerNames.length} providers</small>
-                  </div>
-                  <div className="tf-detail-stat-card">
-                    <span>Plan blast radius</span>
-                    <strong>{detail.lastPlanSummary.affectedResources}</strong>
-                    <small>{detail.lastPlanSummary.hasChanges ? 'Affected resources in saved plan' : 'No saved changes yet'}</small>
-                  </div>
+                  {detail.kind === 'terragrunt-stack' && detail.terragrunt?.kind === 'terragrunt-stack' ? (
+                    <>
+                      <div className="tf-detail-stat-card">
+                        <span>Units</span>
+                        <strong>{detail.terragrunt.stack.units.length}</strong>
+                        <small>Discovered in stack</small>
+                      </div>
+                      <div className="tf-detail-stat-card">
+                        <span>Phases</span>
+                        <strong>{detail.terragrunt.stack.dependencyOrder.length}</strong>
+                        <small>
+                          {detail.terragrunt.stack.cycles.length > 0
+                            ? `${detail.terragrunt.stack.cycles.length} cycle${detail.terragrunt.stack.cycles.length === 1 ? '' : 's'} detected`
+                            : 'Topological order'}
+                        </small>
+                      </div>
+                      <div className="tf-detail-stat-card">
+                        <span>Kind</span>
+                        <strong>Terragrunt stack</strong>
+                        <small>Run-all orchestrates all units</small>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="tf-detail-stat-card">
+                        <span>Resources</span>
+                        <strong>{detail.metadata.resourceCount}</strong>
+                        <small>{detail.stateAddresses.length} tracked in state</small>
+                      </div>
+                      <div className="tf-detail-stat-card">
+                        <span>Modules</span>
+                        <strong>{detail.metadata.moduleCount}</strong>
+                        <small>{detail.metadata.providerNames.length} providers</small>
+                      </div>
+                      <div className="tf-detail-stat-card">
+                        <span>Plan blast radius</span>
+                        <strong>{detail.lastPlanSummary.affectedResources}</strong>
+                        <small>{detail.lastPlanSummary.hasChanges ? 'Affected resources in saved plan' : 'No saved changes yet'}</small>
+                      </div>
+                    </>
+                  )}
                 </div>
               </section>
 
+              {detail.kind === 'terragrunt-stack' ? (
+                <TerragruntStackPane project={detail} profileName={contextKey} connection={effectiveConnection} />
+              ) : (
+              <>
               <div className="tf-detail-tabs">
                 <button className={detailTab === 'actions' ? 'active' : ''} onClick={() => setDetailTab('actions')}>Actions</button>
                 <button className={detailTab === 'state' ? 'active' : ''} onClick={() => setDetailTab('state')}>State</button>
@@ -4926,6 +4983,8 @@ export function TerraformConsole({
                   onOpenTab={setDetailTab}
                 />
               )}
+              </>
+              )}
             </>
           )}
         </div>
@@ -4939,6 +4998,15 @@ export function TerraformConsole({
           onSave={handleSaveInputs}
           onClose={() => { setShowInputs(false); setPrefillMissing([]) }}
           prefillMissing={prefillMissing.length > 0 ? prefillMissing : undefined}
+        />
+      )}
+
+      {/* Terragrunt Inputs Dialog (read-only view of terragrunt.hcl inputs) */}
+      {showTerragruntInputs && detail && (
+        <TerragruntInputsDialog
+          project={detail}
+          connection={effectiveConnection}
+          onClose={() => setShowTerragruntInputs(false)}
         />
       )}
 

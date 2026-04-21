@@ -16,6 +16,7 @@ import type {
 } from '@shared/types'
 import { getEnvironmentHealthReport } from './environment'
 import { getEnterpriseSettings } from './enterprise'
+import { getResolvedProcessEnv } from './shell'
 import { readAzureFoundationStore, updateAzureFoundationStore, type AzureFoundationStore } from './azureFoundationStore'
 
 const MANAGEMENT_SCOPE = 'https://management.azure.com/.default'
@@ -416,7 +417,7 @@ function isWindowsBatchFile(command: string): boolean {
 }
 
 async function runAzureCliJson<T>(args: string[]): Promise<T> {
-  const cliPath = await loadCliPath()
+  const [cliPath, resolvedEnv] = await Promise.all([loadCliPath(), getResolvedProcessEnv()])
   const resolved = cliPath || (process.platform === 'win32' ? 'az.cmd' : 'az')
   const fullArgs = [...args, '--output', 'json']
 
@@ -427,7 +428,7 @@ async function runAzureCliJson<T>(args: string[]): Promise<T> {
   const { stdout } = await execFileAsync(command, execArgs, {
     windowsHide: true,
     timeout: 20000,
-    env: process.env
+    env: resolvedEnv
   })
 
   return JSON.parse(stdout) as T
