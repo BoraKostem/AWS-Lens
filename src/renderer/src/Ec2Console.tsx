@@ -245,7 +245,15 @@ function formatVolumeSettings(volume: EbsVolumeSummary | EbsVolumeDetail): strin
 }
 
 function isSshVaultEntry(entry: VaultEntrySummary): boolean {
-  return entry.kind === 'pem' || entry.kind === 'ssh-key'
+  if (entry.kind !== 'pem' && entry.kind !== 'ssh-key') {
+    return false
+  }
+  // Exclude SSH keys explicitly scoped to GCP/Azure so the EC2 picker stays AWS-clean.
+  const scope = entry.metadata.cloudProvider
+  if (scope && scope !== 'aws') {
+    return false
+  }
+  return true
 }
 
 function findSshVaultEntry(entries: VaultEntrySummary[], value: string, preferredId = ''): VaultEntrySummary | null {

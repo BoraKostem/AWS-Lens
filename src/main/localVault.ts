@@ -1219,6 +1219,22 @@ export function listSecretManagerReferenceVaultEntries(): VaultEntrySummary[] {
   return listVaultEntries('secret-manager-reference')
 }
 
+/**
+ * List SSH/PEM vault entries optionally filtered by cloudProvider metadata.
+ * Entries without a cloudProvider scope are returned for every provider so
+ * legacy AWS-imported keys keep working.
+ */
+export function listSshKeysForProvider(provider?: CloudProviderId): VaultEntrySummary[] {
+  const sshEntries = [...listVaultEntries('ssh-key'), ...listVaultEntries('pem')]
+  if (!provider) {
+    return sshEntries
+  }
+  return sshEntries.filter((entry) => {
+    const scope = entry.metadata.cloudProvider
+    return !scope || scope === provider
+  })
+}
+
 export function getSecretManagerReferencePayload(name: string): SecretManagerReferencePayload | null {
   return readTypedSecret<SecretManagerReferencePayload>('secret-manager-reference', name)
 }

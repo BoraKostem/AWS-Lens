@@ -48,6 +48,7 @@ import { resolveDirectAccessInput } from './directAccessGuidance'
 import { buildEksUpgradePlan } from './eksUpgradePlanner'
 import {
   deleteVaultEntryById,
+  listSshKeysForProvider,
   listVaultEntrySummaries,
   recordVaultEntryUse,
   revealVaultEntrySecret,
@@ -183,6 +184,9 @@ export function registerFoundationIpcHandlers(): void {
   ) => wrap(() => setActiveVaultCredential(provider, entryId)))
   ipcMain.handle('phase2:validate-vault-entry', async (_event, entryId: string) =>
     wrap(() => validateVaultEntry(entryId))
+  )
+  ipcMain.handle('phase2:list-ssh-keys-for-provider', async (_event, provider?: 'aws' | 'gcp' | 'azure') =>
+    wrap(() => listSshKeysForProvider(provider))
   )
   ipcMain.handle('phase2:list-comparison-baselines', async () =>
     wrap(() => listComparisonBaselines())

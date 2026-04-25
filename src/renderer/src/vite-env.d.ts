@@ -96,6 +96,7 @@ declare global {
       getActiveVaultCredential: (provider: CloudProviderId) => Promise<unknown>
       setActiveVaultCredential: (provider: CloudProviderId, entryId: string | null) => Promise<unknown>
       validateVaultEntry: (entryId: string) => Promise<unknown>
+      listSshKeysForProvider: (provider?: CloudProviderId) => Promise<unknown>
       listComparisonBaselines: () => Promise<unknown>
       listComparisonPresets: () => Promise<unknown>
       getComparisonBaseline: (baselineId: string) => Promise<unknown>

@@ -1424,6 +1424,12 @@ export async function validateVaultEntry(entryId: string): Promise<VaultValidati
   )
 }
 
+export async function listSshKeysForProvider(provider?: CloudProviderId): Promise<VaultEntrySummary[]> {
+  return unwrap(
+    (await rawAwsBridge().listSshKeysForProvider(provider)) as Wrapped<VaultEntrySummary[]>
+  )
+}
+
 export async function listComparisonBaselines(): Promise<ComparisonBaselineSummary[]> {
   return unwrap((await awsBridge().listComparisonBaselines()) as Wrapped<ComparisonBaselineSummary[]>)
 }

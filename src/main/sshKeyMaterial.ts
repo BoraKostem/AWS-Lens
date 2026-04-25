@@ -5,8 +5,8 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { app } from 'electron'
 
-import type { Ec2ChosenSshKey, VaultSshKeyInspection, VaultSshKeyInspectionSource } from '@shared/types'
-import { listVaultEntries, revealVaultEntrySecret, saveVaultEntry } from './localVault'
+import type { CloudProviderId, Ec2ChosenSshKey, VaultSshKeyInspection, VaultSshKeyInspectionSource } from '@shared/types'
+import { listVaultEntries, recordVaultEntryUseByKindAndName, revealVaultEntrySecret, saveVaultEntry } from './localVault'
 
 const execFileAsync = promisify(execFile)
 
@@ -163,7 +163,7 @@ export async function inspectVaultSshKey(entryId: string): Promise<VaultSshKeyIn
   }
 }
 
-export async function stageVaultSshPrivateKey(entryId: string): Promise<string> {
+export async function stageVaultSshPrivateKey(entryId: string, options?: { source?: string }): Promise<string> {
   const entry = listVaultEntries().find((candidate) => candidate.id === entryId)
   if (!entry) {
     throw new Error('Selected vault key could not be found.')
@@ -188,6 +188,19 @@ export async function stageVaultSshPrivateKey(entryId: string): Promise<string> 
   }
 
   await lockDownPrivateKey(targetPath)
+
+  const cloudProviderMeta = entry.metadata.cloudProvider
+  const cloudProvider: CloudProviderId | undefined =
+    cloudProviderMeta === 'aws' || cloudProviderMeta === 'gcp' || cloudProviderMeta === 'azure'
+      ? cloudProviderMeta
+      : undefined
+  try {
+    recordVaultEntryUseByKindAndName(entry.kind, entry.name, {
+      source: options?.source ?? `vault:ssh:stage:${cloudProvider ?? 'generic'}`,
+      cloudProvider
+    })
+  } catch { /* never block ssh */ }
+
   return targetPath
 }
 
