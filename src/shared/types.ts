@@ -4104,6 +4104,12 @@ export type VaultEntryKind =
   | 'kubeconfig-fragment'
   | 'api-token'
   | 'connection-secret'
+  | 'gcp-service-account-key'
+  | 'gcp-workload-identity'
+  | 'azure-service-principal-secret'
+  | 'azure-service-principal-cert'
+  | 'provider-api-token'
+  | 'secret-manager-reference'
 
 export type VaultOrigin =
   | 'manual'
@@ -4112,6 +4118,10 @@ export type VaultOrigin =
   | 'aws-secrets-manager'
   | 'aws-ssm'
   | 'aws-iam'
+  | 'gcp-iam-key'
+  | 'gcp-secret-manager'
+  | 'azure-app-registration'
+  | 'azure-key-vault'
   | 'generated'
   | 'unknown'
 
@@ -4124,6 +4134,7 @@ export type VaultEntryUsage = {
   region: string
   resourceId: string
   resourceLabel: string
+  cloudProvider?: CloudProviderId
 }
 
 export type VaultEntrySummary = {
@@ -4168,6 +4179,119 @@ export type VaultEntryUsageInput = {
   region?: string
   resourceId?: string
   resourceLabel?: string
+  cloudProvider?: CloudProviderId
+}
+
+export const VAULT_METADATA_KEYS = {
+  cloudProvider: 'cloudProvider',
+  projectId: 'projectId',
+  tenantId: 'tenantId',
+  subscriptionId: 'subscriptionId',
+  clientId: 'clientId',
+  clientEmail: 'clientEmail',
+  privateKeyId: 'privateKeyId',
+  certThumbprint: 'certThumbprint',
+  certNotBefore: 'certNotBefore',
+  certNotAfter: 'certNotAfter',
+  audience: 'audience',
+  subjectTokenType: 'subjectTokenType',
+  impersonationTarget: 'impersonationTarget',
+  scope: 'scope',
+  usageScope: 'usageScope',
+  keyAlgorithm: 'keyAlgorithm',
+  lastValidatedAt: 'lastValidatedAt',
+  lastValidationStatus: 'lastValidationStatus',
+  lastValidationMessage: 'lastValidationMessage',
+  secretReferenceUri: 'secretReferenceUri',
+  secretReferenceProvider: 'secretReferenceProvider',
+  localFallback: 'localFallback',
+  fileName: 'fileName',
+  // SSH-key provider scoping
+  gcpProjectId: 'gcpProjectId',
+  gcpInstanceName: 'gcpInstanceName',
+  gcpZone: 'gcpZone',
+  azureSubscriptionId: 'azureSubscriptionId',
+  azureResourceGroup: 'azureResourceGroup',
+  azureVmName: 'azureVmName',
+  linuxUsername: 'linuxUsername'
+} as const
+
+export type VaultMetadataKey = (typeof VAULT_METADATA_KEYS)[keyof typeof VAULT_METADATA_KEYS]
+
+export type VaultApiTokenProvider =
+  | 'openai'
+  | 'anthropic'
+  | 'gemini'
+  | 'vertex-ai'
+  | 'bedrock'
+  | 'azure-openai'
+  | 'mistral'
+  | 'cohere'
+  | 'other'
+
+export type VaultSecretReferenceProvider = 'gcp-secret-manager' | 'azure-key-vault'
+
+export type GcpServiceAccountKeyPayload = {
+  type: 'service_account'
+  project_id: string
+  private_key_id: string
+  private_key: string
+  client_email: string
+  client_id?: string
+  auth_uri?: string
+  token_uri?: string
+  auth_provider_x509_cert_url?: string
+  client_x509_cert_url?: string
+  universe_domain?: string
+}
+
+export type GcpExternalAccountPayload = {
+  type: 'external_account'
+  audience: string
+  subject_token_type: string
+  token_url?: string
+  service_account_impersonation_url?: string
+  credential_source?: Record<string, unknown>
+  workforce_pool_user_project?: string
+}
+
+export type AzureServicePrincipalSecretPayload = {
+  authMethod: 'client-secret'
+  tenantId: string
+  clientId: string
+  subscriptionId: string
+  clientSecret: string
+  expiryAt?: string
+  notes?: string
+}
+
+export type AzureServicePrincipalCertPayload = {
+  authMethod: 'client-certificate'
+  tenantId: string
+  clientId: string
+  subscriptionId: string
+  certificatePem: string
+  privateKeyPem: string
+  certThumbprint?: string
+  notBefore?: string
+  notAfter?: string
+  notes?: string
+}
+
+export type ProviderApiTokenPayload = {
+  provider: VaultApiTokenProvider
+  token: string
+  scope?: string
+  baseUrl?: string
+  expiryAt?: string
+  notes?: string
+}
+
+export type SecretManagerReferencePayload = {
+  provider: VaultSecretReferenceProvider
+  uri: string
+  description?: string
+  localFallback?: string
 }
 
 export type VaultImportSelection = {

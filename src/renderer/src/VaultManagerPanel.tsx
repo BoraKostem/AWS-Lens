@@ -45,7 +45,13 @@ const KIND_LABELS: Record<VaultEntryKind, string> = {
   'db-credential': 'DB credential',
   'kubeconfig-fragment': 'Kubeconfig fragment',
   'api-token': 'API token',
-  'connection-secret': 'Connection secret'
+  'connection-secret': 'Connection secret',
+  'gcp-service-account-key': 'GCP service account key',
+  'gcp-workload-identity': 'GCP workload identity',
+  'azure-service-principal-secret': 'Azure SP (secret)',
+  'azure-service-principal-cert': 'Azure SP (certificate)',
+  'provider-api-token': 'Provider API token',
+  'secret-manager-reference': 'Secret manager reference'
 }
 
 const ORIGIN_LABELS: Record<VaultOrigin, string> = {
@@ -55,6 +61,10 @@ const ORIGIN_LABELS: Record<VaultOrigin, string> = {
   'aws-secrets-manager': 'Secrets Manager',
   'aws-ssm': 'SSM',
   'aws-iam': 'IAM',
+  'gcp-iam-key': 'GCP IAM key',
+  'gcp-secret-manager': 'GCP Secret Manager',
+  'azure-app-registration': 'Azure App registration',
+  'azure-key-vault': 'Azure Key Vault',
   generated: 'Generated',
   unknown: 'Unknown'
 }
@@ -198,7 +208,7 @@ export function VaultManagerPanel({
   )
 
   const countsByKind = useMemo(() => {
-    const counts = {
+    const counts: { total: number } & Record<VaultEntryKind, number> = {
       total: allEntries.length,
       'aws-profile': 0,
       'ssh-key': 0,
@@ -208,7 +218,13 @@ export function VaultManagerPanel({
       'kubeconfig-fragment': 0,
       'api-token': 0,
       'connection-secret': 0,
-      generic: 0
+      generic: 0,
+      'gcp-service-account-key': 0,
+      'gcp-workload-identity': 0,
+      'azure-service-principal-secret': 0,
+      'azure-service-principal-cert': 0,
+      'provider-api-token': 0,
+      'secret-manager-reference': 0
     }
 
     for (const entry of allEntries) {
