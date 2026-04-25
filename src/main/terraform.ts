@@ -54,6 +54,7 @@ import type {
   TerraformVariableDefinition,
   AwsConnection
 } from '@shared/types'
+import { applyVaultCredentialEnv } from './credentialMaterializer'
 import { getProjects, setPreferredTerraformCliKind, setProjects } from './store'
 import { resolveTerraformSecretReference } from './aws/terraformInputs'
 import { executeOperation, OperationTimeoutError } from './operations'
@@ -2503,6 +2504,11 @@ function buildEnvWithVars(
     }
   }
 
+  // Vault-backed GCP credential override: any user-selected entry takes
+  // precedence over the default ADC path so terraform/gcloud uses the
+  // exact key/identity the operator picked in the Vault Manager.
+  applyVaultCredentialEnv(env, 'gcp')
+
   const inputs = runtimeInputs?.values ?? readPersistedInputValues(project)
   for (const [key, value] of Object.entries(inputs)) {
     if (typeof value === 'string') env[`TF_VAR_${key}`] = value
@@ -2527,6 +2533,10 @@ function buildEnvWithVars(
     if (tenantId) env.ARM_TENANT_ID = tenantId
     if (location) env.ARM_LOCATION = location
     env.ARM_USE_CLI = 'true'
+
+    // Vault-backed Azure SP credential override (sets ARM_*/AZURE_* and
+    // flips ARM_USE_CLI=false so terraform uses the SP directly).
+    applyVaultCredentialEnv(env, 'azure')
   }
 
   return env

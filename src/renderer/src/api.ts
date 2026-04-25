@@ -1399,6 +1399,24 @@ export async function disposeMaterializedVaultEntry(disposeToken: string): Promi
   )
 }
 
+export async function listActiveVaultCredentials(): Promise<{ aws?: string; gcp?: string; azure?: string }> {
+  return unwrap(
+    (await rawAwsBridge().listActiveVaultCredentials()) as Wrapped<{ aws?: string; gcp?: string; azure?: string }>
+  )
+}
+
+export async function getActiveVaultCredential(provider: CloudProviderId): Promise<string | null> {
+  return unwrap(
+    (await rawAwsBridge().getActiveVaultCredential(provider)) as Wrapped<string | null>
+  )
+}
+
+export async function setActiveVaultCredential(provider: CloudProviderId, entryId: string | null): Promise<void> {
+  return unwrap(
+    (await rawAwsBridge().setActiveVaultCredential(provider, entryId)) as Wrapped<void>
+  )
+}
+
 export async function listComparisonBaselines(): Promise<ComparisonBaselineSummary[]> {
   return unwrap((await awsBridge().listComparisonBaselines()) as Wrapped<ComparisonBaselineSummary[]>)
 }

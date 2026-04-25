@@ -111,6 +111,11 @@ const awsLensApi = {
   materializeVaultEntry: (entryId: string) => ipcRenderer.invoke('phase2:materialize-vault-entry', entryId),
   disposeMaterializedVaultEntry: (disposeToken: string) =>
     ipcRenderer.invoke('phase2:dispose-materialized-entry', disposeToken),
+  listActiveVaultCredentials: () => ipcRenderer.invoke('phase2:list-active-vault-credentials'),
+  getActiveVaultCredential: (provider: CloudProviderId) =>
+    ipcRenderer.invoke('phase2:get-active-vault-credential', provider),
+  setActiveVaultCredential: (provider: CloudProviderId, entryId: string | null) =>
+    ipcRenderer.invoke('phase2:set-active-vault-credential', provider, entryId),
   listComparisonBaselines: () => ipcRenderer.invoke('phase2:list-comparison-baselines'),
   listComparisonPresets: () => ipcRenderer.invoke('phase2:list-comparison-presets'),
   getComparisonBaseline: (baselineId: string) => ipcRenderer.invoke('phase2:get-comparison-baseline', baselineId),

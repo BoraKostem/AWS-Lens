@@ -1,4 +1,6 @@
 import { GoogleAuth, type AuthClient, Impersonated } from 'google-auth-library'
+import { getActiveVaultCredential } from '../activeVaultCredentialStore'
+import { listVaultEntries, recordVaultEntryUseByKindAndName } from '../localVault'
 import { logInfo, logWarn } from '../observability'
 
 // ── Constants ───────────────────────────────────────────────────────────────────
@@ -94,6 +96,29 @@ export function getCredentialAuth(projectId = ''): GoogleAuth {
   return auth
 }
 
+function recordActiveVaultUse(projectId: string): void {
+  const entryId = getActiveVaultCredential('gcp')
+  if (!entryId) {
+    return
+  }
+  const summary = listVaultEntries().find((entry) => entry.id === entryId)
+  if (!summary) {
+    return
+  }
+  if (summary.kind !== 'gcp-service-account-key' && summary.kind !== 'gcp-workload-identity') {
+    return
+  }
+  try {
+    recordVaultEntryUseByKindAndName(summary.kind, summary.name, {
+      source: 'gcp:auth:credential-load',
+      profile: projectId.trim(),
+      cloudProvider: 'gcp'
+    })
+  } catch (err) {
+    logWarn('gcp.auth.vault-telemetry', 'Failed to record GCP vault credential use.', { entryId }, err)
+  }
+}
+
 /**
  * Returns an authenticated client for the given project, with support for
  * service account impersonation when configured.
@@ -108,6 +133,7 @@ export async function getCredentialClient(projectId = ''): Promise<AuthClient> {
 
   const auth = getCredentialAuth(projectId)
   let client = await auth.getClient()
+  recordActiveVaultUse(projectId)
 
   // Apply service account impersonation if configured
   if (impersonationTarget) {

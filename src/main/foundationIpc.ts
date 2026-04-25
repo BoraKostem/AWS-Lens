@@ -34,6 +34,11 @@ import {
   saveComparisonPreset
 } from './comparePresetStore'
 import {
+  getActiveVaultCredential,
+  listActiveVaultCredentials,
+  setActiveVaultCredential
+} from './activeVaultCredentialStore'
+import {
   disposeMaterializedEntry,
   materializeVaultEntryForRuntime
 } from './credentialMaterializer'
@@ -164,6 +169,17 @@ export function registerFoundationIpcHandlers(): void {
   ipcMain.handle('phase2:dispose-materialized-entry', async (_event, disposeToken: string) =>
     wrap(() => disposeMaterializedEntry(disposeToken))
   )
+  ipcMain.handle('phase2:list-active-vault-credentials', async () =>
+    wrap(() => listActiveVaultCredentials())
+  )
+  ipcMain.handle('phase2:get-active-vault-credential', async (_event, provider: 'aws' | 'gcp' | 'azure') =>
+    wrap(() => getActiveVaultCredential(provider))
+  )
+  ipcMain.handle('phase2:set-active-vault-credential', async (
+    _event,
+    provider: 'aws' | 'gcp' | 'azure',
+    entryId: string | null
+  ) => wrap(() => setActiveVaultCredential(provider, entryId)))
   ipcMain.handle('phase2:list-comparison-baselines', async () =>
     wrap(() => listComparisonBaselines())
   )

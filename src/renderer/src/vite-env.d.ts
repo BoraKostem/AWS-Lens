@@ -92,6 +92,9 @@ declare global {
       recordVaultEntryUse: (input: VaultEntryUsageInput) => Promise<unknown>
       materializeVaultEntry: (entryId: string) => Promise<unknown>
       disposeMaterializedVaultEntry: (disposeToken: string) => Promise<unknown>
+      listActiveVaultCredentials: () => Promise<unknown>
+      getActiveVaultCredential: (provider: CloudProviderId) => Promise<unknown>
+      setActiveVaultCredential: (provider: CloudProviderId, entryId: string | null) => Promise<unknown>
       listComparisonBaselines: () => Promise<unknown>
       listComparisonPresets: () => Promise<unknown>
       getComparisonBaseline: (baselineId: string) => Promise<unknown>

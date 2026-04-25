@@ -13,9 +13,14 @@ export class SecretReferenceNotImplementedError extends Error {
   }
 }
 
-export async function resolveSecretManagerReference(
-  payload: SecretManagerReferencePayload
-): Promise<{ secret: string; resolvedAt: string; provider: SecretManagerReferencePayload['provider']; uri: string }> {
+export type ResolvedSecret = {
+  secret: string
+  resolvedAt: string
+  provider: SecretManagerReferencePayload['provider']
+  uri: string
+}
+
+export function resolveSecretManagerReferenceSync(payload: SecretManagerReferencePayload): ResolvedSecret {
   if (typeof payload.localFallback === 'string' && payload.localFallback.trim().length > 0) {
     return {
       secret: payload.localFallback,
@@ -26,4 +31,10 @@ export async function resolveSecretManagerReference(
   }
 
   throw new SecretReferenceNotImplementedError(payload.provider)
+}
+
+export async function resolveSecretManagerReference(
+  payload: SecretManagerReferencePayload
+): Promise<ResolvedSecret> {
+  return resolveSecretManagerReferenceSync(payload)
 }

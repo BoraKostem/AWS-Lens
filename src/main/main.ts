@@ -279,7 +279,7 @@ app.on('before-quit', (e) => {
 
   if (isQuitting || (pendingRequests.size === 0 && !hasPendingAwsCredentialActivity())) {
     shutdownExporters().catch(() => { /* never block quit */ })
-    disposeAllRuntimeMaterializations().catch(() => { /* never block quit */ })
+    try { disposeAllRuntimeMaterializations() } catch { /* never block quit */ }
     return
   }
   e.preventDefault()

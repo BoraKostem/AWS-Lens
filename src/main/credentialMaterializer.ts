@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+import { getActiveVaultCredential } from './activeVaultCredentialStore'
 import {
   getAzureServicePrincipalCertPayload,
   getAzureServicePrincipalSecretPayload,
@@ -14,7 +15,7 @@ import {
   recordVaultEntryUseByKindAndName
 } from './localVault'
 import { logWarn } from './observability'
-import { resolveSecretManagerReference } from './secretReferenceResolver'
+import { resolveSecretManagerReferenceSync } from './secretReferenceResolver'
 
 import type { CloudProviderId } from '@shared/types'
 
@@ -44,7 +45,7 @@ export type MaterializedRuntimeCredential = {
 }
 
 type ActiveMaterialization = MaterializedRuntimeCredential & {
-  dispose: () => Promise<void>
+  dispose: () => void
 }
 
 const active = new Map<string, ActiveMaterialization>()
@@ -87,7 +88,7 @@ function recordUsage(
   }
 }
 
-async function materializeGcpServiceAccount(entryId: string, name: string): Promise<MaterializedRuntimeCredential> {
+function materializeGcpServiceAccount(entryId: string, name: string): MaterializedRuntimeCredential {
   const payload = getGcpServiceAccountSecret(name)
   if (!payload) {
     throw new Error(`Vault entry ${entryId} is not a valid GCP service account key.`)
@@ -101,7 +102,7 @@ async function materializeGcpServiceAccount(entryId: string, name: string): Prom
   return { disposeToken: newDisposeToken(), entryId, env, files: [filePath], cloudProvider: 'gcp' }
 }
 
-async function materializeGcpWorkloadIdentity(entryId: string, name: string): Promise<MaterializedRuntimeCredential> {
+function materializeGcpWorkloadIdentity(entryId: string, name: string): MaterializedRuntimeCredential {
   const payload = getGcpWorkloadIdentitySecret(name)
   if (!payload) {
     throw new Error(`Vault entry ${entryId} is not a valid GCP workload identity config.`)
@@ -112,7 +113,7 @@ async function materializeGcpWorkloadIdentity(entryId: string, name: string): Pr
   return { disposeToken: newDisposeToken(), entryId, env, files: [filePath], cloudProvider: 'gcp' }
 }
 
-async function materializeAzureSpSecret(entryId: string, name: string): Promise<MaterializedRuntimeCredential> {
+function materializeAzureSpSecret(entryId: string, name: string): MaterializedRuntimeCredential {
   const payload = getAzureServicePrincipalSecretPayload(name)
   if (!payload) {
     throw new Error(`Vault entry ${entryId} is not a valid Azure SP secret.`)
@@ -132,7 +133,7 @@ async function materializeAzureSpSecret(entryId: string, name: string): Promise<
   return { disposeToken: newDisposeToken(), entryId, env, files: [], cloudProvider: 'azure' }
 }
 
-async function materializeAzureSpCert(entryId: string, name: string): Promise<MaterializedRuntimeCredential> {
+function materializeAzureSpCert(entryId: string, name: string): MaterializedRuntimeCredential {
   const payload = getAzureServicePrincipalCertPayload(name)
   if (!payload) {
     throw new Error(`Vault entry ${entryId} is not a valid Azure SP certificate.`)
@@ -154,7 +155,7 @@ async function materializeAzureSpCert(entryId: string, name: string): Promise<Ma
   return { disposeToken: newDisposeToken(), entryId, env, files: [filePath], cloudProvider: 'azure' }
 }
 
-async function materializeProviderApiToken(entryId: string, name: string): Promise<MaterializedRuntimeCredential> {
+function materializeProviderApiToken(entryId: string, name: string): MaterializedRuntimeCredential {
   const payload = getProviderApiTokenSecret(name)
   if (!payload) {
     throw new Error(`Vault entry ${entryId} is not a valid provider API token.`)
@@ -196,12 +197,12 @@ async function materializeProviderApiToken(entryId: string, name: string): Promi
   return { disposeToken: newDisposeToken(), entryId, env, files: [] }
 }
 
-async function materializeSecretReference(entryId: string, name: string): Promise<MaterializedRuntimeCredential> {
+function materializeSecretReference(entryId: string, name: string): MaterializedRuntimeCredential {
   const payload = getSecretManagerReferencePayload(name)
   if (!payload) {
     throw new Error(`Vault entry ${entryId} is not a valid secret manager reference.`)
   }
-  const resolved = await resolveSecretManagerReference(payload)
+  const resolved = resolveSecretManagerReferenceSync(payload)
   recordUsage('secret-manager-reference', name, undefined, `vault:materialize:secret-reference:${payload.provider}`)
   return {
     disposeToken: newDisposeToken(),
@@ -211,7 +212,7 @@ async function materializeSecretReference(entryId: string, name: string): Promis
   }
 }
 
-export async function materializeVaultEntryForRuntime(entryId: string): Promise<MaterializedRuntimeCredential> {
+export function materializeVaultEntryForRuntime(entryId: string): MaterializedRuntimeCredential {
   const trimmed = entryId.trim()
   if (!trimmed) {
     throw new Error('Vault entry id is required.')
@@ -224,22 +225,22 @@ export async function materializeVaultEntryForRuntime(entryId: string): Promise<
   let materialized: MaterializedRuntimeCredential
   switch (summary.kind) {
     case 'gcp-service-account-key':
-      materialized = await materializeGcpServiceAccount(summary.id, summary.name)
+      materialized = materializeGcpServiceAccount(summary.id, summary.name)
       break
     case 'gcp-workload-identity':
-      materialized = await materializeGcpWorkloadIdentity(summary.id, summary.name)
+      materialized = materializeGcpWorkloadIdentity(summary.id, summary.name)
       break
     case 'azure-service-principal-secret':
-      materialized = await materializeAzureSpSecret(summary.id, summary.name)
+      materialized = materializeAzureSpSecret(summary.id, summary.name)
       break
     case 'azure-service-principal-cert':
-      materialized = await materializeAzureSpCert(summary.id, summary.name)
+      materialized = materializeAzureSpCert(summary.id, summary.name)
       break
     case 'provider-api-token':
-      materialized = await materializeProviderApiToken(summary.id, summary.name)
+      materialized = materializeProviderApiToken(summary.id, summary.name)
       break
     case 'secret-manager-reference':
-      materialized = await materializeSecretReference(summary.id, summary.name)
+      materialized = materializeSecretReference(summary.id, summary.name)
       break
     default:
       throw new Error(`Vault entry kind ${summary.kind} cannot be materialized for runtime.`)
@@ -247,7 +248,7 @@ export async function materializeVaultEntryForRuntime(entryId: string): Promise<
 
   const handle: ActiveMaterialization = {
     ...materialized,
-    dispose: async () => {
+    dispose: () => {
       for (const file of materialized.files) {
         safeUnlink(file)
       }
@@ -258,18 +259,18 @@ export async function materializeVaultEntryForRuntime(entryId: string): Promise<
   return materialized
 }
 
-export async function disposeMaterializedEntry(disposeToken: string): Promise<void> {
+export function disposeMaterializedEntry(disposeToken: string): void {
   const handle = active.get(disposeToken.trim())
   if (!handle) {
     return
   }
-  await handle.dispose()
+  handle.dispose()
 }
 
-export async function disposeAllRuntimeMaterializations(): Promise<void> {
+export function disposeAllRuntimeMaterializations(): void {
   const tokens = [...active.keys()]
   for (const token of tokens) {
-    await disposeMaterializedEntry(token)
+    disposeMaterializedEntry(token)
   }
   // Best-effort: remove the per-session directory itself
   try {
@@ -279,6 +280,26 @@ export async function disposeAllRuntimeMaterializations(): Promise<void> {
     }
   } catch (err) {
     logWarn('vault.runtime.dispose-session', 'Failed to remove session runtime dir.', {}, err)
+  }
+}
+
+/**
+ * Materialize the active vault credential for a provider (if any) and merge
+ * its env vars into the supplied env map. Returns the dispose token so the
+ * caller can clean up after a run, or null when no entry is active.
+ */
+export function applyVaultCredentialEnv(env: Record<string, string>, provider: 'gcp' | 'azure'): string | null {
+  const entryId = getActiveVaultCredential(provider)
+  if (!entryId) {
+    return null
+  }
+  try {
+    const materialized = materializeVaultEntryForRuntime(entryId)
+    Object.assign(env, materialized.env)
+    return materialized.disposeToken
+  } catch (err) {
+    logWarn('vault.runtime.apply-env', 'Failed to apply vault credential env.', { provider, entryId }, err)
+    return null
   }
 }
 
