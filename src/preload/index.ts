@@ -116,6 +116,7 @@ const awsLensApi = {
     ipcRenderer.invoke('phase2:get-active-vault-credential', provider),
   setActiveVaultCredential: (provider: CloudProviderId, entryId: string | null) =>
     ipcRenderer.invoke('phase2:set-active-vault-credential', provider, entryId),
+  validateVaultEntry: (entryId: string) => ipcRenderer.invoke('phase2:validate-vault-entry', entryId),
   listComparisonBaselines: () => ipcRenderer.invoke('phase2:list-comparison-baselines'),
   listComparisonPresets: () => ipcRenderer.invoke('phase2:list-comparison-presets'),
   getComparisonBaseline: (baselineId: string) => ipcRenderer.invoke('phase2:get-comparison-baseline', baselineId),

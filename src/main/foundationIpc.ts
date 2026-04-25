@@ -42,6 +42,7 @@ import {
   disposeMaterializedEntry,
   materializeVaultEntryForRuntime
 } from './credentialMaterializer'
+import { validateVaultEntry } from './vaultEntryValidator'
 import { resolveDbConnectionMaterial } from './dbConnectionResolver'
 import { resolveDirectAccessInput } from './directAccessGuidance'
 import { buildEksUpgradePlan } from './eksUpgradePlanner'
@@ -180,6 +181,9 @@ export function registerFoundationIpcHandlers(): void {
     provider: 'aws' | 'gcp' | 'azure',
     entryId: string | null
   ) => wrap(() => setActiveVaultCredential(provider, entryId)))
+  ipcMain.handle('phase2:validate-vault-entry', async (_event, entryId: string) =>
+    wrap(() => validateVaultEntry(entryId))
+  )
   ipcMain.handle('phase2:list-comparison-baselines', async () =>
     wrap(() => listComparisonBaselines())
   )

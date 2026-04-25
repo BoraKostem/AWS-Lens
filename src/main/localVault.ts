@@ -1,3 +1,4 @@
+import { X509Certificate } from 'node:crypto'
 import path from 'node:path'
 
 import { app } from 'electron'
@@ -365,6 +366,27 @@ export function validateAzureSpSecret(payload: AzureServicePrincipalSecretPayloa
   }
 }
 
+function extractCertMetadata(certPem: string): {
+  notBefore?: string
+  notAfter?: string
+  thumbprint?: string
+} {
+  try {
+    const cert = new X509Certificate(certPem)
+    const notBefore = cert.validFrom ? new Date(cert.validFrom).toISOString() : undefined
+    const notAfter = cert.validTo ? new Date(cert.validTo).toISOString() : undefined
+    // fingerprint256 is "AA:BB:CC:..." → strip colons for thumbprint usage
+    const thumbprint = typeof cert.fingerprint256 === 'string' ? cert.fingerprint256.replace(/:/g, '').toLowerCase() : undefined
+    return {
+      notBefore: notBefore && !Number.isNaN(new Date(notBefore).getTime()) ? notBefore : undefined,
+      notAfter: notAfter && !Number.isNaN(new Date(notAfter).getTime()) ? notAfter : undefined,
+      thumbprint
+    }
+  } catch {
+    return {}
+  }
+}
+
 export function validateAzureSpCert(payload: AzureServicePrincipalCertPayload): AzureServicePrincipalCertPayload {
   if (payload.authMethod !== 'client-certificate') {
     throw new VaultValidationError('authMethod', 'Expected authMethod "client-certificate".')
@@ -390,6 +412,7 @@ export function validateAzureSpCert(payload: AzureServicePrincipalCertPayload): 
     throw new VaultValidationError('privateKeyPem', 'Private key must be a PEM block.')
   }
 
+  const certMeta = extractCertMetadata(certPem)
   return {
     authMethod: 'client-certificate',
     tenantId,
@@ -397,9 +420,9 @@ export function validateAzureSpCert(payload: AzureServicePrincipalCertPayload): 
     subscriptionId,
     certificatePem: certPem,
     privateKeyPem: keyPem,
-    certThumbprint: payload.certThumbprint?.trim() || undefined,
-    notBefore: payload.notBefore?.trim() || undefined,
-    notAfter: payload.notAfter?.trim() || undefined,
+    certThumbprint: payload.certThumbprint?.trim() || certMeta.thumbprint,
+    notBefore: payload.notBefore?.trim() || certMeta.notBefore,
+    notAfter: payload.notAfter?.trim() || certMeta.notAfter,
     notes: payload.notes?.trim() || undefined
   }
 }
@@ -1018,6 +1041,51 @@ export function recordVaultEntryUseByKindAndName(
     ...input,
     id: entry.id
   })
+}
+
+/**
+ * Mark a vault entry as validated (or failed). Updates lastValidatedAt
+ * metadata on success and lastValidationStatus/Message on either path.
+ */
+export function markVaultEntryValidated(
+  entryId: string,
+  result: { ok: boolean; message: string }
+): VaultEntrySummary | null {
+  const entry = getEntryById(entryId)
+  if (!entry) {
+    return null
+  }
+  const now = new Date().toISOString()
+  const metadata = { ...entry.metadata }
+  metadata[VAULT_METADATA_KEYS.lastValidationStatus] = result.ok ? 'ok' : 'failed'
+  metadata[VAULT_METADATA_KEYS.lastValidationMessage] = result.message.slice(0, 500)
+  if (result.ok) {
+    metadata[VAULT_METADATA_KEYS.lastValidatedAt] = now
+  }
+
+  // Update rotationState heuristic: cert/secret nearing expiry → 'rotation-due'.
+  let rotationState = entry.rotationState
+  if (entry.expiryAt) {
+    const expiry = new Date(entry.expiryAt).getTime()
+    if (!Number.isNaN(expiry)) {
+      const diff = expiry - Date.now()
+      if (diff <= 0) {
+        rotationState = 'rotation-due'
+      } else if (diff <= 7 * 24 * 60 * 60 * 1000) {
+        rotationState = 'rotation-due'
+      }
+    }
+  }
+
+  const next: VaultEntry = {
+    ...entry,
+    metadata,
+    rotationState,
+    rotationUpdatedAt: rotationState !== entry.rotationState ? now : entry.rotationUpdatedAt,
+    updatedAt: now
+  }
+  upsertEntry(next)
+  return toSummary(next)
 }
 
 // ===== Typed wrappers per kind (mirror getAwsProfileVaultSecret pattern) =====

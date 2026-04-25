@@ -4197,6 +4197,13 @@ export type MaterializedVaultEntryHandle = {
   cloudProvider?: CloudProviderId
 }
 
+export type VaultValidationResult = {
+  ok: boolean
+  message: string
+  validatedAt: string
+  entry: VaultEntrySummary | null
+}
+
 export const VAULT_METADATA_KEYS = {
   cloudProvider: 'cloudProvider',
   projectId: 'projectId',

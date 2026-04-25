@@ -357,6 +357,7 @@ import type {
   VaultEntryInput,
   VaultEntrySummary,
   VaultEntryUsageInput,
+  VaultValidationResult,
   SsoAccountAssignment,
   SsoGroupSummary,
   SsoInstanceSummary,
@@ -1414,6 +1415,12 @@ export async function getActiveVaultCredential(provider: CloudProviderId): Promi
 export async function setActiveVaultCredential(provider: CloudProviderId, entryId: string | null): Promise<void> {
   return unwrap(
     (await rawAwsBridge().setActiveVaultCredential(provider, entryId)) as Wrapped<void>
+  )
+}
+
+export async function validateVaultEntry(entryId: string): Promise<VaultValidationResult> {
+  return unwrap(
+    (await rawAwsBridge().validateVaultEntry(entryId)) as Wrapped<VaultValidationResult>
   )
 }
 
