@@ -352,6 +352,7 @@ import type {
   WafScope,
   WafWebAclDetail,
   WafWebAclSummary,
+  MaterializedVaultEntryHandle,
   VaultEntryFilter,
   VaultEntryInput,
   VaultEntrySummary,
@@ -1384,6 +1385,18 @@ export async function revealVaultEntrySecret(entryId: string): Promise<string> {
 
 export async function recordVaultEntryUse(input: VaultEntryUsageInput): Promise<VaultEntrySummary> {
   return unwrap((await rawAwsBridge().recordVaultEntryUse(input)) as Wrapped<VaultEntrySummary>)
+}
+
+export async function materializeVaultEntry(entryId: string): Promise<MaterializedVaultEntryHandle> {
+  return unwrap(
+    (await rawAwsBridge().materializeVaultEntry(entryId)) as Wrapped<MaterializedVaultEntryHandle>
+  )
+}
+
+export async function disposeMaterializedVaultEntry(disposeToken: string): Promise<void> {
+  return unwrap(
+    (await rawAwsBridge().disposeMaterializedVaultEntry(disposeToken)) as Wrapped<void>
+  )
 }
 
 export async function listComparisonBaselines(): Promise<ComparisonBaselineSummary[]> {

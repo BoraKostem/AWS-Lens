@@ -33,6 +33,10 @@ import {
   listComparisonPresets,
   saveComparisonPreset
 } from './comparePresetStore'
+import {
+  disposeMaterializedEntry,
+  materializeVaultEntryForRuntime
+} from './credentialMaterializer'
 import { resolveDbConnectionMaterial } from './dbConnectionResolver'
 import { resolveDirectAccessInput } from './directAccessGuidance'
 import { buildEksUpgradePlan } from './eksUpgradePlanner'
@@ -144,6 +148,21 @@ export function registerFoundationIpcHandlers(): void {
   )
   ipcMain.handle('phase2:record-vault-entry-use', async (_event, input: VaultEntryUsageInput) =>
     wrap(() => recordVaultEntryUse(input))
+  )
+  ipcMain.handle('phase2:materialize-vault-entry', async (_event, entryId: string) =>
+    wrap(async () => {
+      const materialized = await materializeVaultEntryForRuntime(entryId)
+      return {
+        disposeToken: materialized.disposeToken,
+        entryId: materialized.entryId,
+        envKeys: Object.keys(materialized.env),
+        files: materialized.files,
+        cloudProvider: materialized.cloudProvider
+      }
+    })
+  )
+  ipcMain.handle('phase2:dispose-materialized-entry', async (_event, disposeToken: string) =>
+    wrap(() => disposeMaterializedEntry(disposeToken))
   )
   ipcMain.handle('phase2:list-comparison-baselines', async () =>
     wrap(() => listComparisonBaselines())

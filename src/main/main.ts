@@ -6,6 +6,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, session } from 
 
 import { APP_DATA_DIRECTORY, PRODUCT_BRAND_NAME } from '@shared/branding'
 import { hasPendingAwsCredentialActivity, waitForAwsCredentialActivity } from './aws/client'
+import { cleanupOrphanRuntimeDirs, disposeAllRuntimeMaterializations } from './credentialMaterializer'
 import { assertEnterpriseAccess, recordEnterpriseAuditEvent } from './enterprise'
 import { initExporters, shutdownExporters } from './exporters'
 import { registerIpcHandlers } from './ipc'
@@ -242,6 +243,7 @@ function createWindow(): void {
 app.whenReady().then(() => {
   logInfo('app.ready', 'Electron app is ready.')
   Menu.setApplicationMenu(null)
+  cleanupOrphanRuntimeDirs()
   registerIpcHandlers(() => mainWindow)
   registerProviderIpcHandlers({ getWindow: () => mainWindow })
   startReleaseCheck()
@@ -277,6 +279,7 @@ app.on('before-quit', (e) => {
 
   if (isQuitting || (pendingRequests.size === 0 && !hasPendingAwsCredentialActivity())) {
     shutdownExporters().catch(() => { /* never block quit */ })
+    disposeAllRuntimeMaterializations().catch(() => { /* never block quit */ })
     return
   }
   e.preventDefault()

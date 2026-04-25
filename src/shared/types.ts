@@ -4189,6 +4189,14 @@ export type VaultEntryUsageInput = {
   cloudProvider?: CloudProviderId
 }
 
+export type MaterializedVaultEntryHandle = {
+  disposeToken: string
+  entryId: string
+  envKeys: string[]
+  files: string[]
+  cloudProvider?: CloudProviderId
+}
+
 export const VAULT_METADATA_KEYS = {
   cloudProvider: 'cloudProvider',
   projectId: 'projectId',
