@@ -560,6 +560,13 @@ export type AppSecuritySummary = {
     sshKeys: number
     pem: number
     accessKeys: number
+    gcpServiceAccountKeys: number
+    gcpWorkloadIdentities: number
+    azureServicePrincipals: number
+    providerApiTokens: number
+    secretManagerReferences: number
+    expiringSoon: number
+    rotationDue: number
   }
 }
 
@@ -4199,6 +4206,8 @@ export const VAULT_METADATA_KEYS = {
   scope: 'scope',
   usageScope: 'usageScope',
   keyAlgorithm: 'keyAlgorithm',
+  tokenProvider: 'tokenProvider',
+  baseUrl: 'baseUrl',
   lastValidatedAt: 'lastValidatedAt',
   lastValidationStatus: 'lastValidationStatus',
   lastValidationMessage: 'lastValidationMessage',
