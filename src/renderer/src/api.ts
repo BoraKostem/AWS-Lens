@@ -352,10 +352,12 @@ import type {
   WafScope,
   WafWebAclDetail,
   WafWebAclSummary,
+  MaterializedVaultEntryHandle,
   VaultEntryFilter,
   VaultEntryInput,
   VaultEntrySummary,
   VaultEntryUsageInput,
+  VaultValidationResult,
   SsoAccountAssignment,
   SsoGroupSummary,
   SsoInstanceSummary,
@@ -1384,6 +1386,48 @@ export async function revealVaultEntrySecret(entryId: string): Promise<string> {
 
 export async function recordVaultEntryUse(input: VaultEntryUsageInput): Promise<VaultEntrySummary> {
   return unwrap((await rawAwsBridge().recordVaultEntryUse(input)) as Wrapped<VaultEntrySummary>)
+}
+
+export async function materializeVaultEntry(entryId: string): Promise<MaterializedVaultEntryHandle> {
+  return unwrap(
+    (await rawAwsBridge().materializeVaultEntry(entryId)) as Wrapped<MaterializedVaultEntryHandle>
+  )
+}
+
+export async function disposeMaterializedVaultEntry(disposeToken: string): Promise<void> {
+  return unwrap(
+    (await rawAwsBridge().disposeMaterializedVaultEntry(disposeToken)) as Wrapped<void>
+  )
+}
+
+export async function listActiveVaultCredentials(): Promise<{ aws?: string; gcp?: string; azure?: string }> {
+  return unwrap(
+    (await rawAwsBridge().listActiveVaultCredentials()) as Wrapped<{ aws?: string; gcp?: string; azure?: string }>
+  )
+}
+
+export async function getActiveVaultCredential(provider: CloudProviderId): Promise<string | null> {
+  return unwrap(
+    (await rawAwsBridge().getActiveVaultCredential(provider)) as Wrapped<string | null>
+  )
+}
+
+export async function setActiveVaultCredential(provider: CloudProviderId, entryId: string | null): Promise<void> {
+  return unwrap(
+    (await rawAwsBridge().setActiveVaultCredential(provider, entryId)) as Wrapped<void>
+  )
+}
+
+export async function validateVaultEntry(entryId: string): Promise<VaultValidationResult> {
+  return unwrap(
+    (await rawAwsBridge().validateVaultEntry(entryId)) as Wrapped<VaultValidationResult>
+  )
+}
+
+export async function listSshKeysForProvider(provider?: CloudProviderId): Promise<VaultEntrySummary[]> {
+  return unwrap(
+    (await rawAwsBridge().listSshKeysForProvider(provider)) as Wrapped<VaultEntrySummary[]>
+  )
 }
 
 export async function listComparisonBaselines(): Promise<ComparisonBaselineSummary[]> {

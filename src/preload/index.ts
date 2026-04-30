@@ -108,6 +108,17 @@ const awsLensApi = {
   deleteVaultEntry: (entryId: string) => ipcRenderer.invoke('phase2:delete-vault-entry', entryId),
   revealVaultEntrySecret: (entryId: string) => ipcRenderer.invoke('phase2:reveal-vault-entry-secret', entryId),
   recordVaultEntryUse: (input: VaultEntryUsageInput) => ipcRenderer.invoke('phase2:record-vault-entry-use', input),
+  materializeVaultEntry: (entryId: string) => ipcRenderer.invoke('phase2:materialize-vault-entry', entryId),
+  disposeMaterializedVaultEntry: (disposeToken: string) =>
+    ipcRenderer.invoke('phase2:dispose-materialized-entry', disposeToken),
+  listActiveVaultCredentials: () => ipcRenderer.invoke('phase2:list-active-vault-credentials'),
+  getActiveVaultCredential: (provider: CloudProviderId) =>
+    ipcRenderer.invoke('phase2:get-active-vault-credential', provider),
+  setActiveVaultCredential: (provider: CloudProviderId, entryId: string | null) =>
+    ipcRenderer.invoke('phase2:set-active-vault-credential', provider, entryId),
+  validateVaultEntry: (entryId: string) => ipcRenderer.invoke('phase2:validate-vault-entry', entryId),
+  listSshKeysForProvider: (provider?: CloudProviderId) =>
+    ipcRenderer.invoke('phase2:list-ssh-keys-for-provider', provider),
   listComparisonBaselines: () => ipcRenderer.invoke('phase2:list-comparison-baselines'),
   listComparisonPresets: () => ipcRenderer.invoke('phase2:list-comparison-presets'),
   getComparisonBaseline: (baselineId: string) => ipcRenderer.invoke('phase2:get-comparison-baseline', baselineId),

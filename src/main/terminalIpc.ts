@@ -2,6 +2,7 @@ import { BrowserWindow, ipcMain, type WebContents } from 'electron'
 import { spawn, type IPty } from 'node-pty'
 
 import type { AwsConnection, CloudProviderId } from '@shared/types'
+import { applyVaultCredentialEnv } from './credentialMaterializer'
 import { buildAwsContextCommand, buildProviderShellContextCommand, getShellConfig, getTerminalCwd } from './shell'
 import { getConnectionEnv } from './sessionHub'
 
@@ -61,10 +62,14 @@ function buildAwsSessionContext(connection: AwsConnection): TerminalSessionConte
 }
 
 function buildProviderSessionContext(target: ProviderTerminalTarget): TerminalSessionContext {
+  const env: Record<string, string> = { ...target.env }
+  if (target.providerId === 'gcp' || target.providerId === 'azure') {
+    applyVaultCredentialEnv(env, target.providerId)
+  }
   return {
     contextKey: getProviderContextKey(target),
-    contextCommand: buildProviderShellContextCommand(target.providerId, target.label, target.modeLabel, target.env),
-    env: target.env
+    contextCommand: buildProviderShellContextCommand(target.providerId, target.label, target.modeLabel, env),
+    env
   }
 }
 

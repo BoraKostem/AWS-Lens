@@ -4442,8 +4442,12 @@ export function App() {
 
   function handleSelectAwsProfile(profileName: string, nextScreen?: Screen): void {
     connectionState.selectProfile(profileName)
-    const restoreScreen = nextScreen ?? lastAwsScreenByProfile[getAwsScreenMemoryKey(profileName)] ?? 'overview'
-    setScreen(restoreScreen)
+    // Stay on the catalog after profile selection (matches GCP/Azure behavior).
+    // Only navigate when the caller explicitly passes a target screen
+    // (e.g. "Open profile in EC2" deep links).
+    if (nextScreen) {
+      setScreen(nextScreen)
+    }
   }
 
   function handleSelectPreviewMode(modeId: string): void {

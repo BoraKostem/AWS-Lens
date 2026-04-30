@@ -33,11 +33,22 @@ import {
   listComparisonPresets,
   saveComparisonPreset
 } from './comparePresetStore'
+import {
+  getActiveVaultCredential,
+  listActiveVaultCredentials,
+  setActiveVaultCredential
+} from './activeVaultCredentialStore'
+import {
+  disposeMaterializedEntry,
+  materializeVaultEntryForRuntime
+} from './credentialMaterializer'
+import { validateVaultEntry } from './vaultEntryValidator'
 import { resolveDbConnectionMaterial } from './dbConnectionResolver'
 import { resolveDirectAccessInput } from './directAccessGuidance'
 import { buildEksUpgradePlan } from './eksUpgradePlanner'
 import {
   deleteVaultEntryById,
+  listSshKeysForProvider,
   listVaultEntrySummaries,
   recordVaultEntryUse,
   revealVaultEntrySecret,
@@ -144,6 +155,38 @@ export function registerFoundationIpcHandlers(): void {
   )
   ipcMain.handle('phase2:record-vault-entry-use', async (_event, input: VaultEntryUsageInput) =>
     wrap(() => recordVaultEntryUse(input))
+  )
+  ipcMain.handle('phase2:materialize-vault-entry', async (_event, entryId: string) =>
+    wrap(async () => {
+      const materialized = await materializeVaultEntryForRuntime(entryId)
+      return {
+        disposeToken: materialized.disposeToken,
+        entryId: materialized.entryId,
+        envKeys: Object.keys(materialized.env),
+        files: materialized.files,
+        cloudProvider: materialized.cloudProvider
+      }
+    })
+  )
+  ipcMain.handle('phase2:dispose-materialized-entry', async (_event, disposeToken: string) =>
+    wrap(() => disposeMaterializedEntry(disposeToken))
+  )
+  ipcMain.handle('phase2:list-active-vault-credentials', async () =>
+    wrap(() => listActiveVaultCredentials())
+  )
+  ipcMain.handle('phase2:get-active-vault-credential', async (_event, provider: 'aws' | 'gcp' | 'azure') =>
+    wrap(() => getActiveVaultCredential(provider))
+  )
+  ipcMain.handle('phase2:set-active-vault-credential', async (
+    _event,
+    provider: 'aws' | 'gcp' | 'azure',
+    entryId: string | null
+  ) => wrap(() => setActiveVaultCredential(provider, entryId)))
+  ipcMain.handle('phase2:validate-vault-entry', async (_event, entryId: string) =>
+    wrap(() => validateVaultEntry(entryId))
+  )
+  ipcMain.handle('phase2:list-ssh-keys-for-provider', async (_event, provider?: 'aws' | 'gcp' | 'azure') =>
+    wrap(() => listSshKeysForProvider(provider))
   )
   ipcMain.handle('phase2:list-comparison-baselines', async () =>
     wrap(() => listComparisonBaselines())

@@ -1,4 +1,17 @@
-import { DeviceCodeCredential, type DeviceCodeInfo, type TokenCredential } from '@azure/identity'
+import {
+  ClientCertificateCredential,
+  ClientSecretCredential,
+  DeviceCodeCredential,
+  type DeviceCodeInfo,
+  type TokenCredential
+} from '@azure/identity'
+import { getActiveVaultCredential } from '../activeVaultCredentialStore'
+import {
+  getAzureServicePrincipalCertPayload,
+  getAzureServicePrincipalSecretPayload,
+  listVaultEntries,
+  recordVaultEntryUseByKindAndName
+} from '../localVault'
 import { logInfo, logWarn } from '../observability'
 
 // ── Constants ───────────────────────────────────────────────────────────────────
@@ -88,7 +101,79 @@ export async function startSdkDeviceCodeAuth(
   lastTokenRefreshAt = new Date().toISOString()
 
   logInfo('azure.auth.sdk', 'SDK device code authentication succeeded.', {})
+  recordActiveAzureVaultUse('azure:auth:device-code')
   return true
+}
+
+function recordActiveAzureVaultUse(source: string): void {
+  const entryId = getActiveVaultCredential('azure')
+  if (!entryId) {
+    return
+  }
+  const summary = listVaultEntries().find((entry) => entry.id === entryId)
+  if (!summary) {
+    return
+  }
+  if (
+    summary.kind !== 'azure-service-principal-secret' &&
+    summary.kind !== 'azure-service-principal-cert'
+  ) {
+    return
+  }
+  try {
+    recordVaultEntryUseByKindAndName(summary.kind, summary.name, {
+      source,
+      cloudProvider: 'azure'
+    })
+  } catch (err) {
+    logWarn('azure.auth.vault-telemetry', 'Failed to record Azure vault credential use.', { entryId }, err)
+  }
+}
+
+/**
+ * Hydrate an Azure service principal credential from the vault by entry name.
+ * Returns either ClientSecretCredential or ClientCertificateCredential, or
+ * null when the entry is missing/unsupported. Records vault usage telemetry
+ * on success.
+ */
+export function loadAzureSpCredentialFromVault(name: string): TokenCredential | null {
+  const trimmed = name.trim()
+  if (!trimmed) {
+    return null
+  }
+  const secretPayload = getAzureServicePrincipalSecretPayload(trimmed)
+  if (secretPayload) {
+    const credential = new ClientSecretCredential(
+      secretPayload.tenantId,
+      secretPayload.clientId,
+      secretPayload.clientSecret
+    )
+    try {
+      recordVaultEntryUseByKindAndName('azure-service-principal-secret', trimmed, {
+        source: 'azure:auth:vault-secret-load',
+        cloudProvider: 'azure'
+      })
+    } catch { /* never block auth */ }
+    return credential
+  }
+  const certPayload = getAzureServicePrincipalCertPayload(trimmed)
+  if (certPayload) {
+    const credential = new ClientCertificateCredential(
+      certPayload.tenantId,
+      certPayload.clientId,
+      {
+        certificate: `${certPayload.privateKeyPem}\n${certPayload.certificatePem}`
+      }
+    )
+    try {
+      recordVaultEntryUseByKindAndName('azure-service-principal-cert', trimmed, {
+        source: 'azure:auth:vault-cert-load',
+        cloudProvider: 'azure'
+      })
+    } catch { /* never block auth */ }
+    return credential
+  }
+  return null
 }
 
 /**
@@ -109,6 +194,7 @@ export async function silentTokenRefresh(): Promise<boolean> {
     sdkTokenExpiresAt = result.expiresOnTimestamp
     lastTokenRefreshAt = new Date().toISOString()
     logInfo('azure.auth.refresh', 'Silent token refresh succeeded.', {})
+    recordActiveAzureVaultUse('azure:auth:silent-refresh')
     return true
   } catch (error) {
     logWarn('azure.auth.refresh', 'Silent token refresh failed.', {}, error)
