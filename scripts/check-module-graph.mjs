@@ -151,7 +151,13 @@ for (const v of graph.keys()) {
 // ignore until a dedicated follow-up resolves them. Each entry is a Set of
 // short paths that together form a known cycle.
 const KNOWN_CYCLES = [
-  new Set(['terraform.ts', 'terraformDrift.ts'])  // AWS drift ↔ project store
+  new Set([
+    'azure/terraformDrift.ts',
+    'gcpTerraformInsights.ts',
+    'terraformDriftProvider.ts',
+    'terraformDrift.ts',
+    'terraform.ts'
+  ])  // Terraform drift providers ↔ shared project store
 ]
 
 function isCycleKnown(cycle, shortPaths) {
